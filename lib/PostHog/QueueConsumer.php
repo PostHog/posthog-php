@@ -94,7 +94,7 @@ abstract class PostHog_QueueConsumer extends PostHog_Consumer {
    * @param  mixed   $item
    * @return boolean whether call has succeeded
    */
-  protected function enqueue($item) {
+  public function enqueue($item) {
     $count = count($this->queue);
 
     if ($count > $this->max_queue_size) {

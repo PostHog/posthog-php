@@ -44,7 +44,7 @@ class PostHog_Consumer_ForkCurl extends PostHog_QueueConsumer {
     $url = $protocol . $host . $path;
 
     $cmd = "curl -X POST -H 'Content-Type: application/json'";
-    echo '!!!';
+
     $tmpfname = "";
     if ($this->compress_request) {
       // Compress request to file

@@ -47,7 +47,7 @@ class PostHog {
   /**
    * Aliases the distinct id from a temporary id to a permanent one
    *
-   * @param  array $from      distinct id to alias from
+   * @param  array $message      distinct id to alias from
    * @return boolean whether the alias call succeeded
    */
   public static function alias(array $message) {
@@ -58,6 +58,17 @@ class PostHog {
 
     return self::$client->alias($message);
   }
+
+  /**
+   * Send a raw (prepared) message
+   *
+   * @param  array $message      distinct id to alias from
+   * @return boolean whether the alias call succeeded
+   */
+  public static function raw(array $message) {
+    return self::$client->raw($message);
+  }
+
 
   /**
    * Validate common properties.

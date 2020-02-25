@@ -33,9 +33,9 @@ class ConsumerFileTest extends PHPUnit_Framework_TestCase
   public function testCapture()
   {
     $this->assertTrue($this->client->capture(array(
-      "userId" => "some-user",
+      "distinctId" => "some-user",
       "event" => "File PHP Event - Microtime",
-      "timestamp" => microtime(true),
+      "timestamp" => time(),
     )));
     $this->checkWritten("capture");
   }
@@ -43,7 +43,7 @@ class ConsumerFileTest extends PHPUnit_Framework_TestCase
   public function testIdentify()
   {
     $this->assertTrue($this->client->identify(array(
-      "userId" => "Calvin",
+      "distinctId" => "Calvin",
       "properties" => array(
         "loves_php" => false,
         "type" => "posthog.log",
@@ -56,8 +56,8 @@ class ConsumerFileTest extends PHPUnit_Framework_TestCase
   public function testAlias()
   {
     $this->assertTrue($this->client->alias(array(
-      "previousId" => "previous-id",
-      "userId" => "user-id",
+      "alias" => "previous-id",
+      "distinctId" => "user-id",
     )));
     $this->checkWritten("alias");
   }
@@ -66,13 +66,12 @@ class ConsumerFileTest extends PHPUnit_Framework_TestCase
   {
     for ($i = 0; $i < 200; ++$i) {
       $this->client->capture(array(
-        "userId" => "userId",
+        "distinctId" => "distinctId",
         "event" => "event",
       ));
     }
-    exec("php --define date.timezone=UTC send.php --apiKey ".
-           "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg --file /tmp/posthog.log", $output);
-    $this->assertSame("sent 200 from 200 requests successfully", trim($output[0]));
+    exec("php send.php --apiKey BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg --file /tmp/posthog.log", $output);
+    $this->assertSame("sent 200 from 200 requests successfully", trim(join($output, '')));
     $this->assertFileNotExists($this->filename());
   }
 
@@ -87,7 +86,7 @@ class ConsumerFileTest extends PHPUnit_Framework_TestCase
       )
     );
 
-    $captured = $client->capture(array("userId" => "some-user", "event" => "my event"));
+    $captured = $client->capture(array("distinctId" => "some-user", "event" => "my event"));
     $this->assertFalse($captured);
   }
 

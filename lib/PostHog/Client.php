@@ -91,6 +91,16 @@ class PostHog_Client {
   }
 
   /**
+   * Queue a raw (prepared) message
+   *
+   * @param  [array] $message
+   * @return [boolean] whether the identify call succeeded
+   */
+  public function raw(array $message) {
+    return $this->consumer->enqueue($message);
+  }
+
+  /**
    * Flush any async consumers
    * @return boolean true if flushed successfully
    */

@@ -21,7 +21,7 @@ class ConsumerForkCurlTest extends PHPUnit_Framework_TestCase
   public function testCapture()
   {
     $this->assertTrue($this->client->capture(array(
-      "userId" => "some-user",
+      "distinctId" => "some-user",
       "event" => "PHP Fork Curl'd\" Event",
     )));
   }
@@ -29,7 +29,7 @@ class ConsumerForkCurlTest extends PHPUnit_Framework_TestCase
   public function testIdentify()
   {
     $this->assertTrue($this->client->identify(array(
-      "userId" => "user-id",
+      "distinctId" => "user-id",
       "properties" => array(
         "loves_php" => false,
         "type" => "consumer fork-curl test",
@@ -41,26 +41,8 @@ class ConsumerForkCurlTest extends PHPUnit_Framework_TestCase
   public function testAlias()
   {
     $this->assertTrue($this->client->alias(array(
-      "previousId" => "previous-id",
-      "userId" => "user-id",
+      "alias" => "alias-id",
+      "distinctId" => "user-id",
     )));
-  }
-
-  public function testRequestCompression() {
-    $options = array(
-      "compress_request" => true,
-      "consumer" => "fork_curl",
-      "debug" => true,
-    );
-
-    // Create client and send Capture message
-    $client = new PostHog_Client("OnMMoZ6YVozrgSBeZ9FpkC0ixH0ycYZn", $options);
-    $result = $client->capture(array(
-      "userId" => "some-user",
-      "event" => "PHP Fork Curl'd\" Event with compression",
-    ));
-    $client->__destruct();
-
-    $this->assertTrue($result);
   }
 }

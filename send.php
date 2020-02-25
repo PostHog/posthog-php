@@ -69,11 +69,8 @@ $successful = 0;
 foreach ($lines as $line) {
   if (!trim($line)) continue;
   $payload = json_decode($line, true);
-  $dt = new DateTime($payload["timestamp"]);
-  $ts = floatval($dt->getTimestamp() . "." . $dt->format("u"));
-  $payload["timestamp"] = $ts;
   $type = $payload["type"];
-  $ret = call_user_func_array(array("PostHog", $type), array($payload));
+  $ret = call_user_func_array(array("PostHog", "raw"), array($payload));
   if ($ret) $successful++;
   $total++;
   if ($total % 100 === 0) PostHog::flush();

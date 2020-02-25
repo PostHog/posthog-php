@@ -9,37 +9,39 @@ class ConsumerSocketTest extends PHPUnit_Framework_TestCase
   public function setUp()
   {
     date_default_timezone_set("UTC");
-    $this->client = new PostHog_Client(
-      "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
-      array("consumer" => "socket")
-    );
   }
 
   public function testCapture()
   {
-    $this->assertTrue($this->client->capture(array(
+    $client = new PostHog_Client(
+      "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
+      array(
+        "consumer" => "socket",
+      )
+    );
+    $this->assertTrue($client->capture(array(
       "distinctId" => "some-user",
       "event" => "Socket PHP Event",
     )));
+    $client->__destruct();
   }
 
   public function testIdentify()
   {
-    $this->assertTrue($this->client->identify(array(
+    $client = new PostHog_Client(
+      "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
+      array(
+        "consumer" => "socket",
+      )
+    );
+    $this->assertTrue($client->identify(array(
       "distinctId" => "Calvin",
       "properties" => array(
         "loves_php" => false,
         "birthday" => time(),
       ),
     )));
-  }
-
-  public function testAlias()
-  {
-    $this->assertTrue($this->client->alias(array(
-      "previousId" => "some-socket",
-      "distinctId" => "new-socket",
-    )));
+    $client->__destruct();
   }
 
   public function testShortTimeout()
@@ -81,24 +83,6 @@ class ConsumerSocketTest extends PHPUnit_Framework_TestCase
     $client->__destruct();
   }
 
-  public function testDebugProblems()
-  {
-    $options = array(
-      "debug" => true,
-      "consumer" => "socket",
-      "error_handler" => function ($errno, $errmsg) {
-        if (400 != $errno) {
-          throw new Exception("Response is not 400");
-        }
-      },
-    );
-
-    $client = new PostHog_Client("x", $options);
-
-    // Should error out with debug on.
-    $client->capture(array("user_id" => "some-user", "event" => "Socket PHP Event"));
-    $client->__destruct();
-  }
 
   public function testLargeMessage()
   {
@@ -107,7 +91,7 @@ class ConsumerSocketTest extends PHPUnit_Framework_TestCase
       "consumer" => "socket",
     );
 
-    $client = new PostHog_Client("testsecret", $options);
+    $client = new PostHog_Client("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", $options);
 
     $big_property = "";
 
@@ -120,34 +104,6 @@ class ConsumerSocketTest extends PHPUnit_Framework_TestCase
       "event" => "Super Large PHP Event",
       "properties" => array("big_property" => $big_property),
     )));
-
-    $client->__destruct();
-  }
-
-  public function testLargeMessageSizeError()
-  {
-    $options = array(
-      "debug" => true,
-      "consumer" => "socket",
-    );
-
-    $client = new PostHog_Client("testlargesize", $options);
-
-    $big_property = "";
-
-    for ($i = 0; $i < 32 * 1024; ++$i) {
-      $big_property .= "a";
-    }
-
-    $this->assertFalse(
-      $client->capture(
-        array(
-          "distinctId" => "some-user",
-          "event" => "Super Large PHP Event",
-          "properties" => array("big_property" => $big_property),
-        )
-      ) && $client->flush()
-    );
 
     $client->__destruct();
   }
@@ -166,22 +122,6 @@ class ConsumerSocketTest extends PHPUnit_Framework_TestCase
     ));
 
     $client->capture(array("user_id" => "some-user", "event" => "Event"));
-    $client->__destruct();
-  }
-
-  public function testRequestCompression() {
-    $options = array(
-      "compress_request" => true,
-      "consumer"      => "socket",
-      "error_handler" => function ($errno, $errmsg) {
-        throw new \RuntimeException($errmsg, $errno);
-      },
-    );
-
-    $client = new PostHog_Client("x", $options);
-
-    # Should error out with debug on.
-    $client->capture(array("user_id" => "some-user", "event" => "Socket PHP Event"));
     $client->__destruct();
   }
 }
