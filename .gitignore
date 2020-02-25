@@ -1,0 +1,6 @@
+composer.lock
+vendor
+composer.phar
+test/posthog.log
+/.vscode
+.phplint-cache
