@@ -23,7 +23,7 @@ class ConsumerFileTest extends PHPUnit\Framework\TestCase
     );
   }
 
-  public function tearDown()
+  public function tearDown(): void
   {
     if (file_exists($this->filename)) {
       unlink($this->filename);
@@ -71,7 +71,7 @@ class ConsumerFileTest extends PHPUnit\Framework\TestCase
       ));
     }
     exec("php send.php --apiKey BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg --file /tmp/posthog.log", $output);
-    $this->assertSame("sent 200 from 200 requests successfully", trim(join($output, '')));
+    $this->assertSame("sent 200 from 200 requests successfully", trim(join('', $output)));
     $this->assertFileNotExists($this->filename());
   }
 

@@ -81,6 +81,7 @@ class ConsumerSocketTest extends PHPUnit\Framework\TestCase
     // Shouldn't error out without debug on.
     $client->capture(array("user_id" => "some-user", "event" => "Production Problems"));
     $client->__destruct();
+    $this->assertTrue(true);
   }
 
 
@@ -108,11 +109,9 @@ class ConsumerSocketTest extends PHPUnit\Framework\TestCase
     $client->__destruct();
   }
 
-  /**
-   * @expectedException \RuntimeException
-   */
   public function testConnectionError()
   {
+    $this->expectException('RuntimeException');
     $client = new PostHog_Client("x", array(
       "consumer" => "socket",
       "host" => "t.posthog.comcomcom",

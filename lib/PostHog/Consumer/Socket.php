@@ -157,7 +157,7 @@ class PostHog_Consumer_Socket extends PostHog_QueueConsumer {
       $socket = $this->createSocket();
     }
 
-    return $success;
+    return true;
   }
 
   /**
