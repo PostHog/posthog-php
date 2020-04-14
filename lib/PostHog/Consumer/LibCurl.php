@@ -103,6 +103,8 @@ class PostHog_Consumer_LibCurl extends PostHog_QueueConsumer {
           $backoff *= 2;
         } elseif ($httpResponse >= 400) {
           break;
+        } elseif ($httpResponse == 0) {
+          break;
         }
       } else {
         break;  // no error
@@ -114,7 +116,7 @@ class PostHog_Consumer_LibCurl extends PostHog_QueueConsumer {
 
   public function executePost($ch) {
     curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $httpCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
 
     return $httpCode;
   }
