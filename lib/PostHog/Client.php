@@ -61,7 +61,9 @@ class PostHog_Client {
    * @return [boolean] whether the identify call succeeded
    */
   public function identify(array $message) {
-    $message['$set'] = $message['properties'];
+    if (isset($message['properties'])) {
+      $message['$set'] = $message['properties'];
+    }
 
     $message = $this->message($message);
     $message["type"] = "identify";

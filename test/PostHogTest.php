@@ -2,9 +2,9 @@
 
 require_once __DIR__ . "/../lib/PostHog.php";
 
-class PostHogTest extends PHPUnit_Framework_TestCase
+class PostHogTest extends PHPUnit\Framework\TestCase
 {
-  public function setUp()
+  public function setUp(): void
   {
     date_default_timezone_set("UTC");
     PostHog::init("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", array("debug" => true));

@@ -2,12 +2,12 @@
 
 require_once __DIR__ . "/../lib/PostHog/Client.php";
 
-class ConsumerFileTest extends PHPUnit_Framework_TestCase
+class ConsumerFileTest extends PHPUnit\Framework\TestCase
 {
   private $client;
   private $filename = "/tmp/posthog.log";
 
-  public function setUp()
+  public function setUp(): void
   {
     date_default_timezone_set("UTC");
     if (file_exists($this->filename())) {
