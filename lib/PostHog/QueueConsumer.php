@@ -28,6 +28,11 @@ abstract class PostHog_QueueConsumer extends PostHog_Consumer {
 
     if (isset($options["host"])) {
       $this->host = $options["host"];
+
+      if ($this->host and preg_match("/^https?:\\/\\//i", $this->host)) {
+        $this->options['ssl'] = substr($this->host, 0, 5) == 'https';
+        $this->host = preg_replace("/^https?:\\/\\//i", "", $this->host);
+      }
     }
 
     if (isset($options["compress_request"])) {
