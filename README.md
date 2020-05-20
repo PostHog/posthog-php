@@ -1,6 +1,6 @@
 # PostHog PHP
 
-Please see the main [PostHog docs](https://github.com/PostHog/posthog/wiki).
+Please see the main [PostHog docs](https://posthog.com/docs).
 
-Specifically, the [PHP integration](https://github.com/PostHog/posthog/wiki/PHP-integration) details.
+Specifically, the [PHP integration](https://posthog.com/docs/integrations/php-integration) details.
 
