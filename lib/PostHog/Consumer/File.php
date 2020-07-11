@@ -1,6 +1,10 @@
 <?php
 
-class PostHog_Consumer_File extends PostHog_Consumer {
+namespace Posthog\Consumer;
+
+use Posthog\Consumer;
+
+class PostHog_Consumer_File extends Consumer {
   protected $type = "File";
 
   private $file_handle;
