@@ -1,14 +1,13 @@
 <?php
 
-require_once(__DIR__ . '/Consumer.php');
-require_once(__DIR__ . '/QueueConsumer.php');
-require_once(__DIR__ . '/Consumer/File.php');
-require_once(__DIR__ . '/Consumer/ForkCurl.php');
-require_once(__DIR__ . '/Consumer/LibCurl.php');
-require_once(__DIR__ . '/Consumer/Socket.php');
-require_once(__DIR__ . '/Version.php');
+namespace Posthog;
 
-class PostHog_Client {
+use Posthog\Consumer\File;
+use Posthog\Consumer\ForkCurl;
+use Posthog\Consumer\LibCurl;
+use Posthog\Consumer\Socket;
+
+class Client {
   protected $consumer;
 
   /**
@@ -22,7 +21,7 @@ class PostHog_Client {
    */
   public function __construct($apiKey, $options = array()) {
     $consumers = array(
-      "socket"     => "PostHog_Consumer_Socket",
+      "socket"     => "Socket",
       "file"       => "PostHog_Consumer_File",
       "fork_curl"  => "PostHog_Consumer_ForkCurl",
       "lib_curl"   => "PostHog_Consumer_LibCurl"
