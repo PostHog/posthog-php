@@ -9,6 +9,12 @@ require_once(__DIR__ . '/Consumer/Socket.php');
 require_once(__DIR__ . '/Version.php');
 
 class PostHog_Client {
+
+  /**
+   * Consumer object handles queueing and bundling requests to Posthog.
+   *
+   * @var \Posthog\Consumer
+   */
   protected $consumer;
 
   /**
