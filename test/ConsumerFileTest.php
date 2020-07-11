@@ -1,6 +1,6 @@
 <?php
 
-require_once __DIR__ . "/../lib/PostHog/Client.php";
+use Posthog\Client;
 
 class ConsumerFileTest extends PHPUnit\Framework\TestCase
 {
@@ -14,7 +14,7 @@ class ConsumerFileTest extends PHPUnit\Framework\TestCase
       unlink($this->filename());
     }
 
-    $this->client = new PostHog_Client(
+    $this->client = new Client(
       "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
       array(
         "consumer" => "file",
@@ -78,7 +78,7 @@ class ConsumerFileTest extends PHPUnit\Framework\TestCase
   public function testProductionProblems()
   {
     // Open to a place where we should not have write access.
-    $client = new PostHog_Client(
+    $client = new Client(
       "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
       array(
         "consumer" => "file",

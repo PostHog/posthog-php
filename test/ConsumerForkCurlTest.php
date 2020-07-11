@@ -9,7 +9,7 @@ class ConsumerForkCurlTest extends PHPUnit\Framework\TestCase
   public function setUp(): void
   {
     date_default_timezone_set("UTC");
-    $this->client = new PostHog_Client(
+    $this->client = new Client(
       "OnMMoZ6YVozrgSBeZ9FpkC0ixH0ycYZn",
       array(
         "consumer" => "fork_curl",

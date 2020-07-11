@@ -1,6 +1,10 @@
 <?php
 
-class PostHog_Consumer_ForkCurl extends PostHog_QueueConsumer {
+namespace Posthog\Consumer;
+
+use Posthog\QueueConsumer;
+
+class PostHog_Consumer_ForkCurl extends QueueConsumer {
   protected $type = "ForkCurl";
 
   /**

@@ -1,6 +1,6 @@
 <?php
 
-require_once __DIR__ . "/../lib/PostHog.php";
+use Posthog;
 
 class PostHogTest extends PHPUnit\Framework\TestCase
 {

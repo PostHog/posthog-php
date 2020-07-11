@@ -22,9 +22,9 @@
 		"squizlabs/php_codesniffer": "^3.5"
 	},
 	"autoload": {
-		"files": [
-			"lib/PostHog.php"
-		]
+		"psr-4": {
+			"Posthog": "lib"
+		}
 	},
 	"bin": [
 		"bin/posthog"

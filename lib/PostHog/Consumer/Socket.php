@@ -1,6 +1,10 @@
 <?php
 
-class PostHog_Consumer_Socket extends PostHog_QueueConsumer {
+namespace Posthog\Consumer;
+
+use Posthog\QueueConsumer;
+
+class Socket extends QueueConsumer {
   protected $type = "Socket";
   private $socket_failed;
 
