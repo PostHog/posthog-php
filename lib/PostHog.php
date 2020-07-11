@@ -1,6 +1,6 @@
 <?php
 
-require_once __DIR__ . '/PostHog/Client.php';
+use Posthog\Client;
 
 class PostHog {
   private static $client;
@@ -12,7 +12,7 @@ class PostHog {
    */
   public static function init($apiKey, $options = array()) {
     self::assert($apiKey, "PostHog::init() requires an apiKey");
-    self::$client = new PostHog_Client($apiKey, $options);
+    self::$client = new Client($apiKey, $options);
   }
 
   /**
