@@ -1,4 +1,3 @@
-
 <?php
 
 class PostHog_Consumer_Socket extends PostHog_QueueConsumer {
