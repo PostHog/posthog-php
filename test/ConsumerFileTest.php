@@ -1,6 +1,6 @@
 <?php
 
-use Posthog\Client;
+use PostHog\Client;
 
 class ConsumerFileTest extends PHPUnit\Framework\TestCase
 {
@@ -82,7 +82,7 @@ class ConsumerFileTest extends PHPUnit\Framework\TestCase
       "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
       array(
         "consumer" => "file",
-        "filename" => "/dev/xxxxxxx",
+        "filename" => "/dev/x/xxxxxxx",
       )
     );
 

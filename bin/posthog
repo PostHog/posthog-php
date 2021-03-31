@@ -1,7 +1,9 @@
 #!/usr/bin/env php
 <?php
 
-require_once(__DIR__ . '/../lib/PostHog.php');
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use PostHog\PostHog;
 
 if (in_array('--help', $argv)) {
   print(usage());

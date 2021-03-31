@@ -1,10 +1,10 @@
 <?php
 
-namespace Posthog\Consumer;
+namespace PostHog\Consumer;
 
-use Posthog\QueueConsumer;
+use PostHog\QueueConsumer;
 
-class PostHog_Consumer_LibCurl extends QueueConsumer {
+class LibCurl extends QueueConsumer {
   protected $type = "LibCurl";
 
   /**

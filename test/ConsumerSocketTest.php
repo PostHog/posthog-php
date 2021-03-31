@@ -1,6 +1,6 @@
 <?php
 
-require_once __DIR__ . "/../lib/PostHog/Client.php";
+use PostHog\Client;
 
 class ConsumerSocketTest extends PHPUnit\Framework\TestCase
 {

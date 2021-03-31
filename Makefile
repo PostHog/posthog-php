@@ -6,6 +6,9 @@ vendor: composer.phar
 composer.phar:
 	@curl -sS https://getcomposer.org/installer | php
 
+docker:
+	@docker run -it --rm -v ${PWD}:/app -w /app chialab/php:7.4 bash
+
 test: lint
 	@vendor/bin/phpunit --colors test/
 	@php ./composer.phar validate
@@ -23,7 +26,7 @@ lint: dependencies
 
 release:
 	@printf "releasing ${VERSION}..."
-	@printf '<?php\nglobal $$POSTHOG_VERSION;\n$$POSTHOG_VERSION = "%b";\n' ${VERSION} > ./lib/PostHog/Version.php
+	@sed -Ei "s/(public const VERSION =).+/\1 '${VERSION}';/" ./lib/PostHog.php
 	@node -e "var fs = require('fs'), pkg = require('./composer'); pkg.version = '${VERSION}'; fs.writeFileSync('./composer.json', JSON.stringify(pkg, null, '\t'));"
 	@git changelog -t ${VERSION}
 	@git release ${VERSION}

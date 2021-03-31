@@ -1,6 +1,6 @@
 <?php
 
-namespace Posthog;
+namespace PostHog;
 
 abstract class QueueConsumer extends Consumer {
   protected $type = "QueueConsumer";

@@ -1,6 +1,6 @@
 <?php
 
-use Posthog;
+use PostHog\PostHog;
 
 class PostHogTest extends PHPUnit\Framework\TestCase
 {

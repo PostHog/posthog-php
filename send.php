@@ -1,10 +1,12 @@
 <?php
 
+require_once __DIR__ . '/vendor/autoload.php';
+
 /**
  * require client
  */
 
-require_once(__DIR__ . "/lib/PostHog.php");
+use PostHog\PostHog;
 
 /**
  * Args
@@ -70,7 +72,7 @@ foreach ($lines as $line) {
   if (!trim($line)) continue;
   $payload = json_decode($line, true);
   $type = $payload["type"];
-  $ret = call_user_func_array(array("PostHog", "raw"), array($payload));
+  $ret = call_user_func_array(array("PostHog\\PostHog", "raw"), array($payload));
   if ($ret) $successful++;
   $total++;
   if ($total % 100 === 0) PostHog::flush();

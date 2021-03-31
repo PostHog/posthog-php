@@ -1,11 +1,11 @@
 <?php
 
-namespace Posthog;
+namespace PostHog;
 
-use Posthog\Consumer\File;
-use Posthog\Consumer\ForkCurl;
-use Posthog\Consumer\LibCurl;
-use Posthog\Consumer\Socket;
+use PostHog\Consumer\File;
+use PostHog\Consumer\ForkCurl;
+use PostHog\Consumer\LibCurl;
+use PostHog\Consumer\Socket;
 
 class Client {
 
@@ -27,10 +27,10 @@ class Client {
    */
   public function __construct($apiKey, $options = array()) {
     $consumers = array(
-      "socket"     => "Socket",
-      "file"       => "PostHog_Consumer_File",
-      "fork_curl"  => "PostHog_Consumer_ForkCurl",
-      "lib_curl"   => "PostHog_Consumer_LibCurl"
+      "socket"     => Socket::class,
+      "file"       => File::class,
+      "fork_curl"  => ForkCurl::class,
+      "lib_curl"   => LibCurl::class,
     );
 
     // Use our socket libcurl by default
@@ -173,18 +173,16 @@ class Client {
    */
 
   private function message($msg){
-    global $POSTHOG_VERSION;
-
     if (!isset($msg["properties"])) {
       $msg["properties"] = array();
     }
 
     $msg["library"] = 'posthog-php';
-    $msg["library_version"] = $POSTHOG_VERSION;
+    $msg["library_version"] = PostHog::VERSION;
     $msg["library_consumer"] = $this->consumer->getConsumer();
 
     $msg["properties"]['$lib'] = 'posthog-php';
-    $msg["properties"]['$lib_version'] = $POSTHOG_VERSION;
+    $msg["properties"]['$lib_version'] = PostHog::VERSION;
     $msg["properties"]['$lib_consumer'] = $this->consumer->getConsumer();
 
     if (isset($msg["distinctId"])) {

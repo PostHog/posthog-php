@@ -1,6 +1,6 @@
 <?php
 
-namespace Posthog;
+namespace PostHog;
 
 abstract class Consumer {
   protected $type = "Consumer";

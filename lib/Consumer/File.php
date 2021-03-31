@@ -1,10 +1,10 @@
 <?php
 
-namespace Posthog\Consumer;
+namespace PostHog\Consumer;
 
-use Posthog\Consumer;
+use PostHog\Consumer;
 
-class PostHog_Consumer_File extends Consumer {
+class File extends Consumer {
   protected $type = "File";
 
   private $file_handle;
@@ -24,7 +24,7 @@ class PostHog_Consumer_File extends Consumer {
     try {
       $this->file_handle = fopen($options["filename"], "a");
       chmod($options["filename"], 0777);
-    } catch (Exception $e) {
+    } catch (\Exception $e) {
       $this->handleError($e->getCode(), $e->getMessage());
     }
   }
