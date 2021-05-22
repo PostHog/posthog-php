@@ -1,6 +1,6 @@
 <?php
 
-require_once __DIR__ . "/../lib/PostHog/Client.php";
+use PostHog\Client;
 
 class ConsumerSocketTest extends PHPUnit\Framework\TestCase
 {
@@ -13,7 +13,7 @@ class ConsumerSocketTest extends PHPUnit\Framework\TestCase
 
   public function testCapture()
   {
-    $client = new PostHog_Client(
+    $client = new Client(
       "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
       array(
         "consumer" => "socket",
@@ -28,7 +28,7 @@ class ConsumerSocketTest extends PHPUnit\Framework\TestCase
 
   public function testIdentify()
   {
-    $client = new PostHog_Client(
+    $client = new Client(
       "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
       array(
         "consumer" => "socket",
@@ -46,7 +46,7 @@ class ConsumerSocketTest extends PHPUnit\Framework\TestCase
 
   public function testShortTimeout()
   {
-    $client = new PostHog_Client(
+    $client = new Client(
       "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
       array(
         "timeout" => 0.01,
@@ -69,7 +69,7 @@ class ConsumerSocketTest extends PHPUnit\Framework\TestCase
 
   public function testProductionProblems()
   {
-    $client = new PostHog_Client("x",
+    $client = new Client("x",
       array(
         "consumer" => "socket",
         "error_handler" => function () {
@@ -92,7 +92,7 @@ class ConsumerSocketTest extends PHPUnit\Framework\TestCase
       "consumer" => "socket",
     );
 
-    $client = new PostHog_Client("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", $options);
+    $client = new Client("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", $options);
 
     $big_property = "";
 
@@ -112,7 +112,7 @@ class ConsumerSocketTest extends PHPUnit\Framework\TestCase
   public function testConnectionError()
   {
     $this->expectException('RuntimeException');
-    $client = new PostHog_Client("x", array(
+    $client = new Client("x", array(
       "consumer" => "socket",
       "host" => "t.posthog.comcomcom",
       "error_handler" => function ($errno, $errmsg) {

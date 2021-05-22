@@ -1,6 +1,10 @@
 <?php
 
-class PostHog_Consumer_Socket extends PostHog_QueueConsumer {
+namespace PostHog\Consumer;
+
+use PostHog\QueueConsumer;
+
+class Socket extends QueueConsumer {
   protected $type = "Socket";
   private $socket_failed;
 
@@ -77,7 +81,7 @@ class PostHog_Consumer_Socket extends PostHog_QueueConsumer {
       }
 
       return $socket;
-    } catch (Exception $e) {
+    } catch (\Exception $e) {
       $this->handleError($e->getCode(), $e->getMessage());
       $this->socket_failed = true;
 
@@ -107,7 +111,7 @@ class PostHog_Consumer_Socket extends PostHog_QueueConsumer {
         try {
           // Since we're try catch'ing prevent PHP logs.
           $written = @fwrite($socket, substr($req, $bytes_written));
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
           $this->handleError($e->getCode(), $e->getMessage());
           $closed = true;
         }

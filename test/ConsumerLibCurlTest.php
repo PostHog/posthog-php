@@ -1,6 +1,6 @@
 <?php
 
-require_once __DIR__ . "/../lib/PostHog/Client.php";
+use PostHog\Client;
 
 class ConsumerLibCurlTest extends PHPUnit\Framework\TestCase
 {
@@ -9,7 +9,7 @@ class ConsumerLibCurlTest extends PHPUnit\Framework\TestCase
   public function setUp(): void
   {
     date_default_timezone_set("UTC");
-    $this->client = new PostHog_Client(
+    $this->client = new Client(
       "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
       array(
         "consumer" => "lib_curl",

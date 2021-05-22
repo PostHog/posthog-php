@@ -1,5 +1,8 @@
 <?php
-abstract class PostHog_Consumer {
+
+namespace PostHog;
+
+abstract class Consumer {
   protected $type = "Consumer";
 
   protected $options;
