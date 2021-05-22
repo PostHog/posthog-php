@@ -1,8 +1,8 @@
 <?php
-
 use PostHog\Client;
+use PHPUnit\Framework\TestCase;
 
-class ConsumerSocketTest extends PHPUnit\Framework\TestCase
+class ConsumerSocketTest extends TestCase
 {
   private $client;
 
