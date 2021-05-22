@@ -1,8 +1,8 @@
 <?php
-
 use PostHog\Client;
+use PHPUnit\Framework\TestCase;
 
-class ConsumerFileTest extends PHPUnit\Framework\TestCase
+class ConsumerFileTest extends TestCase
 {
   private $client;
   private $filename = "/tmp/posthog.log";

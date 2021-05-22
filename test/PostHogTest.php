@@ -1,8 +1,8 @@
 <?php
-
 use PostHog\PostHog;
+use PHPUnit\Framework\TestCase;
 
-class PostHogTest extends PHPUnit\Framework\TestCase
+class PostHogTest extends TestCase
 {
   public function setUp(): void
   {

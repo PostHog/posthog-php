@@ -1,8 +1,8 @@
 <?php
-
 use PostHog\Client;
+use PHPUnit\Framework\TestCase;
 
-class ConsumerForkCurlTest extends PHPUnit\Framework\TestCase
+class ConsumerForkCurlTest extends TestCase
 {
   private $client;
 
