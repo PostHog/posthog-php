@@ -2,6 +2,7 @@
 
 namespace PostHog\Test;
 
+use Exception;
 use PHPUnit\Framework\TestCase;
 use PostHog\PostHog;
 
@@ -11,6 +12,29 @@ class PostHogTest extends TestCase
     {
         date_default_timezone_set("UTC");
         PostHog::init("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", array("debug" => true));
+    }
+
+    public function testInitWithParamApiKey(): void
+    {
+        $this->expectNotToPerformAssertions();
+        PostHog::init("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", array("debug" => true));
+    }
+
+    public function testInitWithEnvApiKey(): void
+    {
+        $this->expectNotToPerformAssertions();
+        putenv(PostHog::ENV_API_KEY . "=BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg");
+        PostHog::init(null, array("degug" => true));
+
+        // Clear the environment variable
+        putenv(PostHog::ENV_API_KEY);
+    }
+
+    public function testInitThrowsExceptionWithNoApiKey(): void
+    {
+        $this->expectException(Exception::class);
+        $this->expectExceptionMessage("PostHog::init() requires an apiKey");
+        PostHog::init(null);
     }
 
     public function testCapture(): void

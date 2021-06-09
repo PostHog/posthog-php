@@ -7,17 +7,21 @@ use Exception;
 class PostHog
 {
     public const VERSION = '2.0.0';
+    public const ENV_API_KEY = "POSTHOG_API_KEY";
 
     private static $client;
 
     /**
      * Initializes the default client to use. Uses the libcurl consumer by default.
-     * @param string $apiKey your project's API key
+     * @param string|null $apiKey your project's API key
      * @param array $options passed straight to the client
      * @throws Exception
      */
-    public static function init($apiKey, $options = array())
+    public static function init(string $apiKey = null, array $options = []): void
     {
+        // Check the env vars to see if the API key is set, if not, default to the parameter passed to init()
+        $apiKey = getenv(self::ENV_API_KEY) ?: $apiKey;
+
         self::assert($apiKey, "PostHog::init() requires an apiKey");
         self::$client = new Client($apiKey, $options);
     }
