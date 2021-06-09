@@ -11,12 +11,37 @@ use PostHog\Consumer\Socket;
 class Client
 {
 
+    private const CONSUMERS = [
+        "socket" => Socket::class,
+        "file" => File::class,
+        "fork_curl" => ForkCurl::class,
+        "lib_curl" => LibCurl::class,
+    ];
+
+    /**
+     * @var string
+     */
+    private $apiKey;
+
     /**
      * Consumer object handles queueing and bundling requests to PostHog.
      *
      * @var Consumer
      */
     protected $consumer;
+
+    protected $featureFlags = null;
+
+    /**
+     * @var string|null
+     */
+    private $personalApiKey;
+
+    /**
+     * @var HttpClient
+     */
+    private $httpClient;
+
 
     /**
      * Create a new posthog object with your app's API key
@@ -27,19 +52,16 @@ class Client
      * @param string Consumer constructor to use, libcurl by default.
      *
      */
-    public function __construct($apiKey, $options = array())
+    public function __construct(string $apiKey, array $options = [])
     {
-        $consumers = array(
-            "socket" => Socket::class,
-            "file" => File::class,
-            "fork_curl" => ForkCurl::class,
-            "lib_curl" => LibCurl::class,
-        );
-
-        // Use our socket libcurl by default
-        $consumer_type = $options["consumer"] ?? "lib_curl";
-        $Consumer = $consumers[$consumer_type];
+        $this->apiKey = $apiKey;
+        $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($apiKey, $options);
+        $this->personalApiKey = $options["personal_api_key"] ?? null;
+        $this->httpClient = new HttpClient(
+            $this->options['host'] ?? "app.posthog.com",
+            $this->options['ssl'] ?? true
+        );
     }
 
     public function __destruct()
@@ -85,27 +107,76 @@ class Client
      *
      * @param string $key
      * @param string $distinctId
-     * @param mixed $default
+     * @param mixed $defaultValue
      * @return bool
      * @throws Exception
      */
-    public function decide(string $key, string $distinctId, $default = false): bool
+    public function isFeatureEnabled(string $key, string $distinctId, $defaultValue = false): bool
     {
-        $isAllowed = in_array($key, $this->fetchAllowedFeatureFlags($distinctId));
-        return $isAllowed ??  $default;
+        if (null === $this->personalApiKey) {
+            throw new Exception(
+                "To use feature flags, please set a personal_api_key. 
+                For More information: https://posthog.com/docs/api/overview"
+            );
+        }
+
+        if (null === $this->featureFlags) {
+            $this->loadFeatureFlags();
+        }
+
+        if (null === $this->featureFlags) { // if loading failed.
+            return $defaultValue;
+        }
+
+        $selectedFlag = null;
+        foreach ($this->featureFlags as $flag) {
+            if ($flag['key'] === $key) {
+                $selectedFlag = $flag;
+            }
+        }
+        if (null === $selectedFlag) {
+            return $defaultValue;
+        }
+
+        if ((bool) $selectedFlag['is_simple_flag']) {
+            $result = $defaultValue;
+            // TODO: implement is simple flag logic;
+        } else {
+            $result = in_array($key, $this->fetchEnabledFeatureFlags($distinctId));
+            return $result ??  $defaultValue;
+        }
+
+        $this->capture([
+            "properties" => [
+                '$feature_flag' => $key,
+                '$feature_flag_response' => $result,
+            ],
+            "distinct_id" => $distinctId,
+            "event" => '$feature_flag_called',
+        ]);
+
+        return $result;
     }
+
 
     /**
      * @param string $distinctId
      * @return array
      * @throws Exception
      */
-    public function fetchAllowedFeatureFlags(string $distinctId): array
+    public function fetchEnabledFeatureFlags(string $distinctId): array
     {
-        if (!($this->consumer instanceof LibCurl)) {
-            throw new Exception('not implemented.');
-        }
-        return json_decode($this->consumer->decide($distinctId), true)['featureFlags'] ?? [];
+        return json_decode($this->decide($distinctId), true)['featureFlags'] ?? [];
+    }
+
+    public function decide(string $distinctId)
+    {
+        $payload = json_encode([
+            'api_key' => $this->apiKey,
+            'distinct_id' => $distinctId,
+        ]);
+
+        return $this->httpClient->sendRequest('/decide/', $payload)->getResponse();
     }
 
     /**
@@ -231,5 +302,34 @@ class Client
         $msg["timestamp"] = $this->formatTime($msg["timestamp"]);
 
         return $msg;
+    }
+
+    private function loadFeatureFlags(): void
+    {
+        $response = $this->httpClient->sendRequest(
+            '/api/feature_flag/',
+            '',
+            [
+                "Authorization: Bearer $this->personalApiKey",
+            ]
+        );
+        if (401 === $response->getResponseCode()) {
+            throw new Exception(
+                "Your personalApiKey is invalid. Are you sure you're not using your Project API key?
+                 More information: https://posthog.com/docs/api/overview"
+            );
+        }
+
+        $responseBody = json_decode($response->getResponse(), true);
+
+        if (null === $responseBody) {
+            return;
+        }
+
+        if (empty($responseBody)) {
+            $this->featureFlags = [];
+        }
+
+        $this->featureFlags = $responseBody;
     }
 }

@@ -2,6 +2,8 @@
 
 namespace PostHog;
 
+use Closure;
+
 class HttpClient
 {
     /**
@@ -13,16 +15,40 @@ class HttpClient
      * @var bool
      */
     private $useSsl;
+
     /**
      * @var int
      */
     private $maximumBackoffDuration;
 
-    public function __construct(string $host, bool $useSsl = true, int $maximumBackoffDuration = 10000)
-    {
+    /**
+     * @var bool
+     */
+    private $compressRequests;
+
+    /**
+     * @var Closure|null
+     */
+    private $errorHandler;
+    /**
+     * @var bool
+     */
+    private $debug;
+
+    public function __construct(
+        string $host,
+        bool $useSsl = true,
+        int $maximumBackoffDuration = 10000,
+        bool $compressRequests = false,
+        bool $debug = false,
+        ?Closure $errorHandler = null
+    ) {
         $this->host = $host;
         $this->useSsl = $useSsl;
         $this->maximumBackoffDuration = $maximumBackoffDuration;
+        $this->compressRequests = $compressRequests;
+        $this->debug = $debug;
+        $this->errorHandler = $errorHandler;
     }
 
     /**
@@ -47,7 +73,7 @@ class HttpClient
 
             $headers = [];
             $headers[] = 'Content-Type: application/json';
-            if ($this->compress_request) {
+            if ($this->compressRequests) {
                 $headers[] = 'Content-Encoding: gzip';
             }
 
@@ -56,24 +82,25 @@ class HttpClient
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 
             // retry failed requests just once to diminish impact on performance
-            [$httpResponse, $httpResponseCode] = $this->executePost($ch);
+            $httpResponse = $this->executePost($ch);
+            $responseCode = $httpResponse->getResponseCode();
 
             //close connection
             curl_close($ch);
 
-            if (200 != $httpResponseCode) {
+            if (200 != $responseCode) {
                 // log error
-                $this->handleError($ch, $httpResponseCode);
+                $this->handleError($ch, $responseCode);
 
-                if (($httpResponseCode >= 500 && $httpResponseCode <= 600) || 429 == $httpResponseCode) {
+                if (($responseCode >= 500 && $responseCode <= 600) || 429 == $responseCode) {
                     // If status code is greater than 500 and less than 600, it indicates server error
                     // Error code 429 indicates rate limited.
                     // Retry uploading in these cases.
                     usleep($backoff * 1000);
                     $backoff *= 2;
-                } elseif ($httpResponseCode >= 400) {
+                } elseif ($responseCode >= 400) {
                     break;
-                } elseif ($httpResponseCode == 0) {
+                } elseif ($responseCode == 0) {
                     break;
                 }
             } else {
@@ -84,11 +111,22 @@ class HttpClient
         return $httpResponse;
     }
 
-    private function executePost($ch): array
+    private function executePost($ch): HttpResponse
     {
-        return [
+        return new HttpResponse(
             curl_exec($ch),
             curl_getinfo($ch, CURLINFO_RESPONSE_CODE)
-        ];
+        );
+    }
+
+    private function handleError($code, $message)
+    {
+        if (null !== $this->errorHandler) {
+            $this->errorHandler($code, $message);
+        }
+
+        if ($this->debug) {
+            error_log("[PostHog][HttpClient] " . $message);
+        }
     }
 }

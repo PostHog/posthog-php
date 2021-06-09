@@ -27,7 +27,10 @@ class LibCurl extends QueueConsumer
         $this->httpClient = new HttpClient(
             $this->host,
             $this->ssl(),
-            $this->maximum_backoff_duration
+            $this->maximum_backoff_duration,
+            $this->compress_request,
+            $this->debug(),
+            $this->options['error_handler'] ?? null
         );
     }
 
@@ -73,20 +76,6 @@ class LibCurl extends QueueConsumer
             [
                 "User-Agent: {$messages['library']}/{$messages['library_version']}",
             ]
-        );
-    }
-
-    public function decide(string $distinctId)
-    {
-        $payload = json_encode([
-            'api_key' => $this->apiKey,
-            'distinct_id' => $distinctId,
-        ]);
-
-        if ($this->compress_request) {
-            $payload = gzencode($payload);
-        }
-
-        return $this->httpClient->sendRequest('/decide/', $payload);
+        )->getResponse();
     }
 }

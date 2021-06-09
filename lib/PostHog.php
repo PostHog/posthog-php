@@ -65,10 +65,10 @@ class PostHog
      * @return boolean whether the identify call succeeded
      * @throws Exception
      */
-    public static function decide(string $key, string $distinctId, $default = false): bool
+    public static function isFeatureEnabled(string $key, string $distinctId, $default = false): bool
     {
         self::checkClient();
-        return self::$client->decide($key, $distinctId, $default);
+        return self::$client->isFeatureEnabled($key, $distinctId, $default);
     }
 
     /**
@@ -77,10 +77,10 @@ class PostHog
      * @return array
      * @throws Exception
      */
-    public static function fetchAllowedFeatureFlags(string $distinctId): array
+    public static function fetchEnabledFeatureFlags(string $distinctId): array
     {
         self::checkClient();
-        return self::$client->fetchAllowedFeatureFlags($distinctId);
+        return self::$client->fetchEnabledFeatureFlags($distinctId);
     }
 
     /**

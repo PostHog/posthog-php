@@ -14,10 +14,11 @@ class ConsumerLibCurlTest extends TestCase
         date_default_timezone_set("UTC");
         $this->client = new Client(
             "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
-            array(
+            [
                 "consumer" => "lib_curl",
                 "debug" => true,
-            )
+                "personal_api_key" => 'my very secret key',
+            ]
         );
     }
 
@@ -61,13 +62,13 @@ class ConsumerLibCurlTest extends TestCase
         );
     }
 
-    public function testFetchAllowedFeatureFlags()
+    public function testFetchEnabledFeatureFlags()
     {
-        $this->assertIsArray($this->client->fetchAllowedFeatureFlags('user-id'));
+        $this->assertIsArray($this->client->fetchEnabledFeatureFlags('user-id'));
     }
 
-    public function testDecide()
+    public function testIsFeatureEnabled()
     {
-        $this->assertFalse($this->client->decide('having_fun', 'user-id'));
+        $this->assertFalse($this->client->isFeatureEnabled('having_fun', 'user-id'));
     }
 }

@@ -10,7 +10,10 @@ class PostHogTest extends TestCase
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
-        PostHog::init("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", array("debug" => true));
+        PostHog::init("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", [
+                "debug" => true,
+                "personal_api_key" => 'my very secret key',
+            ]);
     }
 
     public function testCapture(): void
@@ -40,14 +43,14 @@ class PostHogTest extends TestCase
         );
     }
 
-    public function testDecide()
+    public function testIsFeatureEnabled()
     {
-        $this->assertFalse(PostHog::decide('having_fun', 'user-id'));
+        $this->assertFalse(PostHog::isFeatureEnabled('having_fun', 'user-id'));
     }
 
-    public function testFetchAllowedFeatureFlags()
+    public function testFetchEnabledFeatureFlags()
     {
-        $this->assertIsArray(PostHog::fetchAllowedFeatureFlags('user-id'));
+        $this->assertIsArray(PostHog::fetchEnabledFeatureFlags('user-id'));
     }
 
     public function testEmptyProperties(): void
