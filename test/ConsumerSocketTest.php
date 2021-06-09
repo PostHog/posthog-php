@@ -9,14 +9,12 @@ use RuntimeException;
 
 class ConsumerSocketTest extends TestCase
 {
-    private $client;
-
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
     }
 
-    public function testCapture()
+    public function testCapture(): void
     {
         $client = new Client(
             "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
@@ -24,7 +22,7 @@ class ConsumerSocketTest extends TestCase
                 "consumer" => "socket",
             )
         );
-        $this->assertTrue(
+        self::assertTrue(
             $client->capture(
                 array(
                     "distinctId" => "some-user",
@@ -35,7 +33,7 @@ class ConsumerSocketTest extends TestCase
         $client->__destruct();
     }
 
-    public function testIdentify()
+    public function testIdentify(): void
     {
         $client = new Client(
             "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
@@ -43,7 +41,7 @@ class ConsumerSocketTest extends TestCase
                 "consumer" => "socket",
             )
         );
-        $this->assertTrue(
+        self::assertTrue(
             $client->identify(
                 array(
                     "distinctId" => "Calvin",
@@ -57,7 +55,7 @@ class ConsumerSocketTest extends TestCase
         $client->__destruct();
     }
 
-    public function testShortTimeout()
+    public function testShortTimeout(): void
     {
         $client = new Client(
             "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
@@ -67,7 +65,7 @@ class ConsumerSocketTest extends TestCase
             )
         );
 
-        $this->assertTrue(
+        self::assertTrue(
             $client->capture(
                 array(
                     "distinctId" => "some-user",
@@ -76,7 +74,7 @@ class ConsumerSocketTest extends TestCase
             )
         );
 
-        $this->assertTrue(
+        self::assertTrue(
             $client->identify(
                 array(
                     "distinctId" => "some-user",
@@ -88,7 +86,7 @@ class ConsumerSocketTest extends TestCase
         $client->__destruct();
     }
 
-    public function testProductionProblems()
+    public function testProductionProblems(): void
     {
         $client = new Client(
             "x",
@@ -103,11 +101,10 @@ class ConsumerSocketTest extends TestCase
         // Shouldn't error out without debug on.
         $client->capture(array("user_id" => "some-user", "event" => "Production Problems"));
         $client->__destruct();
-        $this->assertTrue(true);
+        self::assertTrue(true);
     }
 
-
-    public function testLargeMessage()
+    public function testLargeMessage(): void
     {
         $options = array(
             "debug" => true,
@@ -122,7 +119,7 @@ class ConsumerSocketTest extends TestCase
             $big_property .= "a";
         }
 
-        $this->assertTrue(
+        self::assertTrue(
             $client->capture(
                 array(
                     "distinctId" => "some-user",
@@ -135,7 +132,7 @@ class ConsumerSocketTest extends TestCase
         $client->__destruct();
     }
 
-    public function testConnectionError()
+    public function testConnectionError(): void
     {
         $this->expectException('RuntimeException');
         $client = new Client(

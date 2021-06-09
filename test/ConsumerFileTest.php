@@ -33,9 +33,9 @@ class ConsumerFileTest extends TestCase
         }
     }
 
-    public function testCapture()
+    public function testCapture(): void
     {
-        $this->assertTrue(
+        self::assertTrue(
             $this->client->capture(
                 array(
                     "distinctId" => "some-user",
@@ -47,9 +47,9 @@ class ConsumerFileTest extends TestCase
         $this->checkWritten("capture");
     }
 
-    public function testIdentify()
+    public function testIdentify(): void
     {
-        $this->assertTrue(
+        self::assertTrue(
             $this->client->identify(
                 array(
                     "distinctId" => "Calvin",
@@ -64,9 +64,9 @@ class ConsumerFileTest extends TestCase
         $this->checkWritten("identify");
     }
 
-    public function testAlias()
+    public function testAlias(): void
     {
-        $this->assertTrue(
+        self::assertTrue(
             $this->client->alias(
                 array(
                     "alias" => "previous-id",
@@ -74,10 +74,11 @@ class ConsumerFileTest extends TestCase
                 )
             )
         );
+
         $this->checkWritten("alias");
     }
 
-    public function testSend()
+    public function testSend(): void
     {
         for ($i = 0; $i < 200; ++$i) {
             $this->client->capture(
@@ -88,11 +89,11 @@ class ConsumerFileTest extends TestCase
             );
         }
         exec("php send.php --apiKey BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg --file /tmp/posthog.log", $output);
-        $this->assertSame("sent 200 from 200 requests successfully", trim(join('', $output)));
-        $this->assertFileNotExists($this->filename());
+        self::assertSame("sent 200 from 200 requests successfully", trim(implode('', $output)));
+        self::assertFileDoesNotExist($this->filename());
     }
 
-    public function testProductionProblems()
+    public function testProductionProblems(): void
     {
         // Open to a place where we should not have write access.
         $client = new Client(
@@ -104,21 +105,21 @@ class ConsumerFileTest extends TestCase
         );
 
         $captured = $client->capture(array("distinctId" => "some-user", "event" => "my event"));
-        $this->assertFalse($captured);
+        self::assertFalse($captured);
     }
 
-    public function checkWritten($type)
+    private function checkWritten($type): void
     {
         exec("wc -l " . $this->filename, $output);
         $out = trim($output[0]);
-        $this->assertSame($out, "1 " . $this->filename);
+        self::assertSame($out, "1 " . $this->filename);
         $str = file_get_contents($this->filename);
         $json = json_decode(trim($str));
-        $this->assertSame($type, $json->type);
+        self::assertSame($type, $json->type);
         unlink($this->filename);
     }
 
-    public function filename()
+    public function filename(): string
     {
         return '/tmp/posthog.log';
     }

@@ -21,9 +21,9 @@ class ConsumerForkCurlTest extends TestCase
         );
     }
 
-    public function testCapture()
+    public function testCapture(): void
     {
-        $this->assertTrue(
+        self::assertTrue(
             $this->client->capture(
                 array(
                     "distinctId" => "some-user",
@@ -33,9 +33,9 @@ class ConsumerForkCurlTest extends TestCase
         );
     }
 
-    public function testIdentify()
+    public function testIdentify(): void
     {
-        $this->assertTrue(
+        self::assertTrue(
             $this->client->identify(
                 array(
                     "distinctId" => "user-id",
@@ -49,9 +49,9 @@ class ConsumerForkCurlTest extends TestCase
         );
     }
 
-    public function testAlias()
+    public function testAlias(): void
     {
-        $this->assertTrue(
+        self::assertTrue(
             $this->client->alias(
                 array(
                     "alias" => "alias-id",
