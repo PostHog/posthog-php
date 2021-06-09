@@ -11,7 +11,7 @@ class Client
 {
 
     /**
-     * Consumer object handles queueing and bundling requests to Posthog.
+     * Consumer object handles queueing and bundling requests to PostHog.
      *
      * @var Consumer
      */
