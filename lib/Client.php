@@ -2,6 +2,7 @@
 
 namespace PostHog;
 
+use Exception;
 use PostHog\Consumer\File;
 use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
@@ -77,6 +78,34 @@ class Client
         $message["event"] = '$identify';
 
         return $this->consumer->identify($message);
+    }
+
+    /**
+     * decide if the feature flag is enabled for this distinct id.
+     *
+     * @param string $key
+     * @param string $distinctId
+     * @param mixed $default
+     * @return bool
+     * @throws Exception
+     */
+    public function decide(string $key, string $distinctId, $default = false): bool
+    {
+        $isAllowed = in_array($key, $this->fetchAllowedFeatureFlags($distinctId));
+        return $isAllowed ??  $default;
+    }
+
+    /**
+     * @param string $distinctId
+     * @return array
+     * @throws Exception
+     */
+    public function fetchAllowedFeatureFlags(string $distinctId): array
+    {
+        if (!($this->consumer instanceof LibCurl)) {
+            throw new Exception('not implemented.');
+        }
+        return json_decode($this->consumer->decide($distinctId), true)['featureFlags'] ?? [];
     }
 
     /**

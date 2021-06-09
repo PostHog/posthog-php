@@ -42,7 +42,6 @@ class LibCurl extends QueueConsumer
     {
         $body = $this->payload($messages);
         $payload = json_encode($body);
-        $apiKey = $this->apiKey;
 
         // Verify message size is below than 32KB
         if (strlen($payload) >= 32 * 1024) {
@@ -58,64 +57,79 @@ class LibCurl extends QueueConsumer
             $payload = gzencode($payload);
         }
 
-        $protocol = $this->ssl() ? "https://" : "http://";
-        if ($this->host) {
-            $host = $this->host;
-        } else {
-            $host = "t.posthog.com";
+        return $this->sendRequest(
+            '/batch/',
+            $payload,
+            [
+                "User-Agent: {$messages['library']}/{$messages['library_version']}",
+            ]
+        );
+    }
+
+    public function decide(string $distinctId)
+    {
+        $payload = json_encode([
+            'api_key' => $this->apiKey,
+            'distinct_id' => $distinctId,
+        ]);
+
+        if ($this->compress_request) {
+            $payload = gzencode($payload);
         }
-        $path = "/batch/";
-        $url = $protocol . $host . $path;
+
+        return $this->sendRequest('/decide/', $payload);
+    }
+
+    /**
+     * @param string $path
+     * @param string|null $payload
+     * @param array $extraHeaders
+     * @return mixed
+     */
+    public function sendRequest(string $path, string $payload, array $extraHeaders = [])
+    {
+        $protocol = $this->ssl() ? "https://" : "http://";
+        $host = $this->host ?? "t.posthog.com";
 
         $backoff = 100;     // Set initial waiting time to 100ms
 
         while ($backoff < $this->maximum_backoff_duration) {
-            $start_time = microtime(true);
-
             // open connection
             $ch = curl_init();
 
-            // set the url, number of POST vars, POST data
+
             curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
 
-            // set variables for headers
-            $header = array();
-            $header[] = 'Content-Type: application/json';
 
+            $headers = [];
+            $headers[] = 'Content-Type: application/json';
             if ($this->compress_request) {
-                $header[] = 'Content-Encoding: gzip';
+                $headers[] = 'Content-Encoding: gzip';
             }
 
-            // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
-            $libName = $messages[0]['library'];
-            $libVersion = $messages[0]['library_version'];
-            $header[] = "User-Agent: ${libName}/${libVersion}";
-
-            curl_setopt($ch, CURLOPT_HTTPHEADER, $header);
-            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge($headers, $extraHeaders));
+            curl_setopt($ch, CURLOPT_URL, $protocol . $host . $path);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 
             // retry failed requests just once to diminish impact on performance
-            $httpResponse = $this->executePost($ch);
+            [$httpResponse, $httpResponseCode] = $this->executePost($ch);
 
             //close connection
             curl_close($ch);
 
-            $elapsed_time = microtime(true) - $start_time;
-
-            if (200 != $httpResponse) {
+            if (200 != $httpResponseCode) {
                 // log error
-                $this->handleError($ch, $httpResponse);
+                $this->handleError($ch, $httpResponseCode);
 
-                if (($httpResponse >= 500 && $httpResponse <= 600) || 429 == $httpResponse) {
+                if (($httpResponseCode >= 500 && $httpResponseCode <= 600) || 429 == $httpResponseCode) {
                     // If status code is greater than 500 and less than 600, it indicates server error
                     // Error code 429 indicates rate limited.
                     // Retry uploading in these cases.
                     usleep($backoff * 1000);
                     $backoff *= 2;
-                } elseif ($httpResponse >= 400) {
+                } elseif ($httpResponseCode >= 400) {
                     break;
-                } elseif ($httpResponse == 0) {
+                } elseif ($httpResponseCode == 0) {
                     break;
                 }
             } else {
@@ -126,11 +140,11 @@ class LibCurl extends QueueConsumer
         return $httpResponse;
     }
 
-    public function executePost($ch)
+    public function executePost($ch): array
     {
-        curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-
-        return $httpCode;
+        return [
+            curl_exec($ch),
+            curl_getinfo($ch, CURLINFO_RESPONSE_CODE)
+        ];
     }
 }

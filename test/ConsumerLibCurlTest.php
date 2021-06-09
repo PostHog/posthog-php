@@ -60,4 +60,15 @@ class ConsumerLibCurlTest extends TestCase
             )
         );
     }
+
+
+    public function testFetchAllowedFeatureFlags()
+    {
+        $this->assertIsArray($this->client->fetchAllowedFeatureFlags('user-id'));
+    }
+
+    public function testDecide()
+    {
+        $this->assertFalse($this->client->decide('having_fun', 'user-id'));
+    }
 }

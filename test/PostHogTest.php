@@ -40,6 +40,16 @@ class PostHogTest extends TestCase
         );
     }
 
+    public function testDecide()
+    {
+        $this->assertFalse(PostHog::decide('having_fun', 'user-id'));
+    }
+
+    public function testFetchAllowedFeatureFlags()
+    {
+        $this->assertIsArray(PostHog::fetchAllowedFeatureFlags('user-id'));
+    }
+
     public function testEmptyProperties(): void
     {
         self::assertTrue(

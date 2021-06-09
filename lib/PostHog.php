@@ -16,7 +16,7 @@ class PostHog
      * @param array $options passed straight to the client
      * @throws Exception
      */
-    public static function init($apiKey, $options = array())
+    public static function init(string $apiKey, array $options = [])
     {
         self::assert($apiKey, "PostHog::init() requires an apiKey");
         self::$client = new Client($apiKey, $options);
@@ -53,6 +53,34 @@ class PostHog
         self::validate($message, "identify");
 
         return self::$client->identify($message);
+    }
+
+
+    /**
+     * decide if the feature flag is enabled for this distinct id.
+     *
+     * @param string $key
+     * @param string $distinctId
+     * @param mixed $default
+     * @return boolean whether the identify call succeeded
+     * @throws Exception
+     */
+    public static function decide(string $key, string $distinctId, $default = false): bool
+    {
+        self::checkClient();
+        return self::$client->decide($key, $distinctId, $default);
+    }
+
+    /**
+     *
+     * @param string $distinctId
+     * @return array
+     * @throws Exception
+     */
+    public static function fetchAllowedFeatureFlags(string $distinctId): array
+    {
+        self::checkClient();
+        return self::$client->fetchAllowedFeatureFlags($distinctId);
     }
 
     /**
