@@ -2,11 +2,16 @@
 
 namespace PostHog\Consumer;
 
+use PostHog\HttpClient;
 use PostHog\QueueConsumer;
 
 class LibCurl extends QueueConsumer
 {
     protected $type = "LibCurl";
+    /**
+     * @var HttpClient
+     */
+    private $httpClient;
 
     /**
      * Creates a new queued libcurl consumer
@@ -16,9 +21,14 @@ class LibCurl extends QueueConsumer
      *     number   "max_queue_size" - the max size of messages to enqueue
      *     number   "batch_size" - how many messages to send in a single request
      */
-    public function __construct($apiKey, $options = array())
+    public function __construct($apiKey, $options = [])
     {
         parent::__construct($apiKey, $options);
+        $this->httpClient = new HttpClient(
+            $this->host,
+            $this->ssl(),
+            $this->maximum_backoff_duration
+        );
     }
 
     /**
@@ -57,7 +67,7 @@ class LibCurl extends QueueConsumer
             $payload = gzencode($payload);
         }
 
-        return $this->sendRequest(
+        return $this->httpClient->sendRequest(
             '/batch/',
             $payload,
             [
@@ -77,73 +87,6 @@ class LibCurl extends QueueConsumer
             $payload = gzencode($payload);
         }
 
-        return $this->sendRequest('/decide/', $payload);
-    }
-
-    /**
-     * @param string $path
-     * @param string|null $payload
-     * @param array $extraHeaders
-     * @return mixed
-     */
-    public function sendRequest(string $path, string $payload, array $extraHeaders = [])
-    {
-        $protocol = $this->ssl() ? "https://" : "http://";
-
-        $backoff = 100;     // Set initial waiting time to 100ms
-
-        while ($backoff < $this->maximum_backoff_duration) {
-            // open connection
-            $ch = curl_init();
-
-
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-
-
-            $headers = [];
-            $headers[] = 'Content-Type: application/json';
-            if ($this->compress_request) {
-                $headers[] = 'Content-Encoding: gzip';
-            }
-
-            curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge($headers, $extraHeaders));
-            curl_setopt($ch, CURLOPT_URL, $protocol . $this->host . $path);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-            // retry failed requests just once to diminish impact on performance
-            [$httpResponse, $httpResponseCode] = $this->executePost($ch);
-
-            //close connection
-            curl_close($ch);
-
-            if (200 != $httpResponseCode) {
-                // log error
-                $this->handleError($ch, $httpResponseCode);
-
-                if (($httpResponseCode >= 500 && $httpResponseCode <= 600) || 429 == $httpResponseCode) {
-                    // If status code is greater than 500 and less than 600, it indicates server error
-                    // Error code 429 indicates rate limited.
-                    // Retry uploading in these cases.
-                    usleep($backoff * 1000);
-                    $backoff *= 2;
-                } elseif ($httpResponseCode >= 400) {
-                    break;
-                } elseif ($httpResponseCode == 0) {
-                    break;
-                }
-            } else {
-                break;  // no error
-            }
-        }
-
-        return $httpResponse;
-    }
-
-    public function executePost($ch): array
-    {
-        return [
-            curl_exec($ch),
-            curl_getinfo($ch, CURLINFO_RESPONSE_CODE)
-        ];
+        return $this->httpClient->sendRequest('/decide/', $payload);
     }
 }
