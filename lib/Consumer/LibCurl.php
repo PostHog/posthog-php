@@ -89,7 +89,6 @@ class LibCurl extends QueueConsumer
     public function sendRequest(string $path, string $payload, array $extraHeaders = [])
     {
         $protocol = $this->ssl() ? "https://" : "http://";
-        $host = $this->host ?? "t.posthog.com";
 
         $backoff = 100;     // Set initial waiting time to 100ms
 
@@ -108,7 +107,7 @@ class LibCurl extends QueueConsumer
             }
 
             curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge($headers, $extraHeaders));
-            curl_setopt($ch, CURLOPT_URL, $protocol . $host . $path);
+            curl_setopt($ch, CURLOPT_URL, $protocol . $this->host . $path);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
 
             // retry failed requests just once to diminish impact on performance
