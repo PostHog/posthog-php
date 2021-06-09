@@ -13,9 +13,9 @@ class PostHogTest extends TestCase
         PostHog::init("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", array("debug" => true));
     }
 
-    public function testCapture()
+    public function testCapture(): void
     {
-        $this->assertTrue(
+        self::assertTrue(
             PostHog::capture(
                 array(
                     "distinctId" => "john",
@@ -25,9 +25,9 @@ class PostHogTest extends TestCase
         );
     }
 
-    public function testIdentify()
+    public function testIdentify(): void
     {
-        $this->assertTrue(
+        self::assertTrue(
             PostHog::identify(
                 array(
                     "distinctId" => "doe",
@@ -40,9 +40,9 @@ class PostHogTest extends TestCase
         );
     }
 
-    public function testEmptyProperties()
+    public function testEmptyProperties(): void
     {
-        $this->assertTrue(
+        self::assertTrue(
             PostHog::identify(
                 array(
                     "distinctId" => "empty-properties",
@@ -50,7 +50,7 @@ class PostHogTest extends TestCase
             )
         );
 
-        $this->assertTrue(
+        self::assertTrue(
             PostHog::capture(
                 array(
                     "distinctId" => "user-id",
@@ -60,9 +60,9 @@ class PostHogTest extends TestCase
         );
     }
 
-    public function testEmptyArrayProperties()
+    public function testEmptyArrayProperties(): void
     {
-        $this->assertTrue(
+        self::assertTrue(
             PostHog::identify(
                 array(
                     "distinctId" => "empty-properties",
@@ -71,7 +71,7 @@ class PostHogTest extends TestCase
             )
         );
 
-        $this->assertTrue(
+        self::assertTrue(
             PostHog::capture(
                 array(
                     "distinctId" => "user-id",
@@ -82,9 +82,9 @@ class PostHogTest extends TestCase
         );
     }
 
-    public function testAlias()
+    public function testAlias(): void
     {
-        $this->assertTrue(
+        self::assertTrue(
             PostHog::alias(
                 array(
                     "alias" => "previous-id",
@@ -94,9 +94,9 @@ class PostHogTest extends TestCase
         );
     }
 
-    public function testTimestamps()
+    public function testTimestamps(): void
     {
-        $this->assertTrue(
+        self::assertTrue(
             PostHog::capture(
                 array(
                     "distinctId" => "user-id",
@@ -106,7 +106,7 @@ class PostHogTest extends TestCase
             )
         );
 
-        $this->assertTrue(
+        self::assertTrue(
             PostHog::capture(
                 array(
                     "distinctId" => "user-id",
@@ -116,7 +116,7 @@ class PostHogTest extends TestCase
             )
         );
 
-        $this->assertTrue(
+        self::assertTrue(
             PostHog::capture(
                 array(
                     "distinctId" => "user-id",
@@ -126,7 +126,7 @@ class PostHogTest extends TestCase
             )
         );
 
-        $this->assertTrue(
+        self::assertTrue(
             PostHog::capture(
                 array(
                     "distinctId" => "user-id",
@@ -136,7 +136,7 @@ class PostHogTest extends TestCase
             )
         );
 
-        $this->assertTrue(
+        self::assertTrue(
             PostHog::capture(
                 array(
                     "distinctId" => "user-id",

@@ -6,9 +6,26 @@ on:
       - "**.php"
       - "bin/posthog"
       - "phpcs.xml"
+      - "phpunit.xml"
       - ".github/workflows/php.yml"
 
 jobs:
+  phpunit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: php-actions/composer@v6
+
+      - uses: php-actions/phpunit@v3
+        with:
+          php_extensions: xdebug
+          bootstrap: vendor/autoload.php
+          configuration: phpunit.xml
+          args: --coverage-text
+        env:
+          XDEBUG_MODE: coverage
+
   phpcs:
     runs-on: ubuntu-latest
     steps:
