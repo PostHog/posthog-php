@@ -5,89 +5,102 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use PostHog\PostHog;
 
-if (in_array('--help', $argv)) {
-  print(usage());
-  exit;
+if (in_array('--help', $argv, true)) {
+    print(usage());
+    exit;
 }
 
 date_default_timezone_set('UTC');
 
-$options = getopt('', array(
-  'apiKey:',
-  'type:',
-  'host:',
-  'distinctId:',
-  'event:',
-  'properties:',
-  'alias:',
-  'debug'
-));
+$options = getopt(
+    '',
+    array(
+        'apiKey:',
+        'type:',
+        'host:',
+        'distinctId:',
+        'event:',
+        'properties:',
+        'alias:',
+        'debug'
+    )
+);
 
 if (empty($options['apiKey'])) {
-  error('apiKey flag required');
+    error('apiKey flag required');
 }
 
 PostHog::init($options['apiKey'], array('host' => $options['host'], 'debug' => array_key_exists('debug', $options)));
 
 switch ($options['type']) {
-  case 'capture':
-    PostHog::capture(array(
-      'distinctId' => $options['distinctId'],
-      'event' => $options['event'],
-      'properties' => parse_json($options['properties'])
-    ));
-    break;
+    case 'capture':
+        PostHog::capture(
+            array(
+                'distinctId' => $options['distinctId'],
+                'event' => $options['event'],
+                'properties' => parse_json($options['properties'])
+            )
+        );
+        break;
 
-  case 'identify':
-    PostHog::identify(array(
-      'distinctId' => $options['distinctId'],
-      'properties' => parse_json($options['properties'])
-    ));
-    break;
+    case 'identify':
+        PostHog::identify(
+            array(
+                'distinctId' => $options['distinctId'],
+                'properties' => parse_json($options['properties'])
+            )
+        );
+        break;
 
-  case 'alias':
-    PostHog::alias(array(
-      'distinctId' => $options['distinctId'],
-      'alias' => $options['alias']
-    ));
-    break;
+    case 'alias':
+        PostHog::alias(
+            array(
+                'distinctId' => $options['distinctId'],
+                'alias' => $options['alias']
+            )
+        );
+        break;
 
-  default:
-    error(usage());
-    break;
+    default:
+        error(usage());
+        break;
 }
 
 PostHog::flush();
 
-function usage() {
-  return "\n  Common keys:".
-         "\n    --apiKey KEY".
-         "\n    --debug".
-         "\n".
-         "\n  Usage:".
-         "\n    posthog --type capture --distinctId \"id\" --event \"event name\" --properties \"{ json: 'object' }\"".
-         "\n    posthog --type identify --distinctId \"id\" --properties \"{ json: 'object' }".
-         "\n    posthog --type alias --distinctId \"id\" --alias \"alias\"".
-         "\n\n\n";
+function usage(): string
+{
+    return "\n  Common keys:" .
+        "\n    --apiKey KEY" .
+        "\n    --debug" .
+        "\n" .
+        "\n  Usage:" .
+        "\n    posthog --type capture --distinctId \"id\" --event \"event name\" --properties \"{ json: 'object' }\"" .
+        "\n    posthog --type identify --distinctId \"id\" --properties \"{ json: 'object' }" .
+        "\n    posthog --type alias --distinctId \"id\" --alias \"alias\"" .
+        "\n\n\n";
 }
 
-function error($message) {
-  print("$message\n\n");
-  exit(1);
+function error($message)
+{
+    print("$message\n\n");
+    exit(1);
 }
 
-function parse_json($input) {
-  if (empty($input)) {
-    return null;
-  }
+function parse_json($input)
+{
+    if (empty($input)) {
+        return null;
+    }
 
-  return json_decode($input, true);
+    return json_decode($input, true);
 }
 
-function parse_timestamp($input) {
-  if (empty($input)) {
-    return null;
-  }
+function parse_timestamp($input)
+{
+    if (empty($input)) {
+        return null;
+    }
 
-  return strtotime($input);
+    return strtotime($input);
 }
