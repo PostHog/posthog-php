@@ -55,9 +55,9 @@ class HttpClient
      * @param string $path
      * @param string|null $payload
      * @param array $extraHeaders
-     * @return mixed
+     * @return HttpResponse
      */
-    public function sendRequest(string $path, string $payload, array $extraHeaders = [])
+    public function sendRequest(string $path, ?string $payload, array $extraHeaders = [])
     {
         $protocol = $this->useSsl ? "https://" : "http://";
 
@@ -67,9 +67,9 @@ class HttpClient
             // open connection
             $ch = curl_init();
 
-
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-
+            if (null !== $payload) {
+                curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+            }
 
             $headers = [];
             $headers[] = 'Content-Type: application/json';

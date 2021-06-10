@@ -59,8 +59,11 @@ class Client
         $this->consumer = new $Consumer($apiKey, $options);
         $this->personalApiKey = $options["personal_api_key"] ?? null;
         $this->httpClient = new HttpClient(
-            $this->options['host'] ?? "app.posthog.com",
-            $this->options['ssl'] ?? true
+            $options['host'] ?? "app.posthog.com",
+            $options['ssl'] ?? true,
+            10000,
+            false,
+            $options["debug"] ?? false
         );
     }
 
@@ -307,8 +310,8 @@ class Client
     private function loadFeatureFlags(): void
     {
         $response = $this->httpClient->sendRequest(
-            '/api/feature_flag/',
-            '',
+            '/api/feature_flag',
+            null,
             [
                 "Authorization: Bearer $this->personalApiKey",
             ]
