@@ -113,11 +113,11 @@ class PostHog
     }
 
     /**
-     * @param string $apiKey
+     * @param string|null $apiKey
      * @param array $options
      * @return array
      */
-    private static function overrideConfigWithEnv(string $apiKey, array $options): array
+    private static function overrideConfigWithEnv(?string $apiKey, array $options): array
     {
         // Check the env vars to see if the API key is set, if not, default to the parameter passed to init()
         $apiKey = getenv(self::ENV_API_KEY) ?: $apiKey;
