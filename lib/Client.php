@@ -342,6 +342,6 @@ class Client
         }
         $hexValueOfHash = sha1("$key.$distinctId", false);
         $integerRepresentationOfHashSubset = intval(substr($hexValueOfHash, 0, 15), 16);
-        return ($integerRepresentationOfHashSubset / 0xFFFFFFFFFFFFFFF) <= ($rolloutPercentage / 100);
+        return ($integerRepresentationOfHashSubset / self::LONG_SCALE) <= ($rolloutPercentage / 100);
     }
 }
