@@ -4,8 +4,6 @@ namespace PostHog;
 
 abstract class QueueConsumer extends Consumer
 {
-    public const ENV_HOST = "POSTHOG_HOST";
-
     protected $type = "QueueConsumer";
 
     protected $queue;
@@ -32,10 +30,8 @@ abstract class QueueConsumer extends Consumer
             $this->batch_size = $options["batch_size"];
         }
 
-        $envHost = getenv(self::ENV_HOST) ?: null;
-        $optionsHost = $options["host"] ?? null;
-        if (null !== $envHost || null !== $optionsHost) {
-            $this->host = $envHost ?? $optionsHost;
+        if (isset($options["host"])) {
+            $this->host = $options["host"];
 
             if ($this->host && preg_match("/^https?:\\/\\//i", $this->host)) {
                 $this->options['ssl'] = substr($this->host, 0, 5) == 'https';
