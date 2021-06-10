@@ -18,6 +18,8 @@ class Client
         "lib_curl" => LibCurl::class,
     ];
 
+    private const LONG_SCALE = 0xFFFFFFFFFFFFFFF;
+
     /**
      * @var string
      */
@@ -142,11 +144,9 @@ class Client
         }
 
         if ((bool) $selectedFlag['is_simple_flag']) {
-            $result = $defaultValue;
-            // TODO: implement is simple flag logic;
+            $result = $this->isSimpleFlagEnabled($key, $distinctId, $flag['rollout_percentage']);
         } else {
             $result = in_array($key, $this->fetchEnabledFeatureFlags($distinctId));
-            return $result ??  $defaultValue;
         }
 
         $this->capture([
@@ -158,7 +158,7 @@ class Client
             "event" => '$feature_flag_called',
         ]);
 
-        return $result;
+        return $result ??  $defaultValue;
     }
 
 
@@ -324,7 +324,6 @@ class Client
         }
 
         $responseBody = json_decode($response->getResponse(), true);
-
         if (null === $responseBody) {
             return;
         }
@@ -333,6 +332,16 @@ class Client
             $this->featureFlags = [];
         }
 
-        $this->featureFlags = $responseBody;
+        $this->featureFlags = $responseBody['results'];
+    }
+
+    private function isSimpleFlagEnabled(string $key, string $distinctId, int $rolloutPercentage): bool
+    {
+        if (! (bool) $rolloutPercentage) {
+            return true;
+        }
+        $hexValueOfHash = sha1("$key.$distinctId", false);
+        $integerRepresentationOfHashSubset = intval(substr($hexValueOfHash, 0, 15), 16);
+        return ($integerRepresentationOfHashSubset / 0xFFFFFFFFFFFFFFF) <= ($rolloutPercentage / 100);
     }
 }
