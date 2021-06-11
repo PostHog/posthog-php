@@ -6,7 +6,7 @@ use Exception;
 
 class PostHog
 {
-    public const VERSION = '2.0.0';
+    public const VERSION = '2.0.1';
     public const ENV_API_KEY = "POSTHOG_API_KEY";
     public const ENV_HOST = "POSTHOG_HOST";
 

@@ -1,3 +1,8 @@
+2.0.1 / 2021-06-11
+==================
+
+  * Allow for setup via environment variables POSTHOG_API_KEY and POSTHOG_HOST
+  * Make code adhere to PSR-4 and PSR-12
 
 2.0.0 / 2021-05-22
 ==================
