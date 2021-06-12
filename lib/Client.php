@@ -334,7 +334,7 @@ class Client
         $this->featureFlags = $responseBody['results'];
     }
 
-    private function isSimpleFlagEnabled(string $key, string $distinctId, int $rolloutPercentage): bool
+    private function isSimpleFlagEnabled(string $key, string $distinctId, ?int $rolloutPercentage): bool
     {
         if (! (bool) $rolloutPercentage) {
             return true;
