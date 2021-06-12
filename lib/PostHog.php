@@ -6,7 +6,9 @@ use Exception;
 
 class PostHog
 {
-    public const VERSION = '2.0.0';
+    public const VERSION = '2.0.1';
+    public const ENV_API_KEY = "POSTHOG_API_KEY";
+    public const ENV_HOST = "POSTHOG_HOST";
 
     private static $client;
 
@@ -17,9 +19,11 @@ class PostHog
      * @param Client|null $client
      * @throws Exception
      */
-    public static function init(?string $apiKey, ?array $options = [], ?Client $client = null)
+    public static function init(?string $apiKey, ?array $options = [], ?Client $client = null): void
     {
         if (null === $client) {
+            [$apiKey, $options] = self::overrideConfigWithEnv($apiKey, $options);
+
             self::assert($apiKey, "PostHog::init() requires an apiKey");
             self::$client = new Client($apiKey, $options);
         } else {
@@ -139,6 +143,25 @@ class PostHog
         self::checkClient();
 
         return self::$client->flush();
+    }
+
+    /**
+     * @param string|null $apiKey
+     * @param array $options
+     * @return array
+     */
+    private static function overrideConfigWithEnv(?string $apiKey, array $options): array
+    {
+        // Check the env vars to see if the API key is set, if not, default to the parameter passed to init()
+        $apiKey = getenv(self::ENV_API_KEY) ?: $apiKey;
+
+        // Check the env vars to see if the host is set, and override the options if it is
+        $envHost = getenv(self::ENV_HOST) ?: null;
+        if (null !== $envHost) {
+            $options["host"] = $envHost;
+        }
+
+        return [$apiKey, $options];
     }
 
     /**
