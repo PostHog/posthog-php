@@ -51,16 +51,15 @@ class Client
      *
      * @param string $apiKey
      * @param array $options array of consumer options [optional]
-     * @param string Consumer constructor to use, libcurl by default.
-     *
+     * @param HttpClient|null $httpClient
      */
-    public function __construct(string $apiKey, array $options = [])
+    public function __construct(string $apiKey, array $options = [], ?HttpClient $httpClient = null)
     {
         $this->apiKey = $apiKey;
         $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($apiKey, $options);
         $this->personalApiKey = $options["personal_api_key"] ?? null;
-        $this->httpClient = new HttpClient(
+        $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $options['host'] ?? "app.posthog.com",
             $options['ssl'] ?? true,
             10000,

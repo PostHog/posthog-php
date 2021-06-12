@@ -17,7 +17,6 @@ class ConsumerLibCurlTest extends TestCase
             [
                 "consumer" => "lib_curl",
                 "debug" => true,
-                "personal_api_key" => 'my very secret key',
             ]
         );
     }
@@ -60,15 +59,5 @@ class ConsumerLibCurlTest extends TestCase
                 )
             )
         );
-    }
-
-    public function testFetchEnabledFeatureFlags()
-    {
-        $this->assertIsArray($this->client->fetchEnabledFeatureFlags('user-id'));
-    }
-
-    public function testIsFeatureEnabled()
-    {
-        $this->assertFalse($this->client->isFeatureEnabled('having_fun', 'user-id'));
     }
 }

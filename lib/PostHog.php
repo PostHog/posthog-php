@@ -12,14 +12,19 @@ class PostHog
 
     /**
      * Initializes the default client to use. Uses the libcurl consumer by default.
-     * @param string $apiKey your project's API key
-     * @param array $options passed straight to the client
+     * @param string|null $apiKey your project's API key
+     * @param array|null $options passed straight to the client
+     * @param Client|null $client
      * @throws Exception
      */
-    public static function init(string $apiKey, array $options = [])
+    public static function init(?string $apiKey, ?array $options = [], ?Client $client = null)
     {
-        self::assert($apiKey, "PostHog::init() requires an apiKey");
-        self::$client = new Client($apiKey, $options);
+        if (null === $client) {
+            self::assert($apiKey, "PostHog::init() requires an apiKey");
+            self::$client = new Client($apiKey, $options);
+        } else {
+            self::$client = $client;
+        }
     }
 
     /**

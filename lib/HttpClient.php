@@ -57,7 +57,7 @@ class HttpClient
      * @param array $extraHeaders
      * @return HttpResponse
      */
-    public function sendRequest(string $path, ?string $payload, array $extraHeaders = [])
+    public function sendRequest(string $path, ?string $payload, array $extraHeaders = []): HttpResponse
     {
         $protocol = $this->useSsl ? "https://" : "http://";
 

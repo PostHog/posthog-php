@@ -29,7 +29,8 @@
 	},
 	"autoload-dev": {
 		"psr-4": {
-			"PostHog\\Test\\": "test/"
+			"PostHog\\Test\\": "test/",
+			"PostHog\\Test\\Assets\\": "test/assests"
 		}
 	},
 	"bin": [

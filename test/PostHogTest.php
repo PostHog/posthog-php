@@ -3,6 +3,7 @@
 namespace PostHog\Test;
 
 use PHPUnit\Framework\TestCase;
+use PostHog\Client;
 use PostHog\PostHog;
 
 class PostHogTest extends TestCase
@@ -10,10 +11,15 @@ class PostHogTest extends TestCase
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
-        PostHog::init("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", [
+        $client = new Client(
+            "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
+            [
                 "debug" => true,
                 "personal_api_key" => 'my very secret key',
-            ]);
+            ],
+            new MockedHttpClient("app.posthog.com")
+        );
+        PostHog::init(null, null, $client);
     }
 
     public function testCapture(): void
