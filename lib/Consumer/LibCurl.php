@@ -74,7 +74,8 @@ class LibCurl extends QueueConsumer
             '/batch/',
             $payload,
             [
-                "User-Agent: {$messages['library']}/{$messages['library_version']}",
+                // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
+                "User-Agent: {$messages[0]['library']}/{$messages[0]['library_version']}",
             ]
         )->getResponse();
     }
