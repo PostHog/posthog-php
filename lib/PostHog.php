@@ -71,7 +71,7 @@ class PostHog
      * @param string $key
      * @param string $distinctId
      * @param mixed $default
-     * @return boolean whether the identify call succeeded
+     * @return boolean
      * @throws Exception
      */
     public static function isFeatureEnabled(string $key, string $distinctId, $default = false): bool
