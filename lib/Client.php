@@ -30,8 +30,6 @@ class Client
      * @var Consumer
      */
     protected $consumer;
-
-    protected $featureFlags = null;
     
     /**
      * @var HttpClient
