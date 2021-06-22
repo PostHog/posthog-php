@@ -18,7 +18,6 @@ class Client
         "lib_curl" => LibCurl::class,
     ];
 
-    private const LONG_SCALE = 0xFFFFFFFFFFFFFFF;
 
     /**
      * @var string
@@ -33,12 +32,7 @@ class Client
     protected $consumer;
 
     protected $featureFlags = null;
-
-    /**
-     * @var string|null
-     */
-    private $personalApiKey;
-
+    
     /**
      * @var HttpClient
      */
@@ -58,7 +52,6 @@ class Client
         $this->apiKey = $apiKey;
         $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($apiKey, $options);
-        $this->personalApiKey = $options["personal_api_key"] ?? null;
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $options['host'] ?? "app.posthog.com",
             $options['ssl'] ?? true,
@@ -68,10 +61,6 @@ class Client
         );
     }
 
-    public function __destruct()
-    {
-        $this->consumer->__destruct();
-    }
 
     /**
      * Captures a user action
@@ -117,36 +106,9 @@ class Client
      */
     public function isFeatureEnabled(string $key, string $distinctId, $defaultValue = false): bool
     {
-        if (null === $this->personalApiKey) {
-            throw new Exception(
-                "To use feature flags, please set a personal_api_key. 
-                For More information: https://posthog.com/docs/api/overview"
-            );
-        }
+        $flags = $this->fetchEnabledFeatureFlags($distinctId);
 
-        if (null === $this->featureFlags) {
-            $this->loadFeatureFlags();
-        }
-
-        if (null === $this->featureFlags) { // if loading failed.
-            return $defaultValue;
-        }
-
-        $selectedFlag = null;
-        foreach ($this->featureFlags as $flag) {
-            if ($flag['key'] === $key) {
-                $selectedFlag = $flag;
-            }
-        }
-        if (null === $selectedFlag) {
-            return $defaultValue;
-        }
-
-        if ((bool) $selectedFlag['is_simple_flag']) {
-            $result = $this->isSimpleFlagEnabled($key, $distinctId, $flag['rollout_percentage']);
-        } else {
-            $result = in_array($key, $this->fetchEnabledFeatureFlags($distinctId));
-        }
+        $result = in_array($key, $flags);
 
         $this->capture([
             "properties" => [
@@ -161,7 +123,7 @@ class Client
     }
 
 
-    /**
+    /** 
      * @param string $distinctId
      * @return array
      * @throws Exception
@@ -306,41 +268,4 @@ class Client
         return $msg;
     }
 
-    private function loadFeatureFlags(): void
-    {
-        $response = $this->httpClient->sendRequest(
-            '/api/feature_flag',
-            null,
-            [
-                "Authorization: Bearer $this->personalApiKey",
-            ]
-        );
-        if (401 === $response->getResponseCode()) {
-            throw new Exception(
-                "Your personalApiKey is invalid. Are you sure you're not using your Project API key?
-                 More information: https://posthog.com/docs/api/overview"
-            );
-        }
-
-        $responseBody = json_decode($response->getResponse(), true);
-        if (null === $responseBody) {
-            return;
-        }
-
-        if (empty($responseBody)) {
-            $this->featureFlags = [];
-        }
-
-        $this->featureFlags = $responseBody['results'];
-    }
-
-    private function isSimpleFlagEnabled(string $key, string $distinctId, ?int $rolloutPercentage): bool
-    {
-        if (! (bool) $rolloutPercentage) {
-            return true;
-        }
-        $hexValueOfHash = sha1("$key.$distinctId", false);
-        $integerRepresentationOfHashSubset = intval(substr($hexValueOfHash, 0, 15), 16);
-        return ($integerRepresentationOfHashSubset / self::LONG_SCALE) <= ($rolloutPercentage / 100);
-    }
 }

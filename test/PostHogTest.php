@@ -15,8 +15,7 @@ class PostHogTest extends TestCase
         $client = new Client(
             "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
             [
-                "debug" => true,
-                "personal_api_key" => 'my very secret key',
+                "debug" => true
             ],
             new MockedHttpClient("app.posthog.com")
         );
@@ -76,11 +75,6 @@ class PostHogTest extends TestCase
     public function testIsFeatureEnabled()
     {
         $this->assertFalse(PostHog::isFeatureEnabled('having_fun', 'user-id'));
-    }
-
-    public function testIsFeatureEnabledWithSimpleFlag()
-    {
-        $this->assertTrue(PostHog::isFeatureEnabled('simpleFlag', 'user-id'));
     }
 
     public function testFetchEnabledFeatureFlags()
