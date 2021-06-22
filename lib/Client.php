@@ -56,9 +56,13 @@ class Client
             10000,
             false,
             $options["debug"] ?? false
-        );
+        );   
     }
 
+    public function __destruct()
+    {
+        $this->consumer->__destruct();
+    }
 
     /**
      * Captures a user action
