@@ -149,7 +149,7 @@ class PostHog
 
     private static function cleanHost(?string $host): string
     {
-        if (null == $host) {
+        if (!isset($host)) {
             return $host;
         }
         // remove protocol
