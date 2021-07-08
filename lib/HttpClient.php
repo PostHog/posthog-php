@@ -122,7 +122,8 @@ class HttpClient
     private function handleError($code, $message)
     {
         if (null !== $this->errorHandler) {
-            $this->errorHandler($code, $message);
+            $handler = $this->errorHandler;
+            $handler($code, $message);
         }
 
         if ($this->debug) {
