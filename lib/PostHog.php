@@ -22,7 +22,9 @@ class PostHog
     public static function init(?string $apiKey, ?array $options = [], ?Client $client = null): void
     {
         if (null === $client) {
-            [$apiKey, $options] = self::overrideConfigWithEnv($apiKey, $options);
+            $apiKey = $apiKey ?: getenv(self::ENV_API_KEY);
+            $host = $options["host"] ?: getenv(self::ENV_HOST);
+            $options["host"] = self::cleanHost($host);
 
             self::assert($apiKey, "PostHog::init() requires an apiKey");
             self::$client = new Client($apiKey, $options);
@@ -145,22 +147,21 @@ class PostHog
         return self::$client->flush();
     }
 
-    /**
-     * @param string|null $apiKey
-     * @param array $options
-     * @return array
-     */
-    private static function overrideConfigWithEnv(?string $apiKey, array $options): array
+    private static function cleanHost(string $host): string
     {
-        $apiKey = $apiKey ?: getenv(self::ENV_API_KEY);
-
-        // Check the env vars to see if the host is set, and override the options if it is
-        $envHost = getenv(self::ENV_HOST) ?: null;
-        if (null !== $envHost) {
-            $options["host"] = $envHost;
+        // remove protocol
+        if (substr($host, 0, 8) === "https://") {
+            $host = str_replace('https://','', $host);
+        } elseif (substr($host, 0, 7) === "http://") {
+            $host = str_replace('http://','', $host);
         }
 
-        return [$apiKey, $options];
+        // remove trailing slash
+        if (substr($host, strlen($host)-1, 1) === "/") {
+            $host = substr($host, 0, strlen($host)-1);
+        }
+
+        return $host;
     }
 
     /**
