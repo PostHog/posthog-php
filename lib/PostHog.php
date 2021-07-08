@@ -147,8 +147,11 @@ class PostHog
         return self::$client->flush();
     }
 
-    private static function cleanHost(string $host): string
+    private static function cleanHost(?string $host): string
     {
+        if (null == $host) {
+            return $host;
+        }
         // remove protocol
         if (substr($host, 0, 8) === "https://") {
             $host = str_replace('https://','', $host);
