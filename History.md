@@ -1,4 +1,12 @@
 
+2.0.3 / 2021-07-08
+==================
+
+  * Merge pull request #21 from joesaunderson/bugfix/optional-apikey
+  * API key is optional
+  * Merge pull request #20 from imhmdb/patch-1
+  * Fix calling error handler Closure function stored in class properties
+
 2.0.2 / 2021-07-08
 ==================
 
