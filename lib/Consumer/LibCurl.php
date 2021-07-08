@@ -2,11 +2,16 @@
 
 namespace PostHog\Consumer;
 
+use PostHog\HttpClient;
 use PostHog\QueueConsumer;
 
 class LibCurl extends QueueConsumer
 {
     protected $type = "LibCurl";
+    /**
+     * @var HttpClient
+     */
+    private $httpClient;
 
     /**
      * Creates a new queued libcurl consumer
@@ -16,9 +21,17 @@ class LibCurl extends QueueConsumer
      *     number   "max_queue_size" - the max size of messages to enqueue
      *     number   "batch_size" - how many messages to send in a single request
      */
-    public function __construct($apiKey, $options = array())
+    public function __construct($apiKey, $options = [])
     {
         parent::__construct($apiKey, $options);
+        $this->httpClient = new HttpClient(
+            $this->host,
+            $this->ssl(),
+            $this->maximum_backoff_duration,
+            $this->compress_request,
+            $this->debug(),
+            $this->options['error_handler'] ?? null
+        );
     }
 
     /**
@@ -42,7 +55,6 @@ class LibCurl extends QueueConsumer
     {
         $body = $this->payload($messages);
         $payload = json_encode($body);
-        $apiKey = $this->apiKey;
 
         // Verify message size is below than 32KB
         if (strlen($payload) >= 32 * 1024) {
@@ -58,79 +70,13 @@ class LibCurl extends QueueConsumer
             $payload = gzencode($payload);
         }
 
-        $protocol = $this->ssl() ? "https://" : "http://";
-        if ($this->host) {
-            $host = $this->host;
-        } else {
-            $host = "t.posthog.com";
-        }
-        $path = "/batch/";
-        $url = $protocol . $host . $path;
-
-        $backoff = 100;     // Set initial waiting time to 100ms
-
-        while ($backoff < $this->maximum_backoff_duration) {
-            $start_time = microtime(true);
-
-            // open connection
-            $ch = curl_init();
-
-            // set the url, number of POST vars, POST data
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
-
-            // set variables for headers
-            $header = array();
-            $header[] = 'Content-Type: application/json';
-
-            if ($this->compress_request) {
-                $header[] = 'Content-Encoding: gzip';
-            }
-
-            // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
-            $libName = $messages[0]['library'];
-            $libVersion = $messages[0]['library_version'];
-            $header[] = "User-Agent: ${libName}/${libVersion}";
-
-            curl_setopt($ch, CURLOPT_HTTPHEADER, $header);
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-            // retry failed requests just once to diminish impact on performance
-            $httpResponse = $this->executePost($ch);
-
-            //close connection
-            curl_close($ch);
-
-            $elapsed_time = microtime(true) - $start_time;
-
-            if (200 != $httpResponse) {
-                // log error
-                $this->handleError($ch, $httpResponse);
-
-                if (($httpResponse >= 500 && $httpResponse <= 600) || 429 == $httpResponse) {
-                    // If status code is greater than 500 and less than 600, it indicates server error
-                    // Error code 429 indicates rate limited.
-                    // Retry uploading in these cases.
-                    usleep($backoff * 1000);
-                    $backoff *= 2;
-                } elseif ($httpResponse >= 400) {
-                    break;
-                } elseif ($httpResponse == 0) {
-                    break;
-                }
-            } else {
-                break;  // no error
-            }
-        }
-
-        return $httpResponse;
-    }
-
-    public function executePost($ch)
-    {
-        curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-
-        return $httpCode;
+        return $this->httpClient->sendRequest(
+            '/batch/',
+            $payload,
+            [
+                // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
+                "User-Agent: {$messages[0]['library']}/{$messages[0]['library_version']}",
+            ]
+        )->getResponse();
     }
 }

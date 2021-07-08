@@ -24,10 +24,6 @@ class Socket extends QueueConsumer
             $options["timeout"] = 5;
         }
 
-        if (!isset($options["host"])) {
-            $options["host"] = "t.posthog.com";
-        }
-
         parent::__construct($apiKey, $options);
     }
 
@@ -52,7 +48,7 @@ class Socket extends QueueConsumer
         $payload = $this->payload($batch);
         $payload = json_encode($payload);
 
-        $body = $this->createBody($this->options["host"], $payload);
+        $body = $this->createBody($this->host, $payload);
         if (false === $body) {
             return false;
         }
@@ -67,7 +63,6 @@ class Socket extends QueueConsumer
         }
 
         $protocol = $this->ssl() ? "ssl" : "tcp";
-        $host = $this->options["host"];
         $port = $this->ssl() ? 443 : 80;
         $timeout = $this->options["timeout"];
 
@@ -75,7 +70,7 @@ class Socket extends QueueConsumer
             // Open our socket to the API Server.
             // Since we're try catch'ing prevent PHP logs.
             $socket = @pfsockopen(
-                $protocol . "://" . $host,
+                $protocol . "://" . $this->host,
                 $port,
                 $errno,
                 $errstr,

@@ -4,6 +4,7 @@ namespace PostHog\Test;
 
 use Exception;
 use PHPUnit\Framework\TestCase;
+use PostHog\Client;
 use PostHog\PostHog;
 
 class PostHogTest extends TestCase
@@ -11,7 +12,14 @@ class PostHogTest extends TestCase
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
-        PostHog::init("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", array("debug" => true));
+        $client = new Client(
+            "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
+            [
+                "debug" => true
+            ],
+            new MockedHttpClient("app.posthog.com")
+        );
+        PostHog::init(null, null, $client);
     }
 
     public function testInitWithParamApiKey(): void
@@ -62,6 +70,16 @@ class PostHogTest extends TestCase
                 )
             )
         );
+    }
+
+    public function testIsFeatureEnabled()
+    {
+        $this->assertFalse(PostHog::isFeatureEnabled('having_fun', 'user-id'));
+    }
+
+    public function testFetchEnabledFeatureFlags()
+    {
+        $this->assertIsArray(PostHog::fetchEnabledFeatureFlags('user-id'));
     }
 
     public function testEmptyProperties(): void

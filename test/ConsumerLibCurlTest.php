@@ -14,10 +14,10 @@ class ConsumerLibCurlTest extends TestCase
         date_default_timezone_set("UTC");
         $this->client = new Client(
             "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
-            array(
+            [
                 "consumer" => "lib_curl",
                 "debug" => true,
-            )
+            ]
         );
     }
 

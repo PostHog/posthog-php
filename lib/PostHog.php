@@ -15,15 +15,20 @@ class PostHog
     /**
      * Initializes the default client to use. Uses the libcurl consumer by default.
      * @param string|null $apiKey your project's API key
-     * @param array $options passed straight to the client
+     * @param array|null $options passed straight to the client
+     * @param Client|null $client
      * @throws Exception
      */
-    public static function init(string $apiKey = null, array $options = []): void
+    public static function init(?string $apiKey, ?array $options = [], ?Client $client = null): void
     {
-        [$apiKey, $options] = self::overrideConfigWithEnv($apiKey, $options);
+        if (null === $client) {
+            [$apiKey, $options] = self::overrideConfigWithEnv($apiKey, $options);
 
-        self::assert($apiKey, "PostHog::init() requires an apiKey");
-        self::$client = new Client($apiKey, $options);
+            self::assert($apiKey, "PostHog::init() requires an apiKey");
+            self::$client = new Client($apiKey, $options);
+        } else {
+            self::$client = $client;
+        }
     }
 
     /**
@@ -57,6 +62,34 @@ class PostHog
         self::validate($message, "identify");
 
         return self::$client->identify($message);
+    }
+
+
+    /**
+     * decide if the feature flag is enabled for this distinct id.
+     *
+     * @param string $key
+     * @param string $distinctId
+     * @param mixed $default
+     * @return boolean
+     * @throws Exception
+     */
+    public static function isFeatureEnabled(string $key, string $distinctId, $default = false): bool
+    {
+        self::checkClient();
+        return self::$client->isFeatureEnabled($key, $distinctId, $default);
+    }
+
+    /**
+     *
+     * @param string $distinctId
+     * @return array
+     * @throws Exception
+     */
+    public static function fetchEnabledFeatureFlags(string $distinctId): array
+    {
+        self::checkClient();
+        return self::$client->fetchEnabledFeatureFlags($distinctId);
     }
 
     /**
@@ -119,8 +152,7 @@ class PostHog
      */
     private static function overrideConfigWithEnv(?string $apiKey, array $options): array
     {
-        // Check the env vars to see if the API key is set, if not, default to the parameter passed to init()
-        $apiKey = getenv(self::ENV_API_KEY) ?: $apiKey;
+        $apiKey = $apiKey ?: getenv(self::ENV_API_KEY);
 
         // Check the env vars to see if the host is set, and override the options if it is
         $envHost = getenv(self::ENV_HOST) ?: null;

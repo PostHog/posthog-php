@@ -2,6 +2,7 @@
 
 namespace PostHog;
 
+use Exception;
 use PostHog\Consumer\File;
 use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
@@ -10,12 +11,31 @@ use PostHog\Consumer\Socket;
 class Client
 {
 
+    private const CONSUMERS = [
+        "socket" => Socket::class,
+        "file" => File::class,
+        "fork_curl" => ForkCurl::class,
+        "lib_curl" => LibCurl::class,
+    ];
+
+
+    /**
+     * @var string
+     */
+    private $apiKey;
+
     /**
      * Consumer object handles queueing and bundling requests to PostHog.
      *
      * @var Consumer
      */
     protected $consumer;
+    
+    /**
+     * @var HttpClient
+     */
+    private $httpClient;
+
 
     /**
      * Create a new posthog object with your app's API key
@@ -23,22 +43,20 @@ class Client
      *
      * @param string $apiKey
      * @param array $options array of consumer options [optional]
-     * @param string Consumer constructor to use, libcurl by default.
-     *
+     * @param HttpClient|null $httpClient
      */
-    public function __construct($apiKey, $options = array())
+    public function __construct(string $apiKey, array $options = [], ?HttpClient $httpClient = null)
     {
-        $consumers = array(
-            "socket" => Socket::class,
-            "file" => File::class,
-            "fork_curl" => ForkCurl::class,
-            "lib_curl" => LibCurl::class,
-        );
-
-        // Use our socket libcurl by default
-        $consumer_type = $options["consumer"] ?? "lib_curl";
-        $Consumer = $consumers[$consumer_type];
+        $this->apiKey = $apiKey;
+        $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($apiKey, $options);
+        $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
+            $options['host'] ?? "app.posthog.com",
+            $options['ssl'] ?? true,
+            10000,
+            false,
+            $options["debug"] ?? false
+        );   
     }
 
     public function __destruct()
@@ -77,6 +95,54 @@ class Client
         $message["event"] = '$identify';
 
         return $this->consumer->identify($message);
+    }
+
+    /**
+     * decide if the feature flag is enabled for this distinct id.
+     *
+     * @param string $key
+     * @param string $distinctId
+     * @param mixed $defaultValue
+     * @return bool
+     * @throws Exception
+     */
+    public function isFeatureEnabled(string $key, string $distinctId, $defaultValue = false): bool
+    {
+        $flags = $this->fetchEnabledFeatureFlags($distinctId);
+
+        $result = in_array($key, $flags);
+
+        $this->capture([
+            "properties" => [
+                '$feature_flag' => $key,
+                '$feature_flag_response' => $result,
+            ],
+            "distinct_id" => $distinctId,
+            "event" => '$feature_flag_called',
+        ]);
+
+        return $result ??  $defaultValue;
+    }
+
+
+    /** 
+     * @param string $distinctId
+     * @return array
+     * @throws Exception
+     */
+    public function fetchEnabledFeatureFlags(string $distinctId): array
+    {
+        return json_decode($this->decide($distinctId), true)['featureFlags'] ?? [];
+    }
+
+    public function decide(string $distinctId)
+    {
+        $payload = json_encode([
+            'api_key' => $this->apiKey,
+            'distinct_id' => $distinctId,
+        ]);
+
+        return $this->httpClient->sendRequest('/decide/', $payload)->getResponse();
     }
 
     /**
@@ -203,4 +269,5 @@ class Client
 
         return $msg;
     }
+
 }

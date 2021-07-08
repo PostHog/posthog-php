@@ -47,13 +47,9 @@ class ForkCurl extends QueueConsumer
         $payload = escapeshellarg($payload);
 
         $protocol = $this->ssl() ? "https://" : "http://";
-        if ($this->host) {
-            $host = $this->host;
-        } else {
-            $host = "t.posthog.com";
-        }
+
         $path = "/batch/";
-        $url = $protocol . $host . $path;
+        $url = $protocol . $this->host . $path;
 
         $cmd = "curl -X POST -H 'Content-Type: application/json'";
 
