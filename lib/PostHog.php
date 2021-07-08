@@ -23,8 +23,16 @@ class PostHog
     {
         if (null === $client) {
             $apiKey = $apiKey ?: getenv(self::ENV_API_KEY);
-            $host = array_key_exists("host", $options) ? $options["host"] : getenv(self::ENV_HOST);
-            $options["host"] = self::cleanHost($host);
+
+
+            if (array_key_exists("host", $options)) {
+                $options["host"] = self::cleanHost($options["host"]);
+            } else  {
+                $envHost = getenv(self::ENV_HOST) ?: null;
+                if (null !== $envHost) {
+                    $options["host"] = self::cleanHost(getenv(self::ENV_HOST));
+                }
+            }
 
             self::assert($apiKey, "PostHog::init() requires an apiKey");
             self::$client = new Client($apiKey, $options);
