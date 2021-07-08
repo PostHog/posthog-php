@@ -19,7 +19,7 @@ class PostHog
      * @param Client|null $client
      * @throws Exception
      */
-    public static function init(?string $apiKey, ?array $options = [], ?Client $client = null): void
+    public static function init(?string $apiKey = null, ?array $options = [], ?Client $client = null): void
     {
         if (null === $client) {
             $apiKey = $apiKey ?: getenv(self::ENV_API_KEY);
@@ -162,14 +162,14 @@ class PostHog
         }
         // remove protocol
         if (substr($host, 0, 8) === "https://") {
-            $host = str_replace('https://','', $host);
+            $host = str_replace('https://', '', $host);
         } elseif (substr($host, 0, 7) === "http://") {
-            $host = str_replace('http://','', $host);
+            $host = str_replace('http://', '', $host);
         }
 
         // remove trailing slash
-        if (substr($host, strlen($host)-1, 1) === "/") {
-            $host = substr($host, 0, strlen($host)-1);
+        if (substr($host, strlen($host) - 1, 1) === "/") {
+            $host = substr($host, 0, strlen($host) - 1);
         }
 
         return $host;
