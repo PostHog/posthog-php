@@ -152,7 +152,6 @@ class PostHog
      */
     private static function overrideConfigWithEnv(?string $apiKey, array $options): array
     {
-        // Check the env vars to see if the API key is set, if not, default to the parameter passed to init()
         $apiKey = $apiKey ?: getenv(self::ENV_API_KEY);
 
         // Check the env vars to see if the host is set, and override the options if it is
