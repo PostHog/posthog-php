@@ -6,7 +6,7 @@ use Exception;
 
 class PostHog
 {
-    public const VERSION = '2.0.2';
+    public const VERSION = '2.0.4';
     public const ENV_API_KEY = "POSTHOG_API_KEY";
     public const ENV_HOST = "POSTHOG_HOST";
 
@@ -27,7 +27,7 @@ class PostHog
 
             if (array_key_exists("host", $options)) {
                 $options["host"] = self::cleanHost($options["host"]);
-            } else  {
+            } else {
                 $envHost = getenv(self::ENV_HOST) ?: null;
                 if (null !== $envHost) {
                     $options["host"] = self::cleanHost(getenv(self::ENV_HOST));
