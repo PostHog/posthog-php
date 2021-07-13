@@ -1,4 +1,15 @@
 
+2.0.5 / 2021-07-13
+==================
+
+  * Merge pull request #23 from joesaunderson/bugfix/send-user-agent
+  * Send user agent with decide request
+
+2.0.5 / 2021-07-13
+==================
+
+
+
 2.0.4 / 2021-07-08
 ==================
 
