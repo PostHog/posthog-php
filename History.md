@@ -1,4 +1,10 @@
 
+2.0.6 / 2021-10-05
+==================
+
+  * Separate timeout from maxBackoffDuration
+  * Set the timeout config for HttpClient curl
+
 2.0.5 / 2021-07-13
 ==================
 
