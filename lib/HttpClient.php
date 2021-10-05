@@ -80,6 +80,8 @@ class HttpClient
             curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge($headers, $extraHeaders));
             curl_setopt($ch, CURLOPT_URL, $protocol . $this->host . $path);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT_MS, $this->maximumBackoffDuration);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, $this->maximumBackoffDuration);
 
             // retry failed requests just once to diminish impact on performance
             $httpResponse = $this->executePost($ch);
