@@ -35,13 +35,19 @@ class HttpClient
      */
     private $debug;
 
+    /**
+     * @var int The maximum number of milliseconds to allow cURL functions to execute / wait.
+     */
+    private $curlTimeoutMilliseconds;
+
     public function __construct(
         string $host,
         bool $useSsl = true,
         int $maximumBackoffDuration = 10000,
         bool $compressRequests = false,
         bool $debug = false,
-        ?Closure $errorHandler = null
+        ?Closure $errorHandler = null,
+        int $curlTimeoutMilliseconds = 10000
     ) {
         $this->host = $host;
         $this->useSsl = $useSsl;
@@ -49,6 +55,7 @@ class HttpClient
         $this->compressRequests = $compressRequests;
         $this->debug = $debug;
         $this->errorHandler = $errorHandler;
+        $this->curlTimeoutMilliseconds = $curlTimeoutMilliseconds;
     }
 
     /**
@@ -80,6 +87,8 @@ class HttpClient
             curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge($headers, $extraHeaders));
             curl_setopt($ch, CURLOPT_URL, $protocol . $this->host . $path);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT_MS, $this->curlTimeoutMilliseconds);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, $this->curlTimeoutMilliseconds);
 
             // retry failed requests just once to diminish impact on performance
             $httpResponse = $this->executePost($ch);
