@@ -30,7 +30,7 @@ class Client
      * @var Consumer
      */
     protected $consumer;
-    
+
     /**
      * @var HttpClient
      */
@@ -56,7 +56,7 @@ class Client
             10000,
             false,
             $options["debug"] ?? false
-        );   
+        );
     }
 
     public function __destruct()
@@ -276,5 +276,4 @@ class Client
 
         return $msg;
     }
-
 }
