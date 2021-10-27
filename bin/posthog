@@ -85,8 +85,8 @@ function usage(): string
         "\n    --no-ssl" .
         "\n" .
         "\n  Usage:" .
-        "\n    posthog --type capture --distinctId \"id\" --event \"event name\" --properties \"{ json: 'object' }\"" .
-        "\n    posthog --type identify --distinctId \"id\" --properties \"{ json: 'object' }" .
+        "\n    posthog --type capture --distinctId \"id\" --event \"event name\" --properties '{ \"json\": \"object\" }'" .
+        "\n    posthog --type identify --distinctId \"id\" --properties '{ \"json\": \"object\" }'" .
         "\n    posthog --type alias --distinctId \"id\" --alias \"alias\"" .
         "\n\n\n";
 }
