@@ -22,6 +22,7 @@ $options = getopt(
         'event:',
         'properties:',
         'alias:',
+        'no-ssl',
         'debug'
     )
 );
@@ -30,7 +31,14 @@ if (empty($options['apiKey'])) {
     error('apiKey flag required');
 }
 
-PostHog::init($options['apiKey'], array('host' => $options['host'], 'debug' => array_key_exists('debug', $options)));
+PostHog::init(
+    $options['apiKey'],
+    array(
+        'host' => $options['host'],
+        'debug' => array_key_exists('debug', $options),
+        'ssl' => !array_key_exists('no-ssl', $options)
+    )
+);
 
 switch ($options['type']) {
     case 'capture':
@@ -72,7 +80,9 @@ function usage(): string
 {
     return "\n  Common keys:" .
         "\n    --apiKey KEY" .
+        "\n    --host HOST" .
         "\n    --debug" .
+        "\n    --no-ssl" .
         "\n" .
         "\n  Usage:" .
         "\n    posthog --type capture --distinctId \"id\" --event \"event name\" --properties \"{ json: 'object' }\"" .
