@@ -74,6 +74,34 @@ class PostHog
         return self::$client->identify($message);
     }
 
+    /**
+     * Adds properties to a group.
+     *
+     * @param array $message Must contain keys `groupType`, `groupKey`, `properties`
+     * @return boolean whether the groupIdentify call succeeded
+     * @throws Exception
+     */
+    public static function groupIdentify(array $message)
+    {
+        self::assert(!empty($message["groupType"]), "PostHog::groupIdentify() expects a groupType");
+        self::assert(!empty($message["groupKey"]), "PostHog::groupIdentify() expects a groupKey");
+
+        if (!isset($message["properties"])) {
+            $message["properties"] = array();
+        }
+
+        $msg = array(
+            "event" => "\$groupidentify",
+            "distinctId" => "\${$message['groupType']}_{$message['groupKey']}",
+            "properties" => array(
+                "\$group_type" => $message["groupType"],
+                "\$group_key" => $message["groupKey"],
+                "\$group_set" => $message["properties"],
+            )
+        );
+
+        return self::capture($msg);
+    }
 
     /**
      * decide if the feature flag is enabled for this distinct id.
