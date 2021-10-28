@@ -188,4 +188,37 @@ class PostHogTest extends TestCase
             )
         );
     }
+
+    public function testGroupIdentify(): void
+    {
+        self::assertTrue(
+            PostHog::groupIdentify(
+                array(
+                    "groupType" => "company",
+                    "groupKey" => "id:5",
+                    "properties" => array(
+                        "foo" => "bar"
+                    )
+                )
+            )
+        );
+
+        self::assertTrue(
+            PostHog::groupIdentify(
+                array(
+                    "groupType" => "company",
+                    "groupKey" => "id:5",
+                )
+            )
+        );
+    }
+
+    public function testGroupIdentifyValidation(): void
+    {
+        try {
+            Posthog::groupIdentify(array());
+        } catch (Exception $e) {
+            $this->assertEquals("PostHog::groupIdentify() expects a groupType", $e->getMessage());
+        }
+    }
 }
