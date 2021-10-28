@@ -26,7 +26,7 @@ lint: dependencies
 
 release:
 	@printf "releasing ${VERSION}..."
-	@sed -E -i '' -e "s/(public const VERSION =).+/\1 '${VERSION}';/" ./lib/PostHog.php
+	@sed -E -e "s/(public const VERSION =).+/\1 '${VERSION}';/" ./lib/PostHog.php
 	@node -e "var fs = require('fs'), pkg = require('./composer'); pkg.version = '${VERSION}'; fs.writeFileSync('./composer.json', JSON.stringify(pkg, null, '\t'));"
 	@git changelog -t ${VERSION}
 	@git release ${VERSION}

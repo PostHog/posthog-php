@@ -1,4 +1,11 @@
 
+2.1.0 / 2021-10-28
+==================
+
+  * Add basic group analytics support
+  * Fix bin/posthog help text
+  * Allow bypassing ssl in bin/ command
+
 2.0.6 / 2021-10-05
 ==================
 
