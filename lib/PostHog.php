@@ -112,10 +112,14 @@ class PostHog
      * @return boolean
      * @throws Exception
      */
-    public static function isFeatureEnabled(string $key, string $distinctId, $default = false): bool
-    {
+    public static function isFeatureEnabled(
+        string $key,
+        string $distinctId,
+        $default = false,
+        array $groups = array()
+    ): bool {
         self::checkClient();
-        return self::$client->isFeatureEnabled($key, $distinctId, $default);
+        return self::$client->isFeatureEnabled($key, $distinctId, $default, $groups);
     }
 
     /**
@@ -124,10 +128,10 @@ class PostHog
      * @return array
      * @throws Exception
      */
-    public static function fetchEnabledFeatureFlags(string $distinctId): array
+    public static function fetchEnabledFeatureFlags(string $distinctId, array $groups = array()): array
     {
         self::checkClient();
-        return self::$client->fetchEnabledFeatureFlags($distinctId);
+        return self::$client->fetchEnabledFeatureFlags($distinctId, $groups);
     }
 
     /**
