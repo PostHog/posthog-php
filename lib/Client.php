@@ -121,7 +121,10 @@ class Client
             "event" => '$feature_flag_called',
         ]);
 
-        return $result ??  $defaultValue;
+        if ($result) {
+            return true;
+        }
+        return $defaultValue;
     }
 
 

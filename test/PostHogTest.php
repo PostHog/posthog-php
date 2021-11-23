@@ -77,6 +77,11 @@ class PostHogTest extends TestCase
         $this->assertFalse(PostHog::isFeatureEnabled('having_fun', 'user-id'));
     }
 
+    public function testIsFeatureEnabledDefault()
+    {
+        $this->assertTrue(PostHog::isFeatureEnabled('having_fun', 'user-id', 77));
+    }
+
     public function testFetchEnabledFeatureFlags()
     {
         $this->assertIsArray(PostHog::fetchEnabledFeatureFlags('user-id'));
