@@ -103,12 +103,17 @@ class Client
      * @param string $key
      * @param string $distinctId
      * @param mixed $defaultValue
+     * @param array $groups
      * @return bool
      * @throws Exception
      */
-    public function isFeatureEnabled(string $key, string $distinctId, $defaultValue = false): bool
-    {
-        $flags = $this->fetchEnabledFeatureFlags($distinctId);
+    public function isFeatureEnabled(
+        string $key,
+        string $distinctId,
+        $defaultValue = false,
+        array $groups = array()
+    ): bool {
+        $flags = $this->fetchEnabledFeatureFlags($distinctId, $groups);
 
         $result = in_array($key, $flags);
 
@@ -121,30 +126,38 @@ class Client
             "event" => '$feature_flag_called',
         ]);
 
-        return $result ??  $defaultValue;
+        if ($result) {
+            return true;
+        }
+        return $defaultValue;
     }
 
 
     /**
      * @param string $distinctId
-     * @return array
+     * @param array $groups
+     * @return array of enabled feature flags
      * @throws Exception
      */
-    public function fetchEnabledFeatureFlags(string $distinctId): array
+    public function fetchEnabledFeatureFlags(string $distinctId, array $groups = array()): array
     {
-        return json_decode($this->decide($distinctId), true)['featureFlags'] ?? [];
+        return json_decode($this->decide($distinctId, $groups), true)['featureFlags'] ?? [];
     }
 
-    public function decide(string $distinctId)
+    public function decide(string $distinctId, array $groups = array())
     {
-        $payload = json_encode([
+        $payload = array(
             'api_key' => $this->apiKey,
             'distinct_id' => $distinctId,
-        ]);
+        );
+
+        if (!empty($groups)) {
+            $payload["groups"] = $groups;
+        }
 
         return $this->httpClient->sendRequest(
             '/decide/',
-            $payload,
+            json_encode($payload),
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
                 "User-Agent: posthog-php/" . PostHog::VERSION,

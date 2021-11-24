@@ -6,20 +6,22 @@ use Exception;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\PostHog;
+use PostHog\Test\Assets\MockedResponses;
 
 class PostHogTest extends TestCase
 {
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
-        $client = new Client(
-            "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
+        $this->http_client = new MockedHttpClient("app.posthog.com");
+        $this->client = new Client(
+            "test-key",
             [
                 "debug" => true
             ],
-            new MockedHttpClient("app.posthog.com")
+            $this->http_client
         );
-        PostHog::init(null, null, $client);
+        PostHog::init(null, null, $this->client);
     }
 
     public function testInitWithParamApiKey(): void
@@ -32,7 +34,7 @@ class PostHogTest extends TestCase
     {
         $this->expectNotToPerformAssertions();
         putenv(PostHog::ENV_API_KEY . "=BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg");
-        PostHog::init(null, array("degug" => true));
+        PostHog::init(null, array("debug" => true));
 
         // Clear the environment variable
         putenv(PostHog::ENV_API_KEY);
@@ -75,6 +77,35 @@ class PostHogTest extends TestCase
     public function testIsFeatureEnabled()
     {
         $this->assertFalse(PostHog::isFeatureEnabled('having_fun', 'user-id'));
+        $this->assertEquals(
+            $this->http_client->calls,
+            array(
+                0 => array(
+                    "path" => "/decide/",
+                    "payload" => '{"api_key":"test-key","distinct_id":"user-id"}',
+                )
+            )
+        );
+    }
+
+    public function testIsFeatureEnabledDefault()
+    {
+        $this->assertTrue(PostHog::isFeatureEnabled('having_fun', 'user-id', true));
+    }
+
+    public function testIsFeatureEnabledGroups()
+    {
+        $this->assertFalse(PostHog::isFeatureEnabled('having_fun', 'user-id', false, array("company" => "id:5")));
+
+        $this->assertEquals(
+            $this->http_client->calls,
+            array(
+                0 => array(
+                    "path" => "/decide/",
+                    "payload" => '{"api_key":"test-key","distinct_id":"user-id","groups":{"company":"id:5"}}',
+                )
+            )
+        );
     }
 
     public function testFetchEnabledFeatureFlags()
