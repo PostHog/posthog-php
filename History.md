@@ -1,4 +1,18 @@
 
+2.1.1 / 2022-01-21
+==================
+
+  * more sensible default timeout for requests
+  * Merge pull request #29 from PostHog/group-analytics-flags
+  * Add groups feature flags support
+  * Test default behavior
+  * Release 2.1.0
+  * Merge pull request #26 from PostHog/group-analytics-support
+  * Add basic group analytics support
+  * Fix bin/posthog help text
+  * Allow bypassing ssl in bin/ command
+  * Solve linter issues
+
 2.1.0 / 2021-10-28
 ==================
 
