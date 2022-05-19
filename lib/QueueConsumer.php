@@ -30,6 +30,10 @@ abstract class QueueConsumer extends Consumer
             $this->batch_size = $options["batch_size"];
         }
 
+        if (isset($options["maximum_backoff_duration"])) {
+            $this->maximum_backoff_duration = (int) $options["maximum_backoff_duration"];
+        }
+
         if (isset($options["host"])) {
             $this->host = $options["host"];
 

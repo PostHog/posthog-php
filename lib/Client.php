@@ -53,7 +53,7 @@ class Client
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $options['host'] ?? "app.posthog.com",
             $options['ssl'] ?? true,
-            10000,
+            (int) ($options['maximum_backoff_duration'] ?? 10000),
             false,
             $options["debug"] ?? false
         );
