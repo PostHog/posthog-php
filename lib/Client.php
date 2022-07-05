@@ -214,16 +214,14 @@ class Client
             $payload["groups"] = $groups;
         }
 
-        $test = $this->httpClient->sendRequest(
+        return $this->httpClient->sendRequest(
             '/decide/?v=2',
             json_encode($payload),
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
                 "User-Agent: posthog-php/" . PostHog::VERSION,
             ]
-        );
-
-        return $test->getResponse();
+        )->getResponse();
     }
 
     /**
