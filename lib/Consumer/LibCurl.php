@@ -26,6 +26,7 @@ class LibCurl extends QueueConsumer
         parent::__construct($apiKey, $options);
         $this->httpClient = new HttpClient(
             $this->host,
+            $options["personalApiKey"] ?? null,
             $this->ssl(),
             $this->maximum_backoff_duration,
             $this->compress_request,

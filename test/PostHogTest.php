@@ -6,18 +6,21 @@ use Exception;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\PostHog;
-use PostHog\Test\Assets\MockedResponses;
+
+const PROJECT_API_KEY = "phc_X8B6bhR1QgQKP1WdpFLN82LxLxgZ7WPXDgJyRyvIpib";
+const PERSONAL_API_KEY = "phx_vXZ7AOnFjDrCxfWLyo9V6P0SWLLfXT2d5euy3U0nRGk";
 
 class PostHogTest extends TestCase
 {
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
-        $this->http_client = new MockedHttpClient("app.posthog.com");
+        $this->http_client = new MockedHttpClient("app.posthog.com", PERSONAL_API_KEY);
         $this->client = new Client(
-            "test-key",
+            PROJECT_API_KEY,
             [
-                "debug" => true
+                "debug" => true,
+                "personalApiKey" => PERSONAL_API_KEY,
             ],
             $this->http_client
         );
@@ -59,6 +62,34 @@ class PostHogTest extends TestCase
         );
     }
 
+    public function testCaptureWithSendFeatureFlagsOption(): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "john",
+                    "event" => "Module PHP Event",
+                    "sendFeatureFlags" => true
+                )
+            )
+        );
+    }
+
+    public function testCaptureWithSendFeatureFlagsOptionWithoutPersonalApiKey(): void
+    {
+        $this->expectException(Exception::class);
+        PostHog::init(PROJECT_API_KEY, null, new Client(PROJECT_API_KEY));
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "john",
+                    "event" => "Module PHP Event",
+                    "sendFeatureFlags" => true
+                )
+            )
+        );
+    }
+
     public function testIdentify(): void
     {
         self::assertTrue(
@@ -74,6 +105,13 @@ class PostHogTest extends TestCase
         );
     }
 
+    public function testtestIsFeatureEnabledWithoutPersonalApiKey()
+    {
+        $this->expectException(Exception::class);
+        PostHog::init(PROJECT_API_KEY, null, new Client(PROJECT_API_KEY));
+        PostHog::isFeatureEnabled('having_fun', 'user-id');
+    }
+
     public function testIsFeatureEnabled()
     {
         $this->assertFalse(PostHog::isFeatureEnabled('having_fun', 'user-id'));
@@ -81,8 +119,8 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/decide/",
-                    "payload" => '{"api_key":"test-key","distinct_id":"user-id"}',
+                    "path" => "/decide/?v=2",
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id"}', PROJECT_API_KEY),
                 )
             )
         );
@@ -101,8 +139,42 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/decide/",
-                    "payload" => '{"api_key":"test-key","distinct_id":"user-id","groups":{"company":"id:5"}}',
+                    "path" => "/decide/?v=2",
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}', PROJECT_API_KEY),
+                )
+            )
+        );
+    }
+
+    public function testGetFeatureFlag()
+    {
+        $this->assertEquals("variant-value", PostHog::getFeatureFlag('multivariate-test', 'user-id'));
+        $this->assertEquals(
+            $this->http_client->calls,
+            array(
+                0 => array(
+                    "path" => "/decide/?v=2",
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id"}', PROJECT_API_KEY),
+                )
+            )
+        );
+    }
+
+    public function testGetFeatureFlagDefault()
+    {
+        $this->assertTrue(PostHog::getFeatureFlag('blah', 'user-id', true));
+    }
+
+    public function testGetFeatureFlagGroups()
+    {
+        $this->assertEquals("variant-value", PostHog::getFeatureFlag('multivariate-test', 'user-id', false, array("company" => "id:5")));
+
+        $this->assertEquals(
+            $this->http_client->calls,
+            array(
+                0 => array(
+                    "path" => "/decide/?v=2",
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}', PROJECT_API_KEY),
                 )
             )
         );

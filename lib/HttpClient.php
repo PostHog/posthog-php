@@ -12,6 +12,11 @@ class HttpClient
     private $host;
 
     /**
+     * @var string|null
+     */
+    public $personalApiKey;
+
+    /**
      * @var bool
      */
     private $useSsl;
@@ -42,6 +47,7 @@ class HttpClient
 
     public function __construct(
         string $host,
+        ?string $personalApiKey = null,
         bool $useSsl = true,
         int $maximumBackoffDuration = 10000,
         bool $compressRequests = false,
@@ -50,6 +56,7 @@ class HttpClient
         int $curlTimeoutMilliseconds = 750
     ) {
         $this->host = $host;
+        $this->personalApiKey = $personalApiKey;
         $this->useSsl = $useSsl;
         $this->maximumBackoffDuration = $maximumBackoffDuration;
         $this->compressRequests = $compressRequests;
@@ -82,6 +89,9 @@ class HttpClient
             $headers[] = 'Content-Type: application/json';
             if ($this->compressRequests) {
                 $headers[] = 'Content-Encoding: gzip';
+            }
+            if ($this->personalApiKey) {
+                $headers[] = sprintf("Authorization: Bearer %s", $this->personalApiKey);
             }
 
             curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge($headers, $extraHeaders));

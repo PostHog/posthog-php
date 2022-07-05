@@ -7,3 +7,4 @@ test/posthog.log
 .idea
 .phpunit.result.cache
 clover.xml
+xdebug.log
