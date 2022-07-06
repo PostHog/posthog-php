@@ -52,7 +52,6 @@ class Client
         $this->consumer = new $Consumer($apiKey, $options);
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $options['host'] ?? "app.posthog.com",
-            $options["personalApiKey"] ?? null,
             $options['ssl'] ?? true,
             10000,
             false,

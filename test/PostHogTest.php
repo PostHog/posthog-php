@@ -8,19 +8,17 @@ use PostHog\Client;
 use PostHog\PostHog;
 
 const PROJECT_API_KEY = "phc_X8B6bhR1QgQKP1WdpFLN82LxLxgZ7WPXDgJyRyvIpib";
-const PERSONAL_API_KEY = "phx_vXZ7AOnFjDrCxfWLyo9V6P0SWLLfXT2d5euy3U0nRGk";
 
 class PostHogTest extends TestCase
 {
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
-        $this->http_client = new MockedHttpClient("app.posthog.com", PERSONAL_API_KEY);
+        $this->http_client = new MockedHttpClient("app.posthog.com");
         $this->client = new Client(
             PROJECT_API_KEY,
             [
                 "debug" => true,
-                "personalApiKey" => PERSONAL_API_KEY,
             ],
             $this->http_client
         );
@@ -75,21 +73,6 @@ class PostHogTest extends TestCase
         );
     }
 
-    public function testCaptureWithSendFeatureFlagsOptionWithoutPersonalApiKey(): void
-    {
-        $this->expectException(Exception::class);
-        PostHog::init(PROJECT_API_KEY, null, new Client(PROJECT_API_KEY));
-        self::assertTrue(
-            PostHog::capture(
-                array(
-                    "distinctId" => "john",
-                    "event" => "Module PHP Event",
-                    "sendFeatureFlags" => true
-                )
-            )
-        );
-    }
-
     public function testIdentify(): void
     {
         self::assertTrue(
@@ -103,13 +86,6 @@ class PostHogTest extends TestCase
                 )
             )
         );
-    }
-
-    public function testtestIsFeatureEnabledWithoutPersonalApiKey()
-    {
-        $this->expectException(Exception::class);
-        PostHog::init(PROJECT_API_KEY, null, new Client(PROJECT_API_KEY));
-        PostHog::isFeatureEnabled('having_fun', 'user-id');
     }
 
     public function testIsFeatureEnabled()

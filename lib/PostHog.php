@@ -50,8 +50,7 @@ class PostHog
      */
     public static function capture(array $message)
     {
-        $sendFeatureFlags = array_key_exists("sendFeatureFlags", $message) ? $message["sendFeatureFlags"] ?? false : false;
-        self::checkClient($sendFeatureFlags);
+        self::checkClient();
         $event = !empty($message["event"]);
         self::assert($event, "PostHog::capture() expects an event");
         self::validate($message, "capture");
@@ -120,7 +119,7 @@ class PostHog
         bool $default = false,
         array $groups = array()
     ): bool {
-        self::checkClient(true);
+        self::checkClient();
         return self::$client->isFeatureEnabled($key, $distinctId, $default, $groups);
     }
 
@@ -140,7 +139,7 @@ class PostHog
         bool $default = false,
         array $groups = array()
     ): bool | string {
-        self::checkClient(true);
+        self::checkClient();
         return self::$client->GetFeatureFlag($key, $distinctId, $default, $groups);
     }
 
@@ -153,7 +152,7 @@ class PostHog
      */
     public static function fetchEnabledFeatureFlags(string $distinctId, array $groups = array()): array
     {
-        self::checkClient(true);
+        self::checkClient();
         return self::$client->fetchEnabledFeatureFlags($distinctId, $groups);
     }
 
@@ -233,16 +232,10 @@ class PostHog
     /**
      * Check the client.
      *
-     * @param bool $isPersonalApiKeyRequired
      * @throws Exception
      */
-    private static function checkClient(
-        $isPersonalApiKeyRequired = false
-    ) {
-        if (self::$client && $isPersonalApiKeyRequired && self::$client->httpClient->personalApiKey == null) {
-            throw new Exception("PostHog::init() must be called with a PersonalApiKey when using feature flags");
-        }
-
+    private static function checkClient()
+    {
         if (null != self::$client) {
             return;
         }
