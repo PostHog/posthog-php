@@ -49,4 +49,3 @@ PostHog::getFeatureFlag("multivariate-test", "distinct-id", false, ['company' =>
 
 PostHog::getFeatureFlag("multivariate-simple-test", "distinct-id", false);
 PostHog::getFeatureFlag("multivariate-simple-test", "distinct-id", false, ['company' => ['id' => 5]]);
-
