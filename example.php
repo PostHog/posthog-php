@@ -6,7 +6,6 @@ use PostHog\PostHog;
 
 const PROJECT_API_KEY = "phc_X8B6bhR1QgQKP1WdpFLN82LxLxgZ7WPXDgJyRyvIpib";
 
-echo "Hello";
 
 PostHog::init(
     PROJECT_API_KEY,
