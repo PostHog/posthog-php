@@ -62,12 +62,21 @@ class PostHogTest extends TestCase
 
     public function testCaptureWithSendFeatureFlagsOption(): void
     {
-        self::assertTrue(
+        $this->assertTrue(
             PostHog::capture(
                 array(
                     "distinctId" => "john",
                     "event" => "Module PHP Event",
                     "sendFeatureFlags" => true
+                )
+            )
+        );
+        $this->assertEquals(
+            $this->http_client->calls,
+            array(
+                0 => array(
+                    "path" => "/decide/?v=2",
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"john"}', PROJECT_API_KEY),
                 )
             )
         );
