@@ -14,6 +14,10 @@ class MockedHttpClient extends \PostHog\HttpClient
         }
         array_push($this->calls, array("path" => $path, "payload" => $payload));
 
+        if (str_starts_with($path, "/decide/")) {
+            return new HttpResponse(json_encode(MockedResponses::DECIDE_REQUEST), 200);
+        }
+
         return parent::sendRequest($path, $payload, $extraHeaders);
     }
 }

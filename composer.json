@@ -15,7 +15,7 @@
 	],
 	"require": {
 		"ext-json": "*",
-		"php": ">=7.1"
+		"php": ">=8.0"
 	},
 	"require-dev": {
 		"overtrue/phplint": "^3.0",

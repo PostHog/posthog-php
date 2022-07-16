@@ -10,7 +10,7 @@ class PostHog
     public const ENV_API_KEY = "POSTHOG_API_KEY";
     public const ENV_HOST = "POSTHOG_HOST";
 
-    private static $client;
+    private static Client $client;
 
     /**
      * Initializes the default client to use. Uses the libcurl consumer by default.
@@ -109,18 +109,40 @@ class PostHog
      * @param string $key
      * @param string $distinctId
      * @param mixed $default
+     * @param array $groups
      * @return boolean
      * @throws Exception
      */
     public static function isFeatureEnabled(
         string $key,
         string $distinctId,
-        $default = false,
+        bool $default = false,
         array $groups = array()
     ): bool {
         self::checkClient();
         return self::$client->isFeatureEnabled($key, $distinctId, $default, $groups);
     }
+
+    /**
+     * get the feature flag value for this distinct id.
+     *
+     * @param string $key
+     * @param string $distinctId
+     * @param mixed $default
+     * @param array $groups
+     * @return boolean | string
+     * @throws Exception
+     */
+    public static function getFeatureFlag(
+        string $key,
+        string $distinctId,
+        bool $default = false,
+        array $groups = array()
+    ): bool | string {
+        self::checkClient();
+        return self::$client->GetFeatureFlag($key, $distinctId, $default, $groups);
+    }
+
 
     /**
      *

@@ -34,7 +34,7 @@ class Client
     /**
      * @var HttpClient
      */
-    private $httpClient;
+    public $httpClient;
 
 
     /**
@@ -74,6 +74,22 @@ class Client
     {
         $message = $this->message($message);
         $message["type"] = "capture";
+
+        if (array_key_exists("send_feature_flags", $message) && $message["send_feature_flags"]) {
+            $flags = $this->fetchEnabledFeatureFlags($message["distinct_id"], $message["groups"]);
+
+            if (!isset($message["properties"])) {
+                $message["properties"] = array();
+            }
+
+            // Add all feature variants to event
+            foreach ($flags as $flagKey => $flagValue) {
+                $message["properties"][sprintf('$feature/%s', $flagKey)] = $flagValue;
+            }
+
+            // Add all feature flag keys to $active_feature_flags key
+            $message["properties"]['$active_feature_flags'] = array_keys($flags);
+        }
 
         return $this->consumer->capture($message);
     }
@@ -115,7 +131,7 @@ class Client
     ): bool {
         $flags = $this->fetchEnabledFeatureFlags($distinctId, $groups);
 
-        $result = in_array($key, $flags);
+        $result = array_key_exists($key, $flags) && $flags[$key] != false;
 
         $this->capture([
             "properties" => [
@@ -132,6 +148,45 @@ class Client
         return $defaultValue;
     }
 
+    /**
+     * get the feature flag value for this distinct id.
+     *
+     * @param string $key
+     * @param string $distinctId
+     * @param mixed $defaultValue
+     * @param array $groups
+     * @return bool | string
+     * @throws Exception
+     */
+    public function getFeatureFlag(
+        string $key,
+        string $distinctId,
+        bool $defaultValue = false,
+        array $groups = array()
+    ): bool | string {
+        $flags = $this->fetchEnabledFeatureFlags($distinctId, $groups);
+
+        $result = false;
+
+        if (array_key_exists($key, $flags)) {
+            $result = $flags[$key];
+        }
+
+        $this->capture([
+            "properties" => [
+                '$feature_flag' => $key,
+                '$feature_flag_response' => $result,
+            ],
+            "distinct_id" => $distinctId,
+            "event" => '$feature_flag_called',
+        ]);
+
+        if ($result) {
+            return $result;
+        }
+        return $defaultValue;
+    }
+
 
     /**
      * @param string $distinctId
@@ -141,7 +196,10 @@ class Client
      */
     public function fetchEnabledFeatureFlags(string $distinctId, array $groups = array()): array
     {
-        return json_decode($this->decide($distinctId, $groups), true)['featureFlags'] ?? [];
+        $flags = json_decode($this->decide($distinctId, $groups), true)['featureFlags'] ?? [];
+        return array_filter($flags, function ($v) {
+            return $v != false;
+        });
     }
 
     public function decide(string $distinctId, array $groups = array())
@@ -156,7 +214,7 @@ class Client
         }
 
         return $this->httpClient->sendRequest(
-            '/decide/',
+            '/decide/?v=2',
             json_encode($payload),
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
@@ -280,6 +338,15 @@ class Client
         if (isset($msg["distinctId"])) {
             $msg["distinct_id"] = $msg["distinctId"];
             unset($msg["distinctId"]);
+        }
+
+        if (isset($msg["sendFeatureFlags"])) {
+            $msg["send_feature_flags"] = $msg["sendFeatureFlags"];
+            unset($msg["sendFeatureFlags"]);
+        }
+
+        if (!isset($msg["groups"])) {
+            $msg["groups"] = [];
         }
 
         if (!isset($msg["timestamp"])) {

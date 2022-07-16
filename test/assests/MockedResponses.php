@@ -4,6 +4,30 @@ namespace PostHog\Test\Assets;
 
 class MockedResponses
 {
+    public const DECIDE_REQUEST = [
+        'config' => [
+            'enable_collect_everything' => true,
+        ],
+        'editorParams' => [
+        ],
+        'isAuthenticated' => false,
+        'supportedCompression' => [
+            0 => 'gzip',
+            1 => 'gzip-js',
+            2 => 'lz64',
+        ],
+        'featureFlags' => [
+            'simpleFlag' => true,
+            'having_fun' => false,
+            'enabled-flag' => true,
+            'disabled-flag' => false,
+            'multivariate-simple-test' => 'variant-simple-value',
+            'simple-test' => true,
+            'multivariate-test' => 'variant-value',
+        ],
+        'sessionRecording' => false,
+    ];
+
     public const SIMPLE_FLAG_EXAMPLE_REQUEST = [
         "count" => 1,
         "next" => null,
