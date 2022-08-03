@@ -2,11 +2,20 @@
 
 namespace PostHog\Test;
 
+use Exception;
 use PHPUnit\Framework\TestCase;
 use PostHog\FeatureFlag;
+use PostHog\Client;
+use PostHog\PostHog;
+use PostHog\Test\Assets\MockedResponses;
 
 class FeatureFlagMatch extends TestCase
 {
+
+    public function setUp(): void
+    {
+        date_default_timezone_set("UTC");
+    }
 
     public function testMatchPropertyEquals(): void
     {   
@@ -366,6 +375,23 @@ class FeatureFlagMatch extends TestCase
         self::assertFalse(FeatureFlag::match_property($prop, [
             "key" => "3",
         ]));
+
+    }
+
+    public function testFlagPersonProperties()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_REQUEST);
+        $this->client = new Client(
+            PROJECT_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertTrue(PostHog::getFeatureFlag('person-flag', 'some-distinct-id', False, [], ["region" => "USA"]));
+        // $this->assertFalse(PostHog::getFeatureFlag('person-flag', 'some-distinct-id-2', False, [], ["region" => "Canada"]));
 
     }
 }

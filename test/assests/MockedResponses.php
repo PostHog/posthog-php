@@ -28,6 +28,38 @@ class MockedResponses
         'sessionRecording' => false,
     ];
 
+    public const LOCAL_EVALUATION_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "",
+                "key" => "simple-flag",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "region",
+                                    "value" => ["USA"],
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ]
+                                ],
+                            "rollout_percentage" => 100
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
+                "rollout_percentage" => null
+            ]
+        ],
+    ];
+
     public const SIMPLE_FLAG_EXAMPLE_REQUEST = [
         "count" => 1,
         "next" => null,

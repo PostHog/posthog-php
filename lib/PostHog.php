@@ -110,6 +110,8 @@ class PostHog
      * @param string $distinctId
      * @param mixed $default
      * @param array $groups
+     * @param array $personProperties
+     * @param array $groupProperties
      * @return boolean
      * @throws Exception
      */
@@ -117,10 +119,12 @@ class PostHog
         string $key,
         string $distinctId,
         bool $default = false,
-        array $groups = array()
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array()
     ): bool {
         self::checkClient();
-        return self::$client->isFeatureEnabled($key, $distinctId, $default, $groups);
+        return self::$client->isFeatureEnabled($key, $distinctId, $default, $groups, $personProperties, $groupProperties);
     }
 
     /**
@@ -130,6 +134,8 @@ class PostHog
      * @param string $distinctId
      * @param mixed $default
      * @param array $groups
+     * @param array $personProperties
+     * @param array $groupProperties
      * @return boolean | string
      * @throws Exception
      */
@@ -137,10 +143,12 @@ class PostHog
         string $key,
         string $distinctId,
         bool $default = false,
-        array $groups = array()
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array()
     ): bool | string {
         self::checkClient();
-        return self::$client->GetFeatureFlag($key, $distinctId, $default, $groups);
+        return self::$client->GetFeatureFlag($key, $distinctId, $default, $groups, $personProperties, $groupProperties);
     }
 
 
