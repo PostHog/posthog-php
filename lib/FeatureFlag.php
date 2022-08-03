@@ -101,18 +101,18 @@ class FeatureFlag
                 _hash($flag["key"], $distinct_id, "variant") >= $variant["value_min"]
                 && _hash($flag["key"], $distinct_id, "variant") < $variant["value_max"]
             ) {
-                return $variant["key"]
+                return $variant["key"];
             }
         }
 
-        return null
+        return null;
     }
 
     static function variant_lookup_table($feature_flag)
     {
         $lookup_table = [];
         $value_min = 0;
-        $multivariates = (($feature_flag['filters'] ?? {})['multivariate'] ?? {})['variants'] ?? []
+        $multivariates = (($feature_flag['filters'] ?? [])['multivariate'] ?? [])['variants'] ?? [];
         
         foreach ($multivariates as $variant) {
             $value_max = $value_min + $variant["rollout_percentage"] / 100;
@@ -121,7 +121,7 @@ class FeatureFlag
                 "value_min" => $value_min,
                 "value_max" => $value_max,
                 "key" => $variant["key"]
-            ])
+            ]);
             $value_min = $value_max;
         }
 
@@ -130,7 +130,7 @@ class FeatureFlag
 
     static function match_feature_flag_properties($flag, $distinct_id, $properties)
     {
-        $flag_conditions = ($flag["filters"] ?? {})["groups"] ?? [];
+        $flag_conditions = ($flag["filters"] ?? [])["groups"] ?? [];
         $is_inconclusive = false;
 
         foreach ($flag_conditions as $condition) {
@@ -143,7 +143,7 @@ class FeatureFlag
             }
         }
 
-        if $is_inconclusive {
+        if ($is_inconclusive) {
             throw new InconclusiveMatchException("Can't determine if feature flag is enabled or not with given properties");
         }
 
@@ -154,19 +154,19 @@ class FeatureFlag
     {
         $rollout_percentage = $condition["rollout_percentage"];
 
-        if count($condition['properties'] ?? []) > 0 {
+        if (count($condition['properties'] ?? []) > 0) {
             foreach ($condition['properties'] as $property) {
-                if !match_property($property, $properties) {
+                if (!match_property($property, $properties)) {
                     return false;
                 }
             }
 
-            if !is_null($rollout_percentage) {
+            if (!is_null($rollout_percentage)) {
                 return true;
             }
         }
 
-        if !is_null($rollout_percentage) && _hash($feature_flag["key"], $distinct_id) > ($rollout_percentage / 100) {
+        if (!is_null($rollout_percentage) && _hash($feature_flag["key"], $distinct_id) > ($rollout_percentage / 100)) {
             return false;
         }
 
