@@ -87,12 +87,12 @@ class FeatureFlag
         return false;
     }
 
-    function _hash($key, $distinct_id, $salt = "")
+    static function _hash($key, $distinct_id, $salt = "")
     {
 
     }
 
-    function get_matching_variant($flag, $distinct_id)
+    static function get_matching_variant($flag, $distinct_id)
     {
         $variants = variant_lookup_table($flag);
 
@@ -108,7 +108,7 @@ class FeatureFlag
         return null
     }
 
-    function variant_lookup_table($feature_flag)
+    static function variant_lookup_table($feature_flag)
     {
         $lookup_table = [];
         $value_min = 0;
@@ -128,7 +128,7 @@ class FeatureFlag
         return $lookup_table;
     }
 
-    function match_feature_flag_properties($flag, $distinct_id, $properties)
+    static function match_feature_flag_properties($flag, $distinct_id, $properties)
     {
         $flag_conditions = ($flag["filters"] ?? {})["groups"] ?? [];
         $is_inconclusive = false;
@@ -150,7 +150,7 @@ class FeatureFlag
         return false;
     }
 
-    function is_condition_match($feature_flag, $distinct_id, $condition, $properties)
+    static function is_condition_match($feature_flag, $distinct_id, $condition, $properties)
     {
         $rollout_percentage = $condition["rollout_percentage"];
 
@@ -172,9 +172,5 @@ class FeatureFlag
 
         return true;
     }
-
-
-
-
 
 }
