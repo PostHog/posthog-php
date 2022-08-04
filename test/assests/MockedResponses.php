@@ -24,6 +24,8 @@ class MockedResponses
             'multivariate-simple-test' => 'variant-simple-value',
             'simple-test' => true,
             'multivariate-test' => 'variant-value',
+            'group-flag' => 'decide-fallback-value',
+            'complex-flag' => 'decide-fallback-value'
         ],
         'sessionRecording' => false,
     ];
@@ -60,6 +62,102 @@ class MockedResponses
         ],
     ];
 
+    public const LOCAL_EVALUATION_GROUP_PROPERTIES_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "",
+                "key" => "group-flag",
+                "filters" => [
+                    "aggregation_group_type_index" => 0,
+                    "groups" => [
+                        [
+                            "properties" => [
+                                [
+                                    "group_type_index" => 0,
+                                    "key" => "name",
+                                    "value" => ["Project Name 1"],
+                                    "operator" => "exact",
+                                    "type" => "group"
+                                ]
+                                ],
+                            "rollout_percentage" => 35
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
+                "rollout_percentage" => null
+            ]
+        ],
+        'group_type_mapping' => [
+            "0" => "company",
+            "1" => "project"
+        ]
+    ];
+
+    public const LOCAL_EVALUATION_COMPLEX_FLAG_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "",
+                "key" => "complex-flag",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "region",
+                                    "value" => ["USA"],
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ],
+                                [
+                                    "key" => "name",
+                                    "value" => ["Aloha"],
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ]
+                                ],
+                            "rollout_percentage" => 100
+                            ],
+                            [
+                                "properties" => [
+                                    [
+                                        "key" => "email",
+                                        "value" => ["a@b.com"],
+                                        "operator" => "exact",
+                                        "type" => "person"
+                                    ]
+                                    ],
+                                "rollout_percentage" => 35
+                                ],[
+                                    "properties" => [
+                                        [
+                                            "key" => "doesnt_matter",
+                                            "value" => ["1", "2"],
+                                            "operator" => "exact",
+                                            "type" => "person"
+                                        ]
+                                        ],
+                                    "rollout_percentage" => 0
+                                ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
+                "rollout_percentage" => null
+            ]
+        ]
+    ];
 
     public const LOCAL_EVALUATION_SIMPLE_REQUEST = [
         'count' => 1,

@@ -170,7 +170,7 @@ class Client
         array $personProperties = array(),
         array $groupProperties = array()
     ): bool | string {
-        $result = false;
+        $result = null;
 
         foreach ($this->featureFlags as $flag) {
             if ($flag["key"] == $key) {
@@ -183,17 +183,19 @@ class Client
                         $personProperties,
                         $groupProperties
                     );
+
                 } catch (InconclusiveMatchException $e) {
-                    // TODO: handle error
+                    $result = null;
                 }
     
             }
         }
 
+
         if (is_null($result)) {
             try {
                 $featureFlags = $this->fetchEnabledFeatureFlags($distinctId, $groups, $personProperties, $groupProperties);
-                $response = $featureFlags[$key] ?? $defaultValue;
+                $result = $featureFlags[$key] ?? $defaultValue;
             } catch (Exception $e) {
                 // TODO: handle error
             }
@@ -231,10 +233,22 @@ class Client
         }
 
         $flagFilters = $featureFlag["filters"] ?? [];
-        $aggregationGroupTypeIndex = $featureFlag["aggregation_group_type_index"] ?? null;
+        $aggregationGroupTypeIndex = $flagFilters["aggregation_group_type_index"] ?? null;
 
         if (!is_null($aggregationGroupTypeIndex)) {
             // TODO: handle groups
+            $groupName = $this->groupTypeMapping[strval($aggregationGroupTypeIndex)] ?? null;
+
+            if (is_null($groupName)) {
+                throw new InconclusiveMatchException("Flag has unknown group type index");
+            }
+
+            if (!array_key_exists($groupName, $groups)) {
+                return false;
+            }
+
+            $focusedGroupProperties = $groupProperties[$groupName];
+            return FeatureFlag::matchFeatureFlagProperties($featureFlag, $distinctId, $focusedGroupProperties);
         } else {
             return FeatureFlag::matchFeatureFlagProperties($featureFlag, $distinctId, $personProperties);
         }

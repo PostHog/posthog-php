@@ -165,8 +165,8 @@ class FeatureFlag
                     return false;
                 }
             }
-
-            if (!is_null($rolloutPercentage)) {
+                
+            if (is_null($rolloutPercentage)) {
                 return true;
             }
         }

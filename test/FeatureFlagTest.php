@@ -397,7 +397,42 @@ class FeatureFlagMatch extends TestCase
 
     public function testFlagGroupProperties()
     {
-        
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_GROUP_PROPERTIES_REQUEST);
+        $this->client = new Client(
+            PROJECT_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-1', False, [], [], ["company" => ["name" => "Project Name 1"]]));
+        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-2', False, [], [], ["company" => ["name" => "Project Name 2"]]));
+        $this->assertTrue(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', False, ["company" => "amazon_without_rollout"], [], ["company" => ["name" => "Project Name 1"]]));
+        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-i', False, ["company" => "amazon"], [], ["company" => ["name" => "Project Name 1"]]));
+        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', False, ["company" => "amazon_without_rollout"], [], ["company" => ["name" => "Project Name 2"]]));
+        $this->assertEquals(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', False, ["company" => "amazon"], [], ["company" => []]), 'decide-fallback-value');
+    }
+
+    public function testFlagComplexDefinition()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_COMPLEX_FLAG_REQUEST);
+        $this->client = new Client(
+            PROJECT_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertTrue(PostHog::getFeatureFlag('complex-flag', 'some-distinct-id', False, [], ["region" => "USA", "name" => "Aloha"], []));
+        $this->assertTrue(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-roll', False, [], ["region" => "USA", "email" => "a@b.com"], []));
+        $this->assertEquals(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-rollout', False, [], ["region" => "USA", "email" => "a@b.com"], []), 'decide-fallback-value');
+        $this->assertEquals(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-rollout', False, [], ["doesnt_matter" => "1"], []), 'decide-fallback-value');
+        $this->assertEquals(PostHog::getFeatureFlag('complex-flag', 'some-distinct-id', False, [], ["region" => "USA"], []), 'decide-fallback-value');
+        $this->assertFalse(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-rollout', False, [], ["region" => "USA", "email" => "a@b.com", "name" => "X", "doesnt_matter" => "1"], []));
     }
 
     public function testSimpleFlag()
