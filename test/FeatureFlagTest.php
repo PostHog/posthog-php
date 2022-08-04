@@ -8,6 +8,7 @@ use PostHog\FeatureFlag;
 use PostHog\Client;
 use PostHog\PostHog;
 use PostHog\Test\Assets\MockedResponses;
+use PostHog\InconclusiveMatchException;
 
 class FeatureFlagMatch extends TestCase
 {
@@ -24,26 +25,26 @@ class FeatureFlagMatch extends TestCase
             "value" => "value",
         ];
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value",
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "value2",
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "",
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => null,
         ]));
         
-        // self::expectException(InconclusiveMatchException::class);
-        // FeatureFlag::match_property($prop, [
-        //     "key2" => "value2",
-        // ]);
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop, [
+            "key2" => "value2",
+        ]);
 
         $prop = [
             "key" => "key",
@@ -51,11 +52,11 @@ class FeatureFlagMatch extends TestCase
             "operator" => "exact"
         ];
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value",
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "value2",
         ]));
 
@@ -65,26 +66,26 @@ class FeatureFlagMatch extends TestCase
             "operator" => "exact"
         ];
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value1",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value2",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value3",
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "value4",
         ]));
 
-        // self::expectException(InconclusiveMatchException::class);
-        // FeatureFlag::match_property($prop, [
-        //     "key2" => "value2",
-        // ]);
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop, [
+            "key2" => "value",
+        ]);
 
     }
 
@@ -96,15 +97,15 @@ class FeatureFlagMatch extends TestCase
             "operator" => "is_not"
         ];
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value2",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => null,
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "",
         ]));
 
@@ -114,42 +115,42 @@ class FeatureFlagMatch extends TestCase
             "operator" => "is_not"
         ];
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value4",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value5",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value6",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => null,
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "value2",
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "value3",
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "value1",
         ]));
 
-        // self::expectException(InconclusiveMatchException::class);
-        // FeatureFlag::match_property($prop, [
-        //     "key2" => "value2",
-        // ]);
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop, [
+            "key2" => "value",
+        ]);
 
     }
 
@@ -161,21 +162,26 @@ class FeatureFlagMatch extends TestCase
             "operator" => "is_set"
         ];
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value2",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => null,
         ]));
+
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop, [
+            "key2" => "value",
+        ]);
         
     }
     
@@ -188,27 +194,27 @@ class FeatureFlagMatch extends TestCase
             "operator" => "icontains"
         ];
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value2",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value3",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "value4",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "343tfvalue5",
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "Alakazam",
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => 123,
         ]));
 
@@ -218,19 +224,19 @@ class FeatureFlagMatch extends TestCase
             "operator" => "icontains"
         ];
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "3",
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => 323,
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "val3",
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "three",
         ]));
     }
@@ -243,23 +249,23 @@ class FeatureFlagMatch extends TestCase
     //         "operator" => "regex"
     //     ];
 
-    //     self::assertTrue(FeatureFlag::match_property($prop, [
+    //     self::assertTrue(FeatureFlag::matchProperty($prop, [
     //         "key" => "value.com",
     //     ]));
 
-    //     self::assertTrue(FeatureFlag::match_property($prop, [
+    //     self::assertTrue(FeatureFlag::matchProperty($prop, [
     //         "key" => "value2.com",
     //     ]));
 
-    //     self::assertTrue(FeatureFlag::match_property($prop, [
+    //     self::assertTrue(FeatureFlag::matchProperty($prop, [
     //         "key" => ".com343tfvalue5",
     //     ]));
 
-    //     self::assertFalse(FeatureFlag::match_property($prop, [
+    //     self::assertFalse(FeatureFlag::matchProperty($prop, [
     //         "key" => "Alakazam",
     //     ]));
 
-    //     self::assertFalse(FeatureFlag::match_property($prop, [
+    //     self::assertFalse(FeatureFlag::matchProperty($prop, [
     //         "key" => 123,
     //     ]));
 
@@ -273,23 +279,23 @@ class FeatureFlagMatch extends TestCase
             "operator" => "gt"
         ];
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => 2,
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => 3,
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => 0,
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => -1,
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "23",
         ]));
 
@@ -299,27 +305,27 @@ class FeatureFlagMatch extends TestCase
             "operator" => "lt"
         ];
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => 0,
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => -1,
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => -3,
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => 1,
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "1",
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "3",
         ]));
 
@@ -329,23 +335,23 @@ class FeatureFlagMatch extends TestCase
             "operator" => "gte"
         ];
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => 1,
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => 2,
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => 0,
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => -1,
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "3",
         ]));
 
@@ -355,24 +361,24 @@ class FeatureFlagMatch extends TestCase
             "operator" => "lte"
         ];
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => 0,
         ]));
 
-        self::assertTrue(FeatureFlag::match_property($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => 43,
         ]));
 
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => 44,
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "1",
         ]));
 
-        self::assertFalse(FeatureFlag::match_property($prop, [
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "3",
         ]));
 
@@ -437,8 +443,44 @@ class FeatureFlagMatch extends TestCase
 
     public function testFlagFallbackToDecide()
     {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_DECIDE_REQUEST);
+        $this->client = new Client(
+            PROJECT_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertEquals(PostHog::getFeatureFlag('feature-1', 'some-distinct'), 'decide-fallback-value');
+        $this->assertEquals(PostHog::getFeatureFlag('feature-2', 'some-distinct'), 'decide-fallback-value');
+    }
+
+    public function testFeatureFlagDefaultsDontHinderRegularEvaluation()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_SIMPLE_EMPTY_REQUEST);
+        $this->client = new Client(
+            PROJECT_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertFalse(PostHog::getFeatureFlag('simple-flag', 'distinct-id', True, [], [], []));
+        $this->assertFalse(PostHog::getFeatureFlag('simple-flag', 'distinct-id', False, [], [], []));
+
+        $this->assertFalse(PostHog::getFeatureFlag('disabled-flag', 'distinct-id', True, [], [], []));
+        $this->assertFalse(PostHog::getFeatureFlag('disabled-flag', 'distinct-id', False, [], [], []));
+    }
+
+    public function testFeatureFlagDefaultsComeIntoPlayOnlyWhenDecideErrorsOut()
+    {
 
     }
+
 
     public function testFlagExperienceContinuityNotEvaluatedLocally()
     {
@@ -453,6 +495,31 @@ class FeatureFlagMatch extends TestCase
         PostHog::init(null, null, $this->client);
 
         $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'distinct-id', False, [], [], []), 'decide-fallback-value');
+    }
+
+    public function testGetAllFlagsWithFallback()
+    {
+
+    }
+
+    public function testGetAllFlagsWithFallbackEmptyLocalFlags()
+    {
+
+    }
+
+    public function testGetAllFlagsWithNoFallback()
+    {
+
+    }
+
+    public function testLoadFeatureFlags()
+    {
+
+    }
+
+    public function testLoadFeatureFlagsWrongKey()
+    {
+
     }
 
     public function testSimpleFlag()
@@ -470,4 +537,5 @@ class FeatureFlagMatch extends TestCase
         $this->assertTrue(PostHog::getFeatureFlag('simple-flag', 'some-distinct-id'));
 
     }
+
 }

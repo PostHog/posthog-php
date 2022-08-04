@@ -26,7 +26,9 @@ class MockedResponses
             'multivariate-test' => 'variant-value',
             'group-flag' => 'decide-fallback-value',
             'complex-flag' => 'decide-fallback-value',
-            'beta-feature' => 'decide-fallback-value'
+            'beta-feature' => 'decide-fallback-value',
+            'feature-1' => 'decide-fallback-value',
+            'feature-2' => 'decide-fallback-value'
         ],
         'sessionRecording' => false,
     ];
@@ -183,6 +185,88 @@ class MockedResponses
                 "active" => true,
                 "is_simple_flag" => true,
                 "rollout_percentage" => 100
+            ]
+        ],
+    ];
+
+    public const FALLBACK_TO_DECIDE_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "feature 1",
+                "key" => "feature-1",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "id",
+                                    "value" => 98,
+                                    "operator" => null,
+                                    "type" => "cohort"
+                                ]
+                                ],
+                            "rollout_percentage" => 100
+                            ],
+                                ],
+                            ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
+                "rollout_percentage" => null
+            
+             ],
+            [
+                "id" => 2,
+                "name" => "feature 2",
+                "key" => "feature-2",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "region",
+                                    "value" => ["USA"],
+                                    "operator" => null,
+                                    "type" => "person"
+                                ]
+                                ],
+                            "rollout_percentage" => 100
+                            ],
+                                ],
+                            ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
+                "rollout_percentage" => null
+            
+        ]
+        ]
+    ];
+
+    public const LOCAL_EVALUATION_SIMPLE_EMPTY_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "",
+                "key" => "simple-flag",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [],
+                            "rollout_percentage" => 0
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
             ]
         ],
     ];

@@ -210,7 +210,7 @@ class Client
             "event" => '$feature_flag_called',
         ]);
 
-        if ($result) {
+        if (!is_null($result)) {
             return $result;
         }
         return $defaultValue;
@@ -265,9 +265,7 @@ class Client
     public function fetchEnabledFeatureFlags(string $distinctId, array $groups = array(), array $personProperties = [], array $groupProperties = []): array
     {
         $flags = json_decode($this->decide($distinctId, $groups, $personProperties, $groupProperties), true)['featureFlags'] ?? [];
-        return array_filter($flags, function ($v) {
-            return $v != false;
-        });
+        return $flags;
     }
 
     /**
