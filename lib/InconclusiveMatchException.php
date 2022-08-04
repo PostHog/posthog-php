@@ -4,12 +4,10 @@ namespace PostHog;
 
 use Exception;
 
-class InconclusiveMatchException extends Exception {
+class InconclusiveMatchException extends Exception 
+{
     public function errorMessage() {
-
-      $errorMsg = 'Error on line '.$this->getLine().' in '.$this->getFile()
-      .': <b> Inconclusive Match:'.$this->getMessage().'</b>';
-      
-      return $errorMsg;
+        $errorMsg = 'Error on line '.$this->getLine().' in '.$this->getFile().': <b> Inconclusive Match:'.$this->getMessage().'</b>';
+        return $errorMsg;
     }
 }
