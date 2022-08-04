@@ -21,7 +21,7 @@ class MockedHttpClient extends \PostHog\HttpClient
         array $flagEndpointResponse = []
     ) {
         parent::__construct($host, $useSsl, $maximumBackoffDuration, $compressRequests, $debug, $errorHandler, $curlTimeoutMilliseconds);
-        $this->flagEndpointResponse = $curlTimeoutMilliseconds;
+        $this->flagEndpointResponse = $flagEndpointResponse;
     }
 
     public function sendRequest(string $path, ?string $payload, array $extraHeaders = []): HttpResponse

@@ -14,16 +14,18 @@ class InconclusiveMatchException extends Exception {
     }
 }
 
+const LONG_SCALE = 0xfffffffffffffff;
+
 class FeatureFlag
 {
-    static function match_property($property, $property_values)
+    static function matchProperty($property, $propertyValues)
     {
         
         $key = $property["key"];
         $operator = $property["operator"] ?? "exact";
         $value = $property["value"];
     
-        if (!array_key_exists($key, $property_values)) {
+        if (!array_key_exists($key, $propertyValues)) {
             throw new InconclusiveMatchException("Can't match properties without a given property value");
         }
     
@@ -32,74 +34,77 @@ class FeatureFlag
             throw new InconclusiveMatchException("can't match properties with operator is_not_set");
         }
     
-        $override_value = $property_values[$key];
+        $overrideValue = $propertyValues[$key];
         
         if ($operator == "exact") {
             if (is_array($value)) {
-                return in_array($override_value, $value);
+                return in_array($overrideValue, $value);
             }
-            return $value == $override_value;
+            return $value == $overrideValue;
         }
     
         if ($operator == "is_not") {
             if (is_array($value)) {
-                return !in_array($override_value, $value);
+                return !in_array($overrideValue, $value);
             }
-            return $value !== $override_value;
+            return $value !== $overrideValue;
         }
     
         if ($operator == "is_set") {
-            return array_key_exists($key, $property_values);
+            return array_key_exists($key, $propertyValues);
         }
     
         if ($operator == "icontains") {
-            return strpos(strtolower(strval($override_value)), strtolower(strval($value))) !== false;
+            return strpos(strtolower(strval($overrideValue)), strtolower(strval($value))) !== false;
         }
     
         if ($operator == "not_icontains") {
-            return strpos(strtolower(strval($override_value)), strtolower(strval($value))) == false;
+            return strpos(strtolower(strval($overrideValue)), strtolower(strval($value))) == false;
         }
     
         if ($operator == "regex") {
-            return preg_match($value, $override_value);
+            return preg_match($value, $overrideValue);
         }
     
         if ($operator == "not_regex") {
-            return !preg_match($value, $override_value);
+            return !preg_match($value, $overrideValue);
         }
     
         if ($operator == "gt") {
-            return gettype($value) == gettype($override_value) && $override_value > $value;
+            return gettype($value) == gettype($overrideValue) && $overrideValue > $value;
         }
     
         if ($operator == "gte") {
-            return gettype($value) == gettype($override_value) && $override_value >= $value;
+            return gettype($value) == gettype($overrideValue) && $overrideValue >= $value;
         }
     
         if ($operator == "lt") {
-            return gettype($value) == gettype($override_value) && $override_value < $value;
+            return gettype($value) == gettype($overrideValue) && $overrideValue < $value;
         }
     
         if ($operator == "lte") {
-            return gettype($value) == gettype($override_value) && $override_value <= $value;
+            return gettype($value) == gettype($overrideValue) && $overrideValue <= $value;
         }
     
         return false;
     }
 
-    static function _hash($key, $distinct_id, $salt = "")
+    static function _hash($key, $distinctId, $salt = "")
     {
+        $hashKey = sprintf("%s.%s%s", $key, $distinctId, $salt);
+        $hashVal = base_convert(substr(sha1(utf8_encode($hashKey)), 0, 15), 16, 10);
 
+        return $hashVal / LONG_SCALE;
     }
 
-    static function get_matching_variant($flag, $distinct_id)
+    static function getMatchingVariant($flag, $distinctId)
     {
-        $variants = variant_lookup_table($flag);
+        $variants = FeatureFlag::variantLookupTable($flag);
 
         foreach ($variants as $variant) {
             if (
-                _hash($flag["key"], $distinct_id, "variant") >= $variant["value_min"]
-                && _hash($flag["key"], $distinct_id, "variant") < $variant["value_max"]
+                FeatureFlag::_hash($flag["key"], $distinctId, "variant") >= $variant["value_min"]
+                && FeatureFlag::_hash($flag["key"], $distinctId, "variant") < $variant["value_max"]
             ) {
                 return $variant["key"];
             }
@@ -108,65 +113,65 @@ class FeatureFlag
         return null;
     }
 
-    static function variant_lookup_table($feature_flag)
+    static function variantLookupTable($featureFlag)
     {
-        $lookup_table = [];
-        $value_min = 0;
-        $multivariates = (($feature_flag['filters'] ?? [])['multivariate'] ?? [])['variants'] ?? [];
+        $lookupTable = [];
+        $valueMin = 0;
+        $multivariates = (($featureFlag['filters'] ?? [])['multivariate'] ?? [])['variants'] ?? [];
         
         foreach ($multivariates as $variant) {
-            $value_max = $value_min + $variant["rollout_percentage"] / 100;
+            $valueMax = $valueMin + $variant["rollout_percentage"] / 100;
 
             array_push($lookup_table, [
-                "value_min" => $value_min,
-                "value_max" => $value_max,
+                "value_min" => $valueMin,
+                "value_max" => $valueMax,
                 "key" => $variant["key"]
             ]);
-            $value_min = $value_max;
+            $valueMin = $valueMax;
         }
 
-        return $lookup_table;
+        return $lookupTable;
     }
 
-    static function match_feature_flag_properties($flag, $distinct_id, $properties)
+    static function matchFeatureFlagProperties($flag, $distinctId, $properties)
     {
-        $flag_conditions = ($flag["filters"] ?? [])["groups"] ?? [];
-        $is_inconclusive = false;
+        $flagConditions = ($flag["filters"] ?? [])["groups"] ?? [];
+        $isInconclusive = false;
 
-        foreach ($flag_conditions as $condition) {
+        foreach ($flagConditions as $condition) {
             try {
-                if (is_condition_match($flag, $distinct_id, $condition, $properties)) {
-                    return get_matching_variant($flag, $distinct_id) ?? true;
+                if (FeatureFlag::isConditionMatch($flag, $distinctId, $condition, $properties)) {
+                    return FeatureFlag::getMatchingVariant($flag, $distinctId) ?? true;
                 }
             } catch (InconclusiveMatchException $e) {
-                $is_inconclusive = true;
+                $isInconclusive = true;
             }
         }
 
-        if ($is_inconclusive) {
+        if ($isInconclusive) {
             throw new InconclusiveMatchException("Can't determine if feature flag is enabled or not with given properties");
         }
 
         return false;
     }
 
-    static function is_condition_match($feature_flag, $distinct_id, $condition, $properties)
+    static function isConditionMatch($featureFlag, $distinctId, $condition, $properties)
     {
-        $rollout_percentage = $condition["rollout_percentage"];
+        $rolloutPercentage = $condition["rollout_percentage"];
 
         if (count($condition['properties'] ?? []) > 0) {
             foreach ($condition['properties'] as $property) {
-                if (!match_property($property, $properties)) {
+                if (!FeatureFlag::matchProperty($property, $properties)) {
                     return false;
                 }
             }
 
-            if (!is_null($rollout_percentage)) {
+            if (!is_null($rolloutPercentage)) {
                 return true;
             }
         }
 
-        if (!is_null($rollout_percentage) && _hash($feature_flag["key"], $distinct_id) > ($rollout_percentage / 100)) {
+        if (!is_null($rolloutPercentage) && FeatureFlag::_hash($featureFlag["key"], $distinctId) > ($rolloutPercentage / 100)) {
             return false;
         }
 

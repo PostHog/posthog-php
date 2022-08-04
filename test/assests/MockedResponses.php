@@ -36,7 +36,7 @@ class MockedResponses
             [
                 "id" => 1,
                 "name" => "",
-                "key" => "simple-flag",
+                "key" => "person-flag",
                 "filters" => [
                     "groups" => [
                         [
@@ -56,6 +56,32 @@ class MockedResponses
                 "active" => true,
                 "is_simple_flag" => true,
                 "rollout_percentage" => null
+            ]
+        ],
+    ];
+
+
+    public const LOCAL_EVALUATION_SIMPLE_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "",
+                "key" => "simple-flag",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [],
+                            "rollout_percentage" => 100
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
+                "rollout_percentage" => 100
             ]
         ],
     ];

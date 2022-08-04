@@ -36,6 +36,15 @@ class Client
      */
     public $httpClient;
 
+    /**
+     * @var array
+     */
+    private $featureFlags;
+
+    /**
+     * @var array
+     */
+    private $groupTypeMapping;
 
     /**
      * Create a new posthog object with your app's API key
@@ -57,6 +66,11 @@ class Client
             false,
             $options["debug"] ?? false
         );
+        $this->featureFlags = [];
+        $this->groupTypeMapping = [];
+
+        // Populate featureflags and grouptypemapping if possible
+        $this->loadFlags();
     }
 
     public function __destruct()
@@ -156,23 +170,24 @@ class Client
         array $personProperties = array(),
         array $groupProperties = array()
     ): bool | string {
-        $flags = $this->fetchFlags($distinctId);
         $result = false;
 
-        if (array_key_exists($key, $flags)) {
-            $flag = $flags[$key];
-            try {
-                $result = $this._computeFlagLocally(
-                    $flag,
-                    $distinctId,
-                    $groups,
-                    $personProperties,
-                    $groupProperties
-                );
-            } catch (InconclusiveMatchException $e) {
-                // TODO: handle error
-            }
+        foreach ($this->featureFlags as $flag) {
+            if ($flag["key"] == $key) {
 
+                try {
+                    $result = $this->_computeFlagLocally(
+                        $flag,
+                        $distinctId,
+                        $groups,
+                        $personProperties,
+                        $groupProperties
+                    );
+                } catch (InconclusiveMatchException $e) {
+                    // TODO: handle error
+                }
+    
+            }
         }
 
         if (is_null($result)) {
@@ -221,7 +236,7 @@ class Client
         if (!is_null($aggregationGroupTypeIndex)) {
             // TODO: handle groups
         } else {
-            return FeatureFlag::match_feature_flag_properties($featureFlag, $distinctId, $personProperties);
+            return FeatureFlag::matchFeatureFlagProperties($featureFlag, $distinctId, $personProperties);
         }
 
     }
@@ -242,19 +257,18 @@ class Client
     }
 
     /**
-     * @param string $distinctId
-     * @return array of enabled feature flags
      * @throws Exception
      */
-    public function fetchFlags(string $distinctId): array
+
+    private function loadFlags()
     {
-        $flags = json_decode($this->localFlags($distinctId), true)['flags'] ?? [];
-        echo json_decode($this->localFlags($distinctId), true);
-        return $flags;
+        $payload = json_decode($this->localFlags(), true);
+        $this->featureFlags = $payload['flags'] ?? [];
+        $this->groupTypeMapping = $payload['group_type_mapping'] ?? [];
     }
 
 
-    public function localFlags(string $distinctId)
+    public function localFlags()
     {
         $payload = array(
             'api_key' => $this->apiKey,

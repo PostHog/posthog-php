@@ -391,7 +391,28 @@ class FeatureFlagMatch extends TestCase
         PostHog::init(null, null, $this->client);
 
         $this->assertTrue(PostHog::getFeatureFlag('person-flag', 'some-distinct-id', False, [], ["region" => "USA"]));
-        // $this->assertFalse(PostHog::getFeatureFlag('person-flag', 'some-distinct-id-2', False, [], ["region" => "Canada"]));
+        $this->assertFalse(PostHog::getFeatureFlag('person-flag', 'some-distinct-id-2', False, [], ["region" => "Canada"]));
+
+    }
+
+    public function testFlagGroupProperties()
+    {
+        
+    }
+
+    public function testSimpleFlag()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST);
+        $this->client = new Client(
+            PROJECT_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertTrue(PostHog::getFeatureFlag('simple-flag', 'some-distinct-id'));
 
     }
 }
