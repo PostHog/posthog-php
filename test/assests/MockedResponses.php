@@ -25,7 +25,8 @@ class MockedResponses
             'simple-test' => true,
             'multivariate-test' => 'variant-value',
             'group-flag' => 'decide-fallback-value',
-            'complex-flag' => 'decide-fallback-value'
+            'complex-flag' => 'decide-fallback-value',
+            'beta-feature' => 'decide-fallback-value'
         ],
         'sessionRecording' => false,
     ];
@@ -157,6 +158,33 @@ class MockedResponses
                 "rollout_percentage" => null
             ]
         ]
+    ];
+
+
+    public const EXPERIENCE_CONITNUITY_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "Beta Feature",
+                "key" => "beta-feature",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [],
+                            "rollout_percentage" => 100
+                        ]
+                    ]
+                                ],
+                "ensure_experience_continuity" => true,
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
+                "rollout_percentage" => 100
+            ]
+        ],
     ];
 
     public const LOCAL_EVALUATION_SIMPLE_REQUEST = [

@@ -435,6 +435,26 @@ class FeatureFlagMatch extends TestCase
         $this->assertFalse(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-rollout', False, [], ["region" => "USA", "email" => "a@b.com", "name" => "X", "doesnt_matter" => "1"], []));
     }
 
+    public function testFlagFallbackToDecide()
+    {
+
+    }
+
+    public function testFlagExperienceContinuityNotEvaluatedLocally()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::EXPERIENCE_CONITNUITY_REQUEST);
+        $this->client = new Client(
+            PROJECT_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'distinct-id', False, [], [], []), 'decide-fallback-value');
+    }
+
     public function testSimpleFlag()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST);
