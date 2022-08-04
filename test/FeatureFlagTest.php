@@ -12,14 +12,13 @@ use PostHog\InconclusiveMatchException;
 
 class FeatureFlagMatch extends TestCase
 {
-
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
     }
 
     public function testMatchPropertyEquals(): void
-    {   
+    {
         $prop = [
             "key" => "key",
             "value" => "value",
@@ -86,11 +85,10 @@ class FeatureFlagMatch extends TestCase
         FeatureFlag::matchProperty($prop, [
             "key2" => "value",
         ]);
-
     }
 
     public function testMatchPropertyNotIn(): void
-    {   
+    {
         $prop = [
             "key" => "key",
             "value" => "value",
@@ -151,11 +149,10 @@ class FeatureFlagMatch extends TestCase
         FeatureFlag::matchProperty($prop, [
             "key2" => "value",
         ]);
-
     }
 
     public function testMatchPropertyIsSet(): void
-    {   
+    {
         $prop = [
             "key" => "key",
             "value" => "is_set",
@@ -185,7 +182,7 @@ class FeatureFlagMatch extends TestCase
     }
     
     public function testMatchPropertyContains(): void
-    {   
+    {
         $prop = [
             "key" => "key",
             "value" => "valUe",
@@ -270,7 +267,7 @@ class FeatureFlagMatch extends TestCase
     // }
 
     public function testMatchPropertyMathOperators(): void
-    {   
+    {
         $prop = [
             "key" => "key",
             "value" => 1,
@@ -379,7 +376,6 @@ class FeatureFlagMatch extends TestCase
         self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "3",
         ]));
-
     }
 
     public function testFlagPersonProperties()
@@ -396,7 +392,6 @@ class FeatureFlagMatch extends TestCase
 
         $this->assertTrue(PostHog::getFeatureFlag('person-flag', 'some-distinct-id', false, [], ["region" => "USA"]));
         $this->assertFalse(PostHog::getFeatureFlag('person-flag', 'some-distinct-id-2', false, [], ["region" => "Canada"]));
-
     }
 
     public function testFlagGroupProperties()
@@ -549,7 +544,5 @@ class FeatureFlagMatch extends TestCase
         PostHog::init(null, null, $this->client);
 
         $this->assertTrue(PostHog::getFeatureFlag('simple-flag', 'some-distinct-id'));
-
     }
-
 }

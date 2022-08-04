@@ -11,63 +11,63 @@ class FeatureFlag
         $key = $property["key"];
         $operator = $property["operator"] ?? "exact";
         $value = $property["value"];
-    
+
         if (!array_key_exists($key, $propertyValues)) {
             throw new InconclusiveMatchException("Can't match properties without a given property value");
         }
-    
+
         if ($operator == "is_not_set") {
             throw new InconclusiveMatchException("can't match properties with operator is_not_set");
         }
-    
+
         $overrideValue = $propertyValues[$key];
-        
+
         if ($operator == "exact") {
             if (is_array($value)) {
                 return in_array($overrideValue, $value);
             }
             return $value == $overrideValue;
         }
-    
+
         if ($operator == "is_not") {
             if (is_array($value)) {
                 return !in_array($overrideValue, $value);
             }
             return $value !== $overrideValue;
         }
-    
+
         if ($operator == "is_set") {
             return array_key_exists($key, $propertyValues);
         }
-    
+
         if ($operator == "icontains") {
             return strpos(strtolower(strval($overrideValue)), strtolower(strval($value))) !== false;
         }
-    
+
         if ($operator == "not_icontains") {
             return strpos(strtolower(strval($overrideValue)), strtolower(strval($value))) == false;
         }
-    
+
         if ($operator == "regex") {
             return preg_match($value, $overrideValue);
         }
-    
+
         if ($operator == "not_regex") {
             return !preg_match($value, $overrideValue);
         }
-    
+
         if ($operator == "gt") {
             return gettype($value) == gettype($overrideValue) && $overrideValue > $value;
         }
-    
+
         if ($operator == "gte") {
             return gettype($value) == gettype($overrideValue) && $overrideValue >= $value;
         }
-    
+
         if ($operator == "lt") {
             return gettype($value) == gettype($overrideValue) && $overrideValue < $value;
         }
-    
+
         if ($operator == "lte") {
             return gettype($value) == gettype($overrideValue) && $overrideValue <= $value;
         }
@@ -104,7 +104,7 @@ class FeatureFlag
         $lookupTable = [];
         $valueMin = 0;
         $multivariates = (($featureFlag['filters'] ?? [])['multivariate'] ?? [])['variants'] ?? [];
-        
+
         foreach ($multivariates as $variant) {
             $valueMax = $valueMin + $variant["rollout_percentage"] / 100;
 
