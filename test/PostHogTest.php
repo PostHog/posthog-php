@@ -75,9 +75,13 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
+                    "path" => "/api/feature_flag/local_evaluation",
+                    "payload" => sprintf('{"api_key":"%s"}', PROJECT_API_KEY),
+                ),
+                1 => array(
                     "path" => "/decide/?v=2",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"john"}', PROJECT_API_KEY),
-                )
+                ),
             )
         );
     }
@@ -104,16 +108,15 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
+                    "path" => "/api/feature_flag/local_evaluation",
+                    "payload" => sprintf('{"api_key":"%s"}', PROJECT_API_KEY),
+                ),
+                1 => array(
                     "path" => "/decide/?v=2",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id"}', PROJECT_API_KEY),
-                )
+                ),
             )
         );
-    }
-
-    public function testIsFeatureEnabledDefault()
-    {
-        $this->assertTrue(PostHog::isFeatureEnabled('having_fun', 'user-id', true));
     }
 
     public function testIsFeatureEnabledGroups()
@@ -124,9 +127,13 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
+                    "path" => "/api/feature_flag/local_evaluation",
+                    "payload" => sprintf('{"api_key":"%s"}', PROJECT_API_KEY),
+                ),
+                1 => array(
                     "path" => "/decide/?v=2",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}', PROJECT_API_KEY),
-                )
+                ),
             )
         );
     }
@@ -134,13 +141,18 @@ class PostHogTest extends TestCase
     public function testGetFeatureFlag()
     {
         $this->assertEquals("variant-value", PostHog::getFeatureFlag('multivariate-test', 'user-id'));
+        // echo print_r($this->http_client->calls);
         $this->assertEquals(
             $this->http_client->calls,
             array(
                 0 => array(
+                    "path" => "/api/feature_flag/local_evaluation",
+                    "payload" => sprintf('{"api_key":"%s"}', PROJECT_API_KEY),
+                ),
+                1 => array(
                     "path" => "/decide/?v=2",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id"}', PROJECT_API_KEY),
-                )
+                ),
             )
         );
     }
@@ -158,9 +170,13 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
+                    "path" => "/api/feature_flag/local_evaluation",
+                    "payload" => sprintf('{"api_key":"%s"}', PROJECT_API_KEY),
+                ),
+                1 => array(
                     "path" => "/decide/?v=2",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}', PROJECT_API_KEY),
-                )
+                ),
             )
         );
     }

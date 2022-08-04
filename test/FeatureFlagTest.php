@@ -514,7 +514,23 @@ class FeatureFlagMatch extends TestCase
 
     public function testLoadFeatureFlags()
     {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_GROUP_PROPERTIES_REQUEST);
+        $this->client = new Client(
+            PROJECT_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
 
+        $this->assertEquals(count($this->client->featureFlags), 1);
+        $this->assertEquals($this->client->featureFlags[0]["key"], "group-flag");
+
+        $this->assertEquals($this->client->groupTypeMapping, [
+            "0" => "company",
+            "1" => "project"
+        ]);
     }
 
     public function testLoadFeatureFlagsWrongKey()

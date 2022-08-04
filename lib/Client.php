@@ -39,12 +39,12 @@ class Client
     /**
      * @var array
      */
-    private $featureFlags;
+    public $featureFlags;
 
     /**
      * @var array
      */
-    private $groupTypeMapping;
+    public $groupTypeMapping;
 
     /**
      * Create a new posthog object with your app's API key

@@ -72,7 +72,7 @@ class MockedResponses
         'flags' => [
             [
                 "id" => 1,
-                "name" => "",
+                "name" => "group flag",
                 "key" => "group-flag",
                 "filters" => [
                     "aggregation_group_type_index" => 0,
