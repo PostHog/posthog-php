@@ -6,9 +6,8 @@ const LONG_SCALE = 0xfffffffffffffff;
 
 class FeatureFlag
 {
-    static function matchProperty($property, $propertyValues)
+    public static function matchProperty($property, $propertyValues)
     {
-        
         $key = $property["key"];
         $operator = $property["operator"] ?? "exact";
         $value = $property["value"];
@@ -16,7 +15,6 @@ class FeatureFlag
         if (!array_key_exists($key, $propertyValues)) {
             throw new InconclusiveMatchException("Can't match properties without a given property value");
         }
-    
     
         if ($operator == "is_not_set") {
             throw new InconclusiveMatchException("can't match properties with operator is_not_set");
@@ -73,11 +71,11 @@ class FeatureFlag
         if ($operator == "lte") {
             return gettype($value) == gettype($overrideValue) && $overrideValue <= $value;
         }
-    
+
         return false;
     }
 
-    static function _hash($key, $distinctId, $salt = "")
+    private static function hash($key, $distinctId, $salt = "")
     {
         $hashKey = sprintf("%s.%s%s", $key, $distinctId, $salt);
         $hashVal = base_convert(substr(sha1(utf8_encode($hashKey)), 0, 15), 16, 10);
@@ -85,14 +83,14 @@ class FeatureFlag
         return $hashVal / LONG_SCALE;
     }
 
-    static function getMatchingVariant($flag, $distinctId)
+    private static function getMatchingVariant($flag, $distinctId)
     {
         $variants = FeatureFlag::variantLookupTable($flag);
 
         foreach ($variants as $variant) {
             if (
-                FeatureFlag::_hash($flag["key"], $distinctId, "variant") >= $variant["value_min"]
-                && FeatureFlag::_hash($flag["key"], $distinctId, "variant") < $variant["value_max"]
+                FeatureFlag::hash($flag["key"], $distinctId, "variant") >= $variant["value_min"]
+                && FeatureFlag::hash($flag["key"], $distinctId, "variant") < $variant["value_max"]
             ) {
                 return $variant["key"];
             }
@@ -101,7 +99,7 @@ class FeatureFlag
         return null;
     }
 
-    static function variantLookupTable($featureFlag)
+    private static function variantLookupTable($featureFlag)
     {
         $lookupTable = [];
         $valueMin = 0;
@@ -121,7 +119,7 @@ class FeatureFlag
         return $lookupTable;
     }
 
-    static function matchFeatureFlagProperties($flag, $distinctId, $properties)
+    public static function matchFeatureFlagProperties($flag, $distinctId, $properties)
     {
         $flagConditions = ($flag["filters"] ?? [])["groups"] ?? [];
         $isInconclusive = false;
@@ -143,7 +141,7 @@ class FeatureFlag
         return false;
     }
 
-    static function isConditionMatch($featureFlag, $distinctId, $condition, $properties)
+    private static function isConditionMatch($featureFlag, $distinctId, $condition, $properties)
     {
         $rolloutPercentage = $condition["rollout_percentage"];
 
@@ -159,11 +157,10 @@ class FeatureFlag
             }
         }
 
-        if (!is_null($rolloutPercentage) && FeatureFlag::_hash($featureFlag["key"], $distinctId) > ($rolloutPercentage / 100)) {
+        if (!is_null($rolloutPercentage) && FeatureFlag::hash($featureFlag["key"], $distinctId) > ($rolloutPercentage / 100)) {
             return false;
         }
 
         return true;
     }
-
 }

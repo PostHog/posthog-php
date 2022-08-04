@@ -535,7 +535,7 @@ class FeatureFlagMatch extends TestCase
 
     public function testLoadFeatureFlagsWrongKey()
     {
-
+        
     }
 
     public function testSimpleFlag()
