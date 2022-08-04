@@ -151,6 +151,26 @@ class PostHog
         return self::$client->GetFeatureFlag($key, $distinctId, $default, $groups, $personProperties, $groupProperties);
     }
 
+        /**
+     * get all enabled flags for distinct_id
+     *
+     * @param string $distinctId
+     * @param array $groups
+     * @param array $personProperties
+     * @param array $groupProperties
+     * @return boolean | string
+     * @throws Exception
+     */
+    public static function getAllFlags(
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array()
+    ): array {
+        self::checkClient();
+        return self::$client->GetAllFlags($distinctId, $groups, $personProperties, $groupProperties);
+    }
+
 
     /**
      *
@@ -158,10 +178,10 @@ class PostHog
      * @return array
      * @throws Exception
      */
-    public static function fetchEnabledFeatureFlags(string $distinctId, array $groups = array()): array
+    public static function fetchFeatureVariants(string $distinctId, array $groups = array()): array
     {
         self::checkClient();
-        return self::$client->fetchEnabledFeatureFlags($distinctId, $groups);
+        return self::$client->fetchFeatureVariants($distinctId, $groups);
     }
 
     /**

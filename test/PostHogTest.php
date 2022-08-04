@@ -181,9 +181,9 @@ class PostHogTest extends TestCase
         );
     }
 
-    public function testFetchEnabledFeatureFlags()
+    public function testfetchFeatureVariants()
     {
-        $this->assertIsArray(PostHog::fetchEnabledFeatureFlags('user-id'));
+        $this->assertIsArray(PostHog::fetchFeatureVariants('user-id'));
     }
 
     public function testEmptyProperties(): void

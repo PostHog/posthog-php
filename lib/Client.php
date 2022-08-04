@@ -90,7 +90,7 @@ class Client
         $message["type"] = "capture";
 
         if (array_key_exists("send_feature_flags", $message) && $message["send_feature_flags"]) {
-            $flags = $this->fetchEnabledFeatureFlags($message["distinct_id"], $message["groups"]);
+            $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
 
             if (!isset($message["properties"])) {
                 $message["properties"] = array();
@@ -176,7 +176,7 @@ class Client
             if ($flag["key"] == $key) {
 
                 try {
-                    $result = $this->_computeFlagLocally(
+                    $result = $this->computeFlagLocally(
                         $flag,
                         $distinctId,
                         $groups,
@@ -194,7 +194,7 @@ class Client
 
         if (is_null($result)) {
             try {
-                $featureFlags = $this->fetchEnabledFeatureFlags($distinctId, $groups, $personProperties, $groupProperties);
+                $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
                 $result = $featureFlags[$key] ?? $defaultValue;
             } catch (Exception $e) {
                 // TODO: handle error
@@ -216,7 +216,60 @@ class Client
         return $defaultValue;
     }
 
-    private function _computeFlagLocally(
+    /**
+     * get the feature flag value for this distinct id.
+     *
+     * @param string $distinctId
+     * @param array $groups
+     * @param array $personProperties
+     * @param array $groupProperties
+     * @return array
+     * @throws Exception
+     */
+    public function GetAllFlags(
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array()
+    ) : array
+    {
+        $response = [];
+        $fallbackToDecide = false;
+
+        if (count($this->featureFlags) > 0) 
+        {
+            foreach ($this->featureFlags as $flag) {
+                try {
+                    $response[$flag['key']] = $this->computeFlagLocally(
+                        $flag,
+                        $distinctId,
+                        $groups,
+                        $personProperties,
+                        $groupProperties
+                    );
+    
+                } catch (InconclusiveMatchException $e) {
+                    $fallbackToDecide = true;
+                }
+            }
+        } else {
+            $fallbackToDecide = true;
+        }
+
+        if ($fallbackToDecide) {
+            try {
+                $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
+                $response = array_merge($response, $featureFlags);
+            } catch (Exception $e) {
+                // TODO: handle error
+            }
+        }
+
+        return $response;
+
+    }
+
+    private function computeFlagLocally(
         array $featureFlag,
         string $distinctId,
         array $groups = array(),
@@ -259,10 +312,10 @@ class Client
     /**
      * @param string $distinctId
      * @param array $groups
-     * @return array of enabled feature flags
+     * @return array of feature flags
      * @throws Exception
      */
-    public function fetchEnabledFeatureFlags(string $distinctId, array $groups = array(), array $personProperties = [], array $groupProperties = []): array
+    public function fetchFeatureVariants(string $distinctId, array $groups = array(), array $personProperties = [], array $groupProperties = []): array
     {
         $flags = json_decode($this->decide($distinctId, $groups, $personProperties, $groupProperties), true)['featureFlags'] ?? [];
         return $flags;

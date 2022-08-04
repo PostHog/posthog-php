@@ -28,7 +28,9 @@ class MockedResponses
             'complex-flag' => 'decide-fallback-value',
             'beta-feature' => 'decide-fallback-value',
             'feature-1' => 'decide-fallback-value',
-            'feature-2' => 'decide-fallback-value'
+            'feature-2' => 'decide-fallback-value',
+            'variant-1' => 'variant-1',
+            'variant-3' => 'variant-3'
         ],
         'sessionRecording' => false,
     ];
@@ -291,6 +293,114 @@ class MockedResponses
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => true,
+                "rollout_percentage" => 100
+            ]
+        ],
+    ];
+
+    public const MULTIPLE_FLAGS_LOCAL_EVALUATE_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "",
+                "key" => "variant-1",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [],
+                            "rollout_percentage" => 100
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
+                "rollout_percentage" => 100
+            ],
+            [
+                "id" => 2,
+                "name" => "",
+                "key" => "variant-2",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [],
+                            "rollout_percentage" => 0
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
+                "rollout_percentage" => 100
+            ]
+        ],
+    ];
+
+    public const MULTIPLE_FLAGS_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "",
+                "key" => "variant-1",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [],
+                            "rollout_percentage" => 100
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
+                "rollout_percentage" => 100
+            ],
+            [
+                "id" => 2,
+                "name" => "",
+                "key" => "variant-2",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [],
+                            "rollout_percentage" => 0
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
+                "rollout_percentage" => 100
+            ],
+            [
+                "id" => 3,
+                "name" => "",
+                "key" => "variant-3",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "country",
+                                    "value" => ["USA"],
+                                    "operator" => null,
+                                    "type" => "person"
+                                ]
+                            ],
+                            "rollout_percentage" => 0
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
                 "rollout_percentage" => 100
             ]
         ],

@@ -492,17 +492,57 @@ class FeatureFlagMatch extends TestCase
 
     public function testGetAllFlagsWithFallback()
     {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::MULTIPLE_FLAGS_REQUEST);
+        $this->client = new Client(
+            PROJECT_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
 
+        $flags = PostHog::getAllFlags('distinct-id');
+
+        $this->assertEquals($flags["variant-1"], "variant-1");
+        $this->assertEquals($flags["variant-2"], false);
+        $this->assertEquals($flags["variant-3"], "variant-3");
     }
 
     public function testGetAllFlagsWithFallbackEmptyLocalFlags()
     {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse:[]);
+        $this->client = new Client(
+            PROJECT_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
 
+        $flags = PostHog::getAllFlags('distinct-id');
+
+        $this->assertEquals($flags["variant-1"], "variant-1");
+        $this->assertEquals($flags["variant-3"], "variant-3");
     }
 
     public function testGetAllFlagsWithNoFallback()
     {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse:MockedResponses::MULTIPLE_FLAGS_LOCAL_EVALUATE_REQUEST);
+        $this->client = new Client(
+            PROJECT_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
 
+        $flags = PostHog::getAllFlags('distinct-id');
+
+        $this->assertEquals($flags["variant-1"], true);
+        $this->assertEquals($flags["variant-2"], false);
     }
 
     public function testLoadFeatureFlags()
