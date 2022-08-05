@@ -298,6 +298,85 @@ class MockedResponses
         ],
     ];
 
+    public const SIMPLE_PARTIAL_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "",
+                "key" => "simple-flag",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [],
+                            "rollout_percentage" => 45
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
+                "rollout_percentage" => 45
+            ]
+        ],
+    ];
+
+    public const MULTIVARIATE_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "",
+                "key" => "multivariate-flag",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [],
+                            "rollout_percentage" => 55,
+                        ],
+                    ],
+                    "multivariate" => [
+                        "variants" => [
+                            [
+                                "key" => "first-variant",
+                                "name" => "First Variant",
+                                "rollout_percentage" => 50
+                            ],
+                            [
+                                "key" => "second-variant",
+                                "name" => "Second Variant",
+                                "rollout_percentage" => 20
+                            ],
+                            [
+                                "key" => "third-variant",
+                                "name" => "Third Variant",
+                                "rollout_percentage" => 20
+                            ],
+                            [
+                                "key" => "fourth-variant",
+                                "name" => "Fourth Variant",
+                                "rollout_percentage" => 5
+                            ],
+                            [
+                                "key" => "fifth-variant",
+                                "name" => "Fifth Variant",
+                                "rollout_percentage" => 5
+                            ]
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
+                "rollout_percentage" => 45
+            ]
+        ],
+    ];
+
     public const MULTIPLE_FLAGS_LOCAL_EVALUATE_REQUEST = [
         'count' => 1,
         'next' => null,

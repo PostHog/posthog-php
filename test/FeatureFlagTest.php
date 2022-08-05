@@ -585,4 +585,64 @@ class FeatureFlagMatch extends TestCase
 
         $this->assertTrue(PostHog::getFeatureFlag('simple-flag', 'some-distinct-id'));
     }
+
+    public function testFlagConsistency()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::SIMPLE_PARTIAL_REQUEST);
+        $this->client = new Client(
+            PROJECT_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
+
+        $result = [
+            false,
+            true,
+            true,
+            false,
+            true,
+            false,
+            false,
+            true,
+            false,
+            true
+        ];
+        foreach (range(0, 9) as $number) {
+            $testResult = PostHog::getFeatureFlag('simple-flag', sprintf('distinct_id_%s', $number));
+            $this->assertEquals($testResult, $result[$number]);
+        }
+    }
+
+    public function testMultivariateFlagConsistency()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::MULTIVARIATE_REQUEST);
+        $this->client = new Client(
+            PROJECT_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
+
+        $result = [
+            "second-variant",
+            "second-variant",
+            "first-variant",
+            false,
+            false,
+            "second-variant",
+            "first-variant",
+            false,
+            false,
+            false
+        ];
+        foreach (range(0, 9) as $number) {
+            $testResult = PostHog::getFeatureFlag('multivariate-flag', sprintf('distinct_id_%s', $number));
+            $this->assertEquals($testResult, $result[$number]);
+        }
+    }
 }

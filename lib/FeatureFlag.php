@@ -108,7 +108,7 @@ class FeatureFlag
         foreach ($multivariates as $variant) {
             $valueMax = $valueMin + $variant["rollout_percentage"] / 100;
 
-            array_push($lookup_table, [
+            array_push($lookupTable, [
                 "value_min" => $valueMin,
                 "value_max" => $valueMax,
                 "key" => $variant["key"]
