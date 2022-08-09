@@ -236,35 +236,89 @@ class FeatureFlagMatch extends TestCase
         ]));
     }
 
-    // public function testMatchPropertyRegex(): void
-    // {   
-    //     $prop = [
-    //         "key" => "key",
-    //         "value" => "/.com/",
-    //         "operator" => "regex"
-    //     ];
+    public function testMatchPropertyRegex(): void
+    {   
+        $prop = [
+            "key" => "key",
+            "value" => "/.com/",
+            "operator" => "regex"
+        ];
 
-    //     self::assertTrue(FeatureFlag::matchProperty($prop, [
-    //         "key" => "value.com",
-    //     ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "value.com",
+        ]));
 
-    //     self::assertTrue(FeatureFlag::matchProperty($prop, [
-    //         "key" => "value2.com",
-    //     ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "value2.com",
+        ]));
 
-    //     self::assertTrue(FeatureFlag::matchProperty($prop, [
-    //         "key" => ".com343tfvalue5",
-    //     ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => ".com343tfvalue5",
+        ]));
 
-    //     self::assertFalse(FeatureFlag::matchProperty($prop, [
-    //         "key" => "Alakazam",
-    //     ]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "Alakazam",
+        ]));
 
-    //     self::assertFalse(FeatureFlag::matchProperty($prop, [
-    //         "key" => 123,
-    //     ]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => 123,
+        ]));
 
-    // }
+
+        $prop = [
+            "key" => "key",
+            "value" => "/3/",
+            "operator" => "regex"
+        ];
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "3",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => 323,
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "val3",
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "three",
+        ]));
+
+        $prop = [
+            "key" => "key",
+            "value" => "/?*/",
+            "operator" => "regex"
+        ];
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "value",
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "value2",
+        ]));
+
+        $prop = [
+            "key" => "key",
+            "value" => "/4/",
+            "operator" => "regex"
+        ];
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "4",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => 4,
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "value",
+        ]));
+    }
 
     public function testMatchPropertyMathOperators(): void
     {

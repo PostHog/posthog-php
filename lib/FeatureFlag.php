@@ -49,11 +49,19 @@ class FeatureFlag
         }
 
         if ($operator == "regex") {
-            return preg_match($value, $overrideValue);
+            if (FeatureFlag::isRegularExpression($value)) {
+                return preg_match($value, $overrideValue) ? true : false;
+            } else {
+                return false;
+            }
         }
 
         if ($operator == "not_regex") {
-            return !preg_match($value, $overrideValue);
+            if (FeatureFlag::isRegularExpression($value)) {
+                return !(preg_match($value, $overrideValue) ? true : false);
+            } else {
+                return false;
+            }
         }
 
         if ($operator == "gt") {
@@ -162,5 +170,12 @@ class FeatureFlag
         }
 
         return true;
+    }
+
+    private static function isRegularExpression($string) {
+        set_error_handler(function() {}, E_WARNING);
+        $isRegularExpression = preg_match($string, "") !== FALSE;
+        restore_error_handler();
+        return $isRegularExpression;
     }
 }
