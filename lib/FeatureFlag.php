@@ -159,7 +159,7 @@ class FeatureFlag
                     return false;
                 }
             }
-                
+
             if (is_null($rolloutPercentage)) {
                 return true;
             }
@@ -173,8 +173,11 @@ class FeatureFlag
     }
 
     private static function isRegularExpression($string) {
-        set_error_handler(function() {}, E_WARNING);
-        $isRegularExpression = preg_match($string, "") !== FALSE;
+        set_error_handler(function () 
+        {
+            
+        }, E_WARNING);
+        $isRegularExpression = preg_match($string, "") !== false;
         restore_error_handler();
         return $isRegularExpression;
     }

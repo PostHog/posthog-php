@@ -39,7 +39,7 @@ class FeatureFlagMatch extends TestCase
         self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => null,
         ]));
-        
+
         self::expectException(InconclusiveMatchException::class);
         FeatureFlag::matchProperty($prop, [
             "key2" => "value2",
@@ -180,7 +180,7 @@ class FeatureFlagMatch extends TestCase
             "key2" => "value",
         ]);
     }
-    
+
     public function testMatchPropertyContains(): void
     {
         $prop = [
@@ -237,7 +237,7 @@ class FeatureFlagMatch extends TestCase
     }
 
     public function testMatchPropertyRegex(): void
-    {   
+    {
         $prop = [
             "key" => "key",
             "value" => "/.com/",
@@ -642,7 +642,6 @@ class FeatureFlagMatch extends TestCase
             FAKE_API_KEY
         );
         PostHog::init(null, null, $this->client);
-
     }
 
     public function testSimpleFlag()
@@ -677,8 +676,8 @@ class FeatureFlagMatch extends TestCase
         # beta-feature should fallback to decide because property type is unknown,
         # but doesn't because only_evaluate_locally is true
         $this->assertEquals(PostHog::getFeatureFlag(
-            'beta-feature', 
-            'some-distinct-id', 
+            'beta-feature',
+            'some-distinct-id',
             false,
             array(),
             array(),
@@ -688,8 +687,8 @@ class FeatureFlagMatch extends TestCase
         ), null);
 
         $this->assertEquals(PostHog::isFeatureEnabled(
-            'beta-feature', 
-            'some-distinct-id', 
+            'beta-feature',
+            'some-distinct-id',
             false,
             array(),
             array(),
@@ -701,8 +700,8 @@ class FeatureFlagMatch extends TestCase
         # beta-feature2 should fallback to decide because region property not given with call
         # but doesn't because only_evaluate_locally is true
         $this->assertEquals(PostHog::getFeatureFlag(
-            'beta-feature2', 
-            'some-distinct-id', 
+            'beta-feature2',
+            'some-distinct-id',
             false,
             array(),
             array(),
@@ -712,8 +711,8 @@ class FeatureFlagMatch extends TestCase
         ), null);
 
         $this->assertEquals(PostHog::isFeatureEnabled(
-            'beta-feature2', 
-            'some-distinct-id', 
+            'beta-feature2',
+            'some-distinct-id',
             false,
             array(),
             array(),
