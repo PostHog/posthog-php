@@ -530,7 +530,16 @@ class FeatureFlagMatch extends TestCase
 
     public function testFeatureFlagDefaultsComeIntoPlayOnlyWhenDecideErrorsOut()
     {
-
+        $this->client = new Client(
+            FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            null,
+            null
+        );
+        PostHog::init(null, null, $this->client);
+        $this->assertFalse(PostHog::getFeatureFlag('simple-flag', 'distinct-id', false));
     }
 
 
