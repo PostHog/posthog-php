@@ -20,7 +20,8 @@ class PostHogTest extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
     }
@@ -75,8 +76,8 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation",
-                    "payload" => sprintf('{"api_key":"%s"}', FAKE_API_KEY),
+                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "payload" => null,
                 ),
                 1 => array(
                     "path" => "/decide/?v=2",
@@ -108,8 +109,8 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation",
-                    "payload" => sprintf('{"api_key":"%s"}', FAKE_API_KEY),
+                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "payload" => null,
                 ),
                 1 => array(
                     "path" => "/decide/?v=2",
@@ -127,8 +128,8 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation",
-                    "payload" => sprintf('{"api_key":"%s"}', FAKE_API_KEY),
+                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "payload" => null,
                 ),
                 1 => array(
                     "path" => "/decide/?v=2",
@@ -145,8 +146,8 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation",
-                    "payload" => sprintf('{"api_key":"%s"}', FAKE_API_KEY),
+                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "payload" => null,
                 ),
                 1 => array(
                     "path" => "/decide/?v=2",
@@ -169,8 +170,8 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation",
-                    "payload" => sprintf('{"api_key":"%s"}', FAKE_API_KEY),
+                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "payload" => null,
                 ),
                 1 => array(
                     "path" => "/decide/?v=2",
