@@ -440,7 +440,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 
@@ -456,7 +457,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 
@@ -476,7 +478,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 
@@ -496,7 +499,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 
@@ -512,7 +516,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 
@@ -537,7 +542,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 
@@ -552,7 +558,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 
@@ -571,7 +578,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 
@@ -589,7 +597,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 
@@ -607,7 +616,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 
@@ -622,7 +632,17 @@ class FeatureFlagMatch extends TestCase
 
     public function testLoadFeatureFlagsWrongKey()
     {
-        
+        self::expectException(Exception::class);
+        $this->client = new Client(
+            FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            null,
+            FAKE_API_KEY
+        );
+        PostHog::init(null, null, $this->client);
+
     }
 
     public function testSimpleFlag()
@@ -633,7 +653,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 
@@ -648,7 +669,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 
@@ -709,7 +731,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 
@@ -1729,7 +1752,8 @@ class FeatureFlagMatch extends TestCase
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
 

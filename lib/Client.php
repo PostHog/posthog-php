@@ -76,7 +76,9 @@ class Client
         $this->groupTypeMapping = [];
 
         // Populate featureflags and grouptypemapping if possible
-        $this->loadFlags();
+        if (count($this->featureFlags) == 0 && !is_null($this->personalAPIKey)) {
+            $this->loadFlags();
+        }
     }
 
     public function __destruct()
@@ -345,9 +347,14 @@ class Client
      * @throws Exception
      */
 
-    private function loadFlags()
+    public function loadFlags()
     {
         $payload = json_decode($this->localFlags(), true);
+
+        if (array_key_exists("detail", $payload)) {
+            throw new Exception($payload["detail"]);
+        }
+
         $this->featureFlags = $payload['flags'] ?? [];
         $this->groupTypeMapping = $payload['group_type_mapping'] ?? [];
     }
