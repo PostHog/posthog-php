@@ -750,7 +750,6 @@ class FeatureFlagMatch extends TestCase
             "enabled-flag" => true,
             "disabled-flag" => false
         ]);
-
     }
 
     public function testFlagConsistency()
