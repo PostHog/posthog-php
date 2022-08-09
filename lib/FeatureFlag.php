@@ -172,7 +172,7 @@ class FeatureFlag
         return true;
     }
 
-    private static function isRegularExpression($string) 
+    private static function isRegularExpression($string)
     {
         set_error_handler(function () {
         }, E_WARNING);
