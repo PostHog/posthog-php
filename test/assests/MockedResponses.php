@@ -264,7 +264,7 @@ class MockedResponses
                 "active" => true,
                 "is_simple_flag" => false,
                 "rollout_percentage" => null
-            
+
              ],
             [
                 "id" => 2,
@@ -289,8 +289,8 @@ class MockedResponses
                 "active" => true,
                 "is_simple_flag" => false,
                 "rollout_percentage" => null
-            
-        ]
+
+            ]
         ]
     ];
 

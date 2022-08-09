@@ -10,7 +10,6 @@ use PostHog\Consumer\Socket;
 
 class Client
 {
-
     private const CONSUMERS = [
         "socket" => Socket::class,
         "file" => File::class,
@@ -186,7 +185,6 @@ class Client
 
         foreach ($this->featureFlags as $flag) {
             if ($flag["key"] == $key) {
-
                 try {
                     $result = $this->computeFlagLocally(
                         $flag,
@@ -195,16 +193,12 @@ class Client
                         $personProperties,
                         $groupProperties
                     );
-
                 } catch (InconclusiveMatchException $e) {
                     $result = null;
-                    
-                } catch(Exception $e) {
+                } catch (Exception $e) {
                     $result = null;
                     error_log("[PostHog][Client] Error while computing variant:" . $e->getMessage());
                 }
-                 
-    
             }
         }
 
@@ -251,13 +245,11 @@ class Client
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false
-    ) : array
-    {
+    ): array {
         $response = [];
         $fallbackToDecide = false;
 
-        if (count($this->featureFlags) > 0) 
-        {
+        if (count($this->featureFlags) > 0) {
             foreach ($this->featureFlags as $flag) {
                 try {
                     $response[$flag['key']] = $this->computeFlagLocally(
@@ -267,7 +259,6 @@ class Client
                         $personProperties,
                         $groupProperties
                     );
-    
                 } catch (InconclusiveMatchException $e) {
                     $fallbackToDecide = true;
                 } catch (Exception $e) {
@@ -289,7 +280,6 @@ class Client
         }
 
         return $response;
-
     }
 
     private function computeFlagLocally(
@@ -298,8 +288,7 @@ class Client
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array()
-    ) : bool | string
-    {
+    ): bool | string {
         if ($featureFlag["ensure_experience_continuity"] ?? false) {
             throw new InconclusiveMatchException("Flag has experience continuity enabled");
         }
@@ -327,7 +316,6 @@ class Client
         } else {
             return FeatureFlag::matchFeatureFlagProperties($featureFlag, $distinctId, $personProperties);
         }
-
     }
 
 
@@ -361,7 +349,7 @@ class Client
 
 
     public function localFlags()
-    {   
+    {
 
         return $this->httpClient->sendRequest(
             '/api/feature_flag/local_evaluation?token=' . $this->apiKey,

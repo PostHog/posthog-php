@@ -7,7 +7,6 @@ use PostHog\Test\Assets\MockedResponses;
 
 class MockedHttpClient extends \PostHog\HttpClient
 {
-
     private $flagEndpointResponse;
 
     public function __construct(
