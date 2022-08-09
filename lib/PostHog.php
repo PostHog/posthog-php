@@ -4,6 +4,9 @@ namespace PostHog;
 
 use Exception;
 
+ini_set('display_errors', 1);
+error_reporting(-1);
+
 class PostHog
 {
     public const VERSION = '2.1.0';
@@ -19,7 +22,7 @@ class PostHog
      * @param Client|null $client
      * @throws Exception
      */
-    public static function init(?string $apiKey = null, ?array $options = [], ?Client $client = null): void
+    public static function init(?string $apiKey = null, ?array $options = [], ?Client $client = null, ?string $personalAPIKey = null): void
     {
         if (null === $client) {
             $apiKey = $apiKey ?: getenv(self::ENV_API_KEY);
@@ -35,7 +38,7 @@ class PostHog
             }
 
             self::assert($apiKey, "PostHog::init() requires an apiKey");
-            self::$client = new Client($apiKey, $options);
+            self::$client = new Client($apiKey, $options, null, $personalAPIKey);
         } else {
             self::$client = $client;
         }

@@ -25,6 +25,11 @@ class Client
     private $apiKey;
 
     /**
+     * @var string
+     */
+    private $personalAPIKey;
+
+    /**
      * Consumer object handles queueing and bundling requests to PostHog.
      *
      * @var Consumer
@@ -54,9 +59,10 @@ class Client
      * @param array $options array of consumer options [optional]
      * @param HttpClient|null $httpClient
      */
-    public function __construct(string $apiKey, array $options = [], ?HttpClient $httpClient = null)
+    public function __construct(string $apiKey, array $options = [], ?HttpClient $httpClient = null, string $personalAPIKey = null)
     {
         $this->apiKey = $apiKey;
+        $this->personalAPIKey = $personalAPIKey;
         $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($apiKey, $options);
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
@@ -190,6 +196,7 @@ class Client
 
                 } catch (InconclusiveMatchException $e) {
                     $result = null;
+                    
                 } catch(Exception $e) {
                     $result = null;
                     error_log("[PostHog][Client] Error while computing variant:" . $e->getMessage());
@@ -347,17 +354,15 @@ class Client
 
 
     public function localFlags()
-    {
-        $payload = array(
-            'api_key' => $this->apiKey,
-        );
+    {   
 
         return $this->httpClient->sendRequest(
-            '/api/feature_flag/local_evaluation',
-            json_encode($payload),
+            '/api/feature_flag/local_evaluation?token=' . $this->apiKey,
+            null,
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
                 "User-Agent: posthog-php/" . PostHog::VERSION,
+                "Authorization: Bearer " . $this->personalAPIKey
             ]
         )->getResponse();
     }
