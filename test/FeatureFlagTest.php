@@ -723,6 +723,28 @@ class FeatureFlagMatch extends TestCase
         ), false);
     }
 
+    public function testComputingInactiveFlagLocally()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_WITH_INACTIVE_REQUEST);
+        $this->client = new Client(
+            FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        $flags = PostHog::getAllFlags('distinct-id');
+
+        $this->assertEquals($flags, [
+            "enabled-flag" => true,
+            "disabled-flag" => false
+        ]);
+
+    }
+
     public function testFlagConsistency()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::SIMPLE_PARTIAL_REQUEST);
