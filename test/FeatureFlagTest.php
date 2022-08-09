@@ -382,7 +382,7 @@ class FeatureFlagMatch extends TestCase
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_REQUEST);
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
@@ -398,7 +398,7 @@ class FeatureFlagMatch extends TestCase
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_GROUP_PROPERTIES_REQUEST);
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
@@ -418,7 +418,7 @@ class FeatureFlagMatch extends TestCase
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_COMPLEX_FLAG_REQUEST);
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
@@ -438,7 +438,7 @@ class FeatureFlagMatch extends TestCase
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_DECIDE_REQUEST);
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
@@ -454,7 +454,7 @@ class FeatureFlagMatch extends TestCase
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_SIMPLE_EMPTY_REQUEST);
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
@@ -479,7 +479,7 @@ class FeatureFlagMatch extends TestCase
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::EXPERIENCE_CONITNUITY_REQUEST);
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
@@ -494,7 +494,7 @@ class FeatureFlagMatch extends TestCase
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::MULTIPLE_FLAGS_REQUEST);
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
@@ -513,7 +513,7 @@ class FeatureFlagMatch extends TestCase
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse:[]);
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
@@ -531,7 +531,7 @@ class FeatureFlagMatch extends TestCase
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse:MockedResponses::MULTIPLE_FLAGS_LOCAL_EVALUATE_REQUEST);
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
@@ -549,7 +549,7 @@ class FeatureFlagMatch extends TestCase
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_GROUP_PROPERTIES_REQUEST);
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
@@ -575,7 +575,7 @@ class FeatureFlagMatch extends TestCase
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST);
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
@@ -590,7 +590,7 @@ class FeatureFlagMatch extends TestCase
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::SIMPLE_PARTIAL_REQUEST);
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
@@ -1610,7 +1610,7 @@ class FeatureFlagMatch extends TestCase
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::MULTIVARIATE_REQUEST);
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
