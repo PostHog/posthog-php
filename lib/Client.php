@@ -147,7 +147,7 @@ class Client
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
-        bool $sendFeatureFlagEvents = false
+        bool $sendFeatureFlagEvents = true
     ): bool {
         return boolval($this->getFeatureFlag($key, $distinctId, $defaultValue, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents));
     }
@@ -172,7 +172,7 @@ class Client
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
-        bool $sendFeatureFlagEvents = false
+        bool $sendFeatureFlagEvents = true
     ): bool | string {
         $result = null;
 
