@@ -1,5 +1,5 @@
 <?php
-
+// phpcs:ignoreFile
 namespace PostHog\Test;
 
 use Exception;

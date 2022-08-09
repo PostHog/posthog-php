@@ -143,7 +143,7 @@ class FeatureFlag
         }
 
         if ($isInconclusive) {
-            throw new InconclusiveMatchException("Can't determine if feature flag is enabled or not with given properties");
+            throw new InconclusiveMatchException("Can't determine if feature flag is enabled or not with given properties"); //phpcs:ignore
         }
 
         return false;
@@ -165,7 +165,7 @@ class FeatureFlag
             }
         }
 
-        if (!is_null($rolloutPercentage) && FeatureFlag::hash($featureFlag["key"], $distinctId) > ($rolloutPercentage / 100)) {
+        if (!is_null($rolloutPercentage) && FeatureFlag::hash($featureFlag["key"], $distinctId) > ($rolloutPercentage / 100)) { //phpcs:ignore
             return false;
         }
 
