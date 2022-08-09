@@ -121,10 +121,12 @@ class PostHog
         bool $default = false,
         array $groups = array(),
         array $personProperties = array(),
-        array $groupProperties = array()
+        array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false,
+        bool $sendFeatureFlagEvents = false
     ): bool {
         self::checkClient();
-        return self::$client->isFeatureEnabled($key, $distinctId, $default, $groups, $personProperties, $groupProperties);
+        return self::$client->isFeatureEnabled($key, $distinctId, $default, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents);
     }
 
     /**
@@ -145,10 +147,12 @@ class PostHog
         bool $default = false,
         array $groups = array(),
         array $personProperties = array(),
-        array $groupProperties = array()
+        array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false,
+        bool $sendFeatureFlagEvents = false
     ): bool | string {
         self::checkClient();
-        return self::$client->GetFeatureFlag($key, $distinctId, $default, $groups, $personProperties, $groupProperties);
+        return self::$client->GetFeatureFlag($key, $distinctId, $default, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents);
     }
 
         /**
@@ -165,10 +169,11 @@ class PostHog
         string $distinctId,
         array $groups = array(),
         array $personProperties = array(),
-        array $groupProperties = array()
+        array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false
     ): array {
         self::checkClient();
-        return self::$client->GetAllFlags($distinctId, $groups, $personProperties, $groupProperties);
+        return self::$client->GetAllFlags($distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally);
     }
 
 

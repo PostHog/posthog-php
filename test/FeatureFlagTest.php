@@ -586,6 +586,67 @@ class FeatureFlagMatch extends TestCase
         $this->assertTrue(PostHog::getFeatureFlag('simple-flag', 'some-distinct-id'));
     }
 
+    public function testFeatureFlagsDontFallbackToDecideWhenOnlyLocalEvaluationIsTrue()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_DECIDE_REQUEST);
+        $this->client = new Client(
+            FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client
+        );
+        PostHog::init(null, null, $this->client);
+
+        # beta-feature should fallback to decide because property type is unknown,
+        # but doesn't because only_evaluate_locally is true
+        $this->assertEquals(PostHog::getFeatureFlag(
+            'beta-feature', 
+            'some-distinct-id', 
+            false,
+            array(),
+            array(),
+            array(),
+            true,
+            false
+        ), null);
+
+        $this->assertEquals(PostHog::isFeatureEnabled(
+            'beta-feature', 
+            'some-distinct-id', 
+            false,
+            array(),
+            array(),
+            array(),
+            true,
+            false
+        ), false);
+
+        # beta-feature2 should fallback to decide because region property not given with call
+        # but doesn't because only_evaluate_locally is true
+        $this->assertEquals(PostHog::getFeatureFlag(
+            'beta-feature2', 
+            'some-distinct-id', 
+            false,
+            array(),
+            array(),
+            array(),
+            true,
+            false
+        ), null);
+
+        $this->assertEquals(PostHog::isFeatureEnabled(
+            'beta-feature2', 
+            'some-distinct-id', 
+            false,
+            array(),
+            array(),
+            array(),
+            true,
+            false
+        ), false);
+    }
+
     public function testFlagConsistency()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::SIMPLE_PARTIAL_REQUEST);

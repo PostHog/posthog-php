@@ -27,6 +27,7 @@ class MockedResponses
             'group-flag' => 'decide-fallback-value',
             'complex-flag' => 'decide-fallback-value',
             'beta-feature' => 'decide-fallback-value',
+            'beta-feature2' => 'alakazam',
             'feature-1' => 'decide-fallback-value',
             'feature-2' => 'decide-fallback-value',
             'variant-1' => 'variant-1',

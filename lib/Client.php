@@ -145,9 +145,11 @@ class Client
         $defaultValue = false,
         array $groups = array(),
         array $personProperties = array(),
-        array $groupProperties = array()
+        array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false,
+        bool $sendFeatureFlagEvents = false
     ): bool {
-        return boolval($this->getFeatureFlag($key, $distinctId, $defaultValue, $groups, $personProperties, $groupProperties));
+        return boolval($this->getFeatureFlag($key, $distinctId, $defaultValue, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents));
     }
 
     /**
@@ -168,7 +170,9 @@ class Client
         bool $defaultValue = false,
         array $groups = array(),
         array $personProperties = array(),
-        array $groupProperties = array()
+        array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false,
+        bool $sendFeatureFlagEvents = false
     ): bool | string {
         $result = null;
 
@@ -195,8 +199,9 @@ class Client
             }
         }
 
+        $flagWasEvaluatedLocally = !is_null($result);
 
-        if (is_null($result)) {
+        if (!$flagWasEvaluatedLocally && !$onlyEvaluateLocally) {
             try {
                 $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
                 $result = $featureFlags[$key] ?? $defaultValue;
@@ -235,7 +240,8 @@ class Client
         string $distinctId,
         array $groups = array(),
         array $personProperties = array(),
-        array $groupProperties = array()
+        array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false
     ) : array
     {
         $response = [];
@@ -264,7 +270,7 @@ class Client
             $fallbackToDecide = true;
         }
 
-        if ($fallbackToDecide) {
+        if ($fallbackToDecide && !$onlyEvaluateLocally) {
             try {
                 $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
                 $response = array_merge($response, $featureFlags);
