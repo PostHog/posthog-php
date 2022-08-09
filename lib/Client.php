@@ -289,7 +289,6 @@ class Client
         $aggregationGroupTypeIndex = $flagFilters["aggregation_group_type_index"] ?? null;
 
         if (!is_null($aggregationGroupTypeIndex)) {
-            // TODO: handle groups
             $groupName = $this->groupTypeMapping[strval($aggregationGroupTypeIndex)] ?? null;
 
             if (is_null($groupName)) {
