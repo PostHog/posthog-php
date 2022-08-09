@@ -186,7 +186,11 @@ class Client
 
                 } catch (InconclusiveMatchException $e) {
                     $result = null;
+                } catch(Exception $e) {
+                    $result = null;
+                    error_log("[PostHog][Client] Error while computing variant:" . $e->getMessage());
                 }
+                 
     
             }
         }
@@ -197,7 +201,8 @@ class Client
                 $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
                 $result = $featureFlags[$key] ?? $defaultValue;
             } catch (Exception $e) {
-                // TODO: handle error
+                error_log("[PostHog][Client] Unable to get feature variants:" . $e->getMessage());
+                $result = $defaultValue;
             }
         }
 
@@ -250,6 +255,9 @@ class Client
     
                 } catch (InconclusiveMatchException $e) {
                     $fallbackToDecide = true;
+                } catch (Exception $e) {
+                    $fallbackToDecide = true;
+                    error_log("[PostHog][Client] Error while computing variant:" . $e->getMessage());
                 }
             }
         } else {
@@ -261,7 +269,7 @@ class Client
                 $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
                 $response = array_merge($response, $featureFlags);
             } catch (Exception $e) {
-                // TODO: handle error
+                error_log("[PostHog][Client] Unable to get feature variants:" . $e->getMessage());
             }
         }
 
@@ -300,7 +308,7 @@ class Client
             }
 
             $focusedGroupProperties = $groupProperties[$groupName];
-            return FeatureFlag::matchFeatureFlagProperties($featureFlag, $distinctId, $focusedGroupProperties);
+            return FeatureFlag::matchFeatureFlagProperties($featureFlag, $groups[$groupName], $focusedGroupProperties);
         } else {
             return FeatureFlag::matchFeatureFlagProperties($featureFlag, $distinctId, $personProperties);
         }
