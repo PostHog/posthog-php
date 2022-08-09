@@ -141,7 +141,6 @@ class PostHogTest extends TestCase
     public function testGetFeatureFlag()
     {
         $this->assertEquals("variant-value", PostHog::getFeatureFlag('multivariate-test', 'user-id'));
-        // echo print_r($this->http_client->calls);
         $this->assertEquals(
             $this->http_client->calls,
             array(
