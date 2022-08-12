@@ -445,8 +445,8 @@ class FeatureFlagMatch extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        $this->assertTrue(PostHog::getFeatureFlag('person-flag', 'some-distinct-id', false, [], ["region" => "USA"]));
-        $this->assertFalse(PostHog::getFeatureFlag('person-flag', 'some-distinct-id-2', false, [], ["region" => "Canada"]));
+        $this->assertTrue(PostHog::getFeatureFlag('person-flag', 'some-distinct-id', [], ["region" => "USA"]));
+        $this->assertFalse(PostHog::getFeatureFlag('person-flag', 'some-distinct-id-2', [], ["region" => "Canada"]));
     }
 
     public function testFlagGroupProperties()
@@ -462,12 +462,12 @@ class FeatureFlagMatch extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-1', false, [], [], ["company" => ["name" => "Project Name 1"]]));
-        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-2', false, [], [], ["company" => ["name" => "Project Name 2"]]));
-        $this->assertTrue(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', false, ["company" => "amazon_without_rollout"], [], ["company" => ["name" => "Project Name 1"]]));
-        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', false, ["company" => "amazon"], [], ["company" => ["name" => "Project Name 1"]]));
-        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', false, ["company" => "amazon_without_rollout"], [], ["company" => ["name" => "Project Name 2"]]));
-        $this->assertEquals(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', false, ["company" => "amazon"], [], ["company" => []]), 'decide-fallback-value');
+        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-1', [], [], ["company" => ["name" => "Project Name 1"]]));
+        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-2', [], [], ["company" => ["name" => "Project Name 2"]]));
+        $this->assertTrue(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', ["company" => "amazon_without_rollout"], [], ["company" => ["name" => "Project Name 1"]]));
+        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', ["company" => "amazon"], [], ["company" => ["name" => "Project Name 1"]]));
+        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', ["company" => "amazon_without_rollout"], [], ["company" => ["name" => "Project Name 2"]]));
+        $this->assertEquals(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', ["company" => "amazon"], [], ["company" => []]), 'decide-fallback-value');
     }
 
     public function testFlagComplexDefinition()
@@ -483,12 +483,12 @@ class FeatureFlagMatch extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        $this->assertTrue(PostHog::getFeatureFlag('complex-flag', 'some-distinct-id', false, [], ["region" => "USA", "name" => "Aloha"], []));
-        $this->assertTrue(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-roll', false, [], ["region" => "USA", "email" => "a@b.com"], []));
-        $this->assertEquals(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-rollout', false, [], ["region" => "USA", "email" => "a@b.com"], []), 'decide-fallback-value');
-        $this->assertEquals(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-rollout', false, [], ["doesnt_matter" => "1"], []), 'decide-fallback-value');
-        $this->assertEquals(PostHog::getFeatureFlag('complex-flag', 'some-distinct-id', false, [], ["region" => "USA"], []), 'decide-fallback-value');
-        $this->assertFalse(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-rollout', false, [], ["region" => "USA", "email" => "a@b.com", "name" => "X", "doesnt_matter" => "1"], []));
+        $this->assertTrue(PostHog::getFeatureFlag('complex-flag', 'some-distinct-id', [], ["region" => "USA", "name" => "Aloha"], []));
+        $this->assertTrue(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-roll', [], ["region" => "USA", "email" => "a@b.com"], []));
+        $this->assertEquals(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-rollout', [], ["region" => "USA", "email" => "a@b.com"], []), 'decide-fallback-value');
+        $this->assertEquals(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-rollout', [], ["doesnt_matter" => "1"], []), 'decide-fallback-value');
+        $this->assertEquals(PostHog::getFeatureFlag('complex-flag', 'some-distinct-id', [], ["region" => "USA"], []), 'decide-fallback-value');
+        $this->assertFalse(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-rollout', [], ["region" => "USA", "email" => "a@b.com", "name" => "X", "doesnt_matter" => "1"], []));
     }
 
     public function testFlagFallbackToDecide()
@@ -508,26 +508,6 @@ class FeatureFlagMatch extends TestCase
         $this->assertEquals(PostHog::getFeatureFlag('feature-2', 'some-distinct'), 'decide-fallback-value');
     }
 
-    public function testFeatureFlagDefaultsDontHinderRegularEvaluation()
-    {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_SIMPLE_EMPTY_REQUEST);
-        $this->client = new Client(
-            FAKE_API_KEY,
-            [
-                "debug" => true,
-            ],
-            $this->http_client,
-            "test"
-        );
-        PostHog::init(null, null, $this->client);
-
-        $this->assertFalse(PostHog::getFeatureFlag('simple-flag', 'distinct-id', true, [], [], []));
-        $this->assertFalse(PostHog::getFeatureFlag('simple-flag', 'distinct-id', false, [], [], []));
-
-        $this->assertFalse(PostHog::getFeatureFlag('disabled-flag', 'distinct-id', true, [], [], []));
-        $this->assertFalse(PostHog::getFeatureFlag('disabled-flag', 'distinct-id', false, [], [], []));
-    }
-
     public function testFeatureFlagDefaultsComeIntoPlayOnlyWhenDecideErrorsOut()
     {
         $this->client = new Client(
@@ -539,7 +519,7 @@ class FeatureFlagMatch extends TestCase
             null
         );
         PostHog::init(null, null, $this->client);
-        $this->assertFalse(PostHog::getFeatureFlag('simple-flag', 'distinct-id', false));
+        $this->assertEquals(PostHog::getFeatureFlag('simple-flag', 'distinct-id'), null);
     }
 
 
@@ -556,7 +536,7 @@ class FeatureFlagMatch extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'distinct-id', false, [], [], []), 'decide-fallback-value');
+        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'distinct-id', [], [], []), 'decide-fallback-value');
     }
 
     public function testGetAllFlagsWithFallback()
@@ -687,7 +667,6 @@ class FeatureFlagMatch extends TestCase
         $this->assertEquals(PostHog::getFeatureFlag(
             'beta-feature',
             'some-distinct-id',
-            false,
             array(),
             array(),
             array(),
@@ -698,7 +677,6 @@ class FeatureFlagMatch extends TestCase
         $this->assertEquals(PostHog::isFeatureEnabled(
             'beta-feature',
             'some-distinct-id',
-            false,
             array(),
             array(),
             array(),
@@ -711,7 +689,6 @@ class FeatureFlagMatch extends TestCase
         $this->assertEquals(PostHog::getFeatureFlag(
             'beta-feature2',
             'some-distinct-id',
-            false,
             array(),
             array(),
             array(),
@@ -722,7 +699,6 @@ class FeatureFlagMatch extends TestCase
         $this->assertEquals(PostHog::isFeatureEnabled(
             'beta-feature2',
             'some-distinct-id',
-            false,
             array(),
             array(),
             array(),

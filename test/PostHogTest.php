@@ -122,7 +122,7 @@ class PostHogTest extends TestCase
 
     public function testIsFeatureEnabledGroups()
     {
-        $this->assertFalse(PostHog::isFeatureEnabled('having_fun', 'user-id', false, array("company" => "id:5")));
+        $this->assertFalse(PostHog::isFeatureEnabled('having_fun', 'user-id', array("company" => "id:5")));
 
         $this->assertEquals(
             $this->http_client->calls,
@@ -159,12 +159,12 @@ class PostHogTest extends TestCase
 
     public function testGetFeatureFlagDefault()
     {
-        $this->assertTrue(PostHog::getFeatureFlag('blah', 'user-id', true));
+        $this->assertEquals(PostHog::getFeatureFlag('blah', 'user-id'), null);
     }
 
     public function testGetFeatureFlagGroups()
     {
-        $this->assertEquals("variant-value", PostHog::getFeatureFlag('multivariate-test', 'user-id', false, array("company" => "id:5")));
+        $this->assertEquals("variant-value", PostHog::getFeatureFlag('multivariate-test', 'user-id', array("company" => "id:5")));
 
         $this->assertEquals(
             $this->http_client->calls,

@@ -139,7 +139,6 @@ class Client
      *
      * @param string $key
      * @param string $distinctId
-     * @param mixed $defaultValue
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -149,14 +148,13 @@ class Client
     public function isFeatureEnabled(
         string $key,
         string $distinctId,
-        $defaultValue = false,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
     ): bool {
-        return boolval($this->getFeatureFlag($key, $distinctId, $defaultValue, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents));
+        return boolval($this->getFeatureFlag($key, $distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents));
     }
 
     /**
@@ -164,7 +162,6 @@ class Client
      *
      * @param string $key
      * @param string $distinctId
-     * @param mixed $defaultValue
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -174,13 +171,12 @@ class Client
     public function getFeatureFlag(
         string $key,
         string $distinctId,
-        bool $defaultValue = false,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
-    ): bool | string {
+    ): null | bool | string {
         $result = null;
 
         foreach ($this->featureFlags as $flag) {
@@ -207,10 +203,10 @@ class Client
         if (!$flagWasEvaluatedLocally && !$onlyEvaluateLocally) {
             try {
                 $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
-                $result = $featureFlags[$key] ?? $defaultValue;
+                $result = $featureFlags[$key];
             } catch (Exception $e) {
                 error_log("[PostHog][Client] Unable to get feature variants:" . $e->getMessage());
-                $result = $defaultValue;
+                $result = null;
             }
         }
 
@@ -226,7 +222,7 @@ class Client
         if (!is_null($result)) {
             return $result;
         }
-        return $defaultValue;
+        return null;
     }
 
     /**
