@@ -4,11 +4,14 @@ require_once __DIR__ . '/vendor/autoload.php';
 
 use PostHog\PostHog;
 
-const PROJECT_API_KEY = "phc_X8B6bhR1QgQKP1WdpFLN82LxLxgZ7WPXDgJyRyvIpib";
+const PROJECT_API_KEY = "";
+const PERSONAL_API_KEY = "";
 
 PostHog::init(
     PROJECT_API_KEY,
     array('host' => 'https://app.posthog.com'),
+    null,
+    PERSONAL_API_KEY
 );
 
 # Capture an event

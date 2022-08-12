@@ -10,7 +10,6 @@ use PostHog\Consumer\Socket;
 
 class Client
 {
-
     private const CONSUMERS = [
         "socket" => Socket::class,
         "file" => File::class,
@@ -25,6 +24,11 @@ class Client
     private $apiKey;
 
     /**
+     * @var string
+     */
+    private $personalAPIKey;
+
+    /**
      * Consumer object handles queueing and bundling requests to PostHog.
      *
      * @var Consumer
@@ -36,6 +40,15 @@ class Client
      */
     public $httpClient;
 
+    /**
+     * @var array
+     */
+    public $featureFlags;
+
+    /**
+     * @var array
+     */
+    public $groupTypeMapping;
 
     /**
      * Create a new posthog object with your app's API key
@@ -45,9 +58,10 @@ class Client
      * @param array $options array of consumer options [optional]
      * @param HttpClient|null $httpClient
      */
-    public function __construct(string $apiKey, array $options = [], ?HttpClient $httpClient = null)
+    public function __construct(string $apiKey, array $options = [], ?HttpClient $httpClient = null, string $personalAPIKey = null)
     {
         $this->apiKey = $apiKey;
+        $this->personalAPIKey = $personalAPIKey;
         $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($apiKey, $options);
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
@@ -57,6 +71,13 @@ class Client
             false,
             $options["debug"] ?? false
         );
+        $this->featureFlags = [];
+        $this->groupTypeMapping = [];
+
+        // Populate featureflags and grouptypemapping if possible
+        if (count($this->featureFlags) == 0 && !is_null($this->personalAPIKey)) {
+            $this->loadFlags();
+        }
     }
 
     public function __destruct()
@@ -76,7 +97,7 @@ class Client
         $message["type"] = "capture";
 
         if (array_key_exists("send_feature_flags", $message) && $message["send_feature_flags"]) {
-            $flags = $this->fetchEnabledFeatureFlags($message["distinct_id"], $message["groups"]);
+            $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
 
             if (!isset($message["properties"])) {
                 $message["properties"] = array();
@@ -120,6 +141,8 @@ class Client
      * @param string $distinctId
      * @param mixed $defaultValue
      * @param array $groups
+     * @param array $personProperties
+     * @param array $groupProperties
      * @return bool
      * @throws Exception
      */
@@ -127,25 +150,13 @@ class Client
         string $key,
         string $distinctId,
         $defaultValue = false,
-        array $groups = array()
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false,
+        bool $sendFeatureFlagEvents = true
     ): bool {
-        $flags = $this->fetchEnabledFeatureFlags($distinctId, $groups);
-
-        $result = array_key_exists($key, $flags) && $flags[$key] != false;
-
-        $this->capture([
-            "properties" => [
-                '$feature_flag' => $key,
-                '$feature_flag_response' => $result,
-            ],
-            "distinct_id" => $distinctId,
-            "event" => '$feature_flag_called',
-        ]);
-
-        if ($result) {
-            return true;
-        }
-        return $defaultValue;
+        return boolval($this->getFeatureFlag($key, $distinctId, $defaultValue, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents));
     }
 
     /**
@@ -155,6 +166,8 @@ class Client
      * @param string $distinctId
      * @param mixed $defaultValue
      * @param array $groups
+     * @param array $personProperties
+     * @param array $groupProperties
      * @return bool | string
      * @throws Exception
      */
@@ -162,14 +175,43 @@ class Client
         string $key,
         string $distinctId,
         bool $defaultValue = false,
-        array $groups = array()
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false,
+        bool $sendFeatureFlagEvents = true
     ): bool | string {
-        $flags = $this->fetchEnabledFeatureFlags($distinctId, $groups);
+        $result = null;
 
-        $result = false;
+        foreach ($this->featureFlags as $flag) {
+            if ($flag["key"] == $key) {
+                try {
+                    $result = $this->computeFlagLocally(
+                        $flag,
+                        $distinctId,
+                        $groups,
+                        $personProperties,
+                        $groupProperties
+                    );
+                } catch (InconclusiveMatchException $e) {
+                    $result = null;
+                } catch (Exception $e) {
+                    $result = null;
+                    error_log("[PostHog][Client] Error while computing variant:" . $e->getMessage());
+                }
+            }
+        }
 
-        if (array_key_exists($key, $flags)) {
-            $result = $flags[$key];
+        $flagWasEvaluatedLocally = !is_null($result);
+
+        if (!$flagWasEvaluatedLocally && !$onlyEvaluateLocally) {
+            try {
+                $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
+                $result = $featureFlags[$key] ?? $defaultValue;
+            } catch (Exception $e) {
+                error_log("[PostHog][Client] Unable to get feature variants:" . $e->getMessage());
+                $result = $defaultValue;
+            }
         }
 
         $this->capture([
@@ -181,28 +223,146 @@ class Client
             "event" => '$feature_flag_called',
         ]);
 
-        if ($result) {
+        if (!is_null($result)) {
             return $result;
         }
         return $defaultValue;
+    }
+
+    /**
+     * get the feature flag value for this distinct id.
+     *
+     * @param string $distinctId
+     * @param array $groups
+     * @param array $personProperties
+     * @param array $groupProperties
+     * @return array
+     * @throws Exception
+     */
+    public function GetAllFlags(
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false
+    ): array {
+        $response = [];
+        $fallbackToDecide = false;
+
+        if (count($this->featureFlags) > 0) {
+            foreach ($this->featureFlags as $flag) {
+                try {
+                    $response[$flag['key']] = $this->computeFlagLocally(
+                        $flag,
+                        $distinctId,
+                        $groups,
+                        $personProperties,
+                        $groupProperties
+                    );
+                } catch (InconclusiveMatchException $e) {
+                    $fallbackToDecide = true;
+                } catch (Exception $e) {
+                    $fallbackToDecide = true;
+                    error_log("[PostHog][Client] Error while computing variant:" . $e->getMessage());
+                }
+            }
+        } else {
+            $fallbackToDecide = true;
+        }
+
+        if ($fallbackToDecide && !$onlyEvaluateLocally) {
+            try {
+                $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
+                $response = array_merge($response, $featureFlags);
+            } catch (Exception $e) {
+                error_log("[PostHog][Client] Unable to get feature variants:" . $e->getMessage());
+            }
+        }
+
+        return $response;
+    }
+
+    private function computeFlagLocally(
+        array $featureFlag,
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array()
+    ): bool | string {
+        if ($featureFlag["ensure_experience_continuity"] ?? false) {
+            throw new InconclusiveMatchException("Flag has experience continuity enabled");
+        }
+
+        if (!$featureFlag["active"]) {
+            return false;
+        }
+
+        $flagFilters = $featureFlag["filters"] ?? [];
+        $aggregationGroupTypeIndex = $flagFilters["aggregation_group_type_index"] ?? null;
+
+        if (!is_null($aggregationGroupTypeIndex)) {
+            $groupName = $this->groupTypeMapping[strval($aggregationGroupTypeIndex)] ?? null;
+
+            if (is_null($groupName)) {
+                throw new InconclusiveMatchException("Flag has unknown group type index");
+            }
+
+            if (!array_key_exists($groupName, $groups)) {
+                return false;
+            }
+
+            $focusedGroupProperties = $groupProperties[$groupName];
+            return FeatureFlag::matchFeatureFlagProperties($featureFlag, $groups[$groupName], $focusedGroupProperties);
+        } else {
+            return FeatureFlag::matchFeatureFlagProperties($featureFlag, $distinctId, $personProperties);
+        }
     }
 
 
     /**
      * @param string $distinctId
      * @param array $groups
-     * @return array of enabled feature flags
+     * @return array of feature flags
      * @throws Exception
      */
-    public function fetchEnabledFeatureFlags(string $distinctId, array $groups = array()): array
+    public function fetchFeatureVariants(string $distinctId, array $groups = array(), array $personProperties = [], array $groupProperties = []): array
     {
-        $flags = json_decode($this->decide($distinctId, $groups), true)['featureFlags'] ?? [];
-        return array_filter($flags, function ($v) {
-            return $v != false;
-        });
+        $flags = json_decode($this->decide($distinctId, $groups, $personProperties, $groupProperties), true)['featureFlags'] ?? [];
+        return $flags;
     }
 
-    public function decide(string $distinctId, array $groups = array())
+    /**
+     * @throws Exception
+     */
+
+    public function loadFlags()
+    {
+        $payload = json_decode($this->localFlags(), true);
+
+        if (array_key_exists("detail", $payload)) {
+            throw new Exception($payload["detail"]);
+        }
+
+        $this->featureFlags = $payload['flags'] ?? [];
+        $this->groupTypeMapping = $payload['group_type_mapping'] ?? [];
+    }
+
+
+    public function localFlags()
+    {
+
+        return $this->httpClient->sendRequest(
+            '/api/feature_flag/local_evaluation?token=' . $this->apiKey,
+            null,
+            [
+                // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
+                "User-Agent: posthog-php/" . PostHog::VERSION,
+                "Authorization: Bearer " . $this->personalAPIKey
+            ]
+        )->getResponse();
+    }
+
+    public function decide(string $distinctId, array $groups = array(), array $personProperties = [], array $groupProperties = [])
     {
         $payload = array(
             'api_key' => $this->apiKey,
@@ -211,6 +371,14 @@ class Client
 
         if (!empty($groups)) {
             $payload["groups"] = $groups;
+        }
+
+        if (!empty($personProperties)) {
+            $payload["person_properties"] = $personProperties;
+        }
+
+        if (!empty($groupProperties)) {
+            $payload["group_properties"] = $groupProperties;
         }
 
         return $this->httpClient->sendRequest(

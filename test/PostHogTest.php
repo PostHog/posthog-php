@@ -7,7 +7,7 @@ use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\PostHog;
 
-const PROJECT_API_KEY = "phc_X8B6bhR1QgQKP1WdpFLN82LxLxgZ7WPXDgJyRyvIpib";
+const FAKE_API_KEY = "random_key";
 
 class PostHogTest extends TestCase
 {
@@ -16,11 +16,12 @@ class PostHogTest extends TestCase
         date_default_timezone_set("UTC");
         $this->http_client = new MockedHttpClient("app.posthog.com");
         $this->client = new Client(
-            PROJECT_API_KEY,
+            FAKE_API_KEY,
             [
                 "debug" => true,
             ],
-            $this->http_client
+            $this->http_client,
+            "test"
         );
         PostHog::init(null, null, $this->client);
     }
@@ -75,9 +76,13 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
+                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "payload" => null,
+                ),
+                1 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"john"}', PROJECT_API_KEY),
-                )
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"john"}', FAKE_API_KEY),
+                ),
             )
         );
     }
@@ -104,16 +109,15 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
+                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "payload" => null,
+                ),
+                1 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id"}', PROJECT_API_KEY),
-                )
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id"}', FAKE_API_KEY),
+                ),
             )
         );
-    }
-
-    public function testIsFeatureEnabledDefault()
-    {
-        $this->assertTrue(PostHog::isFeatureEnabled('having_fun', 'user-id', true));
     }
 
     public function testIsFeatureEnabledGroups()
@@ -124,9 +128,13 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
+                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "payload" => null,
+                ),
+                1 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}', PROJECT_API_KEY),
-                )
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}', FAKE_API_KEY),
+                ),
             )
         );
     }
@@ -138,9 +146,13 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
+                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "payload" => null,
+                ),
+                1 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id"}', PROJECT_API_KEY),
-                )
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id"}', FAKE_API_KEY),
+                ),
             )
         );
     }
@@ -158,16 +170,20 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
+                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "payload" => null,
+                ),
+                1 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}', PROJECT_API_KEY),
-                )
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}', FAKE_API_KEY),
+                ),
             )
         );
     }
 
-    public function testFetchEnabledFeatureFlags()
+    public function testfetchFeatureVariants()
     {
-        $this->assertIsArray(PostHog::fetchEnabledFeatureFlags('user-id'));
+        $this->assertIsArray(PostHog::fetchFeatureVariants('user-id'));
     }
 
     public function testEmptyProperties(): void
