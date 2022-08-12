@@ -465,7 +465,7 @@ class FeatureFlagMatch extends TestCase
         $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-1', false, [], [], ["company" => ["name" => "Project Name 1"]]));
         $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-2', false, [], [], ["company" => ["name" => "Project Name 2"]]));
         $this->assertTrue(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', false, ["company" => "amazon_without_rollout"], [], ["company" => ["name" => "Project Name 1"]]));
-        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-i', false, ["company" => "amazon"], [], ["company" => ["name" => "Project Name 1"]]));
+        $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', false, ["company" => "amazon"], [], ["company" => ["name" => "Project Name 1"]]));
         $this->assertFalse(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', false, ["company" => "amazon_without_rollout"], [], ["company" => ["name" => "Project Name 2"]]));
         $this->assertEquals(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', false, ["company" => "amazon"], [], ["company" => []]), 'decide-fallback-value');
     }
