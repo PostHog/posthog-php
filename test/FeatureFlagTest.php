@@ -2788,7 +2788,7 @@ class FeatureFlagMatch extends TestCase
             false,
             "first-variant",
         ];
-        foreach (range(0, 9) as $number) {
+        foreach (range(0, 999) as $number) {
             $testResult = PostHog::getFeatureFlag('multivariate-flag', sprintf('distinct_id_%s', $number));
             $this->assertEquals($testResult, $result[$number]);
         }
