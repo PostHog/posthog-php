@@ -4,9 +4,6 @@ namespace PostHog;
 
 use Exception;
 
-ini_set('display_errors', 1);
-error_reporting(-1);
-
 class PostHog
 {
     public const VERSION = '2.1.0';
