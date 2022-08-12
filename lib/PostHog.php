@@ -169,7 +169,7 @@ class PostHog
         bool $onlyEvaluateLocally = false
     ): array {
         self::checkClient();
-        return self::$client->GetAllFlags($distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally);
+        return self::$client->getAllFlags($distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally);
     }
 
 

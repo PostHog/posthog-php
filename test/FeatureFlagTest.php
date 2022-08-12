@@ -728,6 +728,23 @@ class FeatureFlagMatch extends TestCase
         ]);
     }
 
+    public function testEventCalled()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST);
+        $this->client = new Client(
+            FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        PostHog::getFeatureFlag('simple-flag', 'some-distinct-id');
+        $this->assertEquals($this->client->distinctIdsFeatureFlagsReported->count(), 1);
+    }
+
     public function testFlagConsistency()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::SIMPLE_PARTIAL_REQUEST);

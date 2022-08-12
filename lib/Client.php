@@ -8,6 +8,8 @@ use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
 use PostHog\Consumer\Socket;
 
+const SIZE_LIMIT = 50_000;
+
 class Client
 {
     private const CONSUMERS = [
@@ -51,6 +53,11 @@ class Client
     public $groupTypeMapping;
 
     /**
+     * @var SizeLimitedHash
+     */
+    public $distinctIdsFeatureFlagsReported;
+
+    /**
      * Create a new posthog object with your app's API key
      * key
      *
@@ -73,6 +80,7 @@ class Client
         );
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
+        $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
 
         // Populate featureflags and grouptypemapping if possible
         if (count($this->featureFlags) == 0 && !is_null($this->personalAPIKey)) {
@@ -210,14 +218,17 @@ class Client
             }
         }
 
-        $this->capture([
-            "properties" => [
-                '$feature_flag' => $key,
-                '$feature_flag_response' => $result,
-            ],
-            "distinct_id" => $distinctId,
-            "event" => '$feature_flag_called',
-        ]);
+        if ($sendFeatureFlagEvents && !$this->distinctIdsFeatureFlagsReported->contains($key, $distinctId)) {
+            $this->capture([
+                "properties" => [
+                    '$feature_flag' => $key,
+                    '$feature_flag_response' => $result,
+                ],
+                "distinct_id" => $distinctId,
+                "event" => '$feature_flag_called',
+            ]);
+            $this->distinctIdsFeatureFlagsReported->add($key, $distinctId);
+        }
 
         if (!is_null($result)) {
             return $result;
@@ -235,7 +246,7 @@ class Client
      * @return array
      * @throws Exception
      */
-    public function GetAllFlags(
+    public function getAllFlags(
         string $distinctId,
         array $groups = array(),
         array $personProperties = array(),
