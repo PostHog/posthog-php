@@ -9,6 +9,7 @@ use PostHog\Client;
 use PostHog\PostHog;
 use PostHog\Test\Assets\MockedResponses;
 use PostHog\InconclusiveMatchException;
+use PostHog\SizeLimitedHash;
 
 class FeatureFlagMatch extends TestCase
 {
@@ -739,9 +740,14 @@ class FeatureFlagMatch extends TestCase
             $this->http_client,
             "test"
         );
+
+        $this->client->distinctIdsFeatureFlagsReported = new SizeLimitedHash(1);
         PostHog::init(null, null, $this->client);
 
         PostHog::getFeatureFlag('simple-flag', 'some-distinct-id');
+        $this->assertEquals($this->client->distinctIdsFeatureFlagsReported->count(), 1);
+
+        PostHog::getFeatureFlag('simple-flag', 'some-distinct-id2');
         $this->assertEquals($this->client->distinctIdsFeatureFlagsReported->count(), 1);
     }
 
