@@ -2,13 +2,14 @@
 3.0.0 / 2022-08-15
 ==================
 
+
   * Requires posthog 1.38
   * Local Evaluation: isFeatureEnabled and getFeatureFlag accept group and person properties now which will evaluate relevant flags locally.
   * isFeatureEnabled and getFeatureFlag also have new parameters:
     onlyEvaluateLocally (bool) - turns on and off local evaluation
     sendFeatureFlagEvents (bool) - turns on and off $feature_flag_called events
   * Removes default parametere from isFeatureEnabled and getFeatureFlag. Returns null instead
-  
+
 2.1.1 / 2022-01-21
 ==================
 
