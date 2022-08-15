@@ -2,55 +2,14 @@
 3.0.0 / 2022-08-15
 ==================
 
-  * Remove default arg from feature flag functions (#36)
-  * Merge pull request #35 from PostHog/turbo
-  * update test
-  * remove useless settings
-  * Update test/FeatureFlagTest.php
-  * more styling
-  * format
-  * remove whitespace
-  * more formatting
-  * fill in test
-  * spacing
-  * fix tests
-  * add local test
-  * personal api key handling
-  * add regex tests
-  * add personal api key handling
-  * change defaults
-  * add eval local arguments
-  * error logging
-  * remove todo
-  * remove comment
-  * change key
-  * add full consistency test
-  * add consistency test
-  * get all flags
-  * more spacing
-  * fix capitalization
-  * typing
-  * working tests
-  * add default test
-  * inconsluveimatch moved
-  * group test and complex flag test
-  * fix names and local saving
-  * initial restructure
-  * fix tests
-  * make static
-  * uncomment
-  * initial match_property
-  * Merge pull request #34 from PostHog/feat/add-multivariate-support
-  * add shallow test checking decide endpoint is hit
-  * remove ws
-  * remove hello
-  * why is this still failing
-  * no closing tag
-  * add example
-  * remove personal api key
-  * revert
-  * remove example.php
-  * feat(libraries): add multivariate support for posthog-php
+
+  * Requires posthog 1.38
+  * Local Evaluation: isFeatureEnabled and getFeatureFlag accept group and person properties now which will evaluate relevant flags locally.
+  * isFeatureEnabled and getFeatureFlag also have new parameters:
+    onlyEvaluateLocally (bool) - turns on and off local evaluation
+    sendFeatureFlagEvents (bool) - turns on and off $feature_flag_called events
+  * Removes default parameter from isFeatureEnabled and getFeatureFlag. Returns null instead
+
 2.1.1 / 2022-01-21
 ==================
 
