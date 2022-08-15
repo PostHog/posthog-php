@@ -8,6 +8,8 @@ use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
 use PostHog\Consumer\Socket;
 
+const SIZE_LIMIT = 50_000;
+
 class Client
 {
     private const CONSUMERS = [
@@ -51,6 +53,11 @@ class Client
     public $groupTypeMapping;
 
     /**
+     * @var SizeLimitedHash
+     */
+    public $distinctIdsFeatureFlagsReported;
+
+    /**
      * Create a new posthog object with your app's API key
      * key
      *
@@ -73,6 +80,7 @@ class Client
         );
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
+        $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
 
         // Populate featureflags and grouptypemapping if possible
         if (count($this->featureFlags) == 0 && !is_null($this->personalAPIKey)) {
@@ -139,7 +147,6 @@ class Client
      *
      * @param string $key
      * @param string $distinctId
-     * @param mixed $defaultValue
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -149,14 +156,19 @@ class Client
     public function isFeatureEnabled(
         string $key,
         string $distinctId,
-        $defaultValue = false,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
-    ): bool {
-        return boolval($this->getFeatureFlag($key, $distinctId, $defaultValue, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents));
+    ): null | bool {
+        $result = $this->getFeatureFlag($key, $distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents);
+
+        if (is_null($result)) {
+            return $result;
+        } else {
+            return boolval($result);
+        }
     }
 
     /**
@@ -164,7 +176,6 @@ class Client
      *
      * @param string $key
      * @param string $distinctId
-     * @param mixed $defaultValue
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -174,13 +185,12 @@ class Client
     public function getFeatureFlag(
         string $key,
         string $distinctId,
-        bool $defaultValue = false,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
-    ): bool | string {
+    ): null | bool | string {
         $result = null;
 
         foreach ($this->featureFlags as $flag) {
@@ -207,26 +217,30 @@ class Client
         if (!$flagWasEvaluatedLocally && !$onlyEvaluateLocally) {
             try {
                 $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
-                $result = $featureFlags[$key] ?? $defaultValue;
+                $result = $featureFlags[$key];
             } catch (Exception $e) {
                 error_log("[PostHog][Client] Unable to get feature variants:" . $e->getMessage());
-                $result = $defaultValue;
+                $result = null;
             }
         }
 
-        $this->capture([
-            "properties" => [
-                '$feature_flag' => $key,
-                '$feature_flag_response' => $result,
-            ],
-            "distinct_id" => $distinctId,
-            "event" => '$feature_flag_called',
-        ]);
+        if ($sendFeatureFlagEvents && !$this->distinctIdsFeatureFlagsReported->contains($key, $distinctId)) {
+            $this->capture([
+                "properties" => [
+                    '$feature_flag' => $key,
+                    '$feature_flag_response' => $result,
+                ],
+                "distinct_id" => $distinctId,
+                "event" => '$feature_flag_called',
+                "groups" => $groups
+            ]);
+            $this->distinctIdsFeatureFlagsReported->add($key, $distinctId);
+        }
 
         if (!is_null($result)) {
             return $result;
         }
-        return $defaultValue;
+        return null;
     }
 
     /**
@@ -239,7 +253,7 @@ class Client
      * @return array
      * @throws Exception
      */
-    public function GetAllFlags(
+    public function getAllFlags(
         string $distinctId,
         array $groups = array(),
         array $personProperties = array(),
