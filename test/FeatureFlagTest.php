@@ -683,7 +683,7 @@ class FeatureFlagMatch extends TestCase
             array(),
             true,
             false
-        ), false);
+        ), null);
 
         # beta-feature2 should fallback to decide because region property not given with call
         # but doesn't because only_evaluate_locally is true

@@ -122,7 +122,7 @@ class PostHog
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
-    ): bool {
+    ): null | bool {
         self::checkClient();
         return self::$client->isFeatureEnabled($key, $distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents);
     }
