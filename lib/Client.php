@@ -161,8 +161,14 @@ class Client
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
-    ): bool {
-        return boolval($this->getFeatureFlag($key, $distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents));
+    ): null | bool {
+        $result = $this->getFeatureFlag($key, $distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents);
+
+        if (is_null($result)) {
+            return $result;
+        } else {
+            return boolval($result);
+        }
     }
 
     /**
@@ -226,6 +232,7 @@ class Client
                 ],
                 "distinct_id" => $distinctId,
                 "event" => '$feature_flag_called',
+                "groups" => $groups
             ]);
             $this->distinctIdsFeatureFlagsReported->add($key, $distinctId);
         }
