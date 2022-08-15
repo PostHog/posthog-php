@@ -8,7 +8,7 @@
   * isFeatureEnabled and getFeatureFlag also have new parameters:
     onlyEvaluateLocally (bool) - turns on and off local evaluation
     sendFeatureFlagEvents (bool) - turns on and off $feature_flag_called events
-  * Removes default parametere from isFeatureEnabled and getFeatureFlag. Returns null instead
+  * Removes default parameter from isFeatureEnabled and getFeatureFlag. Returns null instead
 
 2.1.1 / 2022-01-21
 ==================
