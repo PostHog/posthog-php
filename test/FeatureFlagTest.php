@@ -729,6 +729,76 @@ class FeatureFlagMatch extends TestCase
         ]);
     }
 
+    public function testFlagWithVariantOverrides()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_VARIANT_OVERRIDES_REQUEST);
+        $this->client = new Client(
+            FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'test_id', [], ["email" => "test@posthog.com"]), "second-variant");
+        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'example_id'), "first-variant");
+    }
+
+    public function testFlagWithClashingVariantOverrides()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_CLASHING_VARIANT_OVERRIDES_REQUEST);
+        $this->client = new Client(
+            FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'test_id', [], ["email" => "test@posthog.com"]), "second-variant");
+        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'example_id', [], ["email" => "test@posthog.com"]), "second-variant");
+        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'example_id'), "first-variant");
+    }
+
+    public function testFlagWithInvalidVariantOverrides()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_INVALID_VARIANT_OVERRIDES_REQUEST);
+        $this->client = new Client(
+            FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'test_id', [], ["email" => "test@posthog.com"]), "third-variant");
+        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'example_id'), "second-variant");
+    }
+
+    public function testFlagWithMultipleVariantOverrides()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_VARIANT_OVERRIDES_REQUEST);
+        $this->client = new Client(
+            FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'test_id', [], ["email" => "test@posthog.com"]), "second-variant");
+        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'example_id'), "third-variant");
+        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'another_id'), "second-variant");
+    }
+
     public function testEventCalled()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST);
