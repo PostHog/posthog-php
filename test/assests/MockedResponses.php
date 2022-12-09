@@ -209,6 +209,245 @@ class MockedResponses
         ]
     ];
 
+    public const LOCAL_EVALUATION_VARIANT_OVERRIDES_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "Beta feature",
+                "key" => "beta-feature",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "email",
+                                    "value" => "test@posthog.com",
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ]
+                                ],
+                            "rollout_percentage" => 100,
+                            "variant" => "second-variant"
+                        ],
+                        [
+                            "rollout_percentage" => 50,
+                            "variant" => "first-variant"
+                        ]
+                    ],
+                    "multivariate" => [
+                        "variants" => [
+                            [
+                                "key" => "first-variant",
+                                "name" => "First Variant",
+                                "rollout_percentage" => 50
+                            ],
+                            [
+                                "key" => "second-variant",
+                                "name" => "Second Variant",
+                                "rollout_percentage" => 25
+                            ],
+                            [
+                                "key" => "third-variant",
+                                "name" => "Third Variant",
+                                "rollout_percentage" => 25
+                            ]
+                        ]
+                    ]
+                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
+                "rollout_percentage" => null
+            ]
+        ],
+    ];
+
+    public const LOCAL_EVALUATION_CLASHING_VARIANT_OVERRIDES_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "Beta feature",
+                "key" => "beta-feature",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "email",
+                                    "value" => "test@posthog.com",
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ]
+                                ],
+                            "rollout_percentage" => 100,
+                            "variant" => "second-variant"
+                        ],
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "email",
+                                    "value" => "test@posthog.com",
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ]
+                                ],
+                            "rollout_percentage" => 100,
+                            "variant" => "first-variant"
+                        ],
+                        [
+                            "rollout_percentage" => 50,
+                            "variant" => "first-variant"
+                        ]
+                    ],
+                    "multivariate" => [
+                        "variants" => [
+                            [
+                                "key" => "first-variant",
+                                "name" => "First Variant",
+                                "rollout_percentage" => 50
+                            ],
+                            [
+                                "key" => "second-variant",
+                                "name" => "Second Variant",
+                                "rollout_percentage" => 25
+                            ],
+                            [
+                                "key" => "third-variant",
+                                "name" => "Third Variant",
+                                "rollout_percentage" => 25
+                            ]
+                        ]
+                    ]
+                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
+                "rollout_percentage" => null
+            ]
+        ],
+    ];
+
+    public const LOCAL_EVALUATION_INVALID_VARIANT_OVERRIDES_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "Beta feature",
+                "key" => "beta-feature",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "email",
+                                    "value" => "test@posthog.com",
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ]
+                                ],
+                            "rollout_percentage" => 100,
+                            "variant" => "second???"
+                        ],
+                        [
+                            "rollout_percentage" => 50,
+                            "variant" => "first???"
+                        ]
+                    ],
+                    "multivariate" => [
+                        "variants" => [
+                            [
+                                "key" => "first-variant",
+                                "name" => "First Variant",
+                                "rollout_percentage" => 50
+                            ],
+                            [
+                                "key" => "second-variant",
+                                "name" => "Second Variant",
+                                "rollout_percentage" => 25
+                            ],
+                            [
+                                "key" => "third-variant",
+                                "name" => "Third Variant",
+                                "rollout_percentage" => 25
+                            ]
+                        ]
+                    ]
+                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
+                "rollout_percentage" => null
+            ]
+        ],
+    ];
+
+    public const LOCAL_EVALUATION_MULTIPLE_VARIANT_OVERRIDES_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "Beta feature",
+                "key" => "beta-feature",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "rollout_percentage" => 100,
+                        ],
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "email",
+                                    "value" => "test@posthog.com",
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ]
+                                ],
+                            "rollout_percentage" => 100,
+                            "variant" => "second-variant"
+                        ],
+                        [
+                            "rollout_percentage" => 50,
+                            "variant" => "third-variant"
+                        ]
+                    ],
+                    "multivariate" => [
+                        "variants" => [
+                            [
+                                "key" => "first-variant",
+                                "name" => "First Variant",
+                                "rollout_percentage" => 50
+                            ],
+                            [
+                                "key" => "second-variant",
+                                "name" => "Second Variant",
+                                "rollout_percentage" => 25
+                            ],
+                            [
+                                "key" => "third-variant",
+                                "name" => "Third Variant",
+                                "rollout_percentage" => 25
+                            ]
+                        ]
+                    ]
+                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
+                "rollout_percentage" => null
+            ]
+        ],
+    ];
+
 
     public const EXPERIENCE_CONITNUITY_REQUEST = [
         'count' => 1,

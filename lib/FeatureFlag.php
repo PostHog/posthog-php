@@ -127,15 +127,70 @@ class FeatureFlag
         return $lookupTable;
     }
 
+    private static function compareFlagConditions($conditionA, $conditionB)
+    {
+        $AhasVariantOverride = isset($conditionA["variant"]);
+        $BhasVariantOverride = isset($conditionB["variant"]);
+
+        if ($AhasVariantOverride && $BhasVariantOverride) {
+            return 0;
+        } else if ($AhasVariantOverride) {
+            return -1;
+        } else if ($BhasVariantOverride) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+
     public static function matchFeatureFlagProperties($flag, $distinctId, $properties)
     {
         $flagConditions = ($flag["filters"] ?? [])["groups"] ?? [];
         $isInconclusive = false;
 
-        foreach ($flagConditions as $condition) {
+        // Add index to each condition to make stable sort possible
+        $flagConditionsWithIndexes = array();
+        $i = 0;
+        foreach ($flagConditions as $key => $value) {
+            $flagConditionsWithIndexes[] = array($value, $i);
+            $i++;
+        }
+        // # Stable sort conditions with variant overrides to the top. This ensures that if overrides are present, they are
+        // # evaluated first, and the variant override is applied to the first matching condition.
+        usort(
+            $flagConditionsWithIndexes,
+            function ($conditionA, $conditionB)
+            {
+                $AhasVariantOverride = isset($conditionA[0]["variant"]);
+                $BhasVariantOverride = isset($conditionB[0]["variant"]);
+        
+                if ($AhasVariantOverride && $BhasVariantOverride) {
+                    return $conditionA[1] - $conditionB[1];
+                } else if ($AhasVariantOverride) {
+                    return -1;
+                } else if ($BhasVariantOverride) {
+                    return 1;
+                } else {
+                    return $conditionA[1] - $conditionB[1];
+                }
+            }
+        );
+
+        foreach ($flagConditionsWithIndexes as $conditionWithIndex) {
+            $condition = $conditionWithIndex[0];
             try {
                 if (FeatureFlag::isConditionMatch($flag, $distinctId, $condition, $properties)) {
-                    return FeatureFlag::getMatchingVariant($flag, $distinctId) ?? true;
+                    $variantOverride = $condition["variant"] ?? null;
+                    $flagVariants = (($flag["filters"] ?? [])["multivariate"] ?? [])["variants"] ?? [];
+                    $variantKeys = array_map(function ($variant) {
+                        return $variant["key"];
+                    }, $flagVariants);
+
+                    if ($variantOverride && in_array($variantOverride, $variantKeys)) {
+                        return $variantOverride;
+                    } else {
+                        return FeatureFlag::getMatchingVariant($flag, $distinctId) ?? true;
+                    }
                 }
             } catch (InconclusiveMatchException $e) {
                 $isInconclusive = true;
