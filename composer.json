@@ -1,6 +1,6 @@
 {
 	"name": "posthog/posthog-php",
-	"version": "3.0.0",
+	"version": "3.0.1",
 	"description": "PostHog PHP Library",
 	"keywords": [
 		"posthog"
@@ -20,7 +20,7 @@
 	"require-dev": {
 		"overtrue/phplint": "^3.0",
 		"phpunit/phpunit": "^9.0",
-		"squizlabs/php_codesniffer": "^3.6"
+		"squizlabs/php_codesniffer": "^3.7"
 	},
 	"autoload": {
 		"psr-4": {

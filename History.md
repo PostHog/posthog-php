@@ -1,4 +1,10 @@
 
+3.0.1 / 2022-12-09
+==================
+
+  * feat(flags): Add support for variant overrides (#39)
+  * Update history (#37)
+
 3.0.0 / 2022-08-15
 ==================
 
