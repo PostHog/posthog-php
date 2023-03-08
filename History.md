@@ -1,4 +1,10 @@
 
+3.0.2 / 2023-03-08
+==================
+
+  * update version 3.0.2
+  * Allow to configure the HttpClient maximumBackoffDuration (#33)
+
 3.0.1 / 2022-12-09
 ==================
 
