@@ -47,7 +47,7 @@ class HttpClient
         bool $compressRequests = false,
         bool $debug = false,
         ?Closure $errorHandler = null,
-        int $curlTimeoutMilliseconds = 750
+        int $curlTimeoutMilliseconds = 10000
     ) {
         $this->host = $host;
         $this->useSsl = $useSsl;

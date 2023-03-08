@@ -76,7 +76,9 @@ class Client
             $options['ssl'] ?? true,
             (int) ($options['maximum_backoff_duration'] ?? 10000),
             false,
-            $options["debug"] ?? false
+            $options["debug"] ?? false,
+            null,
+            (int) ($options['timeout'] ?? 10000)
         );
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
