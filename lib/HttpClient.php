@@ -68,9 +68,9 @@ class HttpClient
     {
         $protocol = $this->useSsl ? "https://" : "http://";
 
-        $backoff = 100;     // Set initial waiting time to 100ms
+        $backoff = 100; // Set initial waiting time to 100ms
 
-        while ($backoff < $this->maximumBackoffDuration) {
+        do {
             // open connection
             $ch = curl_init();
 
@@ -115,7 +115,7 @@ class HttpClient
             } else {
                 break;  // no error
             }
-        }
+        } while ($backoff < $this->maximumBackoffDuration);
 
         return $httpResponse;
     }
