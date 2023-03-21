@@ -6,7 +6,7 @@ use Exception;
 
 class PostHog
 {
-    public const VERSION = '2.1.0';
+    public const VERSION = '3.0.3';
     public const ENV_API_KEY = "POSTHOG_API_KEY";
     public const ENV_HOST = "POSTHOG_HOST";
 
@@ -19,8 +19,12 @@ class PostHog
      * @param Client|null $client
      * @throws Exception
      */
-    public static function init(?string $apiKey = null, ?array $options = [], ?Client $client = null, ?string $personalAPIKey = null): void
-    {
+    public static function init(
+        ?string $apiKey = null,
+        ?array $options = [],
+        ?Client $client = null,
+        ?string $personalAPIKey = null
+    ): void {
         if (null === $client) {
             $apiKey = $apiKey ?: getenv(self::ENV_API_KEY);
 
@@ -124,7 +128,15 @@ class PostHog
         bool $sendFeatureFlagEvents = true
     ): null | bool {
         self::checkClient();
-        return self::$client->isFeatureEnabled($key, $distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents);
+        return self::$client->isFeatureEnabled(
+            $key,
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $onlyEvaluateLocally,
+            $sendFeatureFlagEvents
+        );
     }
 
     /**
@@ -148,7 +160,15 @@ class PostHog
         bool $sendFeatureFlagEvents = true
     ): null | bool | string {
         self::checkClient();
-        return self::$client->GetFeatureFlag($key, $distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents);
+        return self::$client->GetFeatureFlag(
+            $key,
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $onlyEvaluateLocally,
+            $sendFeatureFlagEvents
+        );
     }
 
         /**
@@ -169,7 +189,13 @@ class PostHog
         bool $onlyEvaluateLocally = false
     ): array {
         self::checkClient();
-        return self::$client->getAllFlags($distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally);
+        return self::$client->getAllFlags(
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $onlyEvaluateLocally
+        );
     }
 
 
