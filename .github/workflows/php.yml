@@ -45,4 +45,4 @@ jobs:
         with:
           files: "**.php" # you may customize glob as needed
           phpcs_path: php phpcs.phar
-          fail_on_warnings: false
+          standard: phpcs.xml
