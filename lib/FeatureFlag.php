@@ -134,9 +134,9 @@ class FeatureFlag
 
         if ($AhasVariantOverride && $BhasVariantOverride) {
             return 0;
-        } else if ($AhasVariantOverride) {
+        } elseif ($AhasVariantOverride) {
             return -1;
-        } else if ($BhasVariantOverride) {
+        } elseif ($BhasVariantOverride) {
             return 1;
         } else {
             return 0;
@@ -165,9 +165,9 @@ class FeatureFlag
 
                 if ($AhasVariantOverride && $BhasVariantOverride) {
                     return $conditionA[1] - $conditionB[1];
-                } else if ($AhasVariantOverride) {
+                } elseif ($AhasVariantOverride) {
                     return -1;
-                } else if ($BhasVariantOverride) {
+                } elseif ($BhasVariantOverride) {
                     return 1;
                 } else {
                     return $conditionA[1] - $conditionB[1];
