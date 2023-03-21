@@ -6,7 +6,4 @@
   <file>test</file>
 
   <rule  ref="PSR12"/>
-  <rule ref="PEAR">
-      <exclude name="PEAR.Commenting.FunctionComment.Missing"/>
-  </rule>
 </ruleset>
