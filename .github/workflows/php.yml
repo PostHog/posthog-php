@@ -23,6 +23,7 @@ jobs:
           bootstrap: vendor/autoload.php
           configuration: phpunit.xml
           args: --coverage-text
+          version: 9.6
         env:
           XDEBUG_MODE: coverage
 
@@ -45,3 +46,4 @@ jobs:
           files: "**.php" # you may customize glob as needed
           phpcs_path: php phpcs.phar
           standard: phpcs.xml
+          scope: "file"

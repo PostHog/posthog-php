@@ -19,7 +19,15 @@ class MockedHttpClient extends \PostHog\HttpClient
         int $curlTimeoutMilliseconds = 750,
         array $flagEndpointResponse = []
     ) {
-        parent::__construct($host, $useSsl, $maximumBackoffDuration, $compressRequests, $debug, $errorHandler, $curlTimeoutMilliseconds);
+        parent::__construct(
+            $host,
+            $useSsl,
+            $maximumBackoffDuration,
+            $compressRequests,
+            $debug,
+            $errorHandler,
+            $curlTimeoutMilliseconds
+        );
         $this->flagEndpointResponse = $flagEndpointResponse;
     }
 

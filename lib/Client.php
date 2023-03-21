@@ -65,8 +65,12 @@ class Client
      * @param array $options array of consumer options [optional]
      * @param HttpClient|null $httpClient
      */
-    public function __construct(string $apiKey, array $options = [], ?HttpClient $httpClient = null, string $personalAPIKey = null)
-    {
+    public function __construct(
+        string $apiKey,
+        array $options = [],
+        ?HttpClient $httpClient = null,
+        string $personalAPIKey = null
+    ) {
         $this->apiKey = $apiKey;
         $this->personalAPIKey = $personalAPIKey;
         $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
@@ -76,7 +80,9 @@ class Client
             $options['ssl'] ?? true,
             (int) ($options['maximum_backoff_duration'] ?? 10000),
             false,
-            $options["debug"] ?? false
+            $options["debug"] ?? false,
+            null,
+            (int) ($options['timeout'] ?? 10000)
         );
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
@@ -162,7 +168,15 @@ class Client
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
     ): null | bool {
-        $result = $this->getFeatureFlag($key, $distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents);
+        $result = $this->getFeatureFlag(
+            $key,
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $onlyEvaluateLocally,
+            $sendFeatureFlagEvents
+        );
 
         if (is_null($result)) {
             return $result;
@@ -339,9 +353,16 @@ class Client
      * @return array of feature flags
      * @throws Exception
      */
-    public function fetchFeatureVariants(string $distinctId, array $groups = array(), array $personProperties = [], array $groupProperties = []): array
-    {
-        $flags = json_decode($this->decide($distinctId, $groups, $personProperties, $groupProperties), true)['featureFlags'] ?? [];
+    public function fetchFeatureVariants(
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = [],
+        array $groupProperties = []
+    ): array {
+        $flags = json_decode(
+            $this->decide($distinctId, $groups, $personProperties, $groupProperties),
+            true
+        )['featureFlags'] ?? [];
         return $flags;
     }
 
@@ -376,8 +397,12 @@ class Client
         )->getResponse();
     }
 
-    public function decide(string $distinctId, array $groups = array(), array $personProperties = [], array $groupProperties = [])
-    {
+    public function decide(
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = [],
+        array $groupProperties = []
+    ) {
         $payload = array(
             'api_key' => $this->apiKey,
             'distinct_id' => $distinctId,
