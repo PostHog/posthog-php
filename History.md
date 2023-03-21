@@ -1,4 +1,12 @@
 
+3.0.3 / 2023-03-21
+==================
+
+  * Merge branch 'master' into groups-fix
+  * Make timeout configurable (#44)
+  * format
+  * fix(groups): actually add groups support for capture
+
 3.0.2 / 2023-03-08
 ==================
 
