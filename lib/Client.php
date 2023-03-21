@@ -110,12 +110,12 @@ class Client
         $message = $this->message($message);
         $message["type"] = "capture";
 
+        if (array_key_exists('$groups', $message)) {
+            $message["properties"]['$groups'] = $message['$groups'];
+        }
+
         if (array_key_exists("send_feature_flags", $message) && $message["send_feature_flags"]) {
             $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
-
-            if (!isset($message["properties"])) {
-                $message["properties"] = array();
-            }
 
             // Add all feature variants to event
             foreach ($flags as $flagKey => $flagValue) {
@@ -246,7 +246,7 @@ class Client
                 ],
                 "distinct_id" => $distinctId,
                 "event" => '$feature_flag_called',
-                "groups" => $groups
+                '$groups' => $groups
             ]);
             $this->distinctIdsFeatureFlagsReported->add($key, $distinctId);
         }
