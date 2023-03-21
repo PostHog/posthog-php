@@ -224,7 +224,7 @@ class PostHog
     public static function validate($msg, $type)
     {
         $distinctId = !empty($msg["distinctId"]);
-        self::assert($distinctId, "PostHog::${type}() requires distinctId");
+        self::assert($distinctId, "PostHog::{$type}() requires distinctId");
     }
 
     /**

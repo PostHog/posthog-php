@@ -159,11 +159,10 @@ class FeatureFlag
         // # evaluated first, and the variant override is applied to the first matching condition.
         usort(
             $flagConditionsWithIndexes,
-            function ($conditionA, $conditionB)
-            {
+            function ($conditionA, $conditionB) {
                 $AhasVariantOverride = isset($conditionA[0]["variant"]);
                 $BhasVariantOverride = isset($conditionB[0]["variant"]);
-        
+
                 if ($AhasVariantOverride && $BhasVariantOverride) {
                     return $conditionA[1] - $conditionB[1];
                 } else if ($AhasVariantOverride) {
