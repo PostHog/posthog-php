@@ -133,7 +133,10 @@ class PostHogTest extends TestCase
                 ),
                 1 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}', FAKE_API_KEY),
+                    "payload" => sprintf(
+                        '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}',
+                        FAKE_API_KEY
+                    ),
                 ),
             )
         );
@@ -164,7 +167,10 @@ class PostHogTest extends TestCase
 
     public function testGetFeatureFlagGroups()
     {
-        $this->assertEquals("variant-value", PostHog::getFeatureFlag('multivariate-test', 'user-id', array("company" => "id:5")));
+        $this->assertEquals(
+            "variant-value",
+            PostHog::getFeatureFlag('multivariate-test', 'user-id', array("company" => "id:5"))
+        );
 
         $this->assertEquals(
             $this->http_client->calls,
@@ -175,7 +181,10 @@ class PostHogTest extends TestCase
                 ),
                 1 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}', FAKE_API_KEY),
+                    "payload" => sprintf(
+                        '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}',
+                        FAKE_API_KEY
+                    ),
                 ),
             )
         );

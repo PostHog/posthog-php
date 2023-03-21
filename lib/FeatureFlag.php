@@ -155,7 +155,8 @@ class FeatureFlag
             $flagConditionsWithIndexes[] = array($value, $i);
             $i++;
         }
-        // # Stable sort conditions with variant overrides to the top. This ensures that if overrides are present, they are
+        // # Stable sort conditions with variant overrides to the top.
+        // # This ensures that if overrides are present, they are
         // # evaluated first, and the variant override is applied to the first matching condition.
         usort(
             $flagConditionsWithIndexes,
