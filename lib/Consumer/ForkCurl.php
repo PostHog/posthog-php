@@ -87,7 +87,7 @@ class ForkCurl extends QueueConsumer
         // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
         $libName = $messages[0]['library'];
         $libVersion = $messages[0]['library_version'];
-        $cmd .= " -H 'User-Agent: ${libName}/${libVersion}'";
+        $cmd .= " -H 'User-Agent: {$libName}/{$libVersion}'";
 
         if (!$this->debug()) {
             $cmd .= " > /dev/null 2>&1 &";
