@@ -1,3 +1,9 @@
+
+3.0.4 / 2023-05-19
+==================
+
+  * fix(flags): Handle no rollout percentage condition (#49)
+
 3.0.3 / 2023-03-21
 ==================
 
