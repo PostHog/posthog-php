@@ -206,7 +206,7 @@ class FeatureFlag
 
     private static function isConditionMatch($featureFlag, $distinctId, $condition, $properties)
     {
-        $rolloutPercentage = $condition["rollout_percentage"];
+        $rolloutPercentage = array_key_exists("rollout_percentage", $condition) ? $condition["rollout_percentage"] : null;
 
         if (count($condition['properties'] ?? []) > 0) {
             foreach ($condition['properties'] as $property) {

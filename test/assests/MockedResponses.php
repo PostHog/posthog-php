@@ -68,6 +68,31 @@ class MockedResponses
         ],
     ];
 
+    public const LOCAL_EVALUATION_WITH_NO_ROLLOUT_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "",
+                "key" => "enabled-flag",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                ],
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
+                "rollout_percentage" => null
+            ],
+        ],
+    ];
+
     public const LOCAL_EVALUATION_WITH_INACTIVE_REQUEST = [
         'count' => 1,
         'next' => null,
