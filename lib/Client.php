@@ -231,7 +231,7 @@ class Client
         if (!$flagWasEvaluatedLocally && !$onlyEvaluateLocally) {
             try {
                 $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
-                $result = $featureFlags[$key];
+                $result = $featureFlags[$key] ?? null;
             } catch (Exception $e) {
                 error_log("[PostHog][Client] Unable to get feature variants:" . $e->getMessage());
                 $result = null;
