@@ -1,4 +1,9 @@
 
+3.0.5 / 2023-06-16
+==================
+
+  * Prevent "Undefined array key" warning in isFeatureEnabled() (#51)
+
 3.0.4 / 2023-05-19
 ==================
 
