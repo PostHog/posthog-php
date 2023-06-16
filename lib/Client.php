@@ -65,8 +65,12 @@ class Client
      * @param array $options array of consumer options [optional]
      * @param HttpClient|null $httpClient
      */
-    public function __construct(string $apiKey, array $options = [], ?HttpClient $httpClient = null, string $personalAPIKey = null)
-    {
+    public function __construct(
+        string $apiKey,
+        array $options = [],
+        ?HttpClient $httpClient = null,
+        string $personalAPIKey = null
+    ) {
         $this->apiKey = $apiKey;
         $this->personalAPIKey = $personalAPIKey;
         $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
@@ -74,9 +78,11 @@ class Client
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $options['host'] ?? "app.posthog.com",
             $options['ssl'] ?? true,
-            10000,
+            (int) ($options['maximum_backoff_duration'] ?? 10000),
             false,
-            $options["debug"] ?? false
+            $options["debug"] ?? false,
+            null,
+            (int) ($options['timeout'] ?? 10000)
         );
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
@@ -104,12 +110,12 @@ class Client
         $message = $this->message($message);
         $message["type"] = "capture";
 
+        if (array_key_exists('$groups', $message)) {
+            $message["properties"]['$groups'] = $message['$groups'];
+        }
+
         if (array_key_exists("send_feature_flags", $message) && $message["send_feature_flags"]) {
             $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
-
-            if (!isset($message["properties"])) {
-                $message["properties"] = array();
-            }
 
             // Add all feature variants to event
             foreach ($flags as $flagKey => $flagValue) {
@@ -162,7 +168,15 @@ class Client
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
     ): null | bool {
-        $result = $this->getFeatureFlag($key, $distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $sendFeatureFlagEvents);
+        $result = $this->getFeatureFlag(
+            $key,
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $onlyEvaluateLocally,
+            $sendFeatureFlagEvents
+        );
 
         if (is_null($result)) {
             return $result;
@@ -232,7 +246,7 @@ class Client
                 ],
                 "distinct_id" => $distinctId,
                 "event" => '$feature_flag_called',
-                "groups" => $groups
+                '$groups' => $groups
             ]);
             $this->distinctIdsFeatureFlagsReported->add($key, $distinctId);
         }
@@ -339,9 +353,16 @@ class Client
      * @return array of feature flags
      * @throws Exception
      */
-    public function fetchFeatureVariants(string $distinctId, array $groups = array(), array $personProperties = [], array $groupProperties = []): array
-    {
-        $flags = json_decode($this->decide($distinctId, $groups, $personProperties, $groupProperties), true)['featureFlags'] ?? [];
+    public function fetchFeatureVariants(
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = [],
+        array $groupProperties = []
+    ): array {
+        $flags = json_decode(
+            $this->decide($distinctId, $groups, $personProperties, $groupProperties),
+            true
+        )['featureFlags'] ?? [];
         return $flags;
     }
 
@@ -376,8 +397,12 @@ class Client
         )->getResponse();
     }
 
-    public function decide(string $distinctId, array $groups = array(), array $personProperties = [], array $groupProperties = [])
-    {
+    public function decide(
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = [],
+        array $groupProperties = []
+    ) {
         $payload = array(
             'api_key' => $this->apiKey,
             'distinct_id' => $distinctId,

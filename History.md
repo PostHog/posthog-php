@@ -1,4 +1,23 @@
 
+3.0.4 / 2023-05-19
+==================
+
+  * fix(flags): Handle no rollout percentage condition (#49)
+
+3.0.3 / 2023-03-21
+==================
+
+  * Merge branch 'master' into groups-fix
+  * Make timeout configurable (#44)
+  * format
+  * fix(groups): actually add groups support for capture
+
+3.0.2 / 2023-03-08
+==================
+
+  * update version 3.0.2
+  * Allow to configure the HttpClient maximumBackoffDuration (#33)
+
 3.0.1 / 2022-12-09
 ==================
 
