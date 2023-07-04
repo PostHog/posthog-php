@@ -178,7 +178,7 @@ class PostHog
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
-     * @return boolean | string
+     * @return array
      * @throws Exception
      */
     public static function getAllFlags(
