@@ -39,7 +39,7 @@ class MockedHttpClient extends \PostHog\HttpClient
         array_push($this->calls, array("path" => $path, "payload" => $payload));
 
         if (str_starts_with($path, "/decide/")) {
-            return new HttpResponse(json_encode(MockedResponses::DECIDE_REQUEST), 200);
+            return new HttpResponse(json_encode($this->flagEndpointResponse ?? MockedResponses::DECIDE_REQUEST), 200);
         }
 
         if (str_starts_with($path, "/api/feature_flag/local_evaluation")) {
