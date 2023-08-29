@@ -187,7 +187,7 @@ class Socket extends QueueConsumer
         $content_json = json_decode($content, true);
         $libName = $content_json['batch'][0]['library'];
         $libVersion = $content_json['batch'][0]['library_version'];
-        $req .= "User-Agent: ${libName}/${libVersion}\r\n";
+        $req .= "User-Agent: $libName/$libVersion\r\n";
 
         // Compress content if compress_request is true
         if ($this->compress_request) {

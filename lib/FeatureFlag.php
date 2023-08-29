@@ -86,7 +86,7 @@ class FeatureFlag
     private static function hash($key, $distinctId, $salt = "")
     {
         $hashKey = sprintf("%s.%s%s", $key, $distinctId, $salt);
-        $hashVal = base_convert(substr(sha1(utf8_encode($hashKey)), 0, 15), 16, 10);
+        $hashVal = base_convert(substr(sha1($hashKey), 0, 15), 16, 10);
 
         return $hashVal / LONG_SCALE;
     }
