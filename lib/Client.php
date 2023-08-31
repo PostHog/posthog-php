@@ -374,7 +374,7 @@ class Client
     {
         $payload = json_decode($this->localFlags(), true);
 
-        if (array_key_exists("detail", $payload)) {
+        if ($payload && array_key_exists("detail", $payload)) {
             throw new Exception($payload["detail"]);
         }
 
