@@ -1,4 +1,9 @@
 
+3.0.7 / 2023-08-31
+==================
+
+  * PHP 8.1+ Support + Fix Errors When API/Internet Connection Down (#54)
+
 3.0.6 / 2023-07-04
 ==================
 
