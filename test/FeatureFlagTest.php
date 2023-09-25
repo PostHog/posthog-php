@@ -11,7 +11,7 @@ use PostHog\Test\Assets\MockedResponses;
 use PostHog\InconclusiveMatchException;
 use PostHog\SizeLimitedHash;
 
-class FeatureFlagMatch extends TestCase
+class FeatureFlagTest extends TestCase
 {
     const FAKE_API_KEY = "random_key";
 
@@ -514,6 +514,23 @@ class FeatureFlagMatch extends TestCase
 
         $this->assertEquals(PostHog::getFeatureFlag('feature-1', 'some-distinct'), 'decide-fallback-value');
         $this->assertEquals(PostHog::getFeatureFlag('feature-2', 'some-distinct'), 'decide-fallback-value');
+    }
+
+    public function testFlagFallbackToDecideWithFalseFlag()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_DECIDE_REQUEST);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertEquals(PostHog::getFeatureFlag('unknown-flag???', 'some-distinct'), null);
+        $this->assertEquals(PostHog::getFeatureFlag('false-flag', 'some-distinct'), null);
     }
 
     public function testFeatureFlagDefaultsComeIntoPlayOnlyWhenDecideErrorsOut()
