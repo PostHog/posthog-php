@@ -2,6 +2,9 @@
 // phpcs:ignoreFile
 namespace PostHog\Test;
 
+// comment out below to print all logs instead of failing tests
+require_once 'test/error_log_mock.php';
+
 use Exception;
 use PHPUnit\Framework\TestCase;
 use PostHog\FeatureFlag;
@@ -21,6 +24,16 @@ class FeatureFlagTest extends TestCase
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
+
+        // Reset the errorMessages array before each test
+        global $errorMessages;
+        $errorMessages = [];
+    }
+
+    public function checkEmptyErrorLogs(): void
+    {
+        global $errorMessages;
+        $this->assertTrue(empty($errorMessages), "Error logs are not empty: " . implode("\n", $errorMessages));
     }
 
     public function testMatchPropertyEquals(): void
@@ -455,6 +468,8 @@ class FeatureFlagTest extends TestCase
 
         $this->assertTrue(PostHog::getFeatureFlag('person-flag', 'some-distinct-id', [], ["region" => "USA"]));
         $this->assertFalse(PostHog::getFeatureFlag('person-flag', 'some-distinct-id-2', [], ["region" => "Canada"]));
+
+        $this->checkEmptyErrorLogs();
     }
 
     public function testFlagGroupProperties()
@@ -514,6 +529,8 @@ class FeatureFlagTest extends TestCase
 
         $this->assertEquals(PostHog::getFeatureFlag('feature-1', 'some-distinct'), 'decide-fallback-value');
         $this->assertEquals(PostHog::getFeatureFlag('feature-2', 'some-distinct'), 'decide-fallback-value');
+
+        $this->checkEmptyErrorLogs();
     }
 
     public function testFlagFallbackToDecideWithFalseFlag()
@@ -531,6 +548,8 @@ class FeatureFlagTest extends TestCase
 
         $this->assertEquals(PostHog::getFeatureFlag('unknown-flag???', 'some-distinct'), null);
         $this->assertEquals(PostHog::getFeatureFlag('false-flag', 'some-distinct'), null);
+
+        $this->checkEmptyErrorLogs();
     }
 
     public function testFeatureFlagDefaultsComeIntoPlayOnlyWhenDecideErrorsOut()
