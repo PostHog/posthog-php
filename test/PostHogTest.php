@@ -16,7 +16,7 @@ class PostHogTest extends TestCase
 
     private $http_client;
     private $client;
-    
+
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
