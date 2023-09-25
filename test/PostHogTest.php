@@ -2,6 +2,9 @@
 
 namespace PostHog\Test;
 
+// comment out below to print all logs instead of failing tests
+require_once 'test/error_log_mock.php';
+
 use Exception;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
@@ -13,7 +16,7 @@ class PostHogTest extends TestCase
 
     private $http_client;
     private $client;
-    
+
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
@@ -27,6 +30,16 @@ class PostHogTest extends TestCase
             "test"
         );
         PostHog::init(null, null, $this->client);
+
+        // Reset the errorMessages array before each test
+        global $errorMessages;
+        $errorMessages = [];
+    }
+
+    public function checkEmptyErrorLogs(): void
+    {
+        global $errorMessages;
+        $this->assertEmpty($errorMessages);
     }
 
     public function testInitWithParamApiKey(): void
@@ -167,6 +180,8 @@ class PostHogTest extends TestCase
     public function testGetFeatureFlagDefault()
     {
         $this->assertEquals(PostHog::getFeatureFlag('blah', 'user-id'), null);
+
+        $this->checkEmptyErrorLogs();
     }
 
     public function testGetFeatureFlagGroups()
