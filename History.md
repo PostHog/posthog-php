@@ -1,4 +1,14 @@
 
+3.0.8 / 2023-09-25
+==================
+
+  * fix(flags): Safe access flags in decide v2 (#55)
+
+3.0.7 / 2023-08-31
+==================
+
+  * PHP 8.1+ Support + Fix Errors When API/Internet Connection Down (#54)
+
 3.0.6 / 2023-07-04
 ==================
 

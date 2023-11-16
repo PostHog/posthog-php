@@ -2,11 +2,14 @@
 
 namespace PostHog\Test;
 
+use Closure;
 use PostHog\HttpResponse;
 use PostHog\Test\Assets\MockedResponses;
 
 class MockedHttpClient extends \PostHog\HttpClient
 {
+    public $calls;
+
     private $flagEndpointResponse;
 
     public function __construct(
@@ -34,7 +37,7 @@ class MockedHttpClient extends \PostHog\HttpClient
     public function sendRequest(string $path, ?string $payload, array $extraHeaders = []): HttpResponse
     {
         if (!isset($this->calls)) {
-            $this->calls = array();
+            $this->calls = [];
         }
         array_push($this->calls, array("path" => $path, "payload" => $payload));
 

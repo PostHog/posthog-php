@@ -2,21 +2,27 @@
 
 namespace PostHog\Test;
 
+// comment out below to print all logs instead of failing tests
+require_once 'test/error_log_mock.php';
+
 use Exception;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\PostHog;
 
-const FAKE_API_KEY = "random_key";
-
 class PostHogTest extends TestCase
 {
+    const FAKE_API_KEY = "random_key";
+
+    private $http_client;
+    private $client;
+
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
         $this->http_client = new MockedHttpClient("app.posthog.com");
         $this->client = new Client(
-            FAKE_API_KEY,
+            self::FAKE_API_KEY,
             [
                 "debug" => true,
             ],
@@ -24,11 +30,22 @@ class PostHogTest extends TestCase
             "test"
         );
         PostHog::init(null, null, $this->client);
+
+        // Reset the errorMessages array before each test
+        global $errorMessages;
+        $errorMessages = [];
+    }
+
+    public function checkEmptyErrorLogs(): void
+    {
+        global $errorMessages;
+        $this->assertEmpty($errorMessages);
     }
 
     public function testInitWithParamApiKey(): void
     {
         $this->expectNotToPerformAssertions();
+
         PostHog::init("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", array("debug" => true));
     }
 
@@ -81,7 +98,7 @@ class PostHogTest extends TestCase
                 ),
                 1 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"john"}', FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"john"}', self::FAKE_API_KEY),
                 ),
             )
         );
@@ -114,7 +131,7 @@ class PostHogTest extends TestCase
                 ),
                 1 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id"}', FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id"}', self::FAKE_API_KEY),
                 ),
             )
         );
@@ -135,7 +152,7 @@ class PostHogTest extends TestCase
                     "path" => "/decide/?v=2",
                     "payload" => sprintf(
                         '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}',
-                        FAKE_API_KEY
+                        self::FAKE_API_KEY
                     ),
                 ),
             )
@@ -154,7 +171,7 @@ class PostHogTest extends TestCase
                 ),
                 1 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id"}', FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id"}', self::FAKE_API_KEY),
                 ),
             )
         );
@@ -163,6 +180,8 @@ class PostHogTest extends TestCase
     public function testGetFeatureFlagDefault()
     {
         $this->assertEquals(PostHog::getFeatureFlag('blah', 'user-id'), null);
+
+        $this->checkEmptyErrorLogs();
     }
 
     public function testGetFeatureFlagGroups()
@@ -183,7 +202,7 @@ class PostHogTest extends TestCase
                     "path" => "/decide/?v=2",
                     "payload" => sprintf(
                         '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"}}',
-                        FAKE_API_KEY
+                        self::FAKE_API_KEY
                     ),
                 ),
             )
