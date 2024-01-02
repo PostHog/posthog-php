@@ -19,7 +19,7 @@ jobs:
 
       - uses: php-actions/phpunit@v3
         with:
-          php_extensions: xdebug
+          php_extensions: xdebug, uopz
           bootstrap: vendor/autoload.php
           configuration: phpunit.xml
           args: --coverage-text
