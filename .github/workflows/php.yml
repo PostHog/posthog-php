@@ -15,11 +15,17 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.0' # Specify your PHP version here
+          extensions: uopz  # Add uopz extension
+
       - uses: php-actions/composer@v6
 
       - uses: php-actions/phpunit@v3
         with:
-          php_extensions: xdebug, uopz
+          php_extensions: xdebug
           bootstrap: vendor/autoload.php
           configuration: phpunit.xml
           args: --coverage-text
