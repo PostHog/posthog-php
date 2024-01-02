@@ -646,7 +646,7 @@ class FeatureFlagTest extends TestCase
                     "key" => "abcdef",
                 ]);
             } catch (Exception $exception) {
-                self::assertStringContains("Failed to parse time string (abcdef) at position 0 (a): The timezone could not be found in the database", $exception->getMessage());
+                self::assertStringContainsString("Failed to parse time string (abcdef) at position 0 (a): The timezone could not be found in the database", $exception->getMessage());
             }
 
             $prop_b = [
@@ -681,7 +681,7 @@ class FeatureFlagTest extends TestCase
                     "key" => "2022-05-30",
                 ]);
             } catch (InconclusiveMatchException $exception) {
-                self::assertStringContains("The date set on the flag is not a valid format", $exception->getMessage());
+                self::assertStringContainsString("The date set on the flag is not a valid format", $exception->getMessage());
             }
 
             try {
@@ -689,7 +689,7 @@ class FeatureFlagTest extends TestCase
                     "key" => 1,
                 ]);
             } catch (InconclusiveMatchException $exception) {
-                self::assertStringContains("The date set on the flag is not a valid format", $exception->getMessage());
+                self::assertStringContainsString("The date set on the flag is not a valid format", $exception->getMessage());
             }
 
             // # Try all possible relative dates
