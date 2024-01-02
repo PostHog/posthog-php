@@ -8,7 +8,7 @@ use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
 use PostHog\Consumer\Socket;
 
-const SIZE_LIMIT = 50_000;
+const SIZE_LIMIT = 50_001;
 
 class Client
 {
