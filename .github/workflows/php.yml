@@ -18,20 +18,15 @@ jobs:
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.0' # Specify your PHP version here
-          extensions: uopz  # Add uopz extension
+          php-version: '8.0'
+          extensions: uopz, xdebug
+          tools: composer, phpunit
+      
+      - name: Install Dependencies
+        run: composer install --prefer-dist --no-progress --no-suggest
 
-      - uses: php-actions/composer@v6
-
-      - uses: php-actions/phpunit@v3
-        with:
-          php_extensions: xdebug
-          bootstrap: vendor/autoload.php
-          configuration: phpunit.xml
-          args: --coverage-text
-          version: 9.6
-        env:
-          XDEBUG_MODE: coverage
+      - name: Run PHPUnit Tests
+        run: XDEBUG_MODE=coverage ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml --coverage-text
 
   phpcs:
     runs-on: ubuntu-latest
