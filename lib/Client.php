@@ -122,8 +122,22 @@ class Client
                 $message["properties"][sprintf('$feature/%s', $flagKey)] = $flagValue;
             }
 
-            // Add all feature flag keys to $active_feature_flags key
-            $message["properties"]['$active_feature_flags'] = array_keys($flags);
+            // Add all feature flag keys that aren't false to $active_feature_flags
+            // decide v2 does this automatically, but we need it for when we upgrade to v3
+            $message["properties"]['$active_feature_flags'] = array_keys(array_filter($flags, function ($flagValue) {
+                return $flagValue !== false;
+            }));
+        } elseif (count($this->featureFlags) != 0) {
+            # Local evaluation is enabled, flags are loaded, so try and get all flags we can without going to the server
+            $flags = $this->getAllFlags($message["distinct_id"], $message["groups"], [], [], true);
+
+            // Add all feature variants to event
+            foreach ($flags as $flagKey => $flagValue) {
+                $message["properties"][sprintf('$feature/%s', $flagKey)] = $flagValue;
+            }
+            $message["properties"]['$active_feature_flags'] = array_keys(array_filter($flags, function ($flagValue) {
+                return $flagValue !== false;
+            }));
         }
 
         return $this->consumer->capture($message);
@@ -205,6 +219,12 @@ class Client
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
     ): null | bool | string {
+        [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties
+        );
         $result = null;
 
         foreach ($this->featureFlags as $flag) {
@@ -278,6 +298,12 @@ class Client
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false
     ): array {
+        [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties
+        );
         $response = [];
         $fallbackToDecide = false;
 
@@ -566,5 +592,29 @@ class Client
         $msg["timestamp"] = $this->formatTime($msg["timestamp"]);
 
         return $msg;
+    }
+
+    private function addLocalPersonAndGroupProperties(
+        string $distinctId,
+        array $groups,
+        array $personProperties,
+        array $groupProperties
+    ): array {
+        $allPersonProperties = array_merge(
+            ["\$current_distinct_id" => $distinctId],
+            $personProperties
+        );
+
+        $allGroupProperties = [];
+        if (count($groups) > 0) {
+            foreach ($groups as $groupName => $groupValue) {
+                $allGroupProperties[$groupName] = array_merge(
+                    ["\$group_key" => $groupValue],
+                    $groupProperties[$groupName] ?? []
+                );
+            }
+        }
+
+        return [$allPersonProperties, $allGroupProperties];
     }
 }
