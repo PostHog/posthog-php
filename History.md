@@ -1,10 +1,17 @@
 
+3.2.0 / 2024-01-10
+==================
+
+  * feat(flags): Add local props and flags to all calls (#60)
+  * When local evaluation is enabled, we automatically add flag information to all events sent to PostHog, whenever possible. This makes it easier to use these events in experiments.
+
 3.1.0 / 2024-01-10
 ==================
 
   * feat(flags): Add relative date operator and fix numeric ops (#58)
   * Numeric property handling for feature flags now does the expected: When passed in a number, we do a numeric comparison. When passed in a string, we do a string comparison. Previously, we always did a string comparison.
   * Add support for relative date operators for local evaluation.
+  * Fixes issue with regex matching for local evaluation.
 
 3.0.8 / 2023-09-25
 ==================
