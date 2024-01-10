@@ -23,17 +23,11 @@ class FeatureFlag
         $overrideValue = $propertyValues[$key];
 
         if ($operator == "exact") {
-            if (is_array($value)) {
-                return in_array($overrideValue, $value);
-            }
-            return $value == $overrideValue;
+            return FeatureFlag::computeExactMatch($value, $overrideValue);
         }
 
         if ($operator == "is_not") {
-            if (is_array($value)) {
-                return !in_array($overrideValue, $value);
-            }
-            return $value !== $overrideValue;
+            return !FeatureFlag::computeExactMatch($value, $overrideValue);
         }
 
         if ($operator == "is_set") {
@@ -48,39 +42,141 @@ class FeatureFlag
             return strpos(strtolower(strval($overrideValue)), strtolower(strval($value))) == false;
         }
 
-        if ($operator == "regex") {
-            if (FeatureFlag::isRegularExpression($value)) {
-                return preg_match($value, $overrideValue) ? true : false;
+        if (in_array($operator, ["regex", "not_regex"])) {
+            $regexValue = FeatureFlag::prepareValueForRegex($value);
+            if (FeatureFlag::isRegularExpression($regexValue)) {
+                $returnValue = preg_match($regexValue, $overrideValue) ? true : false;
+                if ($operator == "regex") {
+                    return $returnValue;
+                } else {
+                    return !$returnValue;
+                }
             } else {
                 return false;
             }
         }
 
-        if ($operator == "not_regex") {
-            if (FeatureFlag::isRegularExpression($value)) {
-                return !(preg_match($value, $overrideValue) ? true : false);
+        if (in_array($operator, ["gt", "gte", "lt", "lte"])) {
+            $parsedValue = null;
+
+            if (is_numeric($value)) {
+                $parsedValue = floatval($value);
+            }
+
+            if (!is_null($parsedValue) && !is_null($overrideValue)) {
+                if (is_string($overrideValue)) {
+                    return FeatureFlag::compare($overrideValue, strval($value), $operator);
+                } else {
+                    return FeatureFlag::compare($overrideValue, $parsedValue, $operator, "numeric");
+                }
             } else {
-                return false;
+                return FeatureFlag::compare(strval($overrideValue), strval($value), $operator);
             }
         }
 
-        if ($operator == "gt") {
-            return gettype($value) == gettype($overrideValue) && $overrideValue > $value;
-        }
+        if (in_array($operator, ["is_date_before", "is_date_after", "is_relative_date_before", "is_relative_date_after"])) {
+            if ($operator == 'is_relative_date_before' || $operator == 'is_relative_date_after') {
+                $parsedDate = FeatureFlag::relativeDateParseForFeatureFlagMatching($value);
+            } else {
+                $parsedDate = FeatureFlag::convertToDateTime($value);
+            }
 
-        if ($operator == "gte") {
-            return gettype($value) == gettype($overrideValue) && $overrideValue >= $value;
-        }
+            if (is_null($parsedDate)) {
+                throw new InconclusiveMatchException("The date set on the flag is not a valid format");
+            }
 
-        if ($operator == "lt") {
-            return gettype($value) == gettype($overrideValue) && $overrideValue < $value;
-        }
-
-        if ($operator == "lte") {
-            return gettype($value) == gettype($overrideValue) && $overrideValue <= $value;
+            $overrideDate = FeatureFlag::convertToDateTime($overrideValue);
+            if ($operator == 'is_date_before' || $operator == 'is_relative_date_before') {
+                return $overrideDate < $parsedDate;
+            } else {
+                return $overrideDate > $parsedDate;
+            }
         }
 
         return false;
+    }
+
+    public static function relativeDateParseForFeatureFlagMatching($value)
+    {
+        $regex = "/^(?<number>[0-9]+)(?<interval>[a-z])$/";
+        $parsedDt = new \DateTime("now", new \DateTimeZone("UTC"));
+        if (preg_match($regex, $value, $matches)) {
+            $number = intval($matches["number"]);
+
+            if ($number >= 10_000) {
+                // Guard against overflow, disallow numbers greater than 10_000
+                return null;
+            }
+
+            $interval = $matches["interval"];
+            if ($interval == "h") {
+                $parsedDt->sub(new \DateInterval("PT{$number}H"));
+            } elseif ($interval == "d") {
+                $parsedDt->sub(new \DateInterval("P{$number}D"));
+            } elseif ($interval == "w") {
+                $parsedDt->sub(new \DateInterval("P{$number}W"));
+            } elseif ($interval == "m") {
+                $parsedDt->sub(new \DateInterval("P{$number}M"));
+            } elseif ($interval == "y") {
+                $parsedDt->sub(new \DateInterval("P{$number}Y"));
+            } else {
+                return null;
+            }
+
+            return $parsedDt;
+        } else {
+            return null;
+        }
+
+    }
+
+    private static function convertToDateTime($value) {
+        if ($value instanceof \DateTime) {
+            return $value;
+        } elseif (is_string($value)) {
+            try {
+                $date = new \DateTime($value);
+                if (!is_nan($date->getTimestamp())) {
+                    return $date;
+                }
+            } catch (Exception $e) {
+                throw new InconclusiveMatchException("{$value} is in an invalid date format");
+            }
+        } else {
+            throw new InconclusiveMatchException("The date provided {$value} must be a string or date object");
+        }
+    }
+
+    private static function computeExactMatch($value, $overrideValue)
+    {
+        if (is_array($value)) {
+            return in_array(strtolower(strval($overrideValue)), array_map('strtolower', $value));
+        }
+        return strtolower(strval($value)) == strtolower(strval($overrideValue));
+    }
+
+    private static function compare($lhs, $rhs, $operator, $type = "string")
+    {
+        // If type is string, we use strcmp to compare the two strings
+        // If type is numeric, we use <=> to compare the two numbers
+
+        if ($type == "string") {
+            $comparison = strcmp($lhs, $rhs);
+        } else {
+            $comparison = $lhs <=> $rhs;
+        }
+
+        if ($operator == "gt") {
+            return $comparison > 0;
+        } elseif ($operator == "gte") {
+            return $comparison >= 0;
+        } elseif ($operator == "lt") {
+            return $comparison < 0;
+        } elseif ($operator == "lte") {
+            return $comparison <= 0;
+        }
+
+        throw new \Exception("Invalid operator: " . $operator);
     }
 
     private static function hash($key, $distinctId, $salt = "")
@@ -234,5 +330,25 @@ class FeatureFlag
         $isRegularExpression = preg_match($string, "") !== false;
         restore_error_handler();
         return $isRegularExpression;
+    }
+
+    private static function prepareValueForRegex($value)
+    {
+        $regex = $value;
+
+        // If delimiter already exists, do nothing
+        if (FeatureFlag::isRegularExpression($regex)) {
+            return $regex;
+        }
+
+        if (substr($regex, 0, 1) != "/") {
+            $regex = "/" . $regex;
+        }
+
+        if (substr($regex, -1) != "/") {
+            $regex = $regex . "/";
+        }
+
+        return $regex;
     }
 }
