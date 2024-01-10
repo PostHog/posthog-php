@@ -21,10 +21,10 @@ class LibCurl extends QueueConsumer
      *     number   "max_queue_size" - the max size of messages to enqueue
      *     number   "batch_size" - how many messages to send in a single request
      */
-    public function __construct($apiKey, $options = [])
+    public function __construct($apiKey, $options = [], ?HttpClient $httpClient = null)
     {
         parent::__construct($apiKey, $options);
-        $this->httpClient = new HttpClient(
+        $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $this->host,
             $this->ssl(),
             $this->maximum_backoff_duration,

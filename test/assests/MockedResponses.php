@@ -68,6 +68,56 @@ class MockedResponses
         ],
     ];
 
+    public const LOCAL_EVALUATION_MULTIPLE_REQUEST = [
+        'count' => 2,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "",
+                "key" => "person-flag",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "region",
+                                    "value" => ["USA"],
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ]
+                                ],
+                            "rollout_percentage" => 100
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
+                "rollout_percentage" => null
+            ],
+            [
+                "id" => 2,
+                "name" => "",
+                "key" => "true-flag",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                ],
+                            "rollout_percentage" => 100
+                        ]
+                    ]
+                                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
+                "rollout_percentage" => null
+            ]
+        ],
+    ];
+
     public const LOCAL_EVALUATION_WITH_NO_ROLLOUT_REQUEST = [
         'count' => 1,
         'next' => null,
