@@ -9,6 +9,9 @@ use Exception;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\PostHog;
+use PostHog\Test\Assets\MockedResponses;
+use SlopeIt\ClockMock\ClockMock;
+
 
 class PostHogTest extends TestCase
 {
@@ -102,6 +105,91 @@ class PostHogTest extends TestCase
                 ),
             )
         );
+    }
+
+    public function testCaptureWithLocalSendFlags(): void
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+            $this->assertTrue(
+                PostHog::capture(
+                    array(
+                        "distinctId" => "john",
+                        "event" => "Module PHP Event",
+                    )
+                )
+            );
+
+            PostHog::flush();
+            
+            $this->assertEquals(
+                $this->http_client->calls,
+                array(
+                    0 => array(
+                        "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                        "payload" => null,
+                    ),
+                    1 => array(
+                        "path" => "/batch/",
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$feature\/true-flag":true,"$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"3.0.3","$lib_consumer":"LibCurl"},"library":"posthog-php","library_version":"3.0.3","library_consumer":"LibCurl","distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                    ),
+                )
+            );
+        });
+    }
+
+    public function testCaptureWithLocalSendFlagsNoOverrides(): void
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+            $this->assertTrue(
+                PostHog::capture(
+                    array(
+                        "distinctId" => "john",
+                        "event" => "Module PHP Event",
+                        "properties" => array(
+                            "\$feature/true-flag" => "random-override"
+                        )
+                    )
+                )
+            );
+
+            PostHog::flush();
+            
+            $this->assertEquals(
+                $this->http_client->calls,
+                array(
+                    0 => array(
+                        "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                        "payload" => null,
+                    ),
+                    1 => array(
+                        "path" => "/batch/",
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$feature\/true-flag":"random-override","$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"3.0.3","$lib_consumer":"LibCurl"},"library":"posthog-php","library_version":"3.0.3","library_consumer":"LibCurl","distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                    ),
+                )
+            );
+        });
     }
 
     public function testIdentify(): void

@@ -74,7 +74,7 @@ class Client
         $this->apiKey = $apiKey;
         $this->personalAPIKey = $personalAPIKey;
         $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
-        $this->consumer = new $Consumer($apiKey, $options);
+        $this->consumer = new $Consumer($apiKey, $options, $httpClient);
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $options['host'] ?? "app.posthog.com",
             $options['ssl'] ?? true,
@@ -114,17 +114,18 @@ class Client
             $message["properties"]['$groups'] = $message['$groups'];
         }
 
+        $extraProperties = [];
         if (array_key_exists("send_feature_flags", $message) && $message["send_feature_flags"]) {
             $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
 
             // Add all feature variants to event
             foreach ($flags as $flagKey => $flagValue) {
-                $message["properties"][sprintf('$feature/%s', $flagKey)] = $flagValue;
+                $extraProperties[sprintf('$feature/%s', $flagKey)] = $flagValue;
             }
 
             // Add all feature flag keys that aren't false to $active_feature_flags
             // decide v2 does this automatically, but we need it for when we upgrade to v3
-            $message["properties"]['$active_feature_flags'] = array_keys(array_filter($flags, function ($flagValue) {
+            $extraProperties = array_keys(array_filter($flags, function ($flagValue) {
                 return $flagValue !== false;
             }));
         } elseif (count($this->featureFlags) != 0) {
@@ -133,12 +134,14 @@ class Client
 
             // Add all feature variants to event
             foreach ($flags as $flagKey => $flagValue) {
-                $message["properties"][sprintf('$feature/%s', $flagKey)] = $flagValue;
+                $extraProperties[sprintf('$feature/%s', $flagKey)] = $flagValue;
             }
-            $message["properties"]['$active_feature_flags'] = array_keys(array_filter($flags, function ($flagValue) {
+            $extraProperties['$active_feature_flags'] = array_keys(array_filter($flags, function ($flagValue) {
                 return $flagValue !== false;
             }));
         }
+
+        $message["properties"] = array_merge($extraProperties, $message["properties"]);
 
         return $this->consumer->capture($message);
     }
