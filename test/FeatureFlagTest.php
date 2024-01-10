@@ -7,6 +7,7 @@ require_once 'test/error_log_mock.php';
 
 use Exception;
 use PHPUnit\Framework\TestCase;
+use SlopeIt\ClockMock\ClockMock;
 use PostHog\FeatureFlag;
 use PostHog\Client;
 use PostHog\PostHog;
@@ -259,7 +260,7 @@ class FeatureFlagTest extends TestCase
     {
         $prop = [
             "key" => "key",
-            "value" => "/.com/",
+            "value" => ".com",
             "operator" => "regex"
         ];
 
@@ -286,7 +287,7 @@ class FeatureFlagTest extends TestCase
 
         $prop = [
             "key" => "key",
-            "value" => "/3/",
+            "value" => "3",
             "operator" => "regex"
         ];
 
@@ -308,7 +309,7 @@ class FeatureFlagTest extends TestCase
 
         $prop = [
             "key" => "key",
-            "value" => "/?*/",
+            "value" => "?*",
             "operator" => "regex"
         ];
 
@@ -322,7 +323,7 @@ class FeatureFlagTest extends TestCase
 
         $prop = [
             "key" => "key",
-            "value" => "/4/",
+            "value" => "4",
             "operator" => "regex"
         ];
 
@@ -363,7 +364,7 @@ class FeatureFlagTest extends TestCase
             "key" => -1,
         ]));
 
-        self::assertFalse(FeatureFlag::matchProperty($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "23",
         ]));
 
@@ -419,7 +420,7 @@ class FeatureFlagTest extends TestCase
             "key" => -1,
         ]));
 
-        self::assertFalse(FeatureFlag::matchProperty($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "3",
         ]));
 
@@ -436,20 +437,605 @@ class FeatureFlagTest extends TestCase
         self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => 43,
         ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => 42,
+        ]));
 
 
         self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => 44,
         ]));
 
-        self::assertFalse(FeatureFlag::matchProperty($prop, [
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "1",
         ]));
-
         self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "50",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "3",
         ]));
+
+        $prop_e = [
+            "key" => "key",
+            "value" => "30",
+            "operator" => "lt"
+        ];
+        self::assertTrue(FeatureFlag::matchProperty($prop_e, [
+            "key" => "29",
+        ]));
+        # depending on the type of override, we adjust type comparison
+        self::assertTrue(FeatureFlag::matchProperty($prop_e, [
+            "key" => "100",
+        ]));
+        self::assertFalse(FeatureFlag::matchProperty($prop_e, [
+            "key" => 100,
+        ]));
+
+        $prop_f = [
+            "key" => "key",
+            "value" => "123aloha",
+            "operator" => "gt"
+        ];
+        self::assertFalse(FeatureFlag::matchProperty($prop_f, [
+            "key" => "123",
+        ]));
+        self::assertFalse(FeatureFlag::matchProperty($prop_f, [
+            "key" => 122,
+        ]));
+
+        # this turns into a string comparison
+        self::assertTrue(FeatureFlag::matchProperty($prop_f, [
+            "key" => 129,
+        ]));
+
+
     }
+
+    public function testMatchPropertyDateOperators(): void
+    {
+        // is date before
+        $prop_a = [
+            "key" => "key",
+            "value" => "2022-05-01",
+            "operator" => "is_date_before"
+        ];
+
+        self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+            "key" => "2022-03-01",
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+            "key" => "2022-04-30",
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+            "key" => new \DateTime('2022-04-30'),
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+            "key" => new \DateTime('2022-04-30 01:02:03'),
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+            "key" => new \DateTime('2022-04-30T00:00:00+02:00'),
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+            "key" => new \DateTime('2022-04-30'),
+        ]));
+        self::assertFalse(FeatureFlag::matchProperty($prop_a, [
+            "key" => "2022-05-30",
+        ]));
+        
+        // is date after
+        // is date after
+        // const property_b = { key: 'key', value: '2022-05-01', operator: 'is_date_after' }
+        // expect(matchProperty(property_b, { key: '2022-05-02' })).toBe(true)
+        // expect(matchProperty(property_b, { key: '2022-05-30' })).toBe(true)
+        // expect(matchProperty(property_b, { key: new Date(2022, 4, 30) })).toBe(true)
+        // expect(matchProperty(property_b, { key: new Date('2022-05-30') })).toBe(true)
+        // expect(matchProperty(property_b, { key: '2022-04-30' })).toBe(false)
+        $prop_b = [
+            "key" => "key",
+            "value" => "2022-05-01",
+            "operator" => "is_date_after"
+        ];
+        self::assertTrue(FeatureFlag::matchProperty($prop_b, [
+            "key" => "2022-05-02",
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_b, [
+            "key" => "2022-05-30",
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_b, [
+            "key" => new \DateTime('2022-05-30'),
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_b, [
+            "key" => new \DateTime('2022-05-30 01:02:03'),
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_b, [
+            "key" => new \DateTime('2022-05-30T00:00:00+02:00'),
+        ]));
+        self::assertFalse(FeatureFlag::matchProperty($prop_b, [
+            "key" => "2022-04-30",
+        ]));
+
+        // can't be an invalid number or invalid string
+        self::expectException(Exception::class);
+        FeatureFlag::matchProperty($prop_a, [
+            "key" => "abcdef",
+        ]);
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop_a, [
+            "key" => "62802180000012345",
+        ]);
+
+        // // invalid flag property
+        // const property_c = { key: 'key', value: 'abcd123', operator: 'is_date_before' }
+        $prop_c = [
+            "key" => "key",
+            "value" => "abcd123",
+            "operator" => "is_date_before"
+        ];
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop_c, [
+            "key" => "2022-05-30",
+        ]);
+
+        // // Timezone
+        $prop_d = [
+            "key" => "key",
+            "value" => "2022-04-05 12:34:12 +01:00",
+            "operator" => "is_date_before"
+        ];
+        self::assertFalse(FeatureFlag::matchProperty($prop_d, [
+            "key" => "2022-05-30",
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_d, [
+            "key" => "2022-03-30",
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_d, [
+            "key" => "2022-04-05 12:34:11+01:00",
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_d, [
+            "key" => "2022-04-05 11:34:11 +00:00",
+        ]));
+        self::assertFalse(FeatureFlag::matchProperty($prop_d, [
+            "key" => "2022-04-05 11:34:13 +00:00",
+        ]));
+    }
+
+    public function testMatchPropertyRelativeDateOperators(): void
+    {
+        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+                        
+            $prop_a = [
+                "key" => "key",
+                "value" => "6h",
+                "operator" => "is_relative_date_before"
+            ];
+            self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+                "key" => "2022-03-01",
+            ]));
+            self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+                "key" => "2022-04-30",
+            ]));
+
+            self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+                "key" => new \DateTime('2022-04-30 01:02:03'),
+            ]));
+            // false because date comparison, instead of datetime, so reduces to same date
+            self::assertFalse(FeatureFlag::matchProperty($prop_a, [
+                "key" => new \DateTime('2022-04-30 19:02:03'),
+            ]));
+            self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+                "key" => new \DateTime('2022-04-30T01:02:03+02:00'),
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_a, [
+                "key" => new \DateTime('2022-04-30T20:02:03+02:00'),
+            ]));
+            self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+                "key" => new \DateTime('2022-04-30T19:59:03+02:00'),
+            ]));
+            self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+                "key" => new \DateTime('2022-04-30'),
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_a, [
+                "key" => "2022-05-30",
+            ]));
+
+            // // # can't be an invalid string
+            try {
+                FeatureFlag::matchProperty($prop_a, [
+                    "key" => "abcdef",
+                ]);
+            } catch (Exception $exception) {
+                self::assertStringContainsString("Failed to parse time string (abcdef) at position 0 (a): The timezone could not be found in the database", $exception->getMessage());
+            }
+
+            $prop_b = [
+                "key" => "key",
+                "value" => "1h",
+                "operator" => "is_relative_date_after"
+            ];
+            self::assertTrue(FeatureFlag::matchProperty($prop_b, [
+                "key" => "2022-05-02",
+            ]));
+            self::assertTrue(FeatureFlag::matchProperty($prop_b, [
+                "key" => "2022-05-30",
+            ]));
+            self::assertTrue(FeatureFlag::matchProperty($prop_b, [
+                "key" => new \DateTime('2022-05-30'),
+            ]));
+            self::assertTrue(FeatureFlag::matchProperty($prop_b, [
+                "key" => new \DateTime('2022-05-30 01:02:03'),
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_b, [
+                "key" => new \DateTime('2022-04-30 01:02:03'),
+            ]));
+
+            $prop_c = [
+                "key" => "key",
+                "value" => 1234,
+                "operator" => "is_relative_date_after"
+            ];
+
+            try {
+                FeatureFlag::matchProperty($prop_c, [
+                    "key" => "2022-05-30",
+                ]);
+            } catch (InconclusiveMatchException $exception) {
+                self::assertStringContainsString("The date set on the flag is not a valid format", $exception->getMessage());
+            }
+
+            try {
+                FeatureFlag::matchProperty($prop_c, [
+                    "key" => 1,
+                ]);
+            } catch (InconclusiveMatchException $exception) {
+                self::assertStringContainsString("The date set on the flag is not a valid format", $exception->getMessage());
+            }
+
+            // # Try all possible relative dates
+            $prop_e = [
+                "key" => "key",
+                "value" => "1h",
+                "operator" => "is_relative_date_before"
+            ];
+            self::assertFalse(FeatureFlag::matchProperty($prop_e, [
+                "key" => "2022-05-01 00:00:00",
+            ]));
+            self::assertTrue(FeatureFlag::matchProperty($prop_e, [
+                "key" => "2022-04-30 22:00:00",
+            ]));
+
+            $prop_f = [
+                "key" => "key",
+                "value" => "1d",
+                "operator" => "is_relative_date_before"
+            ];
+            self::assertTrue(FeatureFlag::matchProperty($prop_f, [
+                "key" => "2022-04-29 23:59:00",
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_f, [
+                "key" => "2022-04-30 00:00:01",
+            ]));
+
+            $prop_g = [
+                "key" => "key",
+                "value" => "1w",
+                "operator" => "is_relative_date_before"
+            ];
+            self::assertTrue(FeatureFlag::matchProperty($prop_g, [
+                "key" => "2022-04-23 00:00:00",
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_g, [
+                "key" => "2022-04-24 00:00:00",
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_g, [
+                "key" => "2022-04-24 00:00:01",
+            ]));
+
+            $prop_h = [
+                "key" => "key",
+                "value" => "1m",
+                "operator" => "is_relative_date_before"
+            ];
+            self::assertTrue(FeatureFlag::matchProperty($prop_h, [
+                "key" => "2022-03-01 00:00:00",
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_h, [
+                "key" => "2022-04-05 00:00:00",
+            ]));
+
+            $prop_i = [
+                "key" => "key",
+                "value" => "1y",
+                "operator" => "is_relative_date_before"
+            ];
+            self::assertTrue(FeatureFlag::matchProperty($prop_i, [
+                "key" => "2021-04-28 00:00:00",
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_i, [
+                "key" => "2021-05-01 00:00:01",
+            ]));
+
+            $prop_j = [
+                "key" => "key",
+                "value" => "122h",
+                "operator" => "is_relative_date_after"
+            ];
+            self::assertTrue(FeatureFlag::matchProperty($prop_j, [
+                "key" => "2022-05-01 00:00:00",
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_j, [
+                "key" => "2022-04-23 01:00:00",
+            ]));
+
+            $prop_k = [
+                "key" => "key",
+                "value" => "2d",
+                "operator" => "is_relative_date_after"
+            ];
+            self::assertTrue(FeatureFlag::matchProperty($prop_k, [
+                "key" => "2022-05-01 00:00:00",
+            ]));
+            self::assertTrue(FeatureFlag::matchProperty($prop_k, [
+                "key" => "2022-04-29 00:00:01",
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_k, [
+                "key" => "2022-04-29 00:00:00",
+            ]));
+
+            $prop_l = [
+                "key" => "key",
+                "value" => "02w",
+                "operator" => "is_relative_date_after"
+            ];
+            self::assertTrue(FeatureFlag::matchProperty($prop_l, [
+                "key" => "2022-05-01 00:00:00",
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_l, [
+                "key" => "2022-04-16 00:00:00",
+            ]));
+            
+            $prop_m = [
+                "key" => "key",
+                "value" => "1m",
+                "operator" => "is_relative_date_after"
+            ];
+            self::assertTrue(FeatureFlag::matchProperty($prop_m, [
+                "key" => "2022-04-01 00:00:01",
+            ]));
+
+            self::assertFalse(FeatureFlag::matchProperty($prop_m, [
+                "key" => "2022-04-01 00:00:00",
+            ]));
+
+            $prop_n = [
+                "key" => "key",
+                "value" => "1y",
+                "operator" => "is_relative_date_after"
+            ];
+            self::assertTrue(FeatureFlag::matchProperty($prop_n, [
+                "key" => "2022-05-01 00:00:00",
+            ]));
+            self::assertTrue(FeatureFlag::matchProperty($prop_n, [
+                "key" => "2021-05-01 00:00:01",
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_n, [
+                "key" => "2021-05-01 00:00:00",
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_n, [
+                "key" => "2021-04-30 00:00:00",
+            ]));
+            self::assertFalse(FeatureFlag::matchProperty($prop_n, [
+                "key" => "2021-03-01 12:13:00",
+            ]));
+        });
+    }
+
+    public function testMatchPropertyWithNones(): void
+    {
+        $prop_a = [
+            "key" => "key",
+            "value" => "null",
+            "operator" => "is_not"
+        ];
+
+        self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+            "key" => null,
+        ]));
+        self::assertFalse(FeatureFlag::matchProperty($prop_a, [
+            "key" => "null",
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+            "key" => "nul",
+        ]));
+        
+        $prop_b = [
+            "key" => "key",
+            "value" => "null",
+            "operator" => "is_set"
+        ];
+
+        self::assertTrue(FeatureFlag::matchProperty($prop_b, [
+            "key" => null,
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_b, [
+            "key" => "null",
+        ]));
+
+        $prop_c = [
+            "key" => "key",
+            "value" => "null",
+            "operator" => "regex"
+        ];
+        self::assertFalse(FeatureFlag::matchProperty($prop_c, [
+            "key" => null,
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_c, [
+            "key" => "null",
+        ]));
+
+        $prop_e = [
+            "key" => "key",
+            "value" => "null",
+            "operator" => "gt"
+        ];
+        self::assertFalse(FeatureFlag::matchProperty($prop_e, [
+            "key" => null,
+        ]));
+        self::assertFalse(FeatureFlag::matchProperty($prop_e, [
+            "key" => "null",
+        ]));
+
+        $prop_f = [
+            "key" => "key",
+            "value" => "null",
+            "operator" => "lt"
+        ];
+        self::assertTrue(FeatureFlag::matchProperty($prop_f, [
+            "key" => null,
+        ]));
+        self::assertFalse(FeatureFlag::matchProperty($prop_f, [
+            "key" => "null",
+        ]));
+
+        $prop_g = [
+            "key" => "key",
+            "value" => "null",
+            "operator" => "gte"
+        ];
+        self::assertFalse(FeatureFlag::matchProperty($prop_g, [
+            "key" => null,
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_g, [
+            "key" => "null",
+        ]));
+
+        $prop_h = [
+            "key" => "key",
+            "value" => "null",
+            "operator" => "lte"
+        ];
+        self::assertTrue(FeatureFlag::matchProperty($prop_h, [
+            "key" => null,
+        ]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_h, [
+            "key" => "null",
+        ]));
+
+    }
+
+    public function testRelativeDateParsingInvalidInput()
+    {
+        self::assertNull(FeatureFlag::relativeDateParseForFeatureFlagMatching('1'));
+        self::assertNull(FeatureFlag::relativeDateParseForFeatureFlagMatching('1x'));
+        self::assertNull(FeatureFlag::relativeDateParseForFeatureFlagMatching('1.2y'));
+        self::assertNull(FeatureFlag::relativeDateParseForFeatureFlagMatching('1z'));
+        self::assertNull(FeatureFlag::relativeDateParseForFeatureFlagMatching('1s'));
+        self::assertNull(FeatureFlag::relativeDateParseForFeatureFlagMatching('123344000m'));
+        self::assertNull(FeatureFlag::relativeDateParseForFeatureFlagMatching('bazinga'));
+        self::assertNull(FeatureFlag::relativeDateParseForFeatureFlagMatching('000bello'));
+        self::assertNull(FeatureFlag::relativeDateParseForFeatureFlagMatching('000hello'));
+
+        self::assertNotNull(FeatureFlag::relativeDateParseForFeatureFlagMatching('000h'));
+        self::assertNotNull(FeatureFlag::relativeDateParseForFeatureFlagMatching('1000h'));
+
+    }
+
+    public function testRelativeDateParsingOverflow()
+    {
+        self::assertNull(FeatureFlag::relativeDateParseForFeatureFlagMatching('1000000h'));
+        self::assertNull(FeatureFlag::relativeDateParseForFeatureFlagMatching('100000000000000000y'));
+    }
+
+    public function testRelativeDateParsingHours()
+    {
+        
+        ClockMock::executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1h'), new \DateTime('2020-01-01T11:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2h'), new \DateTime('2020-01-01T10:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('24h'), new \DateTime('2019-12-31T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('30h'), new \DateTime('2019-12-31T06:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('48h'), new \DateTime('2019-12-30T12:01:20Z'));
+
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('24h'), FeatureFlag::relativeDateParseForFeatureFlagMatching('1d'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('48h'), FeatureFlag::relativeDateParseForFeatureFlagMatching('2d'));
+        });
+    }
+
+    public function testRelativeDateParsingDays()
+    {
+        ClockMock::executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1d'), new \DateTime('2019-12-31T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2d'), new \DateTime('2019-12-30T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('7d'), new \DateTime('2019-12-25T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('14d'), new \DateTime('2019-12-18T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('30d'), new \DateTime('2019-12-02T12:01:20Z'));
+
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('7d'), FeatureFlag::relativeDateParseForFeatureFlagMatching('1w'));
+        });
+    }
+
+    public function testRelativeDateParsingWeeks()
+    {
+        ClockMock::executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1w'), new \DateTime('2019-12-25T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2w'), new \DateTime('2019-12-18T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('4w'), new \DateTime('2019-12-04T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('8w'), new \DateTime('2019-11-06T12:01:20Z'));
+
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1m'), new \DateTime('2019-12-01T12:01:20Z'));
+            self::assertNotEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('4w'), FeatureFlag::relativeDateParseForFeatureFlagMatching('1m'));
+        });
+    }
+
+    public function testRelativeDateParsingMonths()
+    {
+        ClockMock::executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1m'), new \DateTime('2019-12-01T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2m'), new \DateTime('2019-11-01T12:01:20Z'));
+
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('4m'), new \DateTime('2019-09-01T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('5m'), new \DateTime('2019-08-01T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('6m'), new \DateTime('2019-07-01T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('8m'), new \DateTime('2019-05-01T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('10m'), new \DateTime('2019-03-01T12:01:20Z'));
+
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('24m'), new \DateTime('2018-01-01T12:01:20Z'));
+
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1y'), new \DateTime('2019-01-01T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('12m'), FeatureFlag::relativeDateParseForFeatureFlagMatching('1y'));
+        });
+
+        ClockMock::executeAtFrozenDateTime(new \DateTime('2020-04-03T00:00:00Z'), function () {
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1m'), new \DateTime('2020-03-03T00:00:00Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2m'), new \DateTime('2020-02-03T00:00:00Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('4m'), new \DateTime('2019-12-03T00:00:00Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('8m'), new \DateTime('2019-08-03T00:00:00Z'));
+
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1y'), new \DateTime('2019-04-03T00:00:00Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('12m'), FeatureFlag::relativeDateParseForFeatureFlagMatching('1y'));
+            
+        });
+    }
+
+    public function testRelativeDateParsingYears()
+    {
+        ClockMock::executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
+
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1y'), new \DateTime('2019-01-01T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2y'), new \DateTime('2018-01-01T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('4y'), new \DateTime('2016-01-01T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('8y'), new \DateTime('2012-01-01T12:01:20Z'));
+
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1y'), new \DateTime('2019-01-01T12:01:20Z'));
+            self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('12m'), FeatureFlag::relativeDateParseForFeatureFlagMatching('1y'));
+        });
+    }
+
+
+
+
+
 
     public function testFlagPersonProperties()
     {
