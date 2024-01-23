@@ -607,8 +607,8 @@ class FeatureFlagTest extends TestCase
                         
             $prop_a = [
                 "key" => "key",
-                "value" => "6h",
-                "operator" => "is_relative_date_before"
+                "value" => "-6h",
+                "operator" => "is_date_before"
             ];
             self::assertTrue(FeatureFlag::matchProperty($prop_a, [
                 "key" => "2022-03-01",
@@ -652,7 +652,7 @@ class FeatureFlagTest extends TestCase
             $prop_b = [
                 "key" => "key",
                 "value" => "1h",
-                "operator" => "is_relative_date_after"
+                "operator" => "is_date_after"
             ];
             self::assertTrue(FeatureFlag::matchProperty($prop_b, [
                 "key" => "2022-05-02",
@@ -673,7 +673,7 @@ class FeatureFlagTest extends TestCase
             $prop_c = [
                 "key" => "key",
                 "value" => 1234,
-                "operator" => "is_relative_date_after"
+                "operator" => "is_date_after"
             ];
 
             try {
@@ -696,7 +696,7 @@ class FeatureFlagTest extends TestCase
             $prop_e = [
                 "key" => "key",
                 "value" => "1h",
-                "operator" => "is_relative_date_before"
+                "operator" => "is_date_before"
             ];
             self::assertFalse(FeatureFlag::matchProperty($prop_e, [
                 "key" => "2022-05-01 00:00:00",
@@ -708,7 +708,7 @@ class FeatureFlagTest extends TestCase
             $prop_f = [
                 "key" => "key",
                 "value" => "1d",
-                "operator" => "is_relative_date_before"
+                "operator" => "is_date_before"
             ];
             self::assertTrue(FeatureFlag::matchProperty($prop_f, [
                 "key" => "2022-04-29 23:59:00",
@@ -720,7 +720,7 @@ class FeatureFlagTest extends TestCase
             $prop_g = [
                 "key" => "key",
                 "value" => "1w",
-                "operator" => "is_relative_date_before"
+                "operator" => "is_date_before"
             ];
             self::assertTrue(FeatureFlag::matchProperty($prop_g, [
                 "key" => "2022-04-23 00:00:00",
@@ -735,7 +735,7 @@ class FeatureFlagTest extends TestCase
             $prop_h = [
                 "key" => "key",
                 "value" => "1m",
-                "operator" => "is_relative_date_before"
+                "operator" => "is_date_before"
             ];
             self::assertTrue(FeatureFlag::matchProperty($prop_h, [
                 "key" => "2022-03-01 00:00:00",
@@ -747,7 +747,7 @@ class FeatureFlagTest extends TestCase
             $prop_i = [
                 "key" => "key",
                 "value" => "1y",
-                "operator" => "is_relative_date_before"
+                "operator" => "is_date_before"
             ];
             self::assertTrue(FeatureFlag::matchProperty($prop_i, [
                 "key" => "2021-04-28 00:00:00",
@@ -759,7 +759,7 @@ class FeatureFlagTest extends TestCase
             $prop_j = [
                 "key" => "key",
                 "value" => "122h",
-                "operator" => "is_relative_date_after"
+                "operator" => "is_date_after"
             ];
             self::assertTrue(FeatureFlag::matchProperty($prop_j, [
                 "key" => "2022-05-01 00:00:00",
@@ -771,7 +771,7 @@ class FeatureFlagTest extends TestCase
             $prop_k = [
                 "key" => "key",
                 "value" => "2d",
-                "operator" => "is_relative_date_after"
+                "operator" => "is_date_after"
             ];
             self::assertTrue(FeatureFlag::matchProperty($prop_k, [
                 "key" => "2022-05-01 00:00:00",
@@ -785,8 +785,8 @@ class FeatureFlagTest extends TestCase
 
             $prop_l = [
                 "key" => "key",
-                "value" => "02w",
-                "operator" => "is_relative_date_after"
+                "value" => "-02w",
+                "operator" => "is_date_after"
             ];
             self::assertTrue(FeatureFlag::matchProperty($prop_l, [
                 "key" => "2022-05-01 00:00:00",
@@ -798,7 +798,7 @@ class FeatureFlagTest extends TestCase
             $prop_m = [
                 "key" => "key",
                 "value" => "1m",
-                "operator" => "is_relative_date_after"
+                "operator" => "is_date_after"
             ];
             self::assertTrue(FeatureFlag::matchProperty($prop_m, [
                 "key" => "2022-04-01 00:00:01",
@@ -810,8 +810,8 @@ class FeatureFlagTest extends TestCase
 
             $prop_n = [
                 "key" => "key",
-                "value" => "1y",
-                "operator" => "is_relative_date_after"
+                "value" => "-1y",
+                "operator" => "is_date_after"
             ];
             self::assertTrue(FeatureFlag::matchProperty($prop_n, [
                 "key" => "2022-05-01 00:00:00",
