@@ -495,7 +495,7 @@ class PostHogTest extends TestCase
             'random_key',
             'some_id',
             array("company" => "id:5", "instance" => "app.posthog.com"),
-            array("\distinct_id" => "override"),
+            array("distinct_id" => "override"),
             array("company" => array("\$group_key" => "group_override"), "instance" => array("\$group_key" => "app.posthog.com"))
         );
         $this->assertEquals(

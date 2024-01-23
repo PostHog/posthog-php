@@ -598,7 +598,7 @@ class Client
         array $groupProperties
     ): array {
         $allPersonProperties = array_merge(
-            ["\distinct_id" => $distinctId],
+            ["distinct_id" => $distinctId],
             $personProperties
         );
 

@@ -681,7 +681,7 @@ class FeatureFlagTest extends TestCase
                     "key" => "2022-05-30",
                 ]);
             } catch (InconclusiveMatchException $exception) {
-                self::assertStringContainsString("The date set on the flag is not a valid format", $exception->getMessage());
+                self::assertStringContainsString("The date provided 1234 must be a string or date object", $exception->getMessage());
             }
 
             try {
@@ -689,7 +689,7 @@ class FeatureFlagTest extends TestCase
                     "key" => 1,
                 ]);
             } catch (InconclusiveMatchException $exception) {
-                self::assertStringContainsString("The date set on the flag is not a valid format", $exception->getMessage());
+                self::assertStringContainsString("The date provided 1234 must be a string or date object", $exception->getMessage());
             }
 
             // # Try all possible relative dates
