@@ -74,10 +74,10 @@ class FeatureFlag
             }
         }
 
-        if (in_array($operator, ["is_date_before", "is_date_after", "is_relative_date_before", "is_relative_date_after"])) {
-            if ($operator == 'is_relative_date_before' || $operator == 'is_relative_date_after') {
-                $parsedDate = FeatureFlag::relativeDateParseForFeatureFlagMatching($value);
-            } else {
+        if (in_array($operator, ["is_date_before", "is_date_after"])) {
+            $parsedDate = FeatureFlag::relativeDateParseForFeatureFlagMatching($value);
+
+            if (is_null($parsedDate)) {
                 $parsedDate = FeatureFlag::convertToDateTime($value);
             }
 
@@ -86,7 +86,7 @@ class FeatureFlag
             }
 
             $overrideDate = FeatureFlag::convertToDateTime($overrideValue);
-            if ($operator == 'is_date_before' || $operator == 'is_relative_date_before') {
+            if ($operator == 'is_date_before') {
                 return $overrideDate < $parsedDate;
             } else {
                 return $overrideDate > $parsedDate;
@@ -98,7 +98,7 @@ class FeatureFlag
 
     public static function relativeDateParseForFeatureFlagMatching($value)
     {
-        $regex = "/^(?<number>[0-9]+)(?<interval>[a-z])$/";
+        $regex = "/^-?(?<number>[0-9]+)(?<interval>[a-z])$/";
         $parsedDt = new \DateTime("now", new \DateTimeZone("UTC"));
         if (preg_match($regex, $value, $matches)) {
             $number = intval($matches["number"]);

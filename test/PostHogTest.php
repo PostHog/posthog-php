@@ -248,7 +248,7 @@ class PostHogTest extends TestCase
                 ),
                 1 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"$current_distinct_id":"user-id"}}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
                 ),
             )
         );
@@ -268,7 +268,7 @@ class PostHogTest extends TestCase
                 1 => array(
                     "path" => "/decide/?v=2",
                     "payload" => sprintf(
-                        '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"},"person_properties":{"$current_distinct_id":"user-id"},"group_properties":{"company":{"$group_key":"id:5"}}}',
+                        '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"},"person_properties":{"distinct_id":"user-id"},"group_properties":{"company":{"$group_key":"id:5"}}}',
                         self::FAKE_API_KEY
                     ),
                 ),
@@ -288,7 +288,7 @@ class PostHogTest extends TestCase
                 ),
                 1 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"$current_distinct_id":"user-id"}}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
                 ),
             )
         );
@@ -318,7 +318,7 @@ class PostHogTest extends TestCase
                 1 => array(
                     "path" => "/decide/?v=2",
                     "payload" => sprintf(
-                        '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"},"person_properties":{"$current_distinct_id":"user-id"},"group_properties":{"company":{"$group_key":"id:5"}}}',
+                        '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"},"person_properties":{"distinct_id":"user-id"},"group_properties":{"company":{"$group_key":"id:5"}}}',
                         self::FAKE_API_KEY
                     ),
                 ),
@@ -483,7 +483,7 @@ class PostHogTest extends TestCase
                 ),
                 1 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"$current_distinct_id":"some_id","x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}}}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"some_id","x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}}}', self::FAKE_API_KEY),
                 ),
             )
         );
@@ -495,7 +495,7 @@ class PostHogTest extends TestCase
             'random_key',
             'some_id',
             array("company" => "id:5", "instance" => "app.posthog.com"),
-            array("\$current_distinct_id" => "override"),
+            array("distinct_id" => "override"),
             array("company" => array("\$group_key" => "group_override"), "instance" => array("\$group_key" => "app.posthog.com"))
         );
         $this->assertEquals(
@@ -503,7 +503,7 @@ class PostHogTest extends TestCase
             array(
                 0 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"$current_distinct_id":"override"},"group_properties":{"company":{"$group_key":"group_override"},"instance":{"$group_key":"app.posthog.com"}}}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"override"},"group_properties":{"company":{"$group_key":"group_override"},"instance":{"$group_key":"app.posthog.com"}}}', self::FAKE_API_KEY),
                 ),
             )
         );
@@ -517,7 +517,7 @@ class PostHogTest extends TestCase
             array(
                 0 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5"},"person_properties":{"$current_distinct_id":"some_id"},"group_properties":{"company":{"$group_key":"id:5"}}}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5"},"person_properties":{"distinct_id":"some_id"},"group_properties":{"company":{"$group_key":"id:5"}}}', self::FAKE_API_KEY),
                 ),
             )
         );
@@ -531,7 +531,7 @@ class PostHogTest extends TestCase
             array(
                 0 => array(
                     "path" => "/decide/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"$current_distinct_id":"some_id","x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}}}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"some_id","x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}}}', self::FAKE_API_KEY),
                 ),
             )
         );
