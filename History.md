@@ -1,4 +1,10 @@
 
+3.2.1 / 2024-01-26
+==================
+
+  * fix(flags): Update relative date op names (#61)
+  * Remove new relative date operators, combine into regular date operators
+
 3.2.0 / 2024-01-10
 ==================
 
