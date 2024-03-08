@@ -110,7 +110,7 @@ class PostHogTest extends TestCase
                 $this->http_client->calls,
                 array(
                     0 => array(
-                        "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                        "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                         "payload" => null,
                     ),
                     1 => array(
@@ -165,7 +165,7 @@ class PostHogTest extends TestCase
                 $this->http_client->calls,
                 array(
                     0 => array(
-                        "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                        "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                         "payload" => null,
                     ),
                     1 => array(
@@ -209,7 +209,7 @@ class PostHogTest extends TestCase
                 $this->http_client->calls,
                 array(
                     0 => array(
-                        "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                        "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                         "payload" => null,
                     ),
                     1 => array(
@@ -243,7 +243,7 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                     "payload" => null,
                 ),
                 1 => array(
@@ -262,7 +262,7 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                     "payload" => null,
                 ),
                 1 => array(
@@ -283,7 +283,7 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                     "payload" => null,
                 ),
                 1 => array(
@@ -312,7 +312,7 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                     "payload" => null,
                 ),
                 1 => array(
@@ -478,7 +478,7 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?token=random_key",
+                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                     "payload" => null,
                 ),
                 1 => array(

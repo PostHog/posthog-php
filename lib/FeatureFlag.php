@@ -96,6 +96,103 @@ class FeatureFlag
         return false;
     }
 
+    public static function matchCohort($property, $propertyValues, $cohortProperties)
+    {
+        $cohortId = strval($property["value"]);
+        if (!array_key_exists($cohortId, $cohortProperties)) {
+            throw new InconclusiveMatchException("can't match cohort without a given cohort property value");
+        }
+
+        $propertyGroup = $cohortProperties[$cohortId];
+        return FeatureFlag::matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties);
+        
+    }
+
+    public static function matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties)
+    {
+        // TODO: check empty case
+        if (!$propertyGroup) {
+            return true;
+        }
+
+        $propertyGroupType = $propertyGroup["type"];
+        $properties = $propertyGroup["values"];
+
+        if (!$properties || count($properties) === 0) {
+            // empty groups are no-ops, always match
+            return true;
+        }
+
+        $errorMatchingLocally = false;
+
+        if (array_key_exists("values", $properties[0])) {
+            // a nested property group
+            foreach ($properties as $prop) {
+                try {
+                    $matches = FeatureFlag::matchPropertyGroup($prop, $propertyValues, $cohortProperties);
+                    if ($propertyGroupType === 'AND') {
+                        if (!$matches) {
+                            return false;
+                        }
+                    } else {
+                        // OR group
+                        if ($matches) {
+                            return true;
+                        }
+                    }
+                } catch (InconclusiveMatchException $err) {
+                    $errorMatchingLocally = true;
+                }
+            }
+
+            if ($errorMatchingLocally) {
+                throw new InconclusiveMatchException("Can't match cohort without a given cohort property value");
+            }
+            // if we get here, all matched in AND case, or none matched in OR case
+            return $propertyGroupType === 'AND';
+        } else {
+            foreach ($properties as $prop) {
+                try {
+                    $matches = false;
+                    if ($prop["type"] === 'cohort') {
+                        $matches = FeatureFlag::matchCohort($prop, $propertyValues, $cohortProperties);
+                    } else {
+                        $matches = FeatureFlag::matchProperty($prop, $propertyValues);
+                    }
+
+                    $negation = $prop["negation"] ?? false;
+
+                    if ($propertyGroupType === 'AND') {
+                        // if negated property, do the inverse
+                        if (!$matches && !$negation) {
+                            return false;
+                        }
+                        if ($matches && $negation) {
+                            return false;
+                        }
+                    } else {
+                        // OR group
+                        if ($matches && !$negation) {
+                            return true;
+                        }
+                        if (!$matches && $negation) {
+                            return true;
+                        }
+                    }
+                } catch (InconclusiveMatchException $err) {
+                    $errorMatchingLocally = true;
+                }
+            }
+
+            if ($errorMatchingLocally) {
+                throw new InconclusiveMatchException("can't match cohort without a given cohort property value");
+            }
+
+            // if we get here, all matched in AND case, or none matched in OR case
+            return $propertyGroupType === 'AND';
+        }
+    }
+
     public static function relativeDateParseForFeatureFlagMatching($value)
     {
         $regex = "/^-?(?<number>[0-9]+)(?<interval>[a-z])$/";
@@ -239,7 +336,7 @@ class FeatureFlag
         }
     }
 
-    public static function matchFeatureFlagProperties($flag, $distinctId, $properties)
+    public static function matchFeatureFlagProperties($flag, $distinctId, $properties, $cohorts = [])
     {
         $flagConditions = ($flag["filters"] ?? [])["groups"] ?? [];
         $isInconclusive = false;
@@ -275,7 +372,7 @@ class FeatureFlag
         foreach ($flagConditionsWithIndexes as $conditionWithIndex) {
             $condition = $conditionWithIndex[0];
             try {
-                if (FeatureFlag::isConditionMatch($flag, $distinctId, $condition, $properties)) {
+                if (FeatureFlag::isConditionMatch($flag, $distinctId, $condition, $properties, $cohorts)) {
                     $variantOverride = $condition["variant"] ?? null;
                     $flagVariants = (($flag["filters"] ?? [])["multivariate"] ?? [])["variants"] ?? [];
                     $variantKeys = array_map(function ($variant) {
@@ -300,13 +397,20 @@ class FeatureFlag
         return false;
     }
 
-    private static function isConditionMatch($featureFlag, $distinctId, $condition, $properties)
+    private static function isConditionMatch($featureFlag, $distinctId, $condition, $properties, $cohorts)
     {
         $rolloutPercentage = array_key_exists("rollout_percentage", $condition) ? $condition["rollout_percentage"] : null;
 
         if (count($condition['properties'] ?? []) > 0) {
             foreach ($condition['properties'] as $property) {
-                if (!FeatureFlag::matchProperty($property, $properties)) {
+                $matches = false;
+                if ($property['type'] == 'cohort') {
+                    $matches = FeatureFlag::matchCohort($property, $properties, $cohorts);
+                } else {
+                    $matches = FeatureFlag::matchProperty($property, $properties);
+                }
+
+                if (!$matches) {
                     return false;
                 }
             }

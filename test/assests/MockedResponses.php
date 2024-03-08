@@ -187,6 +187,103 @@ class MockedResponses
         ],
     ];
 
+    public const LOCAL_EVALUATION_WITH_COHORTS_REQUEST = [
+        'flags' => [
+           [
+              'id' => 2,
+                'name' => 'Beta Feature',
+                'key' => 'beta-feature',
+                'is_simple_flag' => false,
+                'active' => true,
+                'filters' => [
+                    'groups' => [
+                        [
+                            'properties' => [
+                                [
+                                    'key' => 'region',
+                                    'operator' => 'exact',
+                                    'value' => ['USA'],
+                                    'type' => 'person',
+                                ],
+                                [
+                                    'key' => 'id',
+                                    'value' => 98,
+                                    'operator' => null,
+                                    'type' => 'cohort',
+                                ],
+                            ],
+                            'rollout_percentage' => 100,
+                        ],
+                    ],
+                ],
+           ]
+        ],
+        'cohorts' => [
+        '98' => [
+            'type' => 'OR',
+            'values' => [
+                ['key' => 'id', 'value' => 1, 'type' => 'cohort'],
+                ['key' => 'nation', 'operator' => 'exact', 'value' => ['UK'], 'type' => 'person'],
+            ],
+        ],
+        '1' => [
+            'type' => 'AND',
+            'values' => [
+                ['key' => 'other', 'operator' => 'exact', 'value' => ['thing'], 'type' => 'person'],
+            ],
+        ],
+        ]
+    
+    ];
+
+    public const LOCAL_EVALUATION_FOR_NEGATED_COHORTS_REQUEST = [
+        'flags' => [
+            [
+               'id' => 2,
+                 'name' => 'Beta Feature',
+                 'key' => 'beta-feature',
+                 'is_simple_flag' => false,
+                 'active' => true,
+                 'filters' => [
+                     'groups' => [
+                         [
+                             'properties' => [
+                                 [
+                                     'key' => 'region',
+                                     'operator' => 'exact',
+                                     'value' => ['USA'],
+                                     'type' => 'person',
+                                 ],
+                                 [
+                                     'key' => 'id',
+                                     'value' => 98,
+                                     'operator' => null,
+                                     'type' => 'cohort',
+                                 ],
+                             ],
+                             'rollout_percentage' => 100,
+                         ],
+                     ],
+                 ],
+            ]
+         ],
+        'cohorts' => [
+            '98' => [
+                'type' => 'OR',
+                'values' => [
+                    ['key' => 'id', 'value' => 1, 'type' => 'cohort'],
+                    ['key' => 'nation', 'operator' => 'exact', 'value' => ['UK'], 'type' => 'person'],
+                ],
+            ],
+            '1' => [
+                'type' => 'AND',
+                'values' => [
+                    ['key' => 'other', 'operator' => 'exact', 'value' => ['thing'], 'type' => 'person', 'negation' => true],
+                ],
+            ],
+        ],
+    ];
+
     public const LOCAL_EVALUATION_GROUP_PROPERTIES_REQUEST = [
         'count' => 1,
         'next' => null,

@@ -53,6 +53,12 @@ class Client
     public $groupTypeMapping;
 
     /**
+     * @var array
+     */
+    public $cohorts;
+
+
+    /**
      * @var SizeLimitedHash
      */
     public $distinctIdsFeatureFlagsReported;
@@ -86,6 +92,7 @@ class Client
         );
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
+        $this->cohorts = [];
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
 
         // Populate featureflags and grouptypemapping if possible
@@ -369,7 +376,7 @@ class Client
             $focusedGroupProperties = $groupProperties[$groupName];
             return FeatureFlag::matchFeatureFlagProperties($featureFlag, $groups[$groupName], $focusedGroupProperties);
         } else {
-            return FeatureFlag::matchFeatureFlagProperties($featureFlag, $distinctId, $personProperties);
+            return FeatureFlag::matchFeatureFlagProperties($featureFlag, $distinctId, $personProperties, $this->cohorts);
         }
     }
 
@@ -407,6 +414,7 @@ class Client
 
         $this->featureFlags = $payload['flags'] ?? [];
         $this->groupTypeMapping = $payload['group_type_mapping'] ?? [];
+        $this->cohorts = $payload['cohorts'] ?? [];
     }
 
 
@@ -414,7 +422,7 @@ class Client
     {
 
         return $this->httpClient->sendRequest(
-            '/api/feature_flag/local_evaluation?token=' . $this->apiKey,
+            '/api/feature_flag/local_evaluation?send_cohorts&token=' . $this->apiKey,
             null,
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
