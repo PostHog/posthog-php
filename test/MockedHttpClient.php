@@ -34,12 +34,12 @@ class MockedHttpClient extends \PostHog\HttpClient
         $this->flagEndpointResponse = $flagEndpointResponse;
     }
 
-    public function sendRequest(string $path, ?string $payload, array $extraHeaders = []): HttpResponse
+    public function sendRequest(string $path, ?string $payload, array $extraHeaders = [], array $requestOptions = []): HttpResponse
     {
         if (!isset($this->calls)) {
             $this->calls = [];
         }
-        array_push($this->calls, array("path" => $path, "payload" => $payload));
+        array_push($this->calls, array("path" => $path, "payload" => $payload, "extraHeaders" => $extraHeaders, "requestOptions" => $requestOptions));
 
         if (str_starts_with($path, "/decide/")) {
             return new HttpResponse(json_encode(MockedResponses::DECIDE_REQUEST), 200);
@@ -49,6 +49,6 @@ class MockedHttpClient extends \PostHog\HttpClient
             return new HttpResponse(json_encode($this->flagEndpointResponse), 200);
         }
 
-        return parent::sendRequest($path, $payload, $extraHeaders);
+        return parent::sendRequest($path, $payload, $extraHeaders, $requestOptions);
     }
 }
