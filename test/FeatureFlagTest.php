@@ -523,7 +523,7 @@ class FeatureFlagTest extends TestCase
         self::assertFalse(FeatureFlag::matchProperty($prop_a, [
             "key" => "2022-05-30",
         ]));
-        
+
         // is date after
         // is date after
         // const property_b = { key: 'key', value: '2022-05-01', operator: 'is_date_after' }
@@ -604,7 +604,7 @@ class FeatureFlagTest extends TestCase
     public function testMatchPropertyRelativeDateOperators(): void
     {
         ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
-                        
+
             $prop_a = [
                 "key" => "key",
                 "value" => "-6h",
@@ -794,7 +794,7 @@ class FeatureFlagTest extends TestCase
             self::assertFalse(FeatureFlag::matchProperty($prop_l, [
                 "key" => "2022-04-16 00:00:00",
             ]));
-            
+
             $prop_m = [
                 "key" => "key",
                 "value" => "1m",
@@ -848,7 +848,7 @@ class FeatureFlagTest extends TestCase
         self::assertTrue(FeatureFlag::matchProperty($prop_a, [
             "key" => "nul",
         ]));
-        
+
         $prop_b = [
             "key" => "key",
             "value" => "null",
@@ -949,7 +949,7 @@ class FeatureFlagTest extends TestCase
 
     public function testRelativeDateParsingHours()
     {
-        
+
         ClockMock::executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1h'), new \DateTime('2020-01-01T11:01:20Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2h'), new \DateTime('2020-01-01T10:01:20Z'));
@@ -1014,7 +1014,7 @@ class FeatureFlagTest extends TestCase
 
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1y'), new \DateTime('2019-04-03T00:00:00Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('12m'), FeatureFlag::relativeDateParseForFeatureFlagMatching('1y'));
-            
+
         });
     }
 
@@ -1191,7 +1191,7 @@ class FeatureFlagTest extends TestCase
 
     public function testGetAllFlagsWithFallbackEmptyLocalFlags()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse:[]);
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: []);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1210,7 +1210,7 @@ class FeatureFlagTest extends TestCase
 
     public function testGetAllFlagsWithNoFallback()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse:MockedResponses::MULTIPLE_FLAGS_LOCAL_EVALUATE_REQUEST);
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::MULTIPLE_FLAGS_LOCAL_EVALUATE_REQUEST);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1284,13 +1284,13 @@ class FeatureFlagTest extends TestCase
 
             $this->assertEquals(
                 $this->http_client->calls,
-                array(
-                    0 => array(
+                array (
+                    0 => array (
                         "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                         "payload" => null,
                     ),
                     // no decide because local eval, but capture flag event
-                    1 => array(
+                    1 => array (
                         "path" => "/batch/",
                         'payload' => '{"batch":[{"properties":{"$feature\/simple-flag":true,"$active_feature_flags":["simple-flag"],"$feature_flag":"simple-flag","$feature_flag_response":true,"$lib":"posthog-php","$lib_version":"3.0.3","$lib_consumer":"LibCurl","$groups":[]},"distinct_id":"some-distinct-id","event":"$feature_flag_called","$groups":[],"library":"posthog-php","library_version":"3.0.3","library_consumer":"LibCurl","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
                     ),
@@ -1548,7 +1548,7 @@ class FeatureFlagTest extends TestCase
             array()
         );
     }
-    
+
     public function testComputingFlagWithoutRolloutLocally()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_WITH_NO_ROLLOUT_REQUEST);
