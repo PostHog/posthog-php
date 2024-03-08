@@ -89,7 +89,7 @@ class Client
             null,
             (int) ($options['timeout'] ?? 10000)
         );
-        $this->featureFlagsRequestTimeout = (int) ($options['feature_flags_request_timeout_ms'] ?? 3000);
+        $this->featureFlagsRequestTimeout = (int) ($options['feature_flag_request_timeout_ms'] ?? 3000);
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);

@@ -89,7 +89,7 @@ class PostHogTest extends TestCase
                 self::FAKE_API_KEY,
                 [
                     "debug" => true,
-                    "feature_flags_request_timeout_ms" => 1234,
+                    "feature_flag_request_timeout_ms" => 1234,
                 ],
                 $this->http_client,
                 "test"
