@@ -1,4 +1,10 @@
 
+3.2.2 / 2024-03-11
+==================
+
+  * feat(flags): Add specific timeout for feature flags (#62)
+  * Adds a new `feature_flag_request_timeout_ms` timeout parameter for feature flags which defaults to 3 seconds, updated from the default 10s for all other API calls.
+
 3.2.1 / 2024-01-26
 ==================
 

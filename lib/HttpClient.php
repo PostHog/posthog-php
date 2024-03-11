@@ -62,13 +62,16 @@ class HttpClient
      * @param string $path
      * @param string|null $payload
      * @param array $extraHeaders
+     * @param array $requestOptions
      * @return HttpResponse
      */
-    public function sendRequest(string $path, ?string $payload, array $extraHeaders = []): HttpResponse
+    public function sendRequest(string $path, ?string $payload, array $extraHeaders = [], array $requestOptions = []): HttpResponse
     {
         $protocol = $this->useSsl ? "https://" : "http://";
 
         $backoff = 100; // Set initial waiting time to 100ms
+
+        $shouldRetry = $requestOptions['shouldRetry'] ?? true;
 
         do {
             // open connection
@@ -84,11 +87,17 @@ class HttpClient
                 $headers[] = 'Content-Encoding: gzip';
             }
 
+            // check if timeout exists in request options, if not use default
+            $timeout = $this->curlTimeoutMilliseconds;
+            if (isset($requestOptions['timeout'])) {
+                $timeout = $requestOptions['timeout'];
+            }
+
             curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge($headers, $extraHeaders));
             curl_setopt($ch, CURLOPT_URL, $protocol . $this->host . $path);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT_MS, $this->curlTimeoutMilliseconds);
-            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, $this->curlTimeoutMilliseconds);
+            curl_setopt($ch, CURLOPT_TIMEOUT_MS, $timeout);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, $timeout);
 
             // retry failed requests just once to diminish impact on performance
             $httpResponse = $this->executePost($ch);
@@ -101,7 +110,9 @@ class HttpClient
                 // log error
                 $this->handleError($ch, $responseCode);
 
-                if (($responseCode >= 500 && $responseCode <= 600) || 429 == $responseCode) {
+                if ($shouldRetry === false) {
+                    break;
+                } elseif (($responseCode >= 500 && $responseCode <= 600) || 429 == $responseCode) {
                     // If status code is greater than 500 and less than 600, it indicates server error
                     // Error code 429 indicates rate limited.
                     // Retry uploading in these cases.
@@ -115,7 +126,7 @@ class HttpClient
             } else {
                 break;  // no error
             }
-        } while ($backoff < $this->maximumBackoffDuration);
+        } while ($shouldRetry && $backoff < $this->maximumBackoffDuration);
 
         return $httpResponse;
     }

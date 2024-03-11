@@ -31,6 +31,11 @@ class Client
     private $personalAPIKey;
 
     /**
+     * @var integer
+     */
+    private $featureFlagsRequestTimeout;
+
+    /**
      * Consumer object handles queueing and bundling requests to PostHog.
      *
      * @var Consumer
@@ -90,6 +95,7 @@ class Client
             null,
             (int) ($options['timeout'] ?? 10000)
         );
+        $this->featureFlagsRequestTimeout = (int) ($options['feature_flag_request_timeout_ms'] ?? 3000);
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
         $this->cohorts = [];
@@ -461,6 +467,10 @@ class Client
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
                 "User-Agent: posthog-php/" . PostHog::VERSION,
+            ],
+            [
+                "shouldRetry" => false,
+                "timeout" => $this->featureFlagsRequestTimeout
             ]
         )->getResponse();
     }
