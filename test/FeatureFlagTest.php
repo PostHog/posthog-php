@@ -1288,11 +1288,15 @@ class FeatureFlagTest extends TestCase
                     0 => array (
                         "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                         "payload" => null,
+                        "extraHeaders" => array(0 => 'User-Agent: posthog-php/3.0.3', 1 => 'Authorization: Bearer test'),
+                        "requestOptions" => array(),
                     ),
                     // no decide because local eval, but capture flag event
                     1 => array (
                         "path" => "/batch/",
                         'payload' => '{"batch":[{"properties":{"$feature\/simple-flag":true,"$active_feature_flags":["simple-flag"],"$feature_flag":"simple-flag","$feature_flag_response":true,"$lib":"posthog-php","$lib_version":"3.0.3","$lib_consumer":"LibCurl","$groups":[]},"distinct_id":"some-distinct-id","event":"$feature_flag_called","$groups":[],"library":"posthog-php","library_version":"3.0.3","library_consumer":"LibCurl","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                        "extraHeaders" => array(0 => 'User-Agent: posthog-php/3.0.3'),
+                        "requestOptions" => array(),
                     ),
                 )
             );
@@ -1383,6 +1387,8 @@ class FeatureFlagTest extends TestCase
                 0 => array(
                     "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                     "payload" => null,
+                    "extraHeaders" => array(0 => 'User-Agent: posthog-php/3.0.3', 1 => 'Authorization: Bearer test'),
+                    "requestOptions" => array(),
                 ),
                 // no decide or capture calls
             )
@@ -1416,6 +1422,8 @@ class FeatureFlagTest extends TestCase
                 0 => array(
                     "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                     "payload" => null,
+                    "extraHeaders" => array(0 => 'User-Agent: posthog-php/3.0.3', 1 => 'Authorization: Bearer test'),
+                    "requestOptions" => array(),
                 ),
             )
         );
@@ -1485,6 +1493,8 @@ class FeatureFlagTest extends TestCase
                 0 => array(
                     "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                     "payload" => null,
+                    "extraHeaders" => array(0 => 'User-Agent: posthog-php/3.0.3', 1 => 'Authorization: Bearer test'),
+                    "requestOptions" => array(),
                 ),
             )
         );
@@ -1526,6 +1536,8 @@ class FeatureFlagTest extends TestCase
                 0 => array(
                     "path" => "/decide/?v=2",
                     'payload' => '{"api_key":"random_key","distinct_id":"some-distinct-id","person_properties":{"distinct_id":"some-distinct-id","region":"USA","other":"thing"}}',
+                    "extraHeaders" => array(0 => 'User-Agent: posthog-php/3.0.3'),
+                    "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
             )
         );
