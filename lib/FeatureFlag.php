@@ -110,7 +110,6 @@ class FeatureFlag
 
     public static function matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties)
     {
-        // TODO: check empty case
         if (!$propertyGroup) {
             return true;
         }
