@@ -55,11 +55,11 @@ class MockedResponses
                                     "operator" => "exact",
                                     "type" => "person"
                                 ]
-                                ],
+                            ],
                             "rollout_percentage" => 100
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => true,
@@ -87,11 +87,11 @@ class MockedResponses
                                     "operator" => "exact",
                                     "type" => "person"
                                 ]
-                                ],
+                            ],
                             "rollout_percentage" => 100
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => true,
@@ -105,11 +105,11 @@ class MockedResponses
                     "groups" => [
                         [
                             "properties" => [
-                                ],
+                            ],
                             "rollout_percentage" => 100
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => true,
@@ -131,10 +131,10 @@ class MockedResponses
                     "groups" => [
                         [
                             "properties" => [
-                                ],
+                            ],
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => true,
@@ -156,11 +156,11 @@ class MockedResponses
                     "groups" => [
                         [
                             "properties" => [
-                                ],
+                            ],
                             "rollout_percentage" => 100
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => true,
@@ -174,16 +174,113 @@ class MockedResponses
                     "groups" => [
                         [
                             "properties" => [
-                                ],
+                            ],
                             "rollout_percentage" => 100
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => false,
                 "is_simple_flag" => true,
                 "rollout_percentage" => null
             ]
+        ],
+    ];
+
+    public const LOCAL_EVALUATION_WITH_COHORTS_REQUEST = [
+        'flags' => [
+            [
+                'id' => 2,
+                'name' => 'Beta Feature',
+                'key' => 'beta-feature',
+                'is_simple_flag' => false,
+                'active' => true,
+                'filters' => [
+                    'groups' => [
+                        [
+                            'properties' => [
+                                [
+                                    'key' => 'region',
+                                    'operator' => 'exact',
+                                    'value' => ['USA'],
+                                    'type' => 'person',
+                                ],
+                                [
+                                    'key' => 'id',
+                                    'value' => 98,
+                                    'operator' => null,
+                                    'type' => 'cohort',
+                                ],
+                            ],
+                            'rollout_percentage' => 100,
+                        ],
+                    ],
+                ],
+            ]
+        ],
+        'cohorts' => [
+            '98' => [
+                'type' => 'OR',
+                'values' => [
+                    ['key' => 'id', 'value' => 1, 'type' => 'cohort'],
+                    ['key' => 'nation', 'operator' => 'exact', 'value' => ['UK'], 'type' => 'person'],
+                ],
+            ],
+            '1' => [
+                'type' => 'AND',
+                'values' => [
+                    ['key' => 'other', 'operator' => 'exact', 'value' => ['thing'], 'type' => 'person'],
+                ],
+            ],
+        ]
+
+    ];
+
+    public const LOCAL_EVALUATION_FOR_NEGATED_COHORTS_REQUEST = [
+        'flags' => [
+            [
+                'id' => 2,
+                'name' => 'Beta Feature',
+                'key' => 'beta-feature',
+                'is_simple_flag' => false,
+                'active' => true,
+                'filters' => [
+                    'groups' => [
+                        [
+                            'properties' => [
+                                [
+                                    'key' => 'region',
+                                    'operator' => 'exact',
+                                    'value' => ['USA'],
+                                    'type' => 'person',
+                                ],
+                                [
+                                    'key' => 'id',
+                                    'value' => 98,
+                                    'operator' => null,
+                                    'type' => 'cohort',
+                                ],
+                            ],
+                            'rollout_percentage' => 100,
+                        ],
+                    ],
+                ],
+            ]
+        ],
+        'cohorts' => [
+            '98' => [
+                'type' => 'OR',
+                'values' => [
+                    ['key' => 'id', 'value' => 1, 'type' => 'cohort'],
+                    ['key' => 'nation', 'operator' => 'exact', 'value' => ['UK'], 'type' => 'person'],
+                ],
+            ],
+            '1' => [
+                'type' => 'AND',
+                'values' => [
+                    ['key' => 'other', 'operator' => 'exact', 'value' => ['thing'], 'type' => 'person', 'negation' => true],
+                ],
+            ],
         ],
     ];
 
@@ -208,11 +305,11 @@ class MockedResponses
                                     "operator" => "exact",
                                     "type" => "group"
                                 ]
-                                ],
+                            ],
                             "rollout_percentage" => 35
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => true,
@@ -250,32 +347,33 @@ class MockedResponses
                                     "operator" => "exact",
                                     "type" => "person"
                                 ]
-                                ],
-                            "rollout_percentage" => 100
                             ],
-                            [
-                                "properties" => [
-                                    [
-                                        "key" => "email",
-                                        "value" => ["a@b.com"],
-                                        "operator" => "exact",
-                                        "type" => "person"
-                                    ]
-                                    ],
-                                "rollout_percentage" => 35
-                                ],[
-                                    "properties" => [
-                                        [
-                                            "key" => "doesnt_matter",
-                                            "value" => ["1", "2"],
-                                            "operator" => "exact",
-                                            "type" => "person"
-                                        ]
-                                        ],
-                                    "rollout_percentage" => 0
+                            "rollout_percentage" => 100
+                        ],
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "email",
+                                    "value" => ["a@b.com"],
+                                    "operator" => "exact",
+                                    "type" => "person"
                                 ]
+                            ],
+                            "rollout_percentage" => 35
+                        ],
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "doesnt_matter",
+                                    "value" => ["1", "2"],
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ]
+                            ],
+                            "rollout_percentage" => 0
+                        ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => true,
@@ -303,7 +401,7 @@ class MockedResponses
                                     "operator" => "exact",
                                     "type" => "person"
                                 ]
-                                ],
+                            ],
                             "rollout_percentage" => 100,
                             "variant" => "second-variant"
                         ],
@@ -359,7 +457,7 @@ class MockedResponses
                                     "operator" => "exact",
                                     "type" => "person"
                                 ]
-                                ],
+                            ],
                             "rollout_percentage" => 100,
                             "variant" => "second-variant"
                         ],
@@ -371,7 +469,7 @@ class MockedResponses
                                     "operator" => "exact",
                                     "type" => "person"
                                 ]
-                                ],
+                            ],
                             "rollout_percentage" => 100,
                             "variant" => "first-variant"
                         ],
@@ -427,7 +525,7 @@ class MockedResponses
                                     "operator" => "exact",
                                     "type" => "person"
                                 ]
-                                ],
+                            ],
                             "rollout_percentage" => 100,
                             "variant" => "second???"
                         ],
@@ -486,7 +584,7 @@ class MockedResponses
                                     "operator" => "exact",
                                     "type" => "person"
                                 ]
-                                ],
+                            ],
                             "rollout_percentage" => 100,
                             "variant" => "second-variant"
                         ],
@@ -540,7 +638,7 @@ class MockedResponses
                             "rollout_percentage" => 100
                         ]
                     ]
-                                ],
+                ],
                 "ensure_experience_continuity" => true,
                 "deleted" => false,
                 "active" => true,
@@ -569,17 +667,17 @@ class MockedResponses
                                     "operator" => null,
                                     "type" => "cohort"
                                 ]
-                                ],
+                            ],
                             "rollout_percentage" => 100
-                            ],
-                                ],
-                            ],
+                        ],
+                    ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => false,
                 "rollout_percentage" => null
 
-             ],
+            ],
             [
                 "id" => 2,
                 "name" => "feature 2",
@@ -594,11 +692,11 @@ class MockedResponses
                                     "operator" => null,
                                     "type" => "person"
                                 ]
-                                ],
+                            ],
                             "rollout_percentage" => 100
-                            ],
-                                ],
-                            ],
+                        ],
+                    ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => false,
@@ -624,7 +722,7 @@ class MockedResponses
                             "rollout_percentage" => 0
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => true,
@@ -648,7 +746,7 @@ class MockedResponses
                             "rollout_percentage" => 100
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => true,
@@ -673,7 +771,7 @@ class MockedResponses
                             "rollout_percentage" => 45
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => true,
@@ -727,7 +825,7 @@ class MockedResponses
                             ]
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => true,
@@ -752,7 +850,7 @@ class MockedResponses
                             "rollout_percentage" => 100
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => false,
@@ -769,7 +867,7 @@ class MockedResponses
                             "rollout_percentage" => 0
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => false,
@@ -794,7 +892,7 @@ class MockedResponses
                             "rollout_percentage" => 100
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => false,
@@ -811,7 +909,7 @@ class MockedResponses
                             "rollout_percentage" => 0
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => false,
@@ -835,7 +933,7 @@ class MockedResponses
                             "rollout_percentage" => 0
                         ]
                     ]
-                                ],
+                ],
                 "deleted" => false,
                 "active" => true,
                 "is_simple_flag" => false,

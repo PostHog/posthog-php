@@ -523,7 +523,7 @@ class FeatureFlagTest extends TestCase
         self::assertFalse(FeatureFlag::matchProperty($prop_a, [
             "key" => "2022-05-30",
         ]));
-        
+
         // is date after
         // is date after
         // const property_b = { key: 'key', value: '2022-05-01', operator: 'is_date_after' }
@@ -604,7 +604,7 @@ class FeatureFlagTest extends TestCase
     public function testMatchPropertyRelativeDateOperators(): void
     {
         ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
-                        
+
             $prop_a = [
                 "key" => "key",
                 "value" => "-6h",
@@ -794,7 +794,7 @@ class FeatureFlagTest extends TestCase
             self::assertFalse(FeatureFlag::matchProperty($prop_l, [
                 "key" => "2022-04-16 00:00:00",
             ]));
-            
+
             $prop_m = [
                 "key" => "key",
                 "value" => "1m",
@@ -848,7 +848,7 @@ class FeatureFlagTest extends TestCase
         self::assertTrue(FeatureFlag::matchProperty($prop_a, [
             "key" => "nul",
         ]));
-        
+
         $prop_b = [
             "key" => "key",
             "value" => "null",
@@ -949,7 +949,7 @@ class FeatureFlagTest extends TestCase
 
     public function testRelativeDateParsingHours()
     {
-        
+
         ClockMock::executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1h'), new \DateTime('2020-01-01T11:01:20Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2h'), new \DateTime('2020-01-01T10:01:20Z'));
@@ -1014,7 +1014,7 @@ class FeatureFlagTest extends TestCase
 
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1y'), new \DateTime('2019-04-03T00:00:00Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('12m'), FeatureFlag::relativeDateParseForFeatureFlagMatching('1y'));
-            
+
         });
     }
 
@@ -1191,7 +1191,7 @@ class FeatureFlagTest extends TestCase
 
     public function testGetAllFlagsWithFallbackEmptyLocalFlags()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse:[]);
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: []);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1210,7 +1210,7 @@ class FeatureFlagTest extends TestCase
 
     public function testGetAllFlagsWithNoFallback()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse:MockedResponses::MULTIPLE_FLAGS_LOCAL_EVALUATE_REQUEST);
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::MULTIPLE_FLAGS_LOCAL_EVALUATE_REQUEST);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1265,18 +1265,42 @@ class FeatureFlagTest extends TestCase
 
     public function testSimpleFlag()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST);
-        $this->client = new Client(
-            self::FAKE_API_KEY,
-            [
-                "debug" => true,
-            ],
-            $this->http_client,
-            "test"
-        );
-        PostHog::init(null, null, $this->client);
+        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
 
-        $this->assertTrue(PostHog::getFeatureFlag('simple-flag', 'some-distinct-id'));
+            $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST);
+            $this->client = new Client(
+                self::FAKE_API_KEY,
+                [
+                    "debug" => true,
+                ],
+                $this->http_client,
+                "test"
+            );
+            PostHog::init(null, null, $this->client);
+
+            $this->assertTrue(PostHog::getFeatureFlag('simple-flag', 'some-distinct-id'));
+
+            PostHog::flush();
+
+            $this->assertEquals(
+                $this->http_client->calls,
+                array (
+                    0 => array (
+                        "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                        "payload" => null,
+                        "extraHeaders" => array(0 => 'User-Agent: posthog-php/3.0.3', 1 => 'Authorization: Bearer test'),
+                        "requestOptions" => array(),
+                    ),
+                    // no decide because local eval, but capture flag event
+                    1 => array (
+                        "path" => "/batch/",
+                        'payload' => '{"batch":[{"properties":{"$feature\/simple-flag":true,"$active_feature_flags":["simple-flag"],"$feature_flag":"simple-flag","$feature_flag_response":true,"$lib":"posthog-php","$lib_version":"3.0.3","$lib_consumer":"LibCurl","$groups":[]},"distinct_id":"some-distinct-id","event":"$feature_flag_called","$groups":[],"library":"posthog-php","library_version":"3.0.3","library_consumer":"LibCurl","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                        "extraHeaders" => array(0 => 'User-Agent: posthog-php/3.0.3'),
+                        "requestOptions" => array(),
+                    ),
+                )
+            );
+        });
     }
 
     public function testFeatureFlagsDontFallbackToDecideWhenOnlyLocalEvaluationIsTrue()
@@ -1356,6 +1380,185 @@ class FeatureFlagTest extends TestCase
             "enabled-flag" => true,
             "disabled-flag" => false
         ]);
+
+        $this->assertEquals(
+            $this->http_client->calls,
+            array(
+                0 => array(
+                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                    "payload" => null,
+                    "extraHeaders" => array(0 => 'User-Agent: posthog-php/3.0.3', 1 => 'Authorization: Bearer test'),
+                    "requestOptions" => array(),
+                ),
+                // no decide or capture calls
+            )
+        );
+    }
+
+    public function testFeatureFlagsLocalEvaluationForCohorts()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_WITH_COHORTS_REQUEST);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        $feature_flag_match = PostHog::getFeatureFlag(
+            "beta-feature",
+            "some-distinct-id",
+            [],
+            ["region" => "UK"]
+        );
+
+        $this->assertEquals($feature_flag_match, false);
+        $this->assertEquals(
+            $this->http_client->calls,
+            array(
+                0 => array(
+                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                    "payload" => null,
+                    "extraHeaders" => array(0 => 'User-Agent: posthog-php/3.0.3', 1 => 'Authorization: Bearer test'),
+                    "requestOptions" => array(),
+                ),
+            )
+        );
+
+        PostHog::flush();
+        // reset calls
+        $this->http_client->calls = array();
+
+        $feature_flag_match = PostHog::getFeatureFlag(
+            "beta-feature",
+            "some-distinct-id",
+            [],
+            ["region" => "USA", "nation" => "UK"]
+        );
+
+        $this->assertEquals($feature_flag_match, true);
+        $this->assertEquals(
+            $this->http_client->calls,
+            // no decide calls
+            array()
+        );
+
+        PostHog::flush();
+
+        // reset calls
+        $this->http_client->calls = array();
+
+        $feature_flag_match = PostHog::getFeatureFlag(
+            "beta-feature",
+            "some-distinct-id",
+            [],
+            ["region" => "USA", "other" => "thing"]
+        );
+
+        $this->assertEquals($feature_flag_match, true);
+        $this->assertEquals(
+            $this->http_client->calls,
+            // no decide calls
+            array()
+        );
+    }
+
+    public function testFeatureFlagsLocalEvaluationForNegatedCohorts()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_FOR_NEGATED_COHORTS_REQUEST);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        $feature_flag_match = PostHog::getFeatureFlag(
+            "beta-feature",
+            "some-distinct-id",
+            [],
+            ["region" => "UK"]
+        );
+
+        $this->assertEquals($feature_flag_match, false);
+        $this->assertEquals(
+            $this->http_client->calls,
+            array(
+                0 => array(
+                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                    "payload" => null,
+                    "extraHeaders" => array(0 => 'User-Agent: posthog-php/3.0.3', 1 => 'Authorization: Bearer test'),
+                    "requestOptions" => array(),
+                ),
+            )
+        );
+
+        PostHog::flush();
+        // reset calls
+        $this->http_client->calls = array();
+
+        $feature_flag_match = PostHog::getFeatureFlag(
+            "beta-feature",
+            "some-distinct-id",
+            [],
+            ["region" => "USA", "nation" => "UK"]
+        );
+
+        // even though 'other' property is not present, the cohort should still match since it's an OR condition
+        $this->assertEquals($feature_flag_match, true);
+        $this->assertEquals(
+            $this->http_client->calls,
+            // no decide calls
+            array()
+        );
+
+        PostHog::flush();
+        // reset calls
+        $this->http_client->calls = array();
+
+        $feature_flag_match = PostHog::getFeatureFlag(
+            "beta-feature",
+            "some-distinct-id",
+            [],
+            ["region" => "USA", "other" => "thing"]
+        );
+        # since 'other' is negated, we return False. Since 'nation' is not present, we can't tell whether the flag should be true or false, so go to decide
+        $this->assertEquals($feature_flag_match, 'decide-fallback-value');
+        $this->assertEquals(
+            $this->http_client->calls,
+            array(
+                0 => array(
+                    "path" => "/decide/?v=2",
+                    'payload' => '{"api_key":"random_key","distinct_id":"some-distinct-id","person_properties":{"distinct_id":"some-distinct-id","region":"USA","other":"thing"}}',
+                    "extraHeaders" => array(0 => 'User-Agent: posthog-php/3.0.3'),
+                    "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
+                ),
+            )
+        );
+
+        PostHog::flush();
+        // reset calls
+        $this->http_client->calls = array();
+
+        $feature_flag_match = PostHog::getFeatureFlag(
+            "beta-feature",
+            "some-distinct-id",
+            [],
+            ["region" => "USA", "other" => "thing2"]
+        );
+
+        $this->assertEquals($feature_flag_match, true);
+        $this->assertEquals(
+            $this->http_client->calls,
+            // no decide calls
+            array()
+        );
     }
 
     public function testComputingFlagWithoutRolloutLocally()
