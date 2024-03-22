@@ -35,11 +35,11 @@ class FeatureFlag
         }
 
         if ($operator == "icontains") {
-            return strpos(strtolower(strval($overrideValue)), strtolower(strval($value))) !== false;
+            return strpos(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value))) !== false;
         }
-
+        
         if ($operator == "not_icontains") {
-            return strpos(strtolower(strval($overrideValue)), strtolower(strval($value))) == false;
+            return strpos(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value))) == false;
         }
 
         if (in_array($operator, ["regex", "not_regex"])) {
@@ -65,12 +65,12 @@ class FeatureFlag
 
             if (!is_null($parsedValue) && !is_null($overrideValue)) {
                 if (is_string($overrideValue)) {
-                    return FeatureFlag::compare($overrideValue, strval($value), $operator);
+                    return FeatureFlag::compare($overrideValue, FeatureFlag::valueToString($value), $operator);
                 } else {
                     return FeatureFlag::compare($overrideValue, $parsedValue, $operator, "numeric");
                 }
             } else {
-                return FeatureFlag::compare(strval($overrideValue), strval($value), $operator);
+                return FeatureFlag::compare(FeatureFlag::valueToString($overrideValue), FeatureFlag::valueToString($value), $operator);
             }
         }
 
@@ -246,9 +246,18 @@ class FeatureFlag
     private static function computeExactMatch($value, $overrideValue)
     {
         if (is_array($value)) {
-            return in_array(strtolower(strval($overrideValue)), array_map('strtolower', $value));
+            return in_array(strtolower(FeatureFlag::valueToString($overrideValue)), array_map('strtolower', array_map(fn($val) => FeatureFlag::valueToString($val) , $value)));
         }
-        return strtolower(strval($value)) == strtolower(strval($overrideValue));
+        return strtolower(FeatureFlag::valueToString($value)) == strtolower(FeatureFlag::valueToString($overrideValue));
+    }
+
+    private static function valueToString($value)
+    {
+        if (is_bool($value)) {
+            return $value ? "true" : "false";
+        } else {
+            return strval($value);
+        }
     }
 
     private static function compare($lhs, $rhs, $operator, $type = "string")

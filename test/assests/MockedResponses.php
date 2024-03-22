@@ -68,6 +68,98 @@ class MockedResponses
         ],
     ];
 
+    public const LOCAL_EVALUATION_BOOLEAN_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "",
+                "key" => "person-flag",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "region_array",
+                                    "value" => ["true"],
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ],
+                                [
+                                    "key" => "region",
+                                    "value" => "true",
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ],
+                            ],
+                            "rollout_percentage" => 100
+                        ]
+                    ]
+                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
+                "rollout_percentage" => null
+            ],
+            [
+                "id" => 2,
+                "name" => "",
+                "key" => "person-flag-with-boolean",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "region_array",
+                                    "value" => [true],
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ],
+                                [
+                                    "key" => "region",
+                                    "value" => true,
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ],
+                            ],
+                            "rollout_percentage" => 100
+                        ]
+                    ]
+                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
+                "rollout_percentage" => null
+            ],
+            [
+                "id" => 2,
+                "name" => "",
+                "key" => "person-flag-with-boolean-icontains",
+                "filters" => [
+                    "groups" => [
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "region",
+                                    "value" => true,
+                                    "operator" => "icontains",
+                                    "type" => "person"
+                                ],
+                            ],
+                            "rollout_percentage" => 100
+                        ]
+                    ]
+                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => true,
+                "rollout_percentage" => null
+            ]
+        ],
+    ];
+
     public const LOCAL_EVALUATION_MULTIPLE_REQUEST = [
         'count' => 2,
         'next' => null,
