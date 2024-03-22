@@ -1,4 +1,10 @@
 
+3.3.1 / 2024-03-22
+==================
+
+  * fix(flags): Handle bool value matching (#64)
+  * Fixes a bug with local evaluation where passing in true and false values for a property wouldn't match correctly.
+
 3.3.0 / 2024-03-13
 ==================
 
