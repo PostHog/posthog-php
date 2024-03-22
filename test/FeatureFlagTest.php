@@ -1058,6 +1058,79 @@ class FeatureFlagTest extends TestCase
         $this->checkEmptyErrorLogs();
     }
 
+    public function testFlagPersonBooleanProperties()
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_BOOLEAN_REQUEST);
+
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+
+        PostHog::init(null, null, $this->client);
+
+        $this->assertTrue(PostHog::getFeatureFlag('person-flag', 'some-distinct-id', [], ["region" => "true", "region_array" => "true"], [], true, false));
+
+        PostHog::flush();
+        $this->assertEquals(
+            $this->http_client->calls,
+            array(
+                0 => array(
+                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                    "payload" => null,
+                    "extraHeaders" => array(0 => 'User-Agent: posthog-php/3.0.3', 1 => 'Authorization: Bearer test'),
+                    "requestOptions" => array(),
+                ),
+                // no decide or capture calls
+            )
+        );
+
+        $this->checkEmptyErrorLogs();
+
+        // reset calls
+        $this->http_client->calls = array();
+
+        $this->assertTrue(PostHog::getFeatureFlag('person-flag', 'some-distinct-id', [], ["region" => "true", "region_array" => true], [], true, false));
+        $this->assertTrue(PostHog::getFeatureFlag('person-flag', 'some-distinct-id', [], ["region" => true, "region_array" => true], [], true, false));
+        $this->assertTrue(PostHog::getFeatureFlag('person-flag', 'some-distinct-id', [], ["region" => true, "region_array" => "true"], [], true, false));
+        $this->assertFalse(PostHog::getFeatureFlag('person-flag', 'some-distinct-id', [], ["region" => 1, "region_array" => "1"], [], true, false));
+        $this->assertFalse(PostHog::getFeatureFlag('person-flag', 'some-distinct-id', [], ["region" => true, "region_array" => "1"], [], true, false));
+        $this->assertFalse(PostHog::getFeatureFlag('person-flag', 'some-distinct-id', [], ["region" => "1", "region_array" => "true"], [], true, false));
+
+        $this->assertEquals(
+            $this->http_client->calls,
+            array()
+                // no decide or capture calls
+        );
+
+        $this->assertTrue(PostHog::getFeatureFlag('person-flag-with-boolean', 'some-distinct-id', [], ["region" => "true", "region_array" => true], [], true, false));
+        $this->assertTrue(PostHog::getFeatureFlag('person-flag-with-boolean', 'some-distinct-id', [], ["region" => "true", "region_array" => true], [], true, false));
+        $this->assertTrue(PostHog::getFeatureFlag('person-flag-with-boolean', 'some-distinct-id', [], ["region" => true, "region_array" => true], [], true, false));
+        $this->assertTrue(PostHog::getFeatureFlag('person-flag-with-boolean', 'some-distinct-id', [], ["region" => true, "region_array" => "true"], [], true, false));
+        $this->assertFalse(PostHog::getFeatureFlag('person-flag-with-boolean', 'some-distinct-id', [], ["region" => true, "region_array" => "false"], [], true, false));
+        $this->assertFalse(PostHog::getFeatureFlag('person-flag-with-boolean', 'some-distinct-id', [], ["region" => false, "region_array" => "true"], [], true, false));
+
+        $this->assertEquals(
+            $this->http_client->calls,
+            array()
+                // no decide or capture calls
+        );
+
+        $this->assertTrue(PostHog::getFeatureFlag('person-flag-with-boolean-icontains', 'some-distinct-id', [], ["region" => "true", "region_array" => true], [], true, false));
+        $this->assertTrue(PostHog::getFeatureFlag('person-flag-with-boolean-icontains', 'some-distinct-id', [], ["region" => true, "region_array" => true], [], true, false));
+        $this->assertFalse(PostHog::getFeatureFlag('person-flag-with-boolean-icontains', 'some-distinct-id', [], ["region" => false, "region_array" => "true"], [], true, false));
+
+        $this->assertEquals(
+            $this->http_client->calls,
+            array()
+                // no decide or capture calls
+        );
+    }
+
     public function testFlagGroupProperties()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_GROUP_PROPERTIES_REQUEST);
