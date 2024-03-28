@@ -80,7 +80,8 @@ class Client
         string $apiKey,
         array $options = [],
         ?HttpClient $httpClient = null,
-        string $personalAPIKey = null
+        string $personalAPIKey = null,
+        bool $loadFeatureFlags = true,
     ) {
         $this->apiKey = $apiKey;
         $this->personalAPIKey = $personalAPIKey;
@@ -102,7 +103,11 @@ class Client
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
 
         // Populate featureflags and grouptypemapping if possible
-        if (count($this->featureFlags) == 0 && !is_null($this->personalAPIKey)) {
+        if (
+            count($this->featureFlags) == 0
+            && !is_null($this->personalAPIKey)
+            && $loadFeatureFlags
+        ) {
             $this->loadFlags();
         }
     }
