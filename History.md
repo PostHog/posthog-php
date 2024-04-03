@@ -1,4 +1,9 @@
 
+3.3.2 / 2024-04-03
+==================
+
+  * Make the feature flag fetch optional on initialisation (#65)
+
 3.3.1 / 2024-03-22
 ==================
 
