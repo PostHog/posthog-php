@@ -69,6 +69,11 @@ class Client
     public $distinctIdsFeatureFlagsReported;
 
     /**
+     * @var string
+     */
+    public $decideVersion;
+
+    /**
      * Create a new posthog object with your app's API key
      * key
      *
@@ -101,6 +106,7 @@ class Client
         $this->groupTypeMapping = [];
         $this->cohorts = [];
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
+        $this->decideVersion = $options["decide_version"] ?? '2';
 
         // Populate featureflags and grouptypemapping if possible
         if (
@@ -297,6 +303,41 @@ class Client
     }
 
     /**
+     * @param string $key
+     * @param string $distinctId
+     * @param array $groups
+     * @param array $personProperties
+     * @param array $groupProperties
+     * @return mixed
+     */
+    public function getFeatureFlagPayload(
+        string $key,
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array(),
+    ): mixed {
+        $results = json_decode(
+            $this->decide($distinctId, $groups, $personProperties, $groupProperties),
+            true
+        );
+
+        if (isset($results['featureFlags'][$key]) === false || $results['featureFlags'][$key] !== true) {
+            return null;
+        }
+
+        $payload = $results['featureFlagPayloads'][$key] ?? null;
+
+        $json = json_decode($payload, true);
+
+        if (is_array($json)) {
+            return $json;
+        }
+
+        return $payload;
+    }
+
+    /**
      * get the feature flag value for this distinct id.
      *
      * @param string $distinctId
@@ -467,7 +508,7 @@ class Client
         }
 
         return $this->httpClient->sendRequest(
-            '/decide/?v=2',
+            '/decide/?v=' . $this->decideVersion,
             json_encode($payload),
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
