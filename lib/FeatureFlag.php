@@ -4,8 +4,6 @@ namespace PostHog;
 
 use Symfony\Component\Clock\Clock;
 
-const LONG_SCALE = 0xfffffffffffffff;
-
 /**
  * Local feature flag matching helpers.
  *
@@ -13,6 +11,8 @@ const LONG_SCALE = 0xfffffffffffffff;
  */
 class FeatureFlag
 {
+    private const LONG_SCALE = 0xfffffffffffffff;
+
     /**
      * Match a single property filter against provided property values.
      *
@@ -585,7 +585,7 @@ class FeatureFlag
         $hashKey = sprintf("%s.%s%s", $key, $distinctId, $salt);
         $hashVal = base_convert(substr(sha1($hashKey), 0, 15), 16, 10);
 
-        return $hashVal / LONG_SCALE;
+        return $hashVal / self::LONG_SCALE;
     }
 
     private static function getMatchingVariant($flag, $distinctId)
