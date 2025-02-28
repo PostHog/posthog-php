@@ -1,4 +1,10 @@
 
+3.3.3 / 2025-02-28
+==================
+
+  * Fix PHP 8.4 deprecation on Client.php constructor (Backwards Compatible) (#66)
+
+
 3.3.2 / 2024-04-03
 ==================
 
