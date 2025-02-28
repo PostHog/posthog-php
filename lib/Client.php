@@ -80,7 +80,7 @@ class Client
         string $apiKey,
         array $options = [],
         ?HttpClient $httpClient = null,
-        string $personalAPIKey = null,
+        ?string $personalAPIKey = null,
         bool $loadFeatureFlags = true,
     ) {
         $this->apiKey = $apiKey;
