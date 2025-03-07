@@ -12,16 +12,19 @@ on:
 jobs:
   phpunit:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php-version: [8.0, 8.1, 8.2, 8.3, 8.4]
     steps:
       - uses: actions/checkout@v2
 
-      - name: Set up PHP
+      - name: Set up PHP ${{ matrix.php-version }}
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.0'
+          php-version: ${{ matrix.php-version }}
           extensions: uopz, xdebug
           tools: composer, phpunit
-      
+
       - name: Install Dependencies
         run: composer install --prefer-dist --no-progress --no-suggest
 
