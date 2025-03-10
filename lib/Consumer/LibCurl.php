@@ -76,6 +76,9 @@ class LibCurl extends QueueConsumer
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
                 "User-Agent: {$messages[0]['library']}/{$messages[0]['library_version']}",
+            ],
+            [
+                'shouldVerify' => $this->options['verify_batch_events_request'] ?? true,
             ]
         )->getResponse();
     }

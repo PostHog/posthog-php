@@ -72,6 +72,7 @@ class HttpClient
         $backoff = 100; // Set initial waiting time to 100ms
 
         $shouldRetry = $requestOptions['shouldRetry'] ?? true;
+        $shouldVerify = $requestOptions['shouldVerify'] ?? true;
 
         do {
             // open connection
@@ -95,9 +96,13 @@ class HttpClient
 
             curl_setopt($ch, CURLOPT_HTTPHEADER, array_merge($headers, $extraHeaders));
             curl_setopt($ch, CURLOPT_URL, $protocol . $this->host . $path);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT_MS, $timeout);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, $shouldVerify);
+            curl_setopt($ch, CURLOPT_TIMEOUT_MS, $shouldVerify ? $timeout : 1);
             curl_setopt($ch, CURLOPT_CONNECTTIMEOUT_MS, $timeout);
+            if (! $shouldVerify) {
+                curl_setopt($ch, CURLOPT_NOSIGNAL, true);
+                curl_setopt($ch, CURLOPT_FRESH_CONNECT, true);
+            }
 
             // retry failed requests just once to diminish impact on performance
             $httpResponse = $this->executePost($ch);
@@ -106,7 +111,7 @@ class HttpClient
             //close connection
             curl_close($ch);
 
-            if (200 != $responseCode) {
+            if ($shouldVerify && 200 != $responseCode) {
                 // log error
                 $this->handleError($ch, $responseCode);
 
