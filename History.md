@@ -1,4 +1,10 @@
 
+3.3.4 / 2025-03-11
+==================
+
+  * Add support for 'verify_batch_events_request=>false' (#70)
+  * Run GitHub actions on all supported PHP versions (#67)
+
 3.3.3 / 2025-02-28
 ==================
 
