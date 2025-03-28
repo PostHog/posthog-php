@@ -17,10 +17,11 @@ use PostHog\SizeLimitedHash;
 
 class FeatureFlagTest extends TestCase
 {
-    const FAKE_API_KEY = "random_key";
+    protected const FAKE_API_KEY = "random_key";
 
-    protected $http_client;
-    protected $client;
+    protected Client $client;
+
+    protected MockedHttpClient $http_client;
 
     public function setUp(): void
     {
@@ -3787,5 +3788,115 @@ class FeatureFlagTest extends TestCase
             $testResult = PostHog::getFeatureFlag('multivariate-flag', sprintf('distinct_id_%s', $number));
             $this->assertEquals($testResult, $result[$number]);
         }
+    }
+
+    public function testGetFeatureFlagPayloadHandlesJson(): void
+    {
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_JSON
+        );
+
+        $this->client = new Client(
+            apiKey: self::FAKE_API_KEY,
+            options: [
+                "debug" => true,
+                "decide_version" => 3,
+            ],
+            httpClient: $this->http_client,
+            personalAPIKey: "test"
+        );
+
+        PostHog::init(null, null, $this->client);
+
+        $this->assertSame(['key' => 'value'], PostHog::getFeatureFlagPayload('payload-flag', 'some-distinct'));
+    }
+
+    public function testGetFeatureFlagPayloadHandlesIntegers(): void
+    {
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_INTEGER
+        );
+
+        $this->client = new Client(
+            apiKey: self::FAKE_API_KEY,
+            options: [
+                "debug" => true,
+                "decide_version" => 3,
+            ],
+            httpClient: $this->http_client,
+            personalAPIKey: "test"
+        );
+
+        PostHog::init(null, null, $this->client);
+
+        $this->assertSame(2500, PostHog::getFeatureFlagPayload('payload-flag', 'some-distinct'));
+    }
+
+    public function testGetFeatureFlagPayloadHandlesString(): void
+    {
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_STRING
+        );
+
+        $this->client = new Client(
+            apiKey: self::FAKE_API_KEY,
+            options: [
+                "debug" => true,
+                "decide_version" => 3,
+            ],
+            httpClient: $this->http_client,
+            personalAPIKey: "test"
+        );
+
+        PostHog::init(null, null, $this->client);
+
+        $this->assertSame('A String', PostHog::getFeatureFlagPayload('payload-flag', 'some-distinct'));
+    }
+
+    public function testGetFeatureFlagPayloadHandlesFlagDisabled(): void
+    {
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_JSON_FLAG_DISABLED
+        );
+
+        $this->client = new Client(
+            apiKey: self::FAKE_API_KEY,
+            options: [
+                "debug" => true,
+                "decide_version" => 3,
+            ],
+            httpClient: $this->http_client,
+            personalAPIKey: "test"
+        );
+
+        PostHog::init(null, null, $this->client);
+
+        $this->assertNull(PostHog::getFeatureFlagPayload('payload-flag', 'some-distinct'));
+    }
+
+    public function testGetFeatureFlagPayloadHandlesFlagNotInResults(): void
+    {
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_JSON
+        );
+
+        $this->client = new Client(
+            apiKey: self::FAKE_API_KEY,
+            options: [
+                "debug" => true,
+                "decide_version" => 3,
+            ],
+            httpClient: $this->http_client,
+            personalAPIKey: "test"
+        );
+
+        PostHog::init(null, null, $this->client);
+
+        $this->assertNull(PostHog::getFeatureFlagPayload('non-existent-flag', 'some-distinct'));
     }
 }
