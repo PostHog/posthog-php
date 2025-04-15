@@ -36,6 +36,102 @@ class MockedResponses
         'sessionRecording' => false,
     ];
 
+    public const DECIDE_REQUEST_WITH_PAYLOAD_JSON = [
+        'config' => [
+            'enable_collect_everything' => true,
+        ],
+        'editorParams' => [
+        ],
+        'isAuthenticated' => false,
+        'supportedCompression' => [
+            0 => 'gzip',
+            1 => 'gzip-js',
+            2 => 'lz64',
+        ],
+        'featureFlags' => [
+            'payload-flag' => true,
+            'having_fun' => false,
+            'enabled-flag' => true,
+            'disabled-flag' => false,
+        ],
+        'sessionRecording' => false,
+        'featureFlagPayloads' => [
+            'payload-flag' => '{"key":"value"}',
+        ]
+    ];
+
+    public const DECIDE_REQUEST_WITH_PAYLOAD_JSON_FLAG_DISABLED = [
+        'config' => [
+            'enable_collect_everything' => true,
+        ],
+        'editorParams' => [
+        ],
+        'isAuthenticated' => false,
+        'supportedCompression' => [
+            0 => 'gzip',
+            1 => 'gzip-js',
+            2 => 'lz64',
+        ],
+        'featureFlags' => [
+            'payload-flag' => false,
+            'having_fun' => false,
+            'enabled-flag' => true,
+            'disabled-flag' => false,
+        ],
+        'sessionRecording' => false,
+        'featureFlagPayloads' => [
+            'payload-flag' => '{"key":"value"}',
+        ]
+    ];
+
+    public const DECIDE_REQUEST_WITH_PAYLOAD_INTEGER = [
+        'config' => [
+            'enable_collect_everything' => true,
+        ],
+        'editorParams' => [
+        ],
+        'isAuthenticated' => false,
+        'supportedCompression' => [
+            0 => 'gzip',
+            1 => 'gzip-js',
+            2 => 'lz64',
+        ],
+        'featureFlags' => [
+            'payload-flag' => true,
+            'having_fun' => false,
+            'enabled-flag' => true,
+            'disabled-flag' => false,
+        ],
+        'sessionRecording' => false,
+        'featureFlagPayloads' => [
+            'payload-flag' => "2500",
+        ]
+    ];
+
+    public const DECIDE_REQUEST_WITH_PAYLOAD_STRING = [
+        'config' => [
+            'enable_collect_everything' => true,
+        ],
+        'editorParams' => [
+        ],
+        'isAuthenticated' => false,
+        'supportedCompression' => [
+            0 => 'gzip',
+            1 => 'gzip-js',
+            2 => 'lz64',
+        ],
+        'featureFlags' => [
+            'payload-flag' => true,
+            'having_fun' => false,
+            'enabled-flag' => true,
+            'disabled-flag' => false,
+        ],
+        'sessionRecording' => false,
+        'featureFlagPayloads' => [
+            'payload-flag' => '"A String"',
+        ]
+    ];
+
     public const LOCAL_EVALUATION_REQUEST = [
         'count' => 1,
         'next' => null,

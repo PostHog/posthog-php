@@ -8,3 +8,4 @@ test/posthog.log
 .phpunit.result.cache
 clover.xml
 xdebug.log
+.DS_Store

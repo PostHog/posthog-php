@@ -297,6 +297,40 @@ class Client
     }
 
     /**
+     * @param string $key
+     * @param string $distinctId
+     * @param array $groups
+     * @param array $personProperties
+     * @param array $groupProperties
+     * @return mixed
+     */
+    public function getFeatureFlagPayload(
+        string $key,
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array(),
+    ): mixed {
+        $results = json_decode(
+            $this->decide($distinctId, $groups, $personProperties, $groupProperties),
+            true
+        );
+
+        if (isset($results['featureFlags'][$key]) === false || $results['featureFlags'][$key] !== true) {
+            return null;
+        }
+
+        $payload = $results['featureFlagPayloads'][$key] ?? null;
+
+        if ($payload === null) {
+            return null;
+        }
+
+        # feature flag payloads are always JSON encoded strings.
+        return json_decode($payload, true);
+    }
+
+    /**
      * get the feature flag value for this distinct id.
      *
      * @param string $distinctId
@@ -467,7 +501,7 @@ class Client
         }
 
         return $this->httpClient->sendRequest(
-            '/decide/?v=2',
+            '/decide/?v=3',
             json_encode($payload),
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
