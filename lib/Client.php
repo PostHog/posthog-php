@@ -322,13 +322,12 @@ class Client
 
         $payload = $results['featureFlagPayloads'][$key] ?? null;
 
-        $json = json_decode($payload, true);
-
-        if (is_array($json)) {
-            return $json;
+        if ($payload === null) {
+            return null;
         }
 
-        return $payload;
+        # feature flag payloads are always JSON encoded strings.
+        return json_decode($payload, true);
     }
 
     /**

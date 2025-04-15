@@ -104,7 +104,7 @@ class MockedResponses
         ],
         'sessionRecording' => false,
         'featureFlagPayloads' => [
-            'payload-flag' => 2500,
+            'payload-flag' => "2500",
         ]
     ];
 
@@ -128,7 +128,7 @@ class MockedResponses
         ],
         'sessionRecording' => false,
         'featureFlagPayloads' => [
-            'payload-flag' => 'A String',
+            'payload-flag' => '"A String"',
         ]
     ];
 
