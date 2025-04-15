@@ -23,17 +23,11 @@ class FeatureFlag
         $overrideValue = $propertyValues[$key];
 
         if ($operator == "exact") {
-            if (is_array($value)) {
-                return in_array($overrideValue, $value);
-            }
-            return $value == $overrideValue;
+            return FeatureFlag::computeExactMatch($value, $overrideValue);
         }
 
         if ($operator == "is_not") {
-            if (is_array($value)) {
-                return !in_array($overrideValue, $value);
-            }
-            return $value !== $overrideValue;
+            return !FeatureFlag::computeExactMatch($value, $overrideValue);
         }
 
         if ($operator == "is_set") {
@@ -41,46 +35,253 @@ class FeatureFlag
         }
 
         if ($operator == "icontains") {
-            return strpos(strtolower(strval($overrideValue)), strtolower(strval($value))) !== false;
+            return strpos(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value))) !== false;
         }
-
+        
         if ($operator == "not_icontains") {
-            return strpos(strtolower(strval($overrideValue)), strtolower(strval($value))) == false;
+            return strpos(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value))) == false;
         }
 
-        if ($operator == "regex") {
-            if (FeatureFlag::isRegularExpression($value)) {
-                return preg_match($value, $overrideValue) ? true : false;
+        if (in_array($operator, ["regex", "not_regex"])) {
+            $regexValue = FeatureFlag::prepareValueForRegex($value);
+            if (FeatureFlag::isRegularExpression($regexValue)) {
+                $returnValue = preg_match($regexValue, $overrideValue) ? true : false;
+                if ($operator == "regex") {
+                    return $returnValue;
+                } else {
+                    return !$returnValue;
+                }
             } else {
                 return false;
             }
         }
 
-        if ($operator == "not_regex") {
-            if (FeatureFlag::isRegularExpression($value)) {
-                return !(preg_match($value, $overrideValue) ? true : false);
+        if (in_array($operator, ["gt", "gte", "lt", "lte"])) {
+            $parsedValue = null;
+
+            if (is_numeric($value)) {
+                $parsedValue = floatval($value);
+            }
+
+            if (!is_null($parsedValue) && !is_null($overrideValue)) {
+                if (is_string($overrideValue)) {
+                    return FeatureFlag::compare($overrideValue, FeatureFlag::valueToString($value), $operator);
+                } else {
+                    return FeatureFlag::compare($overrideValue, $parsedValue, $operator, "numeric");
+                }
             } else {
-                return false;
+                return FeatureFlag::compare(FeatureFlag::valueToString($overrideValue), FeatureFlag::valueToString($value), $operator);
             }
         }
 
-        if ($operator == "gt") {
-            return gettype($value) == gettype($overrideValue) && $overrideValue > $value;
-        }
+        if (in_array($operator, ["is_date_before", "is_date_after"])) {
+            $parsedDate = FeatureFlag::relativeDateParseForFeatureFlagMatching($value);
 
-        if ($operator == "gte") {
-            return gettype($value) == gettype($overrideValue) && $overrideValue >= $value;
-        }
+            if (is_null($parsedDate)) {
+                $parsedDate = FeatureFlag::convertToDateTime($value);
+            }
 
-        if ($operator == "lt") {
-            return gettype($value) == gettype($overrideValue) && $overrideValue < $value;
-        }
+            if (is_null($parsedDate)) {
+                throw new InconclusiveMatchException("The date set on the flag is not a valid format");
+            }
 
-        if ($operator == "lte") {
-            return gettype($value) == gettype($overrideValue) && $overrideValue <= $value;
+            $overrideDate = FeatureFlag::convertToDateTime($overrideValue);
+            if ($operator == 'is_date_before') {
+                return $overrideDate < $parsedDate;
+            } else {
+                return $overrideDate > $parsedDate;
+            }
         }
 
         return false;
+    }
+
+    public static function matchCohort($property, $propertyValues, $cohortProperties)
+    {
+        $cohortId = strval($property["value"]);
+        if (!array_key_exists($cohortId, $cohortProperties)) {
+            throw new InconclusiveMatchException("can't match cohort without a given cohort property value");
+        }
+
+        $propertyGroup = $cohortProperties[$cohortId];
+        return FeatureFlag::matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties);
+        
+    }
+
+    public static function matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties)
+    {
+        if (!$propertyGroup) {
+            return true;
+        }
+
+        $propertyGroupType = $propertyGroup["type"];
+        $properties = $propertyGroup["values"];
+
+        if (!$properties || count($properties) === 0) {
+            // empty groups are no-ops, always match
+            return true;
+        }
+
+        $errorMatchingLocally = false;
+
+        if (array_key_exists("values", $properties[0])) {
+            // a nested property group
+            foreach ($properties as $prop) {
+                try {
+                    $matches = FeatureFlag::matchPropertyGroup($prop, $propertyValues, $cohortProperties);
+                    if ($propertyGroupType === 'AND') {
+                        if (!$matches) {
+                            return false;
+                        }
+                    } else {
+                        // OR group
+                        if ($matches) {
+                            return true;
+                        }
+                    }
+                } catch (InconclusiveMatchException $err) {
+                    $errorMatchingLocally = true;
+                }
+            }
+
+            if ($errorMatchingLocally) {
+                throw new InconclusiveMatchException("Can't match cohort without a given cohort property value");
+            }
+            // if we get here, all matched in AND case, or none matched in OR case
+            return $propertyGroupType === 'AND';
+        } else {
+            foreach ($properties as $prop) {
+                try {
+                    $matches = false;
+                    if ($prop["type"] === 'cohort') {
+                        $matches = FeatureFlag::matchCohort($prop, $propertyValues, $cohortProperties);
+                    } else {
+                        $matches = FeatureFlag::matchProperty($prop, $propertyValues);
+                    }
+
+                    $negation = $prop["negation"] ?? false;
+
+                    if ($propertyGroupType === 'AND') {
+                        // if negated property, do the inverse
+                        if (!$matches && !$negation) {
+                            return false;
+                        }
+                        if ($matches && $negation) {
+                            return false;
+                        }
+                    } else {
+                        // OR group
+                        if ($matches && !$negation) {
+                            return true;
+                        }
+                        if (!$matches && $negation) {
+                            return true;
+                        }
+                    }
+                } catch (InconclusiveMatchException $err) {
+                    $errorMatchingLocally = true;
+                }
+            }
+
+            if ($errorMatchingLocally) {
+                throw new InconclusiveMatchException("can't match cohort without a given cohort property value");
+            }
+
+            // if we get here, all matched in AND case, or none matched in OR case
+            return $propertyGroupType === 'AND';
+        }
+    }
+
+    public static function relativeDateParseForFeatureFlagMatching($value)
+    {
+        $regex = "/^-?(?<number>[0-9]+)(?<interval>[a-z])$/";
+        $parsedDt = new \DateTime("now", new \DateTimeZone("UTC"));
+        if (preg_match($regex, $value, $matches)) {
+            $number = intval($matches["number"]);
+
+            if ($number >= 10_000) {
+                // Guard against overflow, disallow numbers greater than 10_000
+                return null;
+            }
+
+            $interval = $matches["interval"];
+            if ($interval == "h") {
+                $parsedDt->sub(new \DateInterval("PT{$number}H"));
+            } elseif ($interval == "d") {
+                $parsedDt->sub(new \DateInterval("P{$number}D"));
+            } elseif ($interval == "w") {
+                $parsedDt->sub(new \DateInterval("P{$number}W"));
+            } elseif ($interval == "m") {
+                $parsedDt->sub(new \DateInterval("P{$number}M"));
+            } elseif ($interval == "y") {
+                $parsedDt->sub(new \DateInterval("P{$number}Y"));
+            } else {
+                return null;
+            }
+
+            return $parsedDt;
+        } else {
+            return null;
+        }
+
+    }
+
+    private static function convertToDateTime($value) {
+        if ($value instanceof \DateTime) {
+            return $value;
+        } elseif (is_string($value)) {
+            try {
+                $date = new \DateTime($value);
+                if (!is_nan($date->getTimestamp())) {
+                    return $date;
+                }
+            } catch (Exception $e) {
+                throw new InconclusiveMatchException("{$value} is in an invalid date format");
+            }
+        } else {
+            throw new InconclusiveMatchException("The date provided {$value} must be a string or date object");
+        }
+    }
+
+    private static function computeExactMatch($value, $overrideValue)
+    {
+        if (is_array($value)) {
+            return in_array(strtolower(FeatureFlag::valueToString($overrideValue)), array_map('strtolower', array_map(fn($val) => FeatureFlag::valueToString($val) , $value)));
+        }
+        return strtolower(FeatureFlag::valueToString($value)) == strtolower(FeatureFlag::valueToString($overrideValue));
+    }
+
+    private static function valueToString($value)
+    {
+        if (is_bool($value)) {
+            return $value ? "true" : "false";
+        } else {
+            return strval($value);
+        }
+    }
+
+    private static function compare($lhs, $rhs, $operator, $type = "string")
+    {
+        // If type is string, we use strcmp to compare the two strings
+        // If type is numeric, we use <=> to compare the two numbers
+
+        if ($type == "string") {
+            $comparison = strcmp($lhs, $rhs);
+        } else {
+            $comparison = $lhs <=> $rhs;
+        }
+
+        if ($operator == "gt") {
+            return $comparison > 0;
+        } elseif ($operator == "gte") {
+            return $comparison >= 0;
+        } elseif ($operator == "lt") {
+            return $comparison < 0;
+        } elseif ($operator == "lte") {
+            return $comparison <= 0;
+        }
+
+        throw new \Exception("Invalid operator: " . $operator);
     }
 
     private static function hash($key, $distinctId, $salt = "")
@@ -143,7 +344,7 @@ class FeatureFlag
         }
     }
 
-    public static function matchFeatureFlagProperties($flag, $distinctId, $properties)
+    public static function matchFeatureFlagProperties($flag, $distinctId, $properties, $cohorts = [])
     {
         $flagConditions = ($flag["filters"] ?? [])["groups"] ?? [];
         $isInconclusive = false;
@@ -179,7 +380,7 @@ class FeatureFlag
         foreach ($flagConditionsWithIndexes as $conditionWithIndex) {
             $condition = $conditionWithIndex[0];
             try {
-                if (FeatureFlag::isConditionMatch($flag, $distinctId, $condition, $properties)) {
+                if (FeatureFlag::isConditionMatch($flag, $distinctId, $condition, $properties, $cohorts)) {
                     $variantOverride = $condition["variant"] ?? null;
                     $flagVariants = (($flag["filters"] ?? [])["multivariate"] ?? [])["variants"] ?? [];
                     $variantKeys = array_map(function ($variant) {
@@ -204,13 +405,20 @@ class FeatureFlag
         return false;
     }
 
-    private static function isConditionMatch($featureFlag, $distinctId, $condition, $properties)
+    private static function isConditionMatch($featureFlag, $distinctId, $condition, $properties, $cohorts)
     {
         $rolloutPercentage = array_key_exists("rollout_percentage", $condition) ? $condition["rollout_percentage"] : null;
 
         if (count($condition['properties'] ?? []) > 0) {
             foreach ($condition['properties'] as $property) {
-                if (!FeatureFlag::matchProperty($property, $properties)) {
+                $matches = false;
+                if ($property['type'] == 'cohort') {
+                    $matches = FeatureFlag::matchCohort($property, $properties, $cohorts);
+                } else {
+                    $matches = FeatureFlag::matchProperty($property, $properties);
+                }
+
+                if (!$matches) {
                     return false;
                 }
             }
@@ -234,5 +442,25 @@ class FeatureFlag
         $isRegularExpression = preg_match($string, "") !== false;
         restore_error_handler();
         return $isRegularExpression;
+    }
+
+    private static function prepareValueForRegex($value)
+    {
+        $regex = $value;
+
+        // If delimiter already exists, do nothing
+        if (FeatureFlag::isRegularExpression($regex)) {
+            return $regex;
+        }
+
+        if (substr($regex, 0, 1) != "/") {
+            $regex = "/" . $regex;
+        }
+
+        if (substr($regex, -1) != "/") {
+            $regex = $regex . "/";
+        }
+
+        return $regex;
     }
 }

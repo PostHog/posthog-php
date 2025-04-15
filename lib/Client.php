@@ -31,6 +31,11 @@ class Client
     private $personalAPIKey;
 
     /**
+     * @var integer
+     */
+    private $featureFlagsRequestTimeout;
+
+    /**
      * Consumer object handles queueing and bundling requests to PostHog.
      *
      * @var Consumer
@@ -51,6 +56,12 @@ class Client
      * @var array
      */
     public $groupTypeMapping;
+
+    /**
+     * @var array
+     */
+    public $cohorts;
+
 
     /**
      * @var SizeLimitedHash
@@ -74,12 +85,13 @@ class Client
         string $apiKey,
         array $options = [],
         ?HttpClient $httpClient = null,
-        string $personalAPIKey = null
+        ?string $personalAPIKey = null,
+        bool $loadFeatureFlags = true,
     ) {
         $this->apiKey = $apiKey;
         $this->personalAPIKey = $personalAPIKey;
         $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
-        $this->consumer = new $Consumer($apiKey, $options);
+        $this->consumer = new $Consumer($apiKey, $options, $httpClient);
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $options['host'] ?? "app.posthog.com",
             $options['ssl'] ?? true,
@@ -89,13 +101,19 @@ class Client
             null,
             (int) ($options['timeout'] ?? 10000)
         );
+        $this->featureFlagsRequestTimeout = (int) ($options['feature_flag_request_timeout_ms'] ?? 3000);
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
+        $this->cohorts = [];
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
         $this->decideVersion = $options["decide_version"] ?? '2';
 
         // Populate featureflags and grouptypemapping if possible
-        if (count($this->featureFlags) == 0 && !is_null($this->personalAPIKey)) {
+        if (
+            count($this->featureFlags) == 0
+            && !is_null($this->personalAPIKey)
+            && $loadFeatureFlags
+        ) {
             $this->loadFlags();
         }
     }
@@ -120,17 +138,28 @@ class Client
             $message["properties"]['$groups'] = $message['$groups'];
         }
 
+        $extraProperties = [];
+        $flags = [];
         if (array_key_exists("send_feature_flags", $message) && $message["send_feature_flags"]) {
             $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
 
-            // Add all feature variants to event
-            foreach ($flags as $flagKey => $flagValue) {
-                $message["properties"][sprintf('$feature/%s', $flagKey)] = $flagValue;
-            }
-
-            // Add all feature flag keys to $active_feature_flags key
-            $message["properties"]['$active_feature_flags'] = array_keys($flags);
+        } elseif (count($this->featureFlags) != 0) {
+            # Local evaluation is enabled, flags are loaded, so try and get all flags we can without going to the server
+            $flags = $this->getAllFlags($message["distinct_id"], $message["groups"], [], [], true);
         }
+
+        // Add all feature variants to event
+        foreach ($flags as $flagKey => $flagValue) {
+            $extraProperties[sprintf('$feature/%s', $flagKey)] = $flagValue;
+        }
+
+        // Add all feature flag keys that aren't false to $active_feature_flags
+        // decide v2 does this automatically, but we need it for when we upgrade to v3
+        $extraProperties['$active_feature_flags'] = array_keys(array_filter($flags, function ($flagValue) {
+            return $flagValue !== false;
+        }));
+
+        $message["properties"] = array_merge($extraProperties, $message["properties"]);
 
         return $this->consumer->capture($message);
     }
@@ -211,6 +240,12 @@ class Client
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
     ): null | bool | string {
+        [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties
+        );
         $result = null;
 
         foreach ($this->featureFlags as $flag) {
@@ -319,6 +354,12 @@ class Client
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false
     ): array {
+        [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties
+        );
         $response = [];
         $fallbackToDecide = false;
 
@@ -387,7 +428,7 @@ class Client
             $focusedGroupProperties = $groupProperties[$groupName];
             return FeatureFlag::matchFeatureFlagProperties($featureFlag, $groups[$groupName], $focusedGroupProperties);
         } else {
-            return FeatureFlag::matchFeatureFlagProperties($featureFlag, $distinctId, $personProperties);
+            return FeatureFlag::matchFeatureFlagProperties($featureFlag, $distinctId, $personProperties, $this->cohorts);
         }
     }
 
@@ -425,6 +466,7 @@ class Client
 
         $this->featureFlags = $payload['flags'] ?? [];
         $this->groupTypeMapping = $payload['group_type_mapping'] ?? [];
+        $this->cohorts = $payload['cohorts'] ?? [];
     }
 
 
@@ -432,7 +474,7 @@ class Client
     {
 
         return $this->httpClient->sendRequest(
-            '/api/feature_flag/local_evaluation?token=' . $this->apiKey,
+            '/api/feature_flag/local_evaluation?send_cohorts&token=' . $this->apiKey,
             null,
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
@@ -471,6 +513,10 @@ class Client
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
                 "User-Agent: posthog-php/" . PostHog::VERSION,
+            ],
+            [
+                "shouldRetry" => false,
+                "timeout" => $this->featureFlagsRequestTimeout
             ]
         )->getResponse();
     }
@@ -607,5 +653,29 @@ class Client
         $msg["timestamp"] = $this->formatTime($msg["timestamp"]);
 
         return $msg;
+    }
+
+    private function addLocalPersonAndGroupProperties(
+        string $distinctId,
+        array $groups,
+        array $personProperties,
+        array $groupProperties
+    ): array {
+        $allPersonProperties = array_merge(
+            ["distinct_id" => $distinctId],
+            $personProperties
+        );
+
+        $allGroupProperties = [];
+        if (count($groups) > 0) {
+            foreach ($groups as $groupName => $groupValue) {
+                $allGroupProperties[$groupName] = array_merge(
+                    ["\$group_key" => $groupValue],
+                    $groupProperties[$groupName] ?? []
+                );
+            }
+        }
+
+        return [$allPersonProperties, $allGroupProperties];
     }
 }

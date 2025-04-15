@@ -1,4 +1,63 @@
 
+3.3.5 / 2025-03-26
+==================
+
+  * Fix version updating in Makefile (#72)
+
+3.3.4 / 2025-03-11
+==================
+
+  * Add support for 'verify_batch_events_request=>false' (#70)
+  * Run GitHub actions on all supported PHP versions (#67)
+
+3.3.3 / 2025-02-28
+==================
+
+  * Fix PHP 8.4 deprecation on Client.php constructor (Backwards Compatible) (#66)
+
+
+3.3.2 / 2024-04-03
+==================
+
+  * Make the feature flag fetch optional on initialisation (#65)
+
+3.3.1 / 2024-03-22
+==================
+
+  * fix(flags): Handle bool value matching (#64)
+  * Fixes a bug with local evaluation where passing in true and false values for a property wouldn't match correctly.
+
+3.3.0 / 2024-03-13
+==================
+
+  * feat(flags): Locally evaluate all cohorts (#63)
+
+3.2.2 / 2024-03-11
+==================
+
+  * feat(flags): Add specific timeout for feature flags (#62)
+  * Adds a new `feature_flag_request_timeout_ms` timeout parameter for feature flags which defaults to 3 seconds, updated from the default 10s for all other API calls.
+
+3.2.1 / 2024-01-26
+==================
+
+  * fix(flags): Update relative date op names (#61)
+  * Remove new relative date operators, combine into regular date operators
+
+3.2.0 / 2024-01-10
+==================
+
+  * feat(flags): Add local props and flags to all calls (#60)
+  * When local evaluation is enabled, we automatically add flag information to all events sent to PostHog, whenever possible. This makes it easier to use these events in experiments.
+
+3.1.0 / 2024-01-10
+==================
+
+  * feat(flags): Add relative date operator and fix numeric ops (#58)
+  * Numeric property handling for feature flags now does the expected: When passed in a number, we do a numeric comparison. When passed in a string, we do a string comparison. Previously, we always did a string comparison.
+  * Add support for relative date operators for local evaluation.
+  * Fixes issue with regex matching for local evaluation.
+
 3.0.8 / 2023-09-25
 ==================
 
