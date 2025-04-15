@@ -25,7 +25,8 @@ $options = getopt(
         'groupType:',
         'groupKey:',
         'no-ssl',
-        'debug'
+        'debug',
+        'flag:'
     )
 );
 
@@ -81,6 +82,18 @@ switch ($options['type']) {
         );
         break;
 
+    case 'getFeatureFlag':
+        $result = PostHog::getFeatureFlag($options['flag'] ?? 'test-flag', $options['distinctId'] ?? "test-distinct-id");
+        echo "RESULT: ";
+        var_dump($result);
+        break;
+
+    case 'getFeatureFlagPayload':
+        $result = PostHog::getFeatureFlagPayload($options['flag'] ?? 'test-flag', $options['distinctId'] ?? "test-distinct-id");
+        echo "RESULT: ";
+        var_dump($result);
+        break;
+
     default:
         error(usage());
         break;
@@ -101,6 +114,8 @@ function usage(): string
         "\n    posthog --type identify --distinctId \"id\" --properties '{ \"json\": \"object\" }'" .
         "\n    posthog --type alias --distinctId \"id\" --alias \"alias\"" .
         "\n    posthog --type groupIdentify --groupType \"organization\" --groupKey \"id:5\" --properties '{ \"json\": \"object\" }'" .
+        "\n    posthog --type getFeatureFlag --flag some-flag --apiKey phc_... --host localhost:8010 --no-ssl" .
+        "\n    posthog --type getFeatureFlag --flag some-flag --apiKey phc_... --host localhost:8010 --no-ssl" .
         "\n\n\n";
 }
 
