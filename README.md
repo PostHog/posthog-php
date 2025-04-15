@@ -13,4 +13,4 @@ Specifically, the [PHP integration](https://posthog.com/docs/integrations/php-in
 
 1. [Download PHP](https://www.php.net/manual/en/install.php) and [Composer](https://getcomposer.org/download/)
 2. `php composer.phar update` to install dependencies
-3. `./vendor/bin/phpunit --verbose test` to run tests
+3. `bin/test` to run tests (this script calls `./vendor/bin/phpunit --verbose test`)
