@@ -69,11 +69,6 @@ class Client
     public $distinctIdsFeatureFlagsReported;
 
     /**
-     * @var string
-     */
-    public $decideVersion;
-
-    /**
      * Create a new posthog object with your app's API key
      * key
      *
@@ -106,7 +101,6 @@ class Client
         $this->groupTypeMapping = [];
         $this->cohorts = [];
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
-        $this->decideVersion = $options["decide_version"] ?? '2';
 
         // Populate featureflags and grouptypemapping if possible
         if (
@@ -508,7 +502,7 @@ class Client
         }
 
         return $this->httpClient->sendRequest(
-            '/decide/?v=' . $this->decideVersion,
+            '/decide/?v=3',
             json_encode($payload),
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
