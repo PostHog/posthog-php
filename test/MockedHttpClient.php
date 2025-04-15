@@ -20,7 +20,8 @@ class MockedHttpClient extends \PostHog\HttpClient
         bool $debug = false,
         ?Closure $errorHandler = null,
         int $curlTimeoutMilliseconds = 750,
-        array $flagEndpointResponse = []
+        array $flagEndpointResponse = [],
+        array $decideEndpointResponse = []
     ) {
         parent::__construct(
             $host,
@@ -32,6 +33,7 @@ class MockedHttpClient extends \PostHog\HttpClient
             $curlTimeoutMilliseconds
         );
         $this->flagEndpointResponse = $flagEndpointResponse;
+        $this->decideEndpointResponse = !empty($decideEndpointResponse) ? $decideEndpointResponse : MockedResponses::DECIDE_REQUEST;
     }
 
     public function sendRequest(string $path, ?string $payload, array $extraHeaders = [], array $requestOptions = []): HttpResponse
@@ -42,7 +44,7 @@ class MockedHttpClient extends \PostHog\HttpClient
         array_push($this->calls, array("path" => $path, "payload" => $payload, "extraHeaders" => $extraHeaders, "requestOptions" => $requestOptions));
 
         if (str_starts_with($path, "/decide/")) {
-            return new HttpResponse(json_encode(MockedResponses::DECIDE_REQUEST), 200);
+            return new HttpResponse(json_encode($this->decideEndpointResponse), 200);
         }
 
         if (str_starts_with($path, "/api/feature_flag/local_evaluation")) {

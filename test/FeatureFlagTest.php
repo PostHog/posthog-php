@@ -3793,7 +3793,7 @@ class FeatureFlagTest extends TestCase
     {
         $this->http_client = new MockedHttpClient(
             host: "app.posthog.com",
-            flagEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_JSON
+            decideEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_JSON
         );
 
         $this->client = new Client(
@@ -3815,7 +3815,7 @@ class FeatureFlagTest extends TestCase
     {
         $this->http_client = new MockedHttpClient(
             host: "app.posthog.com",
-            flagEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_INTEGER
+            decideEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_INTEGER
         );
 
         $this->client = new Client(
@@ -3837,7 +3837,7 @@ class FeatureFlagTest extends TestCase
     {
         $this->http_client = new MockedHttpClient(
             host: "app.posthog.com",
-            flagEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_STRING
+            decideEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_STRING
         );
 
         $this->client = new Client(
@@ -3859,7 +3859,7 @@ class FeatureFlagTest extends TestCase
     {
         $this->http_client = new MockedHttpClient(
             host: "app.posthog.com",
-            flagEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_JSON_FLAG_DISABLED
+            decideEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_JSON_FLAG_DISABLED
         );
 
         $this->client = new Client(
@@ -3881,7 +3881,7 @@ class FeatureFlagTest extends TestCase
     {
         $this->http_client = new MockedHttpClient(
             host: "app.posthog.com",
-            flagEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_JSON
+            decideEndpointResponse: MockedResponses::DECIDE_REQUEST_WITH_PAYLOAD_JSON
         );
 
         $this->client = new Client(
