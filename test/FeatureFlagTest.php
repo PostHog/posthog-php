@@ -20,7 +20,7 @@ class FeatureFlagTest extends TestCase
     private $http_client;
     private $client;
 
-    public function setUp($decideEndpointResponse = MockedResponses::DECIDE_V3_RESPONSE): void
+    public function setUp($decideEndpointResponse = MockedResponses::DECIDE_V3_RESPONSE, $personalApiKey = "test"): void
     {
         date_default_timezone_set("UTC");
         $this->http_client = new MockedHttpClient("app.posthog.com", decideEndpointResponse: $decideEndpointResponse);
@@ -30,7 +30,7 @@ class FeatureFlagTest extends TestCase
                 "debug" => true,
             ],
             $this->http_client,
-            "test"
+            $personalApiKey
         );
         PostHog::init(null, null, $this->client);
 
@@ -77,6 +77,32 @@ class FeatureFlagTest extends TestCase
                 ),
             )
         );
+    }
+
+    public function testIsFeatureEnabledCapturesFeatureFlagCalledEventWithAdditionalMetadata()
+    {
+        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+            $this->setUp(MockedResponses::DECIDE_V4_RESPONSE, personalApiKey: null);
+            $this->assertTrue(PostHog::isFeatureEnabled('simple-test', 'user-id'));
+            PostHog::flush();
+            $this->assertEquals(
+            $this->http_client->calls,
+            array(
+                0 => array(
+                    "path" => "/decide/?v=3",
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
+                    "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
+                        "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
+                    ),
+                1 => array(
+                    "path" => "/batch/",
+                    "payload" => '{"batch":[{"properties":{"$active_feature_flags":[],"$feature_flag":"simple-test","$feature_flag_response":true,"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$groups":[]},"distinct_id":"user-id","event":"$feature_flag_called","$groups":[],"library":"posthog-php","library_version":"3.4.0","library_consumer":"LibCurl","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                    "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
+                    "requestOptions" => array('shouldVerify' => true),
+                    ),
+                )
+            );
+        });
     }
 
     /**
