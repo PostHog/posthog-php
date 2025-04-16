@@ -382,6 +382,7 @@ class MockedResponses
             ],
         ],
         'sessionRecording' => false,
+        'requestId' => '98487c8a-287a-4451-a085-299cd76228dd'
     ];
 
     public const LOCAL_EVALUATION_REQUEST = [

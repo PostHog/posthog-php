@@ -262,10 +262,13 @@ class Client
         }
 
         $flagWasEvaluatedLocally = !is_null($result);
+        $requestId = null;
 
         if (!$flagWasEvaluatedLocally && !$onlyEvaluateLocally) {
             try {
-                $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
+                $response = $this->fetchDecideResponse($distinctId, $groups, $personProperties, $groupProperties);
+                $requestId = isset($response['requestId']) ? $response['requestId'] : null;
+                $featureFlags = $response['featureFlags'] ?? [];
                 if(array_key_exists($key, $featureFlags)) {
                     $result = $featureFlags[$key];
                 } else {
@@ -278,11 +281,17 @@ class Client
         }
 
         if ($sendFeatureFlagEvents && !$this->distinctIdsFeatureFlagsReported->contains($key, $distinctId)) {
+            $properties = [
+                '$feature_flag' => $key,
+                '$feature_flag_response' => $result,
+            ];
+
+            if (!is_null($requestId)) {
+                $properties['$feature_flag_request_id'] = $requestId;
+            }
+
             $this->capture([
-                "properties" => [
-                    '$feature_flag' => $key,
-                    '$feature_flag_response' => $result,
-                ],
+                "properties" => $properties,
                 "distinct_id" => $distinctId,
                 "event" => '$feature_flag_called',
                 '$groups' => $groups
@@ -434,15 +443,30 @@ class Client
      */
     public function fetchFeatureVariants(
         string $distinctId,
-        array $groups = array(),
+        array $groups = [],
         array $personProperties = [],
         array $groupProperties = []
     ): array {
-        $flags = json_decode(
+        $response = $this->fetchDecideResponse($distinctId, $groups, $personProperties, $groupProperties);
+        return $response['featureFlags'] ?? [];
+    }
+
+    /**
+     * @param string $distinctId
+     * @param array $groups
+     * @return array of feature flags
+     * @throws Exception
+     */
+    private function fetchDecideResponse(
+        string $distinctId,
+        array $groups = [],
+        array $personProperties = [],
+        array $groupProperties = []
+    ): array {
+        return json_decode(
             $this->decide($distinctId, $groups, $personProperties, $groupProperties),
             true
-        )['featureFlags'] ?? [];
-        return $flags;
+        );
     }
 
     /**
@@ -465,7 +489,6 @@ class Client
 
     public function localFlags()
     {
-
         return $this->httpClient->sendRequest(
             '/api/feature_flag/local_evaluation?send_cohorts&token=' . $this->apiKey,
             null,
