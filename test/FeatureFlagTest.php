@@ -86,8 +86,8 @@ class FeatureFlagTest extends TestCase
             $this->assertTrue(PostHog::isFeatureEnabled('simple-test', 'user-id'));
             PostHog::flush();
             $this->assertEquals(
-            $this->http_client->calls,
-            array(
+                $this->http_client->calls,
+                array(
                 0 => array(
                     "path" => "/decide/?v=3",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
@@ -168,8 +168,8 @@ class FeatureFlagTest extends TestCase
             $this->assertEquals("variant-value", PostHog::getFeatureFlag('multivariate-test', 'user-id'));
             PostHog::flush();
             $this->assertEquals(
-            $this->http_client->calls,
-            array(
+                $this->http_client->calls,
+                array(
                 0 => array(
                     "path" => "/decide/?v=3",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
@@ -182,7 +182,8 @@ class FeatureFlagTest extends TestCase
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array('shouldVerify' => true),
                 ),
-            ));
+                )
+            );
         });
     }
 

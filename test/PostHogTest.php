@@ -224,7 +224,7 @@ class PostHogTest extends TestCase
                         "payload" => null,
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                         "requestOptions" => array(),
-                        
+
                     ),
                     1 => array (
                         "path" => "/batch/",

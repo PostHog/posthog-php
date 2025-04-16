@@ -136,7 +136,6 @@ class Client
         $flags = [];
         if (array_key_exists("send_feature_flags", $message) && $message["send_feature_flags"]) {
             $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
-
         } elseif (count($this->featureFlags) != 0) {
             # Local evaluation is enabled, flags are loaded, so try and get all flags we can without going to the server
             $flags = $this->getAllFlags($message["distinct_id"], $message["groups"], [], [], true);
@@ -271,7 +270,7 @@ class Client
                 $requestId = isset($response['requestId']) ? $response['requestId'] : null;
                 $flagDetail = isset($response['flags'][$key]) ? $response['flags'][$key] : null;
                 $featureFlags = $response['featureFlags'] ?? [];
-                if(array_key_exists($key, $featureFlags)) {
+                if (array_key_exists($key, $featureFlags)) {
                     $result = $featureFlags[$key];
                 } else {
                     $result = null;
@@ -529,7 +528,7 @@ class Client
             $decoded['featureFlagPayloads'] = $transformedPayloads;
             return json_encode($decoded);
         }
-        
+
         return $response;
     }
 

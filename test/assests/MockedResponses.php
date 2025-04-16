@@ -107,7 +107,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 1,
                     'payload' => '{"key":"simpleFlag"}',
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'having_fun' => [
@@ -122,7 +122,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 2,
                     'payload' => '123',
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'enabled-flag' => [
@@ -137,7 +137,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 3,
                     'payload' => '[0, 1, 2]',
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'disabled-flag' => [
@@ -152,7 +152,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 4,
                     'payload' => null,
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'multivariate-simple-test' => [
@@ -167,7 +167,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 5,
                     'payload' => '"some string payload"',
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'simple-test' => [
@@ -182,7 +182,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 6,
                     'payload' => null,
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'multivariate-test' => [
@@ -197,7 +197,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 7,
                     'payload' => null,
-                    'version' => 3,                    
+                    'version' => 3,
                 ]
             ],
             'group-flag' => [
@@ -212,7 +212,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 8,
                     'payload' => null,
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'complex-flag' => [
@@ -227,7 +227,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 9,
                     'payload' => null,
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'beta-feature' => [
@@ -242,7 +242,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 10,
                     'payload' => null,
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'beta-feature2' => [
@@ -257,7 +257,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 11,
                     'payload' => null,
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'feature-1' => [
@@ -272,7 +272,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 12,
                     'payload' => null,
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'feature-2' => [
@@ -287,7 +287,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 13,
                     'payload' => null,
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'variant-1' => [
@@ -302,7 +302,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 14,
                     'payload' => null,
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'variant-3' => [
@@ -317,7 +317,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 15,
                     'payload' => null,
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'json-payload' => [
@@ -332,7 +332,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 16,
                     'payload' => '{"key":"value"}',
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'integer-payload' => [
@@ -347,7 +347,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 17,
                     'payload' => '2500',
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'string-payload' => [
@@ -362,7 +362,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 18,
                     'payload' => '"A String"',
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
             'array-payload' => [
@@ -377,7 +377,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 19,
                     'payload' => '[1, 2, 3]',
-                    'version' => 1,                    
+                    'version' => 1,
                 ]
             ],
         ],

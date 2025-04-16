@@ -37,7 +37,7 @@ class FeatureFlag
         if ($operator == "icontains") {
             return strpos(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value))) !== false;
         }
-        
+
         if ($operator == "not_icontains") {
             return strpos(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value))) == false;
         }
@@ -108,7 +108,6 @@ class FeatureFlag
 
         $propertyGroup = $cohortProperties[$cohortId];
         return FeatureFlag::matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties);
-        
     }
 
     public static function matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties)
@@ -226,10 +225,10 @@ class FeatureFlag
         } else {
             return null;
         }
-
     }
 
-    private static function convertToDateTime($value) {
+    private static function convertToDateTime($value)
+    {
         if ($value instanceof \DateTime) {
             return $value;
         } elseif (is_string($value)) {
@@ -249,7 +248,7 @@ class FeatureFlag
     private static function computeExactMatch($value, $overrideValue)
     {
         if (is_array($value)) {
-            return in_array(strtolower(FeatureFlag::valueToString($overrideValue)), array_map('strtolower', array_map(fn($val) => FeatureFlag::valueToString($val) , $value)));
+            return in_array(strtolower(FeatureFlag::valueToString($overrideValue)), array_map('strtolower', array_map(fn($val) => FeatureFlag::valueToString($val), $value)));
         }
         return strtolower(FeatureFlag::valueToString($value)) == strtolower(FeatureFlag::valueToString($overrideValue));
     }
