@@ -263,11 +263,13 @@ class Client
 
         $flagWasEvaluatedLocally = !is_null($result);
         $requestId = null;
+        $flagDetail = null;
 
         if (!$flagWasEvaluatedLocally && !$onlyEvaluateLocally) {
             try {
                 $response = $this->fetchDecideResponse($distinctId, $groups, $personProperties, $groupProperties);
                 $requestId = isset($response['requestId']) ? $response['requestId'] : null;
+                $flagDetail = isset($response['flags'][$key]) ? $response['flags'][$key] : null;
                 $featureFlags = $response['featureFlags'] ?? [];
                 if(array_key_exists($key, $featureFlags)) {
                     $result = $featureFlags[$key];
@@ -288,6 +290,12 @@ class Client
 
             if (!is_null($requestId)) {
                 $properties['$feature_flag_request_id'] = $requestId;
+            }
+
+            if (!is_null($flagDetail)) {
+                $properties['$feature_flag_id'] = $flagDetail['metadata']['id'];
+                $properties['$feature_flag_version'] = $flagDetail['metadata']['version'];
+                $properties['$feature_flag_reason'] = $flagDetail['reason']['description'];
             }
 
             $this->capture([

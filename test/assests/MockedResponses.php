@@ -197,7 +197,7 @@ class MockedResponses
                 'metadata' => [
                     'id' => 7,
                     'payload' => null,
-                    'version' => 1,                    
+                    'version' => 3,                    
                 ]
             ],
             'group-flag' => [
