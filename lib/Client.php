@@ -477,6 +477,31 @@ class Client
         )->getResponse();
     }
 
+    private function normalizeFeatureFlags(string $response): string
+    {
+        $decoded = json_decode($response, true);
+        if (isset($decoded['flags']) && !empty($decoded['flags'])) {
+            // This is a v4 response, we need to transform it to a v3 response for backwards compatibility
+            $transformedFlags = [];
+            $transformedPayloads = [];
+            foreach ($decoded['flags'] as $key => $flag) {
+                if ($flag['variant'] !== null) {
+                    $transformedFlags[$key] = $flag['variant'];
+                } else {
+                    $transformedFlags[$key] = $flag['enabled'] ?? false;
+                }
+                if (isset($flag['metadata']['payload'])) {
+                    $transformedPayloads[$key] = $flag['metadata']['payload'];
+                }
+            }
+            $decoded['featureFlags'] = $transformedFlags;
+            $decoded['featureFlagPayloads'] = $transformedPayloads;
+            return json_encode($decoded);
+        }
+        
+        return $response;
+    }
+
     public function decide(
         string $distinctId,
         array $groups = array(),
@@ -500,7 +525,7 @@ class Client
             $payload["group_properties"] = $groupProperties;
         }
 
-        return $this->httpClient->sendRequest(
+        $response = $this->httpClient->sendRequest(
             '/decide/?v=3',
             json_encode($payload),
             [
@@ -512,6 +537,8 @@ class Client
                 "timeout" => $this->featureFlagsRequestTimeout
             ]
         )->getResponse();
+
+        return $this->normalizeFeatureFlags($response);
     }
 
     /**

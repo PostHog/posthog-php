@@ -45,6 +45,9 @@ class FeatureFlag
         if (in_array($operator, ["regex", "not_regex"])) {
             $regexValue = FeatureFlag::prepareValueForRegex($value);
             if (FeatureFlag::isRegularExpression($regexValue)) {
+                if ($overrideValue === null) {
+                    return false;
+                }
                 $returnValue = preg_match($regexValue, $overrideValue) ? true : false;
                 if ($operator == "regex") {
                     return $returnValue;
@@ -437,6 +440,9 @@ class FeatureFlag
 
     private static function isRegularExpression($string)
     {
+        if ($string === null) {
+            return false;
+        }
         set_error_handler(function () {
         }, E_WARNING);
         $isRegularExpression = preg_match($string, "") !== false;
