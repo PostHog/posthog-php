@@ -1,3 +1,9 @@
+
+3.5.0 / 2025-04-17
+==================
+
+  * feat: Add request id, version, id, and evaluation reason to $feature_flag_called events (#75)
+  * Bump version to 3.4.0 (#74)
 3.4.0 / 2025-04-15
 ==================
 
