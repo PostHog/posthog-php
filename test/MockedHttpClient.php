@@ -11,6 +11,7 @@ class MockedHttpClient extends \PostHog\HttpClient
     public $calls;
 
     private $flagEndpointResponse;
+    private $decideEndpointResponse;
 
     public function __construct(
         string $host,

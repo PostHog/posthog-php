@@ -36,7 +36,7 @@ class MockedResponses
         'sessionRecording' => false,
     ];
 
-    public const DECIDE_REQUEST_WITH_PAYLOAD_JSON = [
+    public const DECIDE_V3_RESPONSE = [
         'config' => [
             'enable_collect_everything' => true,
         ],
@@ -49,18 +49,40 @@ class MockedResponses
             2 => 'lz64',
         ],
         'featureFlags' => [
-            'payload-flag' => true,
+            'simpleFlag' => true,
             'having_fun' => false,
             'enabled-flag' => true,
             'disabled-flag' => false,
+            'multivariate-simple-test' => 'variant-simple-value',
+            'simple-test' => true,
+            'multivariate-test' => 'variant-value',
+            'group-flag' => 'decide-fallback-value',
+            'complex-flag' => 'decide-fallback-value',
+            'beta-feature' => 'decide-fallback-value',
+            'beta-feature2' => 'alakazam',
+            'feature-1' => 'decide-fallback-value',
+            'feature-2' => 'decide-fallback-value',
+            'variant-1' => 'variant-1',
+            'variant-3' => 'variant-3',
+            'json-payload' => true,
+            'integer-payload' => true,
+            'string-payload' => true,
+            'array-payload' => true,
+        ],
+        'featureFlagPayloads' => [
+            'simpleFlag' => '{"key":"simpleFlag"}',
+            'having_fun' => '123',
+            'enabled-flag' => '[0, 1, 2]',
+            'multivariate-simple-test' => '"some string payload"',
+            'json-payload' => '{"key":"value"}',
+            'integer-payload' => '2500',
+            'string-payload' => '"A String"',
+            'array-payload' => '[1, 2, 3]',
         ],
         'sessionRecording' => false,
-        'featureFlagPayloads' => [
-            'payload-flag' => '{"key":"value"}',
-        ]
     ];
 
-    public const DECIDE_REQUEST_WITH_PAYLOAD_JSON_FLAG_DISABLED = [
+    public const DECIDE_V4_RESPONSE = [
         'config' => [
             'enable_collect_everything' => true,
         ],
@@ -72,64 +94,295 @@ class MockedResponses
             1 => 'gzip-js',
             2 => 'lz64',
         ],
-        'featureFlags' => [
-            'payload-flag' => false,
-            'having_fun' => false,
-            'enabled-flag' => true,
-            'disabled-flag' => false,
+        'flags' => [
+            'simpleFlag' => [
+                'key' => 'simpleFlag',
+                'enabled' => true,
+                'variant' => null,
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 1,
+                    'payload' => '{"key":"simpleFlag"}',
+                    'version' => 1,
+                ]
+            ],
+            'having_fun' => [
+                'key' => 'having_fun',
+                'enabled' => false,
+                'variant' => null,
+                'reason' => [
+                    'code' => 'no_condition_match',
+                    'description' => 'No matching condition set',
+                    'condition_index' => null
+                ],
+                'metadata' => [
+                    'id' => 2,
+                    'payload' => '123',
+                    'version' => 1,
+                ]
+            ],
+            'enabled-flag' => [
+                'key' => 'enabled-flag',
+                'enabled' => true,
+                'variant' => null,
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 3',
+                    'condition_index' => 2
+                ],
+                'metadata' => [
+                    'id' => 3,
+                    'payload' => '[0, 1, 2]',
+                    'version' => 1,
+                ]
+            ],
+            'disabled-flag' => [
+                'key' => 'disabled-flag',
+                'enabled' => false,
+                'variant' => null,
+                'reason' => [
+                    'code' => 'no_condition_match',
+                    'description' => 'No matching condition set',
+                    'condition_index' => null
+                ],
+                'metadata' => [
+                    'id' => 4,
+                    'payload' => null,
+                    'version' => 1,
+                ]
+            ],
+            'multivariate-simple-test' => [
+                'key' => 'multivariate-simple-test',
+                'enabled' => true,
+                'variant' => 'variant-simple-value',
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 5,
+                    'payload' => '"some string payload"',
+                    'version' => 1,
+                ]
+            ],
+            'simple-test' => [
+                'key' => 'simple-test',
+                'enabled' => true,
+                'variant' => null,
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 6,
+                    'payload' => null,
+                    'version' => 1,
+                ]
+            ],
+            'multivariate-test' => [
+                'key' => 'multivariate-test',
+                'enabled' => true,
+                'variant' => 'variant-value',
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 2',
+                    'condition_index' => 1
+                ],
+                'metadata' => [
+                    'id' => 7,
+                    'payload' => null,
+                    'version' => 3,
+                ]
+            ],
+            'group-flag' => [
+                'key' => 'group-flag',
+                'enabled' => true,
+                'variant' => 'decide-fallback-value',
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 8,
+                    'payload' => null,
+                    'version' => 1,
+                ]
+            ],
+            'complex-flag' => [
+                'key' => 'complex-flag',
+                'enabled' => true,
+                'variant' => 'decide-fallback-value',
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 9,
+                    'payload' => null,
+                    'version' => 1,
+                ]
+            ],
+            'beta-feature' => [
+                'key' => 'beta-feature',
+                'enabled' => true,
+                'variant' => 'decide-fallback-value',
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 10,
+                    'payload' => null,
+                    'version' => 1,
+                ]
+            ],
+            'beta-feature2' => [
+                'key' => 'beta-feature2',
+                'enabled' => true,
+                'variant' => 'alakazam',
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 11,
+                    'payload' => null,
+                    'version' => 1,
+                ]
+            ],
+            'feature-1' => [
+                'key' => 'feature-1',
+                'enabled' => true,
+                'variant' => 'decide-fallback-value',
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 12,
+                    'payload' => null,
+                    'version' => 1,
+                ]
+            ],
+            'feature-2' => [
+                'key' => 'feature-2',
+                'enabled' => true,
+                'variant' => 'decide-fallback-value',
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 13,
+                    'payload' => null,
+                    'version' => 1,
+                ]
+            ],
+            'variant-1' => [
+                'key' => 'variant-1',
+                'enabled' => true,
+                'variant' => 'variant-1',
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 14,
+                    'payload' => null,
+                    'version' => 1,
+                ]
+            ],
+            'variant-3' => [
+                'key' => 'variant-3',
+                'enabled' => true,
+                'variant' => 'variant-3',
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 15,
+                    'payload' => null,
+                    'version' => 1,
+                ]
+            ],
+            'json-payload' => [
+                'key' => 'json-payload',
+                'enabled' => true,
+                'variant' => null,
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 16,
+                    'payload' => '{"key":"value"}',
+                    'version' => 1,
+                ]
+            ],
+            'integer-payload' => [
+                'key' => 'integer-payload',
+                'enabled' => true,
+                'variant' => null,
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 17,
+                    'payload' => '2500',
+                    'version' => 1,
+                ]
+            ],
+            'string-payload' => [
+                'key' => 'string-payload',
+                'enabled' => true,
+                'variant' => null,
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 18,
+                    'payload' => '"A String"',
+                    'version' => 1,
+                ]
+            ],
+            'array-payload' => [
+                'key' => 'array-payload',
+                'enabled' => true,
+                'variant' => null,
+                'reason' => [
+                    'code' => 'condition_match',
+                    'description' => 'Matched condition set 1',
+                    'condition_index' => 0
+                ],
+                'metadata' => [
+                    'id' => 19,
+                    'payload' => '[1, 2, 3]',
+                    'version' => 1,
+                ]
+            ],
         ],
         'sessionRecording' => false,
-        'featureFlagPayloads' => [
-            'payload-flag' => '{"key":"value"}',
-        ]
-    ];
-
-    public const DECIDE_REQUEST_WITH_PAYLOAD_INTEGER = [
-        'config' => [
-            'enable_collect_everything' => true,
-        ],
-        'editorParams' => [
-        ],
-        'isAuthenticated' => false,
-        'supportedCompression' => [
-            0 => 'gzip',
-            1 => 'gzip-js',
-            2 => 'lz64',
-        ],
-        'featureFlags' => [
-            'payload-flag' => true,
-            'having_fun' => false,
-            'enabled-flag' => true,
-            'disabled-flag' => false,
-        ],
-        'sessionRecording' => false,
-        'featureFlagPayloads' => [
-            'payload-flag' => "2500",
-        ]
-    ];
-
-    public const DECIDE_REQUEST_WITH_PAYLOAD_STRING = [
-        'config' => [
-            'enable_collect_everything' => true,
-        ],
-        'editorParams' => [
-        ],
-        'isAuthenticated' => false,
-        'supportedCompression' => [
-            0 => 'gzip',
-            1 => 'gzip-js',
-            2 => 'lz64',
-        ],
-        'featureFlags' => [
-            'payload-flag' => true,
-            'having_fun' => false,
-            'enabled-flag' => true,
-            'disabled-flag' => false,
-        ],
-        'sessionRecording' => false,
-        'featureFlagPayloads' => [
-            'payload-flag' => '"A String"',
-        ]
+        'requestId' => '98487c8a-287a-4451-a085-299cd76228dd'
     ];
 
     public const LOCAL_EVALUATION_REQUEST = [
