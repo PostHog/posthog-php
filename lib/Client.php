@@ -266,7 +266,7 @@ class Client
 
         if (!$flagWasEvaluatedLocally && !$onlyEvaluateLocally) {
             try {
-                $response = $this->fetchDecideResponse($distinctId, $groups, $personProperties, $groupProperties);
+                $response = $this->fetchFlagsResponse($distinctId, $groups, $personProperties, $groupProperties);
                 $requestId = isset($response['requestId']) ? $response['requestId'] : null;
                 $flagDetail = isset($response['flags'][$key]) ? $response['flags'][$key] : null;
                 $featureFlags = $response['featureFlags'] ?? [];
@@ -328,7 +328,7 @@ class Client
         array $groupProperties = array(),
     ): mixed {
         $results = json_decode(
-            $this->decide($distinctId, $groups, $personProperties, $groupProperties),
+            $this->flags($distinctId, $groups, $personProperties, $groupProperties),
             true
         );
 
@@ -370,7 +370,7 @@ class Client
             $groupProperties
         );
         $response = [];
-        $fallbackToDecide = false;
+        $fallbackToFlags = false;
 
         if (count($this->featureFlags) > 0) {
             foreach ($this->featureFlags as $flag) {
@@ -383,17 +383,17 @@ class Client
                         $groupProperties
                     );
                 } catch (InconclusiveMatchException $e) {
-                    $fallbackToDecide = true;
+                    $fallbackToFlags = true;
                 } catch (Exception $e) {
-                    $fallbackToDecide = true;
+                    $fallbackToFlags = true;
                     error_log("[PostHog][Client] Error while computing variant:" . $e->getMessage());
                 }
             }
         } else {
-            $fallbackToDecide = true;
+            $fallbackToFlags = true;
         }
 
-        if ($fallbackToDecide && !$onlyEvaluateLocally) {
+        if ($fallbackToFlags && !$onlyEvaluateLocally) {
             try {
                 $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
                 $response = array_merge($response, $featureFlags);
@@ -454,7 +454,7 @@ class Client
         array $personProperties = [],
         array $groupProperties = []
     ): array {
-        $response = $this->fetchDecideResponse($distinctId, $groups, $personProperties, $groupProperties);
+        $response = $this->fetchFlagsResponse($distinctId, $groups, $personProperties, $groupProperties);
         return $response['featureFlags'] ?? [];
     }
 
@@ -464,14 +464,14 @@ class Client
      * @return array of feature flags
      * @throws Exception
      */
-    private function fetchDecideResponse(
+    private function fetchFlagsResponse(
         string $distinctId,
         array $groups = [],
         array $personProperties = [],
         array $groupProperties = []
     ): array {
         return json_decode(
-            $this->decide($distinctId, $groups, $personProperties, $groupProperties),
+            $this->flags($distinctId, $groups, $personProperties, $groupProperties),
             true
         );
     }
@@ -532,7 +532,7 @@ class Client
         return $response;
     }
 
-    public function decide(
+    public function flags(
         string $distinctId,
         array $groups = array(),
         array $personProperties = [],
@@ -556,7 +556,7 @@ class Client
         }
 
         $response = $this->httpClient->sendRequest(
-            '/decide/?v=4',
+            '/flags/?v=2',
             json_encode($payload),
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.

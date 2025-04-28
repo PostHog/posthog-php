@@ -1174,7 +1174,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->assertFalse(PostHog::getFeatureFlag('complex-flag', 'some-distinct-within-rollout', [], ["region" => "USA", "email" => "a@b.com", "name" => "X", "doesnt_matter" => "1"], []));
     }
 
-    public function testFlagFallbackToDecide()
+    public function testFlagFallbackToFlags()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_DECIDE_REQUEST);
         $this->client = new Client(
@@ -1193,7 +1193,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->checkEmptyErrorLogs();
     }
 
-    public function testFlagFallbackToDecideWithFalseFlag()
+    public function testFlagFallbackToFlagsWithFalseFlag()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_DECIDE_REQUEST);
         $this->client = new Client(
@@ -1212,7 +1212,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->checkEmptyErrorLogs();
     }
 
-    public function testFeatureFlagDefaultsComeIntoPlayOnlyWhenDecideErrorsOut()
+    public function testFeatureFlagDefaultsComeIntoPlayOnlyWhenFlagsErrorsOut()
     {
         $this->client = new Client(
             self::FAKE_API_KEY,
@@ -1607,7 +1607,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/decide/?v=4",
+                    "path" => "/flags/?v=2",
                     'payload' => '{"api_key":"random_key","distinct_id":"some-distinct-id","person_properties":{"distinct_id":"some-distinct-id","region":"USA","other":"thing"}}',
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),

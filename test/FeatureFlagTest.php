@@ -20,10 +20,10 @@ class FeatureFlagTest extends TestCase
     private $http_client;
     private $client;
 
-    public function setUp($decideEndpointResponse = MockedResponses::DECIDE_V3_RESPONSE, $personalApiKey = "test"): void
+    public function setUp($flagsEndpointResponse = MockedResponses::DECIDE_V3_RESPONSE, $personalApiKey = "test"): void
     {
         date_default_timezone_set("UTC");
-        $this->http_client = new MockedHttpClient("app.posthog.com", decideEndpointResponse: $decideEndpointResponse);
+        $this->http_client = new MockedHttpClient("app.posthog.com", flagsEndpointResponse: $flagsEndpointResponse);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -70,7 +70,7 @@ class FeatureFlagTest extends TestCase
                     "requestOptions" => array(),
                 ),
                 1 => array(
-                    "path" => "/decide/?v=4",
+                    "path" => "/flags/?v=2",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
@@ -89,7 +89,7 @@ class FeatureFlagTest extends TestCase
                 $this->http_client->calls,
                 array(
                 0 => array(
-                    "path" => "/decide/?v=4",
+                    "path" => "/flags/?v=2",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
@@ -123,7 +123,7 @@ class FeatureFlagTest extends TestCase
                     "requestOptions" => array(),
                 ),
                 1 => array(
-                    "path" => "/decide/?v=4",
+                    "path" => "/flags/?v=2",
                     "payload" => sprintf(
                         '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"},"person_properties":{"distinct_id":"user-id"},"group_properties":{"company":{"$group_key":"id:5"}}}',
                         self::FAKE_API_KEY
@@ -152,7 +152,7 @@ class FeatureFlagTest extends TestCase
                     "requestOptions" => array(),
                 ),
                 1 => array(
-                    "path" => "/decide/?v=4",
+                    "path" => "/flags/?v=2",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
@@ -171,7 +171,7 @@ class FeatureFlagTest extends TestCase
                 $this->http_client->calls,
                 array(
                 0 => array(
-                    "path" => "/decide/?v=4",
+                    "path" => "/flags/?v=2",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
@@ -219,7 +219,7 @@ class FeatureFlagTest extends TestCase
                     "requestOptions" => array(),
                 ),
                 1 => array(
-                    "path" => "/decide/?v=4",
+                    "path" => "/flags/?v=2",
                     "payload" => sprintf(
                         '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"},"person_properties":{"distinct_id":"user-id"},"group_properties":{"company":{"$group_key":"id:5"}}}',
                         self::FAKE_API_KEY
