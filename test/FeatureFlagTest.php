@@ -20,10 +20,10 @@ class FeatureFlagTest extends TestCase
     private $http_client;
     private $client;
 
-    public function setUp($flagsEndpointResponse = MockedResponses::DECIDE_V3_RESPONSE, $personalApiKey = "test"): void
+    public function setUp($decideEndpointResponse = MockedResponses::DECIDE_V3_RESPONSE, $personalApiKey = "test"): void
     {
         date_default_timezone_set("UTC");
-        $this->http_client = new MockedHttpClient("app.posthog.com", flagsEndpointResponse: $flagsEndpointResponse);
+        $this->http_client = new MockedHttpClient("app.posthog.com", decideEndpointResponse: $decideEndpointResponse);        
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
