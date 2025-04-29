@@ -1214,13 +1214,12 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testFeatureFlagDefaultsComeIntoPlayOnlyWhenFlagsErrorsOut()
     {
-        $mockHttpClient = new MockedHttpClient("app.posthog.com", flagsEndpointResponse: null); // or configure to throw an exception
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
                 "debug" => true,
             ],
-            $mockHttpClient,
+            null,
             null
         );
         PostHog::init(null, null, $this->client);
