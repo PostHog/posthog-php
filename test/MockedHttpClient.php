@@ -34,7 +34,7 @@ class MockedHttpClient extends \PostHog\HttpClient
             $curlTimeoutMilliseconds
         );
         $this->flagEndpointResponse = $flagEndpointResponse;
-        $this->flagsEndpointResponse = !empty($flagsEndpointResponse) ? $flagsEndpointResponse : MockedResponses::DECIDE_REQUEST;
+        $this->flagsEndpointResponse = !empty($flagsEndpointResponse) ? $flagsEndpointResponse : MockedResponses::FLAGS_REQUEST;
     }
 
     public function sendRequest(string $path, ?string $payload, array $extraHeaders = [], array $requestOptions = []): HttpResponse

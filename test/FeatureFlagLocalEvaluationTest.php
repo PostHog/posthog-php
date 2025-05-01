@@ -1176,7 +1176,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testFlagFallbackToDecide()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_DECIDE_REQUEST);
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_FLAGS_REQUEST);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1195,7 +1195,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testFlagFallbackToDecideWithFalseFlag()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_DECIDE_REQUEST);
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_FLAGS_REQUEST);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1378,7 +1378,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testFeatureFlagsDontFallbackToDecideWhenOnlyLocalEvaluationIsTrue()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_DECIDE_REQUEST);
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_FLAGS_REQUEST);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [

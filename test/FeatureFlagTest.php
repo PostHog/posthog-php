@@ -20,7 +20,7 @@ class FeatureFlagTest extends TestCase
     private $http_client;
     private $client;
 
-    public function setUp($flagsEndpointResponse = MockedResponses::DECIDE_V3_RESPONSE, $personalApiKey = "test"): void
+    public function setUp($flagsEndpointResponse = MockedResponses::FLAGS_RESPONSE, $personalApiKey = "test"): void
     {
         date_default_timezone_set("UTC");
         $this->http_client = new MockedHttpClient("app.posthog.com", flagsEndpointResponse: $flagsEndpointResponse);
@@ -48,8 +48,8 @@ class FeatureFlagTest extends TestCase
     public function decideResponseCases(): array
     {
         return [
-            'v3 response' => [MockedResponses::DECIDE_V3_RESPONSE],
-            'v4 response' => [MockedResponses::DECIDE_V4_RESPONSE]
+            'v3 response' => [MockedResponses::FLAGS_RESPONSE],
+            'v4 response' => [MockedResponses::FLAGS_V2_RESPONSE]
         ];
     }
 
@@ -82,7 +82,7 @@ class FeatureFlagTest extends TestCase
     public function testIsFeatureEnabledCapturesFeatureFlagCalledEventWithAdditionalMetadata()
     {
         ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
-            $this->setUp(MockedResponses::DECIDE_V4_RESPONSE, personalApiKey: null);
+            $this->setUp(MockedResponses::FLAGS_V2_RESPONSE, personalApiKey: null);
             $this->assertTrue(PostHog::isFeatureEnabled('simple-test', 'user-id'));
             PostHog::flush();
             $this->assertEquals(
@@ -164,7 +164,7 @@ class FeatureFlagTest extends TestCase
     public function testGetFeatureFlagCapturesFeatureFlagCalledEventWithAdditionalMetadata()
     {
         ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
-            $this->setUp(MockedResponses::DECIDE_V4_RESPONSE, personalApiKey: null);
+            $this->setUp(MockedResponses::FLAGS_V2_RESPONSE, personalApiKey: null);
             $this->assertEquals("variant-value", PostHog::getFeatureFlag('multivariate-test', 'user-id'));
             PostHog::flush();
             $this->assertEquals(
