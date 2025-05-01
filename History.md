@@ -1,5 +1,5 @@
 
-3.5.0 / 2025-04-30
+3.6.0 / 2025-04-30
 ==================
 
   * chore(flags): use new `/flags` endpoint instead of `/decide` (#76)
