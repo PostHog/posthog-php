@@ -1176,7 +1176,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testFlagFallbackToDecide()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_DECIDE_REQUEST);
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_FLAGS_REQUEST);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1195,7 +1195,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testFlagFallbackToDecideWithFalseFlag()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_DECIDE_REQUEST);
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_FLAGS_REQUEST);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1378,7 +1378,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testFeatureFlagsDontFallbackToDecideWhenOnlyLocalEvaluationIsTrue()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_DECIDE_REQUEST);
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_FLAGS_REQUEST);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1607,7 +1607,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/decide/?v=4",
+                    "path" => "/flags/?v=2",
                     'payload' => '{"api_key":"random_key","distinct_id":"some-distinct-id","person_properties":{"distinct_id":"some-distinct-id","region":"USA","other":"thing"}}',
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),

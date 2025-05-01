@@ -4,7 +4,7 @@ namespace PostHog\Test\Assets;
 
 class MockedResponses
 {
-    public const DECIDE_REQUEST = [
+    public const FLAGS_REQUEST = [
         'config' => [
             'enable_collect_everything' => true,
         ],
@@ -36,18 +36,7 @@ class MockedResponses
         'sessionRecording' => false,
     ];
 
-    public const DECIDE_V3_RESPONSE = [
-        'config' => [
-            'enable_collect_everything' => true,
-        ],
-        'editorParams' => [
-        ],
-        'isAuthenticated' => false,
-        'supportedCompression' => [
-            0 => 'gzip',
-            1 => 'gzip-js',
-            2 => 'lz64',
-        ],
+    public const FLAGS_RESPONSE = [
         'featureFlags' => [
             'simpleFlag' => true,
             'having_fun' => false,
@@ -79,10 +68,9 @@ class MockedResponses
             'string-payload' => '"A String"',
             'array-payload' => '[1, 2, 3]',
         ],
-        'sessionRecording' => false,
     ];
 
-    public const DECIDE_V4_RESPONSE = [
+    public const FLAGS_V2_RESPONSE = [
         'config' => [
             'enable_collect_everything' => true,
         ],
@@ -1089,7 +1077,7 @@ class MockedResponses
         ],
     ];
 
-    public const FALLBACK_TO_DECIDE_REQUEST = [
+    public const FALLBACK_TO_FLAGS_REQUEST = [
         'count' => 1,
         'next' => null,
         'previous' => null,
