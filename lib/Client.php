@@ -469,7 +469,7 @@ class Client
         array $groups = [],
         array $personProperties = [],
         array $groupProperties = []
-    ): array {
+    ): ?array {
         return json_decode(
             $this->flags($distinctId, $groups, $personProperties, $groupProperties),
             true
