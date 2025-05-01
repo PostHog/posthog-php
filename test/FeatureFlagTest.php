@@ -23,7 +23,7 @@ class FeatureFlagTest extends TestCase
     public function setUp($decideEndpointResponse = MockedResponses::DECIDE_V3_RESPONSE, $personalApiKey = "test"): void
     {
         date_default_timezone_set("UTC");
-        $this->http_client = new MockedHttpClient("app.posthog.com", decideEndpointResponse: $decideEndpointResponse);        
+        $this->http_client = new MockedHttpClient("app.posthog.com", decideEndpointResponse: $decideEndpointResponse);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -70,7 +70,7 @@ class FeatureFlagTest extends TestCase
                     "requestOptions" => array(),
                 ),
                 1 => array(
-                    "path" => "/flags/?v=2",
+                    "path" => "/decide/?v=4",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
@@ -89,14 +89,14 @@ class FeatureFlagTest extends TestCase
                 $this->http_client->calls,
                 array(
                 0 => array(
-                    "path" => "/flags/?v=2",
+                    "path" => "/decide/?v=4",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                     ),
                 1 => array(
                     "path" => "/batch/",
-                    "payload" => '{"batch":[{"properties":{"$active_feature_flags":[],"$feature_flag":"simple-test","$feature_flag_response":true,"$feature_flag_request_id":"98487c8a-287a-4451-a085-299cd76228dd","$feature_flag_id":6,"$feature_flag_version":1,"$feature_flag_reason":"Matched condition set 1","$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$groups":[]},"distinct_id":"user-id","event":"$feature_flag_called","$groups":[],"library":"posthog-php","library_version":"3.5.0","library_consumer":"LibCurl","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                    "payload" => '{"batch":[{"properties":{"$active_feature_flags":[],"$feature_flag":"simple-test","$feature_flag_response":true,"$feature_flag_request_id":"98487c8a-287a-4451-a085-299cd76228dd","$feature_flag_id":6,"$feature_flag_version":1,"$feature_flag_reason":"Matched condition set 1","$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$groups":[]},"distinct_id":"user-id","event":"$feature_flag_called","$groups":[],"library":"posthog-php","library_version":"3.4.0","library_consumer":"LibCurl","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array('shouldVerify' => true),
                     ),
@@ -123,7 +123,7 @@ class FeatureFlagTest extends TestCase
                     "requestOptions" => array(),
                 ),
                 1 => array(
-                    "path" => "/flags/?v=2",
+                    "path" => "/decide/?v=4",
                     "payload" => sprintf(
                         '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"},"person_properties":{"distinct_id":"user-id"},"group_properties":{"company":{"$group_key":"id:5"}}}',
                         self::FAKE_API_KEY
@@ -152,7 +152,7 @@ class FeatureFlagTest extends TestCase
                     "requestOptions" => array(),
                 ),
                 1 => array(
-                    "path" => "/flags/?v=2",
+                    "path" => "/decide/?v=4",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
@@ -171,14 +171,14 @@ class FeatureFlagTest extends TestCase
                 $this->http_client->calls,
                 array(
                 0 => array(
-                    "path" => "/flags/?v=2",
+                    "path" => "/decide/?v=4",
                     "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
                 1 => array(
                     "path" => "/batch/",
-                    "payload" => '{"batch":[{"properties":{"$active_feature_flags":[],"$feature_flag":"multivariate-test","$feature_flag_response":"variant-value","$feature_flag_request_id":"98487c8a-287a-4451-a085-299cd76228dd","$feature_flag_id":7,"$feature_flag_version":3,"$feature_flag_reason":"Matched condition set 2","$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$groups":[]},"distinct_id":"user-id","event":"$feature_flag_called","$groups":[],"library":"posthog-php","library_version":"3.5.0","library_consumer":"LibCurl","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                    "payload" => '{"batch":[{"properties":{"$active_feature_flags":[],"$feature_flag":"multivariate-test","$feature_flag_response":"variant-value","$feature_flag_request_id":"98487c8a-287a-4451-a085-299cd76228dd","$feature_flag_id":7,"$feature_flag_version":3,"$feature_flag_reason":"Matched condition set 2","$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$groups":[]},"distinct_id":"user-id","event":"$feature_flag_called","$groups":[],"library":"posthog-php","library_version":"3.4.0","library_consumer":"LibCurl","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array('shouldVerify' => true),
                 ),
@@ -219,7 +219,7 @@ class FeatureFlagTest extends TestCase
                     "requestOptions" => array(),
                 ),
                 1 => array(
-                    "path" => "/flags/?v=2",
+                    "path" => "/decide/?v=4",
                     "payload" => sprintf(
                         '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"},"person_properties":{"distinct_id":"user-id"},"group_properties":{"company":{"$group_key":"id:5"}}}',
                         self::FAKE_API_KEY

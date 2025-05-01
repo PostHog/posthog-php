@@ -22,7 +22,7 @@ class MockedHttpClient extends \PostHog\HttpClient
         ?Closure $errorHandler = null,
         int $curlTimeoutMilliseconds = 750,
         array $flagEndpointResponse = [],
-        array $decideEndpointResponse = []
+        array $flagsEndpointResponse = []
     ) {
         parent::__construct(
             $host,
@@ -34,7 +34,7 @@ class MockedHttpClient extends \PostHog\HttpClient
             $curlTimeoutMilliseconds
         );
         $this->flagEndpointResponse = $flagEndpointResponse;
-        $this->decideEndpointResponse = !empty($decideEndpointResponse) ? $decideEndpointResponse : MockedResponses::DECIDE_REQUEST;
+        $this->flagsEndpointResponse = !empty($flagsEndpointResponse) ? $flagsEndpointResponse : MockedResponses::DECIDE_REQUEST;
     }
 
     public function sendRequest(string $path, ?string $payload, array $extraHeaders = [], array $requestOptions = []): HttpResponse
