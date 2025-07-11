@@ -3788,4 +3788,87 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             $this->assertEquals($testResult, $result[$number]);
         }
     }
+
+    public function testFeatureFlagsWithFlagDependencies(): void
+    {
+        global $errorMessages;
+        
+        // Test flag dependency in matchPropertyGroup
+        $propertyGroup = [
+            "type" => "AND",
+            "values" => [
+                ["type" => "flag", "key" => "parent-flag", "value" => true],
+                ["key" => "email", "value" => "test@example.com", "operator" => "exact"]
+            ]
+        ];
+        
+        $properties = ["email" => "test@example.com"];
+        $result = FeatureFlag::matchPropertyGroup($propertyGroup, $properties, []);
+        
+        // Should return true because AND group continues evaluation when flag dependencies are skipped
+        $this->assertTrue($result);
+        
+        // Check that a warning was logged
+        $this->assertCount(1, $errorMessages);
+        $this->assertStringContainsString("Flag dependency filters are not supported in local evaluation", $errorMessages[0]);
+        $this->assertStringContainsString("parent-flag", $errorMessages[0]);
+        
+        // Reset error messages
+        $errorMessages = [];
+        
+        // Test flag dependency in isConditionMatch via matchFeatureFlagProperties
+        $flag = [
+            "key" => "test-flag",
+            "filters" => [
+                "groups" => [
+                    [
+                        "properties" => [
+                            ["type" => "flag", "key" => "dependency-flag", "value" => true],
+                            ["key" => "name", "value" => "test", "operator" => "exact"]
+                        ],
+                        "rollout_percentage" => 100
+                    ]
+                ]
+            ]
+        ];
+        
+        $properties = ["name" => "test"];
+        $result = FeatureFlag::matchFeatureFlagProperties($flag, "test-user", $properties);
+        
+        // Should return true because the other condition matches
+        $this->assertTrue($result);
+        
+        // Check that a warning was logged
+        $this->assertCount(1, $errorMessages);
+        $this->assertStringContainsString("Flag dependency filters are not supported in local evaluation", $errorMessages[0]);
+        $this->assertStringContainsString("test-flag", $errorMessages[0]);
+        $this->assertStringContainsString("dependency-flag", $errorMessages[0]);
+        
+        // Reset error messages
+        $errorMessages = [];
+        
+        // Test that evaluation continues when only flag dependencies exist
+        $flagOnlyDependency = [
+            "key" => "only-flag-dep",
+            "filters" => [
+                "groups" => [
+                    [
+                        "properties" => [
+                            ["type" => "flag", "key" => "parent-flag-only", "value" => true]
+                        ],
+                        "rollout_percentage" => 100
+                    ]
+                ]
+            ]
+        ];
+        
+        $result = FeatureFlag::matchFeatureFlagProperties($flagOnlyDependency, "test-user", []);
+        
+        // Should return true due to rollout percentage
+        $this->assertTrue($result);
+        
+        // Check that a warning was logged
+        $this->assertCount(1, $errorMessages);
+        $this->assertStringContainsString("parent-flag-only", $errorMessages[0]);
+    }
 }
