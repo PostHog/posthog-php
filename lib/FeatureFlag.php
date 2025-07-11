@@ -155,8 +155,16 @@ class FeatureFlag
             foreach ($properties as $prop) {
                 try {
                     $matches = false;
-                    if ($prop["type"] === 'cohort') {
+                    $propType = $prop["type"] ?? null;
+                    if ($propType === 'cohort') {
                         $matches = FeatureFlag::matchCohort($prop, $propertyValues, $cohortProperties);
+                    } elseif ($propType === 'flag') {
+                        error_log(sprintf(
+                            "PostHog: Flag dependency filters are not supported in local evaluation. " .
+                            "Skipping condition with dependency on flag '%s'",
+                            $prop["key"] ?? "unknown"
+                        ));
+                        continue;
                     } else {
                         $matches = FeatureFlag::matchProperty($prop, $propertyValues);
                     }
@@ -414,8 +422,17 @@ class FeatureFlag
         if (count($condition['properties'] ?? []) > 0) {
             foreach ($condition['properties'] as $property) {
                 $matches = false;
-                if ($property['type'] == 'cohort') {
+                $propertyType = $property['type'] ?? null;
+                if ($propertyType == 'cohort') {
                     $matches = FeatureFlag::matchCohort($property, $properties, $cohorts);
+                } elseif ($propertyType == 'flag') {
+                    error_log(sprintf(
+                        "PostHog: Flag dependency filters are not supported in local evaluation. " .
+                        "Skipping condition for flag '%s' with dependency on flag '%s'",
+                        $featureFlag["key"] ?? "unknown",
+                        $property["key"] ?? "unknown"
+                    ));
+                    continue;
                 } else {
                     $matches = FeatureFlag::matchProperty($property, $properties);
                 }
