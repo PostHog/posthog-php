@@ -33,6 +33,20 @@ class ForkCurl extends QueueConsumer
     }
 
     /**
+     * Converts the configured timeout from milliseconds to integer seconds for curl.
+     * @return int|null Integer seconds or null for unlimited.
+     */
+    private function timeoutSeconds(): ?int
+    {
+        $ms = isset($this->options['timeout']) ? (int)$this->options['timeout'] : 10000;
+        if ($ms <= 0) {
+            return null;
+        }
+        $seconds = (int)ceil($ms / 1000);
+        return max(1, $seconds);
+    }
+
+    /**
      * Make an async request to our API. Fork a curl process, immediately send
      * to the API. If debug is enabled, we wait for the response.
      * @param array $messages array of all the messages to send
@@ -88,6 +102,12 @@ class ForkCurl extends QueueConsumer
         $libName = $messages[0]['library'];
         $libVersion = $messages[0]['library_version'];
         $cmd .= " -H 'User-Agent: $libName/$libVersion'";
+
+        // Timeout
+        $seconds = $this->timeoutSeconds();
+        if ($seconds !== null) {
+            $cmd .= " --max-time $seconds --connect-timeout $seconds";
+        }
 
         if (!$this->debug()) {
             $cmd .= " > /dev/null 2>&1 &";
