@@ -4,10 +4,11 @@ namespace PostHog\Test;
 
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
+use PostHog\Test\MockErrorHandler;
 
 /**
  * Test suite for the 32KB payload size limit fix.
- * 
+ *
  * This addresses the critical data loss issue where events exceeding 32KB
  * when batched together were silently dropped instead of being split and sent.
  */
@@ -207,33 +208,5 @@ class PayloadSizeLimitFixTest extends TestCase
         // Should only need one request for normal sized batch
         $requestCount = $this->getBatchRequestCount();
         $this->assertEquals(1, $requestCount, "Only one request should be made for normal batch");
-    }
-}
-
-/**
- * Mock error handler to capture and verify error reporting
- */
-class MockErrorHandler
-{
-    private $errors = [];
-
-    public function handleError($code, $message)
-    {
-        $this->errors[] = ['code' => $code, 'message' => $message];
-    }
-
-    public function hasError($code)
-    {
-        foreach ($this->errors as $error) {
-            if ($error['code'] === $code) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public function getErrors()
-    {
-        return $this->errors;
     }
 }
