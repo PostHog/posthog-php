@@ -52,6 +52,10 @@ class MockedHttpClient extends \PostHog\HttpClient
             return new HttpResponse(json_encode($this->flagEndpointResponse), 200);
         }
 
+        if (str_starts_with($path, "/batch/")) {
+            return new HttpResponse('{"status":"Ok"}', 200);
+        }
+
         return parent::sendRequest($path, $payload, $extraHeaders, $requestOptions);
     }
 }
