@@ -124,19 +124,37 @@ class LibCurl extends QueueConsumer
             $payload = gzencode($payload);
         }
 
+        $userAgent = sprintf('%s/%s', 
+            $sampleMessage['library'] ?? 'PostHog-PHP',
+            $sampleMessage['library_version'] ?? 'Unknown'
+        );
+
         $response = $this->httpClient->sendRequest(
             '/batch/',
             $payload,
             [
-                "User-Agent: {$sampleMessage['library']}/{$sampleMessage['library_version']}",
+                "User-Agent: {$userAgent}",
             ],
             [
                 'shouldVerify' => $this->options['verify_batch_events_request'] ?? true,
             ]
         );
 
-        // Return boolean based on whether we got a response
-        return !empty($response->getResponse());
+        $responseCode = $response->getResponseCode();
+        $success = $responseCode >= 200 && $responseCode < 300;
+
+        if (!$success) {
+            $this->handleError(
+                'batch_delivery_failed',
+                sprintf(
+                    'Batch delivery failed with HTTP %d. Payload size: %d bytes. Will retry if attempts remain.',
+                    $responseCode,
+                    strlen($payload)
+                )
+            );
+        }
+
+        return $success;
     }
 
 }

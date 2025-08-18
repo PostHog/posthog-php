@@ -12,6 +12,8 @@ class MockedHttpClient extends \PostHog\HttpClient
 
     private $flagEndpointResponse;
     private $flagsEndpointResponse;
+    private $batchResponse;
+    private $batchResponses = [];
 
     public function __construct(
         string $host,
@@ -53,9 +55,47 @@ class MockedHttpClient extends \PostHog\HttpClient
         }
 
         if (str_starts_with($path, "/batch/")) {
+            // Use configured response if available
+            if (!empty($this->batchResponses)) {
+                $response = array_shift($this->batchResponses);
+                return new HttpResponse($response[1], $response[0]);
+            }
+            
+            if ($this->batchResponse !== null) {
+                return new HttpResponse($this->batchResponse[1], $this->batchResponse[0]);
+            }
+            
             return new HttpResponse('{"status":"Ok"}', 200);
         }
 
         return parent::sendRequest($path, $payload, $extraHeaders, $requestOptions);
+    }
+
+    /**
+     * Set a single response for batch requests
+     * @param int $statusCode
+     * @param string $body
+     */
+    public function setResponse(int $statusCode, string $body): void
+    {
+        $this->batchResponse = [$statusCode, $body];
+    }
+
+    /**
+     * Set multiple responses for batch requests (used in sequence)
+     * @param array $responses Array of [statusCode, body] pairs
+     */
+    public function setResponses(array $responses): void
+    {
+        $this->batchResponses = $responses;
+    }
+
+    /**
+     * Reset all configured responses
+     */
+    public function resetResponses(): void
+    {
+        $this->batchResponse = null;
+        $this->batchResponses = [];
     }
 }

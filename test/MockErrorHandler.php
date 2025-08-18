@@ -28,4 +28,9 @@ class MockErrorHandler
     {
         return $this->errors;
     }
+
+    public function clearErrors()
+    {
+        $this->errors = [];
+    }
 }
