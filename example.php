@@ -16,7 +16,8 @@ require_once __DIR__ . '/vendor/autoload.php';
 
 use PostHog\PostHog;
 
-function loadEnvFile() {
+function loadEnvFile()
+{
     $envPath = __DIR__ . '/.env';
     if (file_exists($envPath)) {
         $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
@@ -55,10 +56,10 @@ try {
     PostHog::init(
         $projectKey,
         [
-            'host' => $host, 
+            'host' => $host,
             'debug' => false,
             'ssl' => !str_starts_with($host, 'http://') // Use SSL unless explicitly http://
-        ], 
+        ],
         null,
         $personalApiKey
     );
@@ -71,7 +72,6 @@ try {
     echo "   Project API Key: " . substr($projectKey, 0, 9) . "...\n";
     echo "   Personal API Key: [REDACTED]\n";
     echo "   Host: $host\n\n\n";
-
 } catch (Exception $e) {
     echo "❌ Authentication failed!\n";
     echo "   Error: " . $e->getMessage() . "\n";
@@ -92,7 +92,8 @@ echo "5. Run all examples\n";
 echo "6. Exit\n";
 $choice = trim(readline("\nEnter your choice (1-6): "));
 
-function identifyAndCaptureExamples() {
+function identifyAndCaptureExamples()
+{
     echo "\n" . str_repeat("=", 60) . "\n";
     echo "IDENTIFY AND CAPTURE EXAMPLES\n";
     echo str_repeat("=", 60) . "\n";
@@ -101,7 +102,7 @@ function identifyAndCaptureExamples() {
     PostHog::init(
         $_ENV['POSTHOG_PROJECT_API_KEY'],
         [
-            'host' => $_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 
+            'host' => $_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com',
             'debug' => true,
             'ssl' => !str_starts_with($_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 'http://')
         ],
@@ -157,7 +158,8 @@ function identifyAndCaptureExamples() {
     echo "✅ Identify and capture examples completed!\n";
 }
 
-function featureFlagExamples() {
+function featureFlagExamples()
+{
     echo "\n" . str_repeat("=", 60) . "\n";
     echo "FEATURE FLAG LOCAL EVALUATION EXAMPLES\n";
     echo str_repeat("=", 60) . "\n";
@@ -166,7 +168,7 @@ function featureFlagExamples() {
     PostHog::init(
         $_ENV['POSTHOG_PROJECT_API_KEY'],
         [
-            'host' => $_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 
+            'host' => $_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com',
             'debug' => false,
             'ssl' => !str_starts_with($_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 'http://')
         ],
@@ -175,14 +177,14 @@ function featureFlagExamples() {
     );
 
     echo "🚩 Getting individual feature flags...\n";
-    
+
     // Test different users to see different results
     $users = ['user_1', 'user_2', 'user_3'];
-    
+
     foreach ($users as $user) {
         $flags = PostHog::getAllFlags($user, [], [], [], true);
         echo "User $user flags: " . json_encode($flags, JSON_PRETTY_PRINT) . "\n";
-        
+
         // Get a specific flag
         if (!empty($flags)) {
             $firstFlag = array_key_first($flags);
@@ -195,7 +197,8 @@ function featureFlagExamples() {
     echo "✅ Feature flag examples completed!\n";
 }
 
-function flagDependencyExamples() {
+function flagDependencyExamples()
+{
     echo "\n" . str_repeat("=", 60) . "\n";
     echo "FLAG DEPENDENCIES EXAMPLES\n";
     echo str_repeat("=", 60) . "\n";
@@ -215,7 +218,7 @@ function flagDependencyExamples() {
     PostHog::init(
         $_ENV['POSTHOG_PROJECT_API_KEY'],
         [
-            'host' => $_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 
+            'host' => $_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com',
             'debug' => true,
             'ssl' => !str_starts_with($_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 'http://')
         ],
@@ -234,7 +237,7 @@ function flagDependencyExamples() {
     );
     echo "✅ @example.com user (test-flag-dependency): " . json_encode($result1) . "\n";
 
-    // Test non-example.com user (dependency should not be satisfied)  
+    // Test non-example.com user (dependency should not be satisfied)
     $result2 = PostHog::getFeatureFlag(
         "test-flag-dependency",
         "regular_user",
@@ -256,7 +259,7 @@ function flagDependencyExamples() {
     );
     $beta2 = PostHog::getFeatureFlag(
         "beta-feature",
-        "regular_user", 
+        "regular_user",
         [],
         ["email" => "user@other.com"],
         [],
@@ -327,7 +330,7 @@ function flagDependencyExamples() {
     foreach ($scenarios as $scenario) {
         $email = $scenario["email"];
         $expectedChain = $scenario["expected"];
-        
+
         $leaf = PostHog::getFeatureFlag(
             "multivariate-leaf-flag",
             "regular_user",
@@ -355,7 +358,7 @@ function flagDependencyExamples() {
 
         $actualChain = [$leaf, $intermediate, $root];
         $chainSuccess = $actualChain === $expectedChain;
-        
+
         echo "   📧 $email:\n";
         echo "      Expected: " . implode(" -> ", $expectedChain) . "\n";
         echo "      Actual:   " . implode(" -> ", array_map('strval', $actualChain)) . "\n";
@@ -368,7 +371,8 @@ function flagDependencyExamples() {
     echo "   - Local evaluation of chains: ✅ WORKING\n";
 }
 
-function contextManagementExamples() {
+function contextManagementExamples()
+{
     echo "\n" . str_repeat("=", 60) . "\n";
     echo "CONTEXT MANAGEMENT AND TAGGING EXAMPLES\n";
     echo str_repeat("=", 60) . "\n";
@@ -377,7 +381,7 @@ function contextManagementExamples() {
     PostHog::init(
         $_ENV['POSTHOG_PROJECT_API_KEY'],
         [
-            'host' => $_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 
+            'host' => $_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com',
             'debug' => true,
             'ssl' => !str_starts_with($_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 'http://')
         ],
@@ -404,7 +408,7 @@ function contextManagementExamples() {
     // Test feature flags with group properties
     echo "🚩 Testing flags with group context...\n";
     $flagValue = PostHog::getFeatureFlag(
-        "enterprise_features", 
+        "enterprise_features",
         "group_user_1",
         ['company' => 'acme_corp'],
         ['plan' => 'enterprise'],
@@ -416,18 +420,19 @@ function contextManagementExamples() {
     echo "✅ Context management examples completed!\n";
 }
 
-function runAllExamples() {
+function runAllExamples()
+{
     identifyAndCaptureExamples();
     echo "\n" . str_repeat("-", 60) . "\n";
-    
+
     featureFlagExamples();
     echo "\n" . str_repeat("-", 60) . "\n";
-    
+
     flagDependencyExamples();
     echo "\n" . str_repeat("-", 60) . "\n";
-    
+
     contextManagementExamples();
-    
+
     echo "\n🎉 All examples completed!\n";
 }
 
