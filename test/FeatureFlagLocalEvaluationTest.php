@@ -3791,9 +3791,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testFeatureFlagsWithFlagDependencies(): void
     {
-        global $errorMessages;
-        
-        // Test flag dependency in matchPropertyGroup
+        // Test flag dependency evaluation without required context throws exception
         $propertyGroup = [
             "type" => "AND",
             "values" => [
@@ -3803,20 +3801,18 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         ];
         
         $properties = ["email" => "test@example.com"];
-        $result = FeatureFlag::matchPropertyGroup($propertyGroup, $properties, []);
         
-        // Should return true because AND group continues evaluation when flag dependencies are skipped
-        $this->assertTrue($result);
+        // Should throw InconclusiveMatchException because flag dependencies cannot be evaluated without flags_by_key
+        $threwException = false;
+        try {
+            FeatureFlag::matchPropertyGroup($propertyGroup, $properties, []);
+        } catch (InconclusiveMatchException $e) {
+            $this->assertStringContainsString("Cannot evaluate flag dependency on 'parent-flag' without flags_by_key and evaluation_cache", $e->getMessage());
+            $threwException = true;
+        }
+        $this->assertTrue($threwException, "Expected InconclusiveMatchException was not thrown");
         
-        // Check that a warning was logged
-        $this->assertCount(1, $errorMessages);
-        $this->assertStringContainsString("Flag dependency filters are not supported in local evaluation", $errorMessages[0]);
-        $this->assertStringContainsString("parent-flag", $errorMessages[0]);
-        
-        // Reset error messages
-        $errorMessages = [];
-        
-        // Test flag dependency in isConditionMatch via matchFeatureFlagProperties
+        // Test flag dependency via matchFeatureFlagProperties
         $flag = [
             "key" => "test-flag",
             "filters" => [
@@ -3833,42 +3829,15 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         ];
         
         $properties = ["name" => "test"];
-        $result = FeatureFlag::matchFeatureFlagProperties($flag, "test-user", $properties);
         
-        // Should return true because the other condition matches
-        $this->assertTrue($result);
-        
-        // Check that a warning was logged
-        $this->assertCount(1, $errorMessages);
-        $this->assertStringContainsString("Flag dependency filters are not supported in local evaluation", $errorMessages[0]);
-        $this->assertStringContainsString("test-flag", $errorMessages[0]);
-        $this->assertStringContainsString("dependency-flag", $errorMessages[0]);
-        
-        // Reset error messages
-        $errorMessages = [];
-        
-        // Test that evaluation continues when only flag dependencies exist
-        $flagOnlyDependency = [
-            "key" => "only-flag-dep",
-            "filters" => [
-                "groups" => [
-                    [
-                        "properties" => [
-                            ["type" => "flag", "key" => "parent-flag-only", "value" => true]
-                        ],
-                        "rollout_percentage" => 100
-                    ]
-                ]
-            ]
-        ];
-        
-        $result = FeatureFlag::matchFeatureFlagProperties($flagOnlyDependency, "test-user", []);
-        
-        // Should return true due to rollout percentage
-        $this->assertTrue($result);
-        
-        // Check that a warning was logged
-        $this->assertCount(1, $errorMessages);
-        $this->assertStringContainsString("parent-flag-only", $errorMessages[0]);
+        // Should also throw InconclusiveMatchException because flag dependencies need context
+        $threwException = false;
+        try {
+            FeatureFlag::matchFeatureFlagProperties($flag, "test-user", $properties);
+        } catch (InconclusiveMatchException $e) {
+            $this->assertStringContainsString("Cannot evaluate flag dependency", $e->getMessage());
+            $threwException = true;
+        }
+        $this->assertTrue($threwException, "Expected InconclusiveMatchException was not thrown");
     }
 }

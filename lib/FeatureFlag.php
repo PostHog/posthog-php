@@ -99,7 +99,7 @@ class FeatureFlag
         return false;
     }
 
-    public static function matchCohort($property, $propertyValues, $cohortProperties)
+    public static function matchCohort($property, $propertyValues, $cohortProperties, $flagsByKey = null, $evaluationCache = null, $distinctId = null)
     {
         $cohortId = strval($property["value"]);
         if (!array_key_exists($cohortId, $cohortProperties)) {
@@ -107,10 +107,10 @@ class FeatureFlag
         }
 
         $propertyGroup = $cohortProperties[$cohortId];
-        return FeatureFlag::matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties);
+        return FeatureFlag::matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties, $flagsByKey, $evaluationCache, $distinctId);
     }
 
-    public static function matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties)
+    public static function matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties, $flagsByKey = null, $evaluationCache = null, $distinctId = null)
     {
         if (!$propertyGroup) {
             return true;
@@ -130,7 +130,7 @@ class FeatureFlag
             // a nested property group
             foreach ($properties as $prop) {
                 try {
-                    $matches = FeatureFlag::matchPropertyGroup($prop, $propertyValues, $cohortProperties);
+                    $matches = FeatureFlag::matchPropertyGroup($prop, $propertyValues, $cohortProperties, $flagsByKey, $evaluationCache, $distinctId);
                     if ($propertyGroupType === 'AND') {
                         if (!$matches) {
                             return false;
@@ -157,14 +157,9 @@ class FeatureFlag
                     $matches = false;
                     $propType = $prop["type"] ?? null;
                     if ($propType === 'cohort') {
-                        $matches = FeatureFlag::matchCohort($prop, $propertyValues, $cohortProperties);
+                        $matches = FeatureFlag::matchCohort($prop, $propertyValues, $cohortProperties, $flagsByKey, $evaluationCache, $distinctId);
                     } elseif ($propType === 'flag') {
-                        error_log(sprintf(
-                            "PostHog: Flag dependency filters are not supported in local evaluation. " .
-                            "Skipping condition with dependency on flag '%s'",
-                            $prop["key"] ?? "unknown"
-                        ));
-                        continue;
+                        $matches = FeatureFlag::evaluateFlagDependency($prop, $flagsByKey, $evaluationCache, $distinctId, $propertyValues, $cohortProperties);
                     } else {
                         $matches = FeatureFlag::matchProperty($prop, $propertyValues);
                     }
@@ -189,6 +184,10 @@ class FeatureFlag
                         }
                     }
                 } catch (InconclusiveMatchException $err) {
+                    // If this is a flag dependency error, preserve the original message
+                    if ($propType === 'flag') {
+                        throw $err;
+                    }
                     $errorMatchingLocally = true;
                 }
             }
@@ -354,7 +353,7 @@ class FeatureFlag
         }
     }
 
-    public static function matchFeatureFlagProperties($flag, $distinctId, $properties, $cohorts = [])
+    public static function matchFeatureFlagProperties($flag, $distinctId, $properties, $cohorts = [], $flagsByKey = null, $evaluationCache = null)
     {
         $flagConditions = ($flag["filters"] ?? [])["groups"] ?? [];
         $isInconclusive = false;
@@ -390,7 +389,7 @@ class FeatureFlag
         foreach ($flagConditionsWithIndexes as $conditionWithIndex) {
             $condition = $conditionWithIndex[0];
             try {
-                if (FeatureFlag::isConditionMatch($flag, $distinctId, $condition, $properties, $cohorts)) {
+                if (FeatureFlag::isConditionMatch($flag, $distinctId, $condition, $properties, $cohorts, $flagsByKey, $evaluationCache)) {
                     $variantOverride = $condition["variant"] ?? null;
                     $flagVariants = (($flag["filters"] ?? [])["multivariate"] ?? [])["variants"] ?? [];
                     $variantKeys = array_map(function ($variant) {
@@ -404,6 +403,13 @@ class FeatureFlag
                     }
                 }
             } catch (InconclusiveMatchException $e) {
+                // If this is a flag dependency error, preserve the original message
+                if (
+                    strpos($e->getMessage(), "Cannot evaluate flag dependency") !== false ||
+                    strpos($e->getMessage(), "Circular dependency detected") !== false
+                ) {
+                    throw $e;
+                }
                 $isInconclusive = true;
             }
         }
@@ -415,7 +421,7 @@ class FeatureFlag
         return false;
     }
 
-    private static function isConditionMatch($featureFlag, $distinctId, $condition, $properties, $cohorts)
+    private static function isConditionMatch($featureFlag, $distinctId, $condition, $properties, $cohorts, $flagsByKey = null, $evaluationCache = null)
     {
         $rolloutPercentage = array_key_exists("rollout_percentage", $condition) ? $condition["rollout_percentage"] : null;
 
@@ -424,15 +430,9 @@ class FeatureFlag
                 $matches = false;
                 $propertyType = $property['type'] ?? null;
                 if ($propertyType == 'cohort') {
-                    $matches = FeatureFlag::matchCohort($property, $properties, $cohorts);
+                    $matches = FeatureFlag::matchCohort($property, $properties, $cohorts, $flagsByKey, $evaluationCache, $distinctId);
                 } elseif ($propertyType == 'flag') {
-                    error_log(sprintf(
-                        "PostHog: Flag dependency filters are not supported in local evaluation. " .
-                        "Skipping condition for flag '%s' with dependency on flag '%s'",
-                        $featureFlag["key"] ?? "unknown",
-                        $property["key"] ?? "unknown"
-                    ));
-                    continue;
+                    $matches = FeatureFlag::evaluateFlagDependency($property, $flagsByKey, $evaluationCache, $distinctId, $properties, $cohorts);
                 } else {
                     $matches = FeatureFlag::matchProperty($property, $properties);
                 }
@@ -484,5 +484,137 @@ class FeatureFlag
         }
 
         return $regex;
+    }
+
+    public static function evaluateFlagDependency($property, $flagsByKey, $evaluationCache, $distinctId, $properties, $cohortProperties)
+    {
+        if ($flagsByKey === null || $evaluationCache === null) {
+            throw new InconclusiveMatchException(sprintf(
+                "Cannot evaluate flag dependency on '%s' without flags_by_key and evaluation_cache",
+                $property["key"] ?? "unknown"
+            ));
+        }
+
+        // Check if dependency_chain is present - it should always be provided for flag dependencies
+        if (!array_key_exists("dependency_chain", $property)) {
+            throw new InconclusiveMatchException(sprintf(
+                "Cannot evaluate flag dependency on '%s' without dependency_chain",
+                $property["key"] ?? "unknown"
+            ));
+        }
+
+        $dependencyChain = $property["dependency_chain"];
+
+        // Handle circular dependency (empty chain means circular)
+        if (count($dependencyChain) === 0) {
+            throw new InconclusiveMatchException(sprintf(
+                "Circular dependency detected for flag '%s'",
+                $property["key"] ?? "unknown"
+            ));
+        }
+
+        // The flag key to evaluate is in the "key" field
+        $depFlagKey = $property["key"] ?? null;
+        if (!$depFlagKey) {
+            throw new InconclusiveMatchException(sprintf(
+                "Flag dependency missing 'key' field: %s",
+                json_encode($property)
+            ));
+        }
+
+        // Check if we've already evaluated this flag
+        if (!array_key_exists($depFlagKey, $evaluationCache)) {
+            // Need to evaluate this dependency first
+            $depFlag = $flagsByKey[$depFlagKey] ?? null;
+            if (!$depFlag) {
+                // Missing flag dependency - cannot evaluate locally
+                $evaluationCache[$depFlagKey] = null;
+                throw new InconclusiveMatchException(sprintf(
+                    "Cannot evaluate flag dependency '%s' - flag not found in local flags",
+                    $depFlagKey
+                ));
+            } else {
+                // Check if the flag is active (same check as in Client::computeFlagLocally)
+                if (!($depFlag["active"] ?? false)) {
+                    $evaluationCache[$depFlagKey] = false;
+                } else {
+                    // Recursively evaluate the dependency
+                    try {
+                        $depResult = FeatureFlag::matchFeatureFlagProperties(
+                            $depFlag,
+                            $distinctId,
+                            $properties,
+                            $cohortProperties,
+                            $flagsByKey,
+                            $evaluationCache
+                        );
+                        $evaluationCache[$depFlagKey] = $depResult;
+                    } catch (InconclusiveMatchException $e) {
+                        // If we can't evaluate a dependency, store null and propagate the error
+                        $evaluationCache[$depFlagKey] = null;
+                        throw new InconclusiveMatchException(sprintf(
+                            "Cannot evaluate flag dependency '%s': %s",
+                            $depFlagKey,
+                            $e->getMessage()
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Get the evaluated flag value
+        $flagValue = $evaluationCache[$depFlagKey];
+        if ($flagValue === null) {
+            // Previously inconclusive - raise error again
+            throw new InconclusiveMatchException(sprintf(
+                "Flag dependency '%s' was previously inconclusive",
+                $depFlagKey
+            ));
+        }
+
+        // Now check if the flag value matches the expected value in the property
+        $expectedValue = $property["value"] ?? null;
+        $operator = $property["operator"] ?? "exact";
+
+        if ($expectedValue !== null) {
+            // For flag dependencies, we need to compare the actual flag result with expected value
+            // using the flag_evaluates_to operator logic
+            if ($operator === "flag_evaluates_to") {
+                return FeatureFlag::matchesDependencyValue($expectedValue, $flagValue);
+            } else {
+                // This should never happen, but just to be defensive
+                throw new InconclusiveMatchException(sprintf(
+                    "Flag dependency property for '%s' has invalid operator '%s'",
+                    $depFlagKey,
+                    $operator
+                ));
+            }
+        }
+
+        // If no value check needed, return true (all dependencies passed)
+        return true;
+    }
+
+    public static function matchesDependencyValue($expectedValue, $actualValue)
+    {
+        // String variant case - check for exact match or boolean true
+        if (is_string($actualValue) && strlen($actualValue) > 0) {
+            if (is_bool($expectedValue)) {
+                // Any variant matches boolean true
+                return $expectedValue;
+            } elseif (is_string($expectedValue)) {
+                // variants are case-sensitive, hence our comparison is too
+                return $actualValue === $expectedValue;
+            } else {
+                return false;
+            }
+        }
+        // Boolean case - must match expected boolean value
+        elseif (is_bool($actualValue) && is_bool($expectedValue)) {
+            return $actualValue === $expectedValue;
+        }
+
+        // Default case
+        return false;
     }
 }
