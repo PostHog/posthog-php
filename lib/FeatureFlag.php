@@ -507,7 +507,6 @@ class FeatureFlag
 
         // Handle circular dependency (empty chain means circular)
         if (count($dependencyChain) === 0) {
-            error_log(sprintf("Circular dependency detected for flag: %s", $property["key"] ?? "unknown"));
             throw new InconclusiveMatchException(sprintf(
                 "Circular dependency detected for flag '%s'",
                 $property["key"] ?? "unknown"
