@@ -23,7 +23,7 @@ function loadEnvFile()
         $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
         foreach ($lines as $line) {
             $line = trim($line);
-            if ($line && !str_starts_with($line, '#') && strpos($line, '=') !== false) {
+            if ($line && ($line[0] !== '#') && strpos($line, '=') !== false) {
                 list($key, $value) = explode('=', $line, 2);
                 $_ENV[trim($key)] = trim($value);
                 putenv(trim($key) . '=' . trim($value));
@@ -58,7 +58,7 @@ try {
         [
             'host' => $host,
             'debug' => false,
-            'ssl' => !str_starts_with($host, 'http://') // Use SSL unless explicitly http://
+            'ssl' => !(substr($host, 0, 7) === 'http://') // Use SSL unless explicitly http://
         ],
         null,
         $personalApiKey
