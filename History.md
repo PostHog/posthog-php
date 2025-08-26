@@ -1,3 +1,11 @@
+
+3.7.0 / 2025-08-26
+==================
+
+  * feat(flags): Implement local evaluation of flag dependencies (#84)
+  * fix: Ignore new `flag` filter type in local evaluation (#80)
+  * chore: Add feature flags project board workflow (#79)
+
 3.6.0 / 2025-04-30
 ==================
 
