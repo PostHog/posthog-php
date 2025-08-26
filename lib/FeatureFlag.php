@@ -497,10 +497,8 @@ class FeatureFlag
 
         // Check if dependency_chain is present - it should always be provided for flag dependencies
         if (!array_key_exists("dependency_chain", $property)) {
-            // If no dependency_chain is provided, this is likely an old-style flag property
-            // that was meant to be skipped in the old implementation
             throw new InconclusiveMatchException(sprintf(
-                "Cannot evaluate flag dependency on '%s' without flags_by_key and evaluation_cache",
+                "Cannot evaluate flag dependency on '%s' without dependency_chain",
                 $property["key"] ?? "unknown"
             ));
         }
