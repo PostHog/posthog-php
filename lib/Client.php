@@ -94,7 +94,7 @@ class Client
             false,
             $options["debug"] ?? false,
             null,
-            (int) ($options['timeout'] ?? 10000)
+            (int) ($options['timeout'] ?? HttpClient::DEFAULT_CURL_TIMEOUT)
         );
         $this->featureFlagsRequestTimeout = (int) ($options['feature_flag_request_timeout_ms'] ?? 3000);
         $this->featureFlags = [];

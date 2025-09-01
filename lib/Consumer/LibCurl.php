@@ -31,7 +31,7 @@ class LibCurl extends QueueConsumer
             $this->compress_request,
             $this->debug(),
             $this->options['error_handler'] ?? null,
-            $this->options['timeout'] ?? 10000
+            $this->options['timeout'] ?? HttpClient::DEFAULT_CURL_TIMEOUT
         );
     }
 

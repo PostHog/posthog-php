@@ -2,6 +2,7 @@
 
 namespace PostHog\Consumer;
 
+use PostHog\HttpClient;
 use PostHog\QueueConsumer;
 
 class ForkCurl extends QueueConsumer
@@ -38,7 +39,7 @@ class ForkCurl extends QueueConsumer
      */
     private function timeoutSeconds(): ?int
     {
-        $ms = isset($this->options['timeout']) ? (int)$this->options['timeout'] : 10000;
+        $ms = isset($this->options['timeout']) ? (int)$this->options['timeout'] : HttpClient::DEFAULT_CURL_TIMEOUT;
         if ($ms <= 0) {
             return null;
         }
