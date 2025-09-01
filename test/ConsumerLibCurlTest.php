@@ -60,7 +60,7 @@ class ConsumerLibCurlTest extends TestCase
             'curlTimeoutMilliseconds' => 1234,
         );
 
-        foreach ($expectedValues as $name => $expected){
+        foreach ($expectedValues as $name => $expected) {
             self::assertTrue($rcHttp->hasProperty($name));
 
             $prop = $rcHttp->getProperty($name);
