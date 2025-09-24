@@ -1050,6 +1050,62 @@ class MockedResponses
         ],
     ];
 
+    public const LOCAL_EVALUATION_CONDITIONS_ORDER_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "Test Flag",
+                "key" => "test-flag",
+                "active" => true,
+                "deleted" => false,
+                "filters" => [
+                    "groups" => [
+                        // First condition: 100% rollout for everyone
+                        [
+                            "rollout_percentage" => 100,
+                        ],
+                        // Second condition: VIP users get a specific variant
+                        // This used to be evaluated first due to sorting, but now it's evaluated second
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "email",
+                                    "value" => "@vip.com",
+                                    "operator" => "icontains",
+                                    "type" => "person"
+                                ]
+                            ],
+                            "rollout_percentage" => 100,
+                            "variant" => "vip-variant"
+                        ],
+                    ],
+                    "multivariate" => [
+                        "variants" => [
+                            [
+                                "key" => "control",
+                                "name" => "Control",
+                                "rollout_percentage" => 50
+                            ],
+                            [
+                                "key" => "test",
+                                "name" => "Test",
+                                "rollout_percentage" => 50
+                            ],
+                            [
+                                "key" => "vip-variant",
+                                "name" => "VIP Variant",
+                                "rollout_percentage" => 0
+                            ]
+                        ]
+                    ]
+                ],
+            ]
+        ],
+    ];
+
 
     public const EXPERIENCE_CONITNUITY_REQUEST = [
         'count' => 1,

@@ -337,57 +337,12 @@ class FeatureFlag
         return $lookupTable;
     }
 
-    private static function compareFlagConditions($conditionA, $conditionB)
-    {
-        $AhasVariantOverride = isset($conditionA["variant"]);
-        $BhasVariantOverride = isset($conditionB["variant"]);
-
-        if ($AhasVariantOverride && $BhasVariantOverride) {
-            return 0;
-        } elseif ($AhasVariantOverride) {
-            return -1;
-        } elseif ($BhasVariantOverride) {
-            return 1;
-        } else {
-            return 0;
-        }
-    }
-
     public static function matchFeatureFlagProperties($flag, $distinctId, $properties, $cohorts = [], $flagsByKey = null, $evaluationCache = null)
     {
         $flagConditions = ($flag["filters"] ?? [])["groups"] ?? [];
         $isInconclusive = false;
 
-        // Add index to each condition to make stable sort possible
-        $flagConditionsWithIndexes = array();
-        $i = 0;
-        foreach ($flagConditions as $key => $value) {
-            $flagConditionsWithIndexes[] = array($value, $i);
-            $i++;
-        }
-        // # Stable sort conditions with variant overrides to the top.
-        // # This ensures that if overrides are present, they are
-        // # evaluated first, and the variant override is applied to the first matching condition.
-        usort(
-            $flagConditionsWithIndexes,
-            function ($conditionA, $conditionB) {
-                $AhasVariantOverride = isset($conditionA[0]["variant"]);
-                $BhasVariantOverride = isset($conditionB[0]["variant"]);
-
-                if ($AhasVariantOverride && $BhasVariantOverride) {
-                    return $conditionA[1] - $conditionB[1];
-                } elseif ($AhasVariantOverride) {
-                    return -1;
-                } elseif ($BhasVariantOverride) {
-                    return 1;
-                } else {
-                    return $conditionA[1] - $conditionB[1];
-                }
-            }
-        );
-
-        foreach ($flagConditionsWithIndexes as $conditionWithIndex) {
-            $condition = $conditionWithIndex[0];
+        foreach ($flagConditions as $condition) {
             try {
                 if (FeatureFlag::isConditionMatch($flag, $distinctId, $condition, $properties, $cohorts, $flagsByKey, $evaluationCache)) {
                     $variantOverride = $condition["variant"] ?? null;
