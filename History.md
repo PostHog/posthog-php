@@ -1,3 +1,8 @@
+3.7.1 / 2025-09-26
+==================
+
+  * fix: don't sort condition sets with variant overrides to the top (#85)
+
 
 3.7.0 / 2025-08-26
 ==================
