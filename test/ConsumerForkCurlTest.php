@@ -4,6 +4,7 @@ namespace PostHog\Test;
 
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
+use ReflectionClass;
 
 class ConsumerForkCurlTest extends TestCase
 {
@@ -59,5 +60,71 @@ class ConsumerForkCurlTest extends TestCase
                 )
             )
         );
+    }
+
+    public function testConfigurePositiveTimeout(): void
+    {
+        $consumer = new MockedForkCurlConsumer(
+            'test_api_key', 
+            array(
+                'consumer' => 'fork_curl',
+                'debug' => true,
+                'timeout' => 1500,
+            )
+        );
+
+        $rcClient = new ReflectionClass(Client::class);
+        $prop = $rcClient->getProperty('consumer');
+        $prop->setAccessible(true);
+        $prop->setValue($this->client, $consumer);
+
+        self::assertTrue(
+            $this->client->capture(
+                array(
+                    'distinctId' => 'some-user',
+                    'event' => "PHP Fork Curl'd\" Event",
+                ),
+            )
+        );
+
+        $this->client->flush();
+
+        self::assertNotEmpty($consumer->commands);
+        $cmd = end($consumer->commands);
+        self::assertStringContainsString('--max-time 2', $cmd);
+        self::assertStringContainsString('--connect-timeout 2', $cmd);
+    }
+
+    public function testConfigureUnlimitedTimeout(): void
+    {
+        $consumer = new MockedForkCurlConsumer(
+            'test_api_key', 
+            array(
+                'consumer' => 'fork_curl',
+                'debug' => true,
+                'timeout' => 0,
+            )
+        );
+
+        $rcClient = new ReflectionClass(Client::class);
+        $prop = $rcClient->getProperty('consumer');
+        $prop->setAccessible(true);
+        $prop->setValue($this->client, $consumer);
+
+        self::assertTrue(
+            $this->client->capture(
+                array(
+                    'distinctId' => 'some-user',
+                    'event' => "PHP Fork Curl'd\" Event",
+                ),
+            )
+        );
+
+        $this->client->flush();
+
+        self::assertNotEmpty($consumer->commands);
+        $cmd = end($consumer->commands);
+        self::assertStringNotContainsString('max-time', $cmd);
+        self::assertStringNotContainsString('connect-timeout', $cmd);
     }
 }
