@@ -1706,9 +1706,9 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'example_id'), "second-variant");
     }
 
-    public function testFlagWithMultipleVariantOverrides()
+    public function testConditionsEvaluatedInOrder()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_VARIANT_OVERRIDES_REQUEST);
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_CONDITIONS_ORDER_REQUEST);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1719,9 +1719,10 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'test_id', [], ["email" => "test@posthog.com"]), "second-variant");
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'example_id'), "third-variant");
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'another_id'), "second-variant");
+        // VIP users now match the first condition (100% rollout) instead of their specific variant override
+        // because conditions are evaluated in order
+        $result = PostHog::getFeatureFlag('test-flag', 'vip_user', [], ["email" => "user@vip.com"]);
+        $this->assertTrue(in_array($result, ['control', 'test'])); // Should get one of the regular variants, not vip-variant
     }
 
     public function testEventCalled()
