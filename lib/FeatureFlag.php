@@ -103,7 +103,10 @@ class FeatureFlag
     {
         $cohortId = strval($property["value"]);
         if (!array_key_exists($cohortId, $cohortProperties)) {
-            throw new InconclusiveMatchException("can't match cohort without a given cohort property value");
+            throw new RequiresServerEvaluationException(
+                "cohort {$cohortId} not found in local cohorts - " .
+                "likely a static cohort that requires server evaluation"
+            );
         }
 
         $propertyGroup = $cohortProperties[$cohortId];
@@ -141,6 +144,9 @@ class FeatureFlag
                             return true;
                         }
                     }
+                } catch (RequiresServerEvaluationException $err) {
+                    // Immediately propagate - this condition requires server-side data
+                    throw $err;
                 } catch (InconclusiveMatchException $err) {
                     $errorMatchingLocally = true;
                 }
@@ -183,6 +189,9 @@ class FeatureFlag
                             return true;
                         }
                     }
+                } catch (RequiresServerEvaluationException $err) {
+                    // Immediately propagate - this condition requires server-side data
+                    throw $err;
                 } catch (InconclusiveMatchException $err) {
                     // If this is a flag dependency error, preserve the original message
                     if ($propType === 'flag') {
@@ -402,6 +411,9 @@ class FeatureFlag
                         return FeatureFlag::getMatchingVariant($flag, $distinctId) ?? true;
                     }
                 }
+            } catch (RequiresServerEvaluationException $e) {
+                // Immediately propagate - this condition requires server-side data
+                throw $e;
             } catch (InconclusiveMatchException $e) {
                 // If this is a flag dependency error, preserve the original message
                 if (

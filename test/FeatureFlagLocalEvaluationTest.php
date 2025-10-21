@@ -3840,4 +3840,95 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         }
         $this->assertTrue($threwException, "Expected InconclusiveMatchException was not thrown");
     }
+
+    public function testFallsBackToAPIWhenFlagHasStaticCohort()
+    {
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_WITH_STATIC_COHORT,
+            flagsEndpointResponse: MockedResponses::FLAGS_WITH_STATIC_COHORT_RESPONSE
+        );
+
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+
+        $result = $this->client->getFeatureFlag(
+            'multi-condition-flag',
+            'test-user',
+            [],
+            ['$geoip_country_code' => 'DE']
+        );
+
+        // Should return 'set-1' from API, not 'set-8' from local evaluation
+        $this->assertEquals('set-1', $result);
+
+        $this->checkEmptyErrorLogs();
+    }
+
+    public function testFallsBackToAPIInGetAllFlagsWhenFlagHasStaticCohort()
+    {
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_WITH_STATIC_COHORT,
+            flagsEndpointResponse: MockedResponses::FLAGS_WITH_STATIC_COHORT_RESPONSE
+        );
+
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+
+        $result = $this->client->getAllFlags(
+            'test-user',
+            [],
+            ['$geoip_country_code' => 'DE']
+        );
+
+        // Should return flags from API
+        $this->assertEquals([
+            'multi-condition-flag' => 'set-1'
+        ], $result);
+
+        $this->checkEmptyErrorLogs();
+    }
+
+    public function testFallsBackToAPIInGetFeatureFlagPayloadWhenFlagHasStaticCohort()
+    {
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_WITH_STATIC_COHORT_FOR_PAYLOAD,
+            flagsEndpointResponse: MockedResponses::FLAGS_WITH_STATIC_COHORT_PAYLOAD_RESPONSE
+        );
+
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+
+        $result = $this->client->getFeatureFlagPayload(
+            'flag-with-payload',
+            'test-user'
+        );
+
+        // Should return payload from API, not local evaluation
+        $this->assertEquals([
+            'message' => 'from-api'
+        ], $result);
+
+        $this->checkEmptyErrorLogs();
+    }
 }
