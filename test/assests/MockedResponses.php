@@ -1485,4 +1485,100 @@ class MockedResponses
             ],
         ]
     ];
+
+    public const LOCAL_EVALUATION_WITH_STATIC_COHORT = [
+        'flags' => [
+            [
+                'id' => 1,
+                'key' => 'multi-condition-flag',
+                'filters' => [
+                    'groups' => [
+                        [
+                            'properties' => [
+                                [
+                                    'key' => 'id',
+                                    'value' => 999,
+                                    'type' => 'cohort'
+                                ]
+                            ],
+                            'rollout_percentage' => 100,
+                            'variant' => 'set-1'
+                        ],
+                        [
+                            'properties' => [
+                                [
+                                    'key' => '$geoip_country_code',
+                                    'operator' => 'exact',
+                                    'value' => ['DE'],
+                                    'type' => 'person'
+                                ]
+                            ],
+                            'rollout_percentage' => 100,
+                            'variant' => 'set-8'
+                        ]
+                    ],
+                    'multivariate' => [
+                        'variants' => [
+                            ['key' => 'set-1', 'rollout_percentage' => 50],
+                            ['key' => 'set-8', 'rollout_percentage' => 50]
+                        ]
+                    ],
+                    'payloads' => [
+                        'set-1' => '{"message": "local-payload-1"}',
+                        'set-8' => '{"message": "local-payload-8"}'
+                    ]
+                ],
+                'active' => true,
+                'is_simple_flag' => false
+            ]
+        ],
+        'cohorts' => []
+    ];
+
+    public const FLAGS_WITH_STATIC_COHORT_RESPONSE = [
+        'featureFlags' => [
+            'multi-condition-flag' => 'set-1'
+        ],
+        'featureFlagPayloads' => [
+            'multi-condition-flag' => '{"message": "from-api"}'
+        ]
+    ];
+
+    public const LOCAL_EVALUATION_WITH_STATIC_COHORT_FOR_PAYLOAD = [
+        'flags' => [
+            [
+                'id' => 2,
+                'key' => 'flag-with-payload',
+                'filters' => [
+                    'groups' => [
+                        [
+                            'properties' => [
+                                [
+                                    'key' => 'id',
+                                    'value' => 999,
+                                    'type' => 'cohort'
+                                ]
+                            ],
+                            'rollout_percentage' => 100
+                        ]
+                    ],
+                    'payloads' => [
+                        'true' => '{"message": "local-payload"}'
+                    ]
+                ],
+                'active' => true,
+                'is_simple_flag' => false
+            ]
+        ],
+        'cohorts' => []
+    ];
+
+    public const FLAGS_WITH_STATIC_COHORT_PAYLOAD_RESPONSE = [
+        'featureFlags' => [
+            'flag-with-payload' => true
+        ],
+        'featureFlagPayloads' => [
+            'flag-with-payload' => '{"message": "from-api"}'
+        ]
+    ];
 }

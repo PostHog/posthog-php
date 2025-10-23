@@ -256,6 +256,8 @@ class Client
                         $personProperties,
                         $groupProperties
                     );
+                } catch (RequiresServerEvaluationException $e) {
+                    $result = null;
                 } catch (InconclusiveMatchException $e) {
                     $result = null;
                 } catch (Exception $e) {
@@ -387,6 +389,8 @@ class Client
                         $personProperties,
                         $groupProperties
                     );
+                } catch (RequiresServerEvaluationException $e) {
+                    $fallbackToFlags = true;
                 } catch (InconclusiveMatchException $e) {
                     $fallbackToFlags = true;
                 } catch (Exception $e) {
