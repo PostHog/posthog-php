@@ -1,3 +1,9 @@
+3.7.2 / 2025-10-22
+==================
+
+  * fix(flags): fallback to API for multi-condition flags with static cohorts (#86)
+
+
 3.7.1 / 2025-09-26
 ==================
 
