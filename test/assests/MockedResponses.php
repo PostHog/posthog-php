@@ -1050,6 +1050,62 @@ class MockedResponses
         ],
     ];
 
+    public const LOCAL_EVALUATION_CONDITIONS_ORDER_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "Test Flag",
+                "key" => "test-flag",
+                "active" => true,
+                "deleted" => false,
+                "filters" => [
+                    "groups" => [
+                        // First condition: 100% rollout for everyone
+                        [
+                            "rollout_percentage" => 100,
+                        ],
+                        // Second condition: VIP users get a specific variant
+                        // This used to be evaluated first due to sorting, but now it's evaluated second
+                        [
+                            "properties" => [
+                                [
+                                    "key" => "email",
+                                    "value" => "@vip.com",
+                                    "operator" => "icontains",
+                                    "type" => "person"
+                                ]
+                            ],
+                            "rollout_percentage" => 100,
+                            "variant" => "vip-variant"
+                        ],
+                    ],
+                    "multivariate" => [
+                        "variants" => [
+                            [
+                                "key" => "control",
+                                "name" => "Control",
+                                "rollout_percentage" => 50
+                            ],
+                            [
+                                "key" => "test",
+                                "name" => "Test",
+                                "rollout_percentage" => 50
+                            ],
+                            [
+                                "key" => "vip-variant",
+                                "name" => "VIP Variant",
+                                "rollout_percentage" => 0
+                            ]
+                        ]
+                    ]
+                ],
+            ]
+        ],
+    ];
+
 
     public const EXPERIENCE_CONITNUITY_REQUEST = [
         'count' => 1,
@@ -1427,6 +1483,102 @@ class MockedResponses
                 "is_simple_flag" => false,
                 "rollout_percentage" => null
             ],
+        ]
+    ];
+
+    public const LOCAL_EVALUATION_WITH_STATIC_COHORT = [
+        'flags' => [
+            [
+                'id' => 1,
+                'key' => 'multi-condition-flag',
+                'filters' => [
+                    'groups' => [
+                        [
+                            'properties' => [
+                                [
+                                    'key' => 'id',
+                                    'value' => 999,
+                                    'type' => 'cohort'
+                                ]
+                            ],
+                            'rollout_percentage' => 100,
+                            'variant' => 'set-1'
+                        ],
+                        [
+                            'properties' => [
+                                [
+                                    'key' => '$geoip_country_code',
+                                    'operator' => 'exact',
+                                    'value' => ['DE'],
+                                    'type' => 'person'
+                                ]
+                            ],
+                            'rollout_percentage' => 100,
+                            'variant' => 'set-8'
+                        ]
+                    ],
+                    'multivariate' => [
+                        'variants' => [
+                            ['key' => 'set-1', 'rollout_percentage' => 50],
+                            ['key' => 'set-8', 'rollout_percentage' => 50]
+                        ]
+                    ],
+                    'payloads' => [
+                        'set-1' => '{"message": "local-payload-1"}',
+                        'set-8' => '{"message": "local-payload-8"}'
+                    ]
+                ],
+                'active' => true,
+                'is_simple_flag' => false
+            ]
+        ],
+        'cohorts' => []
+    ];
+
+    public const FLAGS_WITH_STATIC_COHORT_RESPONSE = [
+        'featureFlags' => [
+            'multi-condition-flag' => 'set-1'
+        ],
+        'featureFlagPayloads' => [
+            'multi-condition-flag' => '{"message": "from-api"}'
+        ]
+    ];
+
+    public const LOCAL_EVALUATION_WITH_STATIC_COHORT_FOR_PAYLOAD = [
+        'flags' => [
+            [
+                'id' => 2,
+                'key' => 'flag-with-payload',
+                'filters' => [
+                    'groups' => [
+                        [
+                            'properties' => [
+                                [
+                                    'key' => 'id',
+                                    'value' => 999,
+                                    'type' => 'cohort'
+                                ]
+                            ],
+                            'rollout_percentage' => 100
+                        ]
+                    ],
+                    'payloads' => [
+                        'true' => '{"message": "local-payload"}'
+                    ]
+                ],
+                'active' => true,
+                'is_simple_flag' => false
+            ]
+        ],
+        'cohorts' => []
+    ];
+
+    public const FLAGS_WITH_STATIC_COHORT_PAYLOAD_RESPONSE = [
+        'featureFlags' => [
+            'flag-with-payload' => true
+        ],
+        'featureFlagPayloads' => [
+            'flag-with-payload' => '{"message": "from-api"}'
         ]
     ];
 }

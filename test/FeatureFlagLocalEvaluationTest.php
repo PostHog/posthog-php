@@ -1706,9 +1706,9 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'example_id'), "second-variant");
     }
 
-    public function testFlagWithMultipleVariantOverrides()
+    public function testConditionsEvaluatedInOrder()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_VARIANT_OVERRIDES_REQUEST);
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_CONDITIONS_ORDER_REQUEST);
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1719,9 +1719,10 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'test_id', [], ["email" => "test@posthog.com"]), "second-variant");
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'example_id'), "third-variant");
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'another_id'), "second-variant");
+        // VIP users now match the first condition (100% rollout) instead of their specific variant override
+        // because conditions are evaluated in order
+        $result = PostHog::getFeatureFlag('test-flag', 'vip_user', [], ["email" => "user@vip.com"]);
+        $this->assertTrue(in_array($result, ['control', 'test'])); // Should get one of the regular variants, not vip-variant
     }
 
     public function testEventCalled()
@@ -3791,9 +3792,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testFeatureFlagsWithFlagDependencies(): void
     {
-        global $errorMessages;
-        
-        // Test flag dependency in matchPropertyGroup
+        // Test flag dependency evaluation without required context throws exception
         $propertyGroup = [
             "type" => "AND",
             "values" => [
@@ -3803,20 +3802,18 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         ];
         
         $properties = ["email" => "test@example.com"];
-        $result = FeatureFlag::matchPropertyGroup($propertyGroup, $properties, []);
         
-        // Should return true because AND group continues evaluation when flag dependencies are skipped
-        $this->assertTrue($result);
+        // Should throw InconclusiveMatchException because flag dependencies cannot be evaluated without flags_by_key
+        $threwException = false;
+        try {
+            FeatureFlag::matchPropertyGroup($propertyGroup, $properties, []);
+        } catch (InconclusiveMatchException $e) {
+            $this->assertStringContainsString("Cannot evaluate flag dependency on 'parent-flag' without flags_by_key and evaluation_cache", $e->getMessage());
+            $threwException = true;
+        }
+        $this->assertTrue($threwException, "Expected InconclusiveMatchException was not thrown");
         
-        // Check that a warning was logged
-        $this->assertCount(1, $errorMessages);
-        $this->assertStringContainsString("Flag dependency filters are not supported in local evaluation", $errorMessages[0]);
-        $this->assertStringContainsString("parent-flag", $errorMessages[0]);
-        
-        // Reset error messages
-        $errorMessages = [];
-        
-        // Test flag dependency in isConditionMatch via matchFeatureFlagProperties
+        // Test flag dependency via matchFeatureFlagProperties
         $flag = [
             "key" => "test-flag",
             "filters" => [
@@ -3833,42 +3830,106 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         ];
         
         $properties = ["name" => "test"];
-        $result = FeatureFlag::matchFeatureFlagProperties($flag, "test-user", $properties);
         
-        // Should return true because the other condition matches
-        $this->assertTrue($result);
-        
-        // Check that a warning was logged
-        $this->assertCount(1, $errorMessages);
-        $this->assertStringContainsString("Flag dependency filters are not supported in local evaluation", $errorMessages[0]);
-        $this->assertStringContainsString("test-flag", $errorMessages[0]);
-        $this->assertStringContainsString("dependency-flag", $errorMessages[0]);
-        
-        // Reset error messages
-        $errorMessages = [];
-        
-        // Test that evaluation continues when only flag dependencies exist
-        $flagOnlyDependency = [
-            "key" => "only-flag-dep",
-            "filters" => [
-                "groups" => [
-                    [
-                        "properties" => [
-                            ["type" => "flag", "key" => "parent-flag-only", "value" => true]
-                        ],
-                        "rollout_percentage" => 100
-                    ]
-                ]
-            ]
-        ];
-        
-        $result = FeatureFlag::matchFeatureFlagProperties($flagOnlyDependency, "test-user", []);
-        
-        // Should return true due to rollout percentage
-        $this->assertTrue($result);
-        
-        // Check that a warning was logged
-        $this->assertCount(1, $errorMessages);
-        $this->assertStringContainsString("parent-flag-only", $errorMessages[0]);
+        // Should also throw InconclusiveMatchException because flag dependencies need context
+        $threwException = false;
+        try {
+            FeatureFlag::matchFeatureFlagProperties($flag, "test-user", $properties);
+        } catch (InconclusiveMatchException $e) {
+            $this->assertStringContainsString("Cannot evaluate flag dependency", $e->getMessage());
+            $threwException = true;
+        }
+        $this->assertTrue($threwException, "Expected InconclusiveMatchException was not thrown");
+    }
+
+    public function testFallsBackToAPIWhenFlagHasStaticCohort()
+    {
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_WITH_STATIC_COHORT,
+            flagsEndpointResponse: MockedResponses::FLAGS_WITH_STATIC_COHORT_RESPONSE
+        );
+
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+
+        $result = $this->client->getFeatureFlag(
+            'multi-condition-flag',
+            'test-user',
+            [],
+            ['$geoip_country_code' => 'DE']
+        );
+
+        // Should return 'set-1' from API, not 'set-8' from local evaluation
+        $this->assertEquals('set-1', $result);
+
+        $this->checkEmptyErrorLogs();
+    }
+
+    public function testFallsBackToAPIInGetAllFlagsWhenFlagHasStaticCohort()
+    {
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_WITH_STATIC_COHORT,
+            flagsEndpointResponse: MockedResponses::FLAGS_WITH_STATIC_COHORT_RESPONSE
+        );
+
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+
+        $result = $this->client->getAllFlags(
+            'test-user',
+            [],
+            ['$geoip_country_code' => 'DE']
+        );
+
+        // Should return flags from API
+        $this->assertEquals([
+            'multi-condition-flag' => 'set-1'
+        ], $result);
+
+        $this->checkEmptyErrorLogs();
+    }
+
+    public function testFallsBackToAPIInGetFeatureFlagPayloadWhenFlagHasStaticCohort()
+    {
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_WITH_STATIC_COHORT_FOR_PAYLOAD,
+            flagsEndpointResponse: MockedResponses::FLAGS_WITH_STATIC_COHORT_PAYLOAD_RESPONSE
+        );
+
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+
+        $result = $this->client->getFeatureFlagPayload(
+            'flag-with-payload',
+            'test-user'
+        );
+
+        // Should return payload from API, not local evaluation
+        $this->assertEquals([
+            'message' => 'from-api'
+        ], $result);
+
+        $this->checkEmptyErrorLogs();
     }
 }

@@ -1,3 +1,22 @@
+3.7.2 / 2025-10-22
+==================
+
+  * fix(flags): fallback to API for multi-condition flags with static cohorts (#86)
+
+
+3.7.1 / 2025-09-26
+==================
+
+  * fix: don't sort condition sets with variant overrides to the top (#85)
+
+
+3.7.0 / 2025-08-26
+==================
+
+  * feat(flags): Implement local evaluation of flag dependencies (#84)
+  * fix: Ignore new `flag` filter type in local evaluation (#80)
+  * chore: Add feature flags project board workflow (#79)
+
 3.6.0 / 2025-04-30
 ==================
 

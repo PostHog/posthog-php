@@ -62,6 +62,10 @@ class Client
      */
     public $cohorts;
 
+    /**
+     * @var array
+     */
+    public $featureFlagsByKey;
 
     /**
      * @var SizeLimitedHash
@@ -100,6 +104,7 @@ class Client
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
         $this->cohorts = [];
+        $this->featureFlagsByKey = [];
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
 
         // Populate featureflags and grouptypemapping if possible
@@ -251,6 +256,8 @@ class Client
                         $personProperties,
                         $groupProperties
                     );
+                } catch (RequiresServerEvaluationException $e) {
+                    $result = null;
                 } catch (InconclusiveMatchException $e) {
                     $result = null;
                 } catch (Exception $e) {
@@ -382,6 +389,8 @@ class Client
                         $personProperties,
                         $groupProperties
                     );
+                } catch (RequiresServerEvaluationException $e) {
+                    $fallbackToFlags = true;
                 } catch (InconclusiveMatchException $e) {
                     $fallbackToFlags = true;
                 } catch (Exception $e) {
@@ -412,6 +421,9 @@ class Client
         array $personProperties = array(),
         array $groupProperties = array()
     ): bool | string {
+        // Create evaluation cache for flag dependencies
+        $evaluationCache = [];
+
         if ($featureFlag["ensure_experience_continuity"] ?? false) {
             throw new InconclusiveMatchException("Flag has experience continuity enabled");
         }
@@ -435,9 +447,23 @@ class Client
             }
 
             $focusedGroupProperties = $groupProperties[$groupName];
-            return FeatureFlag::matchFeatureFlagProperties($featureFlag, $groups[$groupName], $focusedGroupProperties);
+            return FeatureFlag::matchFeatureFlagProperties(
+                $featureFlag,
+                $groups[$groupName],
+                $focusedGroupProperties,
+                $this->cohorts,
+                $this->featureFlagsByKey,
+                $evaluationCache
+            );
         } else {
-            return FeatureFlag::matchFeatureFlagProperties($featureFlag, $distinctId, $personProperties, $this->cohorts);
+            return FeatureFlag::matchFeatureFlagProperties(
+                $featureFlag,
+                $distinctId,
+                $personProperties,
+                $this->cohorts,
+                $this->featureFlagsByKey,
+                $evaluationCache
+            );
         }
     }
 
@@ -491,6 +517,12 @@ class Client
         $this->featureFlags = $payload['flags'] ?? [];
         $this->groupTypeMapping = $payload['group_type_mapping'] ?? [];
         $this->cohorts = $payload['cohorts'] ?? [];
+
+        // Build flags by key dictionary for dependency resolution
+        $this->featureFlagsByKey = [];
+        foreach ($this->featureFlags as $flag) {
+            $this->featureFlagsByKey[$flag['key']] = $flag;
+        }
     }
 
 
