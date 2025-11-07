@@ -1,0 +1,49 @@
+{
+  "actionabilityScore": 0.25,
+  "context": "Task PHA-104 on branch posthog/task-PHA-104 is extremely vague with minimal context. The PostHog PHP SDK is a well-maintained feature flag and analytics library (v3.7.2) with comprehensive test coverage. The task description 'what is going on' provides no actionable direction. Previous research phase identified codebase structure but unclear what investigation or issue requires resolution.",
+  "keyFiles": [
+    "lib/FeatureFlag.php",
+    "lib/Client.php",
+    "test/FeatureFlagLocalEvaluationTest.php",
+    "lib/RequiresServerEvaluationException.php"
+  ],
+  "blockers": [
+    "Task description is completely vague with no context about what issue needs investigation",
+    "Unclear if this is a bug fix, feature request, performance investigation, or code review",
+    "No failing tests, error logs, or specific symptoms provided",
+    "Repository object in task metadata appears malformed"
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "question": "What is the primary nature of this investigation task?",
+      "options": [
+        "Bug Investigation: There's a failing test or runtime error - provide the error message/test name",
+        "Feature Review: Evaluate the design/implementation of flag dependencies or static cohort handling",
+        "Performance Analysis: Identify bottlenecks in feature flag evaluation logic",
+        "Code Quality: Assess test coverage, edge cases, or refactoring opportunities"
+      ]
+    },
+    {
+      "id": "q2",
+      "question": "Which area of the codebase requires investigation?",
+      "options": [
+        "Flag Evaluation Logic: Feature flag matching, operator handling, or condition evaluation",
+        "Fallback Strategy: Static cohort handling or API fallback behavior",
+        "Flag Dependencies: Circular dependency detection or recursive evaluation",
+        "Consumer/Transport: Event publishing mechanisms or API communication"
+      ]
+    },
+    {
+      "id": "q3",
+      "question": "What deliverable or decision is expected from this investigation?",
+      "options": [
+        "Problem identification with root cause analysis and recommended fix",
+        "Architecture decision or design documentation",
+        "Test coverage improvement with edge case identification",
+        "Performance report with optimization recommendations"
+      ]
+    }
+  ],
+  "answered": false
+}
