@@ -1,0 +1,49 @@
+{
+  "questions": [
+    {
+      "id": "q1",
+      "question": "What type of README enhancement is needed?",
+      "options": [
+        "Add installation/setup instructions (composer require, PHP version requirements, basic usage)",
+        "Expand documentation with API reference, method examples, and advanced usage patterns",
+        "Restructure for better organization (badges, table of contents, sections for different user levels)",
+        "Something else (please specify)"
+      ]
+    },
+    {
+      "id": "q2",
+      "question": "Should the README link to or reference the example.php file?",
+      "options": [
+        "Yes, add a section directing users to run `php example.php` for interactive examples",
+        "No, keep focusing only on PostHog's main documentation links",
+        "Add inline code examples extracted from example.php to the README",
+        "Something else (please specify)"
+      ]
+    },
+    {
+      "id": "q3",
+      "question": "What level of detail should the README target?",
+      "options": [
+        "Quick start only (current level) - point to external docs",
+        "Intermediate - include common use cases, basic API examples",
+        "Comprehensive - include full API reference, configuration options, troubleshooting",
+        "Something else (please specify)"
+      ]
+    }
+  ],
+  "answered": true,
+  "answers": [
+    {
+      "questionId": "q1",
+      "selectedOption": "Add installation/setup instructions (composer require, PHP version requirements, basic usage)"
+    },
+    {
+      "questionId": "q2",
+      "selectedOption": "Add inline code examples extracted from example.php to the README"
+    },
+    {
+      "questionId": "q3",
+      "selectedOption": "Intermediate - include common use cases, basic API examples"
+    }
+  ]
+}
