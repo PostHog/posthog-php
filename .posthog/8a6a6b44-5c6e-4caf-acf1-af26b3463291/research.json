@@ -45,5 +45,19 @@
       ]
     }
   ],
-  "answered": false
+  "answered": true,
+  "answers": [
+    {
+      "questionId": "q1",
+      "selectedOption": "Bug Investigation: There's a failing test or runtime error - provide the error message/test name"
+    },
+    {
+      "questionId": "q2",
+      "selectedOption": "Fallback Strategy: Static cohort handling or API fallback behavior"
+    },
+    {
+      "questionId": "q3",
+      "selectedOption": "Architecture decision or design documentation"
+    }
+  ]
 }
