@@ -13,10 +13,116 @@ Specifically, the [PHP integration](https://posthog.com/docs/integrations/php-in
 - ✅ Group analytics
 - ✅ Comprehensive test coverage
 
-## Quick Start
+## Installation
 
-1. Copy `.env.example` to `.env` and add your PostHog credentials
-2. Run `php example.php` to see interactive examples of all features
+**Requirements:**
+- PHP >= 8.0
+- JSON extension (`ext-json`)
+
+Install via Composer:
+
+```bash
+composer require posthog/posthog-php
+```
+
+## Usage
+
+### Basic Setup
+
+Initialize PostHog with your project API key:
+
+```php
+<?php
+require_once __DIR__ . '/vendor/autoload.php';
+
+use PostHog\PostHog;
+
+PostHog::init(
+    'YOUR_PROJECT_API_KEY',
+    [
+        'host' => 'https://app.posthog.com', // or your self-hosted URL
+        'debug' => false,
+        'ssl' => true
+    ],
+    null,
+    'YOUR_PERSONAL_API_KEY' // Required for local feature flag evaluation
+);
+```
+
+### Capturing Events
+
+Track events with custom properties:
+
+```php
+PostHog::capture([
+    'distinctId' => 'user_123',
+    'event' => 'button_clicked',
+    'properties' => [
+        'button_name' => 'signup',
+        'page' => 'homepage'
+    ]
+]);
+```
+
+### Identifying Users
+
+Associate user properties with a distinct ID:
+
+```php
+PostHog::identify([
+    'distinctId' => 'user_123',
+    'properties' => [
+        'email' => 'user@example.com',
+        'plan' => 'premium',
+        'signup_date' => '2024-01-15'
+    ]
+]);
+```
+
+### Feature Flags
+
+Evaluate feature flags with local evaluation (no API call required):
+
+```php
+// Get a specific feature flag
+$flagEnabled = PostHog::getFeatureFlag(
+    'new-feature',
+    'user_123',
+    [],
+    ['email' => 'user@example.com'], // user properties
+    [],
+    true // only_evaluate_locally
+);
+
+// Get all flags for a user
+$allFlags = PostHog::getAllFlags('user_123', [], [], [], true);
+```
+
+### Group Analytics
+
+Track events for groups like companies or teams:
+
+```php
+PostHog::capture([
+    'distinctId' => 'user_123',
+    'event' => 'feature_used',
+    'properties' => [
+        'feature_name' => 'advanced_analytics'
+    ],
+    'groups' => [
+        'company' => 'acme_corp',
+        'team' => 'engineering'
+    ]
+]);
+```
+
+### Advanced Examples
+
+For comprehensive examples including feature flag dependencies and multivariate flags, see [`example.php`](example.php) or run:
+
+```bash
+php example.php
+```
 
 ## Questions?
 
