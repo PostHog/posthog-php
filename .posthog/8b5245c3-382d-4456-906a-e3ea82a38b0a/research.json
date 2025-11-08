@@ -1,0 +1,42 @@
+{
+  "actionabilityScore": 0.25,
+  "context": "The task is to 'update readme' for the PostHog PHP SDK repository. The repository has a well-structured README.md that includes features, quick start instructions, links to main docs, and contribution guidelines. However, the task description provides zero context about what specific changes, sections, or improvements are needed.",
+  "keyFiles": [
+    "/Users/js/github/posthog-php/README.md"
+  ],
+  "blockers": [
+    "No specification of what content needs to be updated or changed",
+    "No clarity on scope: is this adding new features, fixing errors, restructuring, or adding documentation?",
+    "No acceptance criteria or target state defined"
+  ],
+  "questions": [
+    {
+      "id": "q1",
+      "question": "What specific sections or content in the README need to be updated?",
+      "options": [
+        "Add/update information about recent features (e.g., flag dependencies added in v3.7.0)",
+        "Fix broken links, outdated information, or incorrect instructions",
+        "Add new sections (e.g., API reference, troubleshooting, advanced usage examples)"
+      ]
+    },
+    {
+      "id": "q2",
+      "question": "Are there specific issues, feedback, or documentation gaps you want addressed?",
+      "options": [
+        "Match README content to current code and features in composer.json (v3.7.2)",
+        "Add more detailed examples or API documentation beyond the current quick start",
+        "Reorganize structure for better clarity or add missing installation/usage sections"
+      ]
+    },
+    {
+      "id": "q3",
+      "question": "Should this update reference or incorporate content from the docs/ directory or external PostHog documentation?",
+      "options": [
+        "Keep README as lightweight overview with links to posthog.com/docs (current approach)",
+        "Add more comprehensive technical details directly to README",
+        "Copy or adapt architecture/investigation docs from docs/ folder into README"
+      ]
+    }
+  ],
+  "answered": false
+}
