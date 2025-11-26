@@ -34,6 +34,7 @@ release:
 	@node -e "var fs = require('fs'), pkg = require('./composer'); pkg.version = '${VERSION}'; fs.writeFileSync('./composer.json', JSON.stringify(pkg, null, '\t'));"
 	@git changelog -t ${VERSION}
 	@git release ${VERSION}
+	@gh release create ${VERSION} --generate-notes 
 
 clean:
 	rm -rf \
