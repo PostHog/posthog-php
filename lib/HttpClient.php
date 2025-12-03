@@ -73,6 +73,7 @@ class HttpClient
 
         $shouldRetry = $requestOptions['shouldRetry'] ?? true;
         $shouldVerify = $requestOptions['shouldVerify'] ?? true;
+        $includeEtag = $requestOptions['includeEtag'] ?? false;
 
         do {
             // open connection
@@ -104,12 +105,26 @@ class HttpClient
                 curl_setopt($ch, CURLOPT_FRESH_CONNECT, true);
             }
 
+            // Capture response headers if we need to extract ETag
+            if ($includeEtag) {
+                curl_setopt($ch, CURLOPT_HEADER, true);
+            }
+
             // retry failed requests just once to diminish impact on performance
-            $httpResponse = $this->executePost($ch);
+            $httpResponse = $this->executePost($ch, $includeEtag);
             $responseCode = $httpResponse->getResponseCode();
 
             //close connection
             curl_close($ch);
+
+            // Handle 304 Not Modified - this is a success, not an error
+            if ($responseCode === 304) {
+                if ($this->debug) {
+                    $maskedUrl = $this->maskTokensInUrl($protocol . $this->host . $path);
+                    error_log("[PostHog][HttpClient] GET " . $maskedUrl . " returned 304 Not Modified");
+                }
+                break;
+            }
 
             if ($shouldVerify && 200 != $responseCode) {
                 // log error
@@ -136,12 +151,27 @@ class HttpClient
         return $httpResponse;
     }
 
-    private function executePost($ch): HttpResponse
+    private function executePost($ch, bool $includeEtag = false): HttpResponse
     {
-        return new HttpResponse(
-            curl_exec($ch),
-            curl_getinfo($ch, CURLINFO_RESPONSE_CODE)
-        );
+        $response = curl_exec($ch);
+        $responseCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $etag = null;
+
+        if ($includeEtag && $response !== false) {
+            // Parse headers to extract ETag
+            $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+            $headers = substr($response, 0, $headerSize);
+            $body = substr($response, $headerSize);
+
+            // Extract ETag from headers (case-insensitive)
+            if (preg_match('/^etag:\s*(.+)$/mi', $headers, $matches)) {
+                $etag = trim($matches[1]);
+            }
+
+            return new HttpResponse($body, $responseCode, $etag);
+        }
+
+        return new HttpResponse($response, $responseCode);
     }
 
     private function handleError($code, $message)
@@ -154,5 +184,16 @@ class HttpClient
         if ($this->debug) {
             error_log("[PostHog][HttpClient] " . $message);
         }
+    }
+
+    /**
+     * Mask tokens in URLs to avoid exposing them in logs
+     *
+     * @param string $url
+     * @return string
+     */
+    public function maskTokensInUrl(string $url): string
+    {
+        return preg_replace('/token=[^&]+/', 'token=[REDACTED]', $url);
     }
 }
