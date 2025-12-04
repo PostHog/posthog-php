@@ -88,9 +88,10 @@ echo "1. Identify and capture examples\n";
 echo "2. Feature flag local evaluation examples\n";
 echo "3. Feature flag dependencies examples\n";
 echo "4. Context management and tagging examples\n";
-echo "5. Run all examples\n";
-echo "6. Exit\n";
-$choice = trim(readline("\nEnter your choice (1-6): "));
+echo "5. ETag polling examples (for local evaluation)\n";
+echo "6. Run all examples\n";
+echo "7. Exit\n";
+$choice = trim(readline("\nEnter your choice (1-7): "));
 
 function identifyAndCaptureExamples()
 {
@@ -420,6 +421,83 @@ function contextManagementExamples()
     echo "✅ Context management examples completed!\n";
 }
 
+function etagPollingExamples()
+{
+    echo "\n" . str_repeat("=", 60) . "\n";
+    echo "ETAG POLLING EXAMPLES\n";
+    echo str_repeat("=", 60) . "\n";
+    echo "This example demonstrates ETag-based caching for feature flags.\n";
+    echo "ETag support reduces bandwidth by skipping full payload transfers\n";
+    echo "when flags haven't changed (304 Not Modified response).\n\n";
+
+    // Re-initialize with debug enabled
+    PostHog::init(
+        $_ENV['POSTHOG_PROJECT_API_KEY'],
+        [
+            'host' => $_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com',
+            'debug' => true,
+            'ssl' => !str_starts_with($_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 'http://')
+        ],
+        null,
+        $_ENV['POSTHOG_PERSONAL_API_KEY']
+    );
+
+    $client = PostHog::getClient();
+
+    // Initial load - should get full response with ETag
+    echo "📥 Initial flag load (expecting full response with ETag)...\n";
+    $client->loadFlags();
+    $initialEtag = $client->getFlagsEtag();
+    $flagCount = count($client->featureFlags);
+
+    if ($initialEtag) {
+        echo "   ✅ Received ETag: " . substr($initialEtag, 0, 30) . "...\n";
+    } else {
+        echo "   ⚠️  No ETag received (server may not support ETag caching)\n";
+    }
+    echo "   📊 Loaded $flagCount feature flag(s)\n\n";
+
+    // Second load - should get 304 Not Modified if flags haven't changed
+    echo "📥 Second flag load (expecting 304 Not Modified if unchanged)...\n";
+    $client->loadFlags();
+    $secondEtag = $client->getFlagsEtag();
+    $secondFlagCount = count($client->featureFlags);
+
+    echo "   📊 Flag count: $secondFlagCount (should match initial: $flagCount)\n";
+    if ($secondEtag === $initialEtag && $initialEtag !== null) {
+        echo "   ✅ ETag unchanged - server likely returned 304 Not Modified\n";
+    } elseif ($secondEtag !== null) {
+        echo "   📝 ETag changed: " . substr($secondEtag, 0, 30) . "...\n";
+        echo "      (flags may have been updated on the server)\n";
+    }
+    echo "\n";
+
+    // Continuous polling - runs until Ctrl+C
+    echo "🔄 Starting continuous polling (every 5 seconds)...\n";
+    echo "   Press Ctrl+C to stop.\n";
+    echo "   Try changing feature flags in PostHog to see ETag changes!\n\n";
+
+    $iteration = 1;
+    while (true) {
+        $timestamp = date('H:i:s');
+        echo "   [$timestamp] Poll #$iteration: ";
+
+        $beforeEtag = $client->getFlagsEtag();
+        $client->loadFlags();
+        $afterEtag = $client->getFlagsEtag();
+        $currentFlagCount = count($client->featureFlags);
+
+        if ($beforeEtag === $afterEtag && $beforeEtag !== null) {
+            echo "No change (304 Not Modified) - $currentFlagCount flag(s)\n";
+        } else {
+            echo "🔄 Flags updated! New ETag: " . ($afterEtag ? substr($afterEtag, 0, 20) . "..." : "none") . " - $currentFlagCount flag(s)\n";
+        }
+
+        $iteration++;
+        sleep(5);
+    }
+}
+
 function runAllExamples()
 {
     identifyAndCaptureExamples();
@@ -434,6 +512,7 @@ function runAllExamples()
     contextManagementExamples();
 
     echo "\n🎉 All examples completed!\n";
+    echo "   (ETag polling skipped - run separately with option 5)\n";
 }
 
 // Handle user choice
@@ -451,13 +530,16 @@ switch ($choice) {
         contextManagementExamples();
         break;
     case '5':
-        runAllExamples();
+        etagPollingExamples();
         break;
     case '6':
+        runAllExamples();
+        break;
+    case '7':
         echo "👋 Goodbye!\n";
         exit(0);
     default:
-        echo "❌ Invalid choice. Please run the script again and choose 1-6.\n";
+        echo "❌ Invalid choice. Please run the script again and choose 1-7.\n";
         exit(1);
 }
 

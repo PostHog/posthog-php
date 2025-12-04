@@ -1,6 +1,7 @@
-3.7.3 / 2025-11-24
+3.7.3 / 2025-12-04
 ==================
 
+* feat(flags): Add ETag support for local evaluation caching
 * feat(flags): include `evaluated_at` properties in `$feature_flag_called` events
 
 

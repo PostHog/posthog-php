@@ -6,11 +6,13 @@ class HttpResponse
 {
     private $response;
     private $responseCode;
+    private $etag;
 
-    public function __construct($response, $responseCode)
+    public function __construct($response, $responseCode, ?string $etag = null)
     {
         $this->response = $response;
         $this->responseCode = $responseCode;
+        $this->etag = $etag;
     }
 
     /**
@@ -27,5 +29,23 @@ class HttpResponse
     public function getResponseCode()
     {
         return $this->responseCode;
+    }
+
+    /**
+     * @return string|null
+     */
+    public function getEtag(): ?string
+    {
+        return $this->etag;
+    }
+
+    /**
+     * Check if the response is a 304 Not Modified
+     *
+     * @return bool
+     */
+    public function isNotModified(): bool
+    {
+        return $this->responseCode === 304;
     }
 }

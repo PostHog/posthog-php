@@ -73,6 +73,16 @@ class Client
     public $distinctIdsFeatureFlagsReported;
 
     /**
+     * @var string|null Cached ETag for feature flag definitions
+     */
+    private $flagsEtag;
+
+    /**
+     * @var bool
+     */
+    private $debug;
+
+    /**
      * Create a new posthog object with your app's API key
      * key
      *
@@ -89,6 +99,7 @@ class Client
     ) {
         $this->apiKey = $apiKey;
         $this->personalAPIKey = $personalAPIKey;
+        $this->debug = $options["debug"] ?? false;
         $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($apiKey, $options, $httpClient);
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
@@ -106,6 +117,7 @@ class Client
         $this->cohorts = [];
         $this->featureFlagsByKey = [];
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
+        $this->flagsEtag = null;
 
         // Populate featureflags and grouptypemapping if possible
         if (
@@ -514,11 +526,31 @@ class Client
 
     public function loadFlags()
     {
-        $payload = json_decode($this->localFlags(), true);
+        $response = $this->localFlags();
+
+        // Handle 304 Not Modified - flags haven't changed, skip processing.
+        // On 304, we preserve the existing ETag unless the server sends a new one.
+        // This handles edge cases like server restarts where the server may send
+        // a refreshed ETag even though the content hasn't changed.
+        if ($response->isNotModified()) {
+            if ($response->getEtag()) {
+                $this->flagsEtag = $response->getEtag();
+            }
+            if ($this->debug) {
+                error_log("[PostHog][Client] Flags not modified (304), using cached data");
+            }
+            return;
+        }
+
+        $payload = json_decode($response->getResponse(), true);
 
         if ($payload && array_key_exists("detail", $payload)) {
             throw new Exception($payload["detail"]);
         }
+
+        // On 200 responses, always update ETag (even if null) since we're replacing
+        // the cached flag data. A null ETag means the server doesn't support caching.
+        $this->flagsEtag = $response->getEtag();
 
         $this->featureFlags = $payload['flags'] ?? [];
         $this->groupTypeMapping = $payload['group_type_mapping'] ?? [];
@@ -532,17 +564,37 @@ class Client
     }
 
 
-    public function localFlags()
+    public function localFlags(): HttpResponse
     {
+        $headers = [
+            // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
+            "User-Agent: posthog-php/" . PostHog::VERSION,
+            "Authorization: Bearer " . $this->personalAPIKey
+        ];
+
+        // Add If-None-Match header if we have a cached ETag
+        if ($this->flagsEtag !== null) {
+            $headers[] = "If-None-Match: " . $this->flagsEtag;
+        }
+
         return $this->httpClient->sendRequest(
             '/api/feature_flag/local_evaluation?send_cohorts&token=' . $this->apiKey,
             null,
+            $headers,
             [
-                // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
-                "User-Agent: posthog-php/" . PostHog::VERSION,
-                "Authorization: Bearer " . $this->personalAPIKey
+                'includeEtag' => true
             ]
-        )->getResponse();
+        );
+    }
+
+    /**
+     * Get the current cached ETag for feature flag definitions
+     *
+     * @return string|null
+     */
+    public function getFlagsEtag(): ?string
+    {
+        return $this->flagsEtag;
     }
 
     private function normalizeFeatureFlags(string $response): string

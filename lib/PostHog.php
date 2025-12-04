@@ -287,6 +287,20 @@ class PostHog
         return self::$client->flush();
     }
 
+    /**
+     * Get the underlying client instance.
+     * Useful for accessing client-level functionality like loadFlags() or getFlagsEtag().
+     *
+     * @return Client
+     * @throws Exception
+     */
+    public static function getClient(): Client
+    {
+        self::checkClient();
+
+        return self::$client;
+    }
+
     private static function cleanHost(?string $host): string
     {
         if (!isset($host)) {

@@ -67,7 +67,7 @@ class FeatureFlagTest extends TestCase
                     "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                     "payload" => null,
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
-                    "requestOptions" => array(),
+                    "requestOptions" => array("includeEtag" => true),
                 ),
                 1 => array(
                     "path" => "/flags/?v=2",
@@ -120,7 +120,7 @@ class FeatureFlagTest extends TestCase
                     "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                     "payload" => null,
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
-                    "requestOptions" => array(),
+                    "requestOptions" => array("includeEtag" => true),
                 ),
                 1 => array(
                     "path" => "/flags/?v=2",
@@ -149,7 +149,7 @@ class FeatureFlagTest extends TestCase
                     "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                     "payload" => null,
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
-                    "requestOptions" => array(),
+                    "requestOptions" => array("includeEtag" => true),
                 ),
                 1 => array(
                     "path" => "/flags/?v=2",
@@ -216,7 +216,7 @@ class FeatureFlagTest extends TestCase
                     "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
                     "payload" => null,
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
-                    "requestOptions" => array(),
+                    "requestOptions" => array("includeEtag" => true),
                 ),
                 1 => array(
                     "path" => "/flags/?v=2",
