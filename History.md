@@ -1,3 +1,10 @@
+
+3.7.3 / 2025-12-04
+==================
+
+  * feat(flags): Add ETag support for local evaluation caching (#91)
+  * feat(flags): included `evaluated_at` properties in `$feature_flag_called` events (#89)
+  * feat: Cut a new GH release when deploying new version (#90)
 3.7.3 / 2025-12-04
 ==================
 
