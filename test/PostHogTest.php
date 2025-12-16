@@ -125,7 +125,7 @@ class PostHogTest extends TestCase
                 )
             );
 
-            // check true-flag is not in captured event
+            // Verify only locally evaluated feature flags are included
             $this->assertEquals(
                 strpos($this->http_client->calls[1]["payload"], 'simpleFlag'),
                 false
