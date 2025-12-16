@@ -1367,7 +1367,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
                     ),
                     1 => array(
                         "path" => "/batch/",
-                        'payload' => '{"batch":[{"properties":{"$feature\/simple-flag":true,"$active_feature_flags":["simple-flag"],"$feature_flag":"simple-flag","$feature_flag_response":true,"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$groups":[]},"distinct_id":"some-distinct-id","event":"$feature_flag_called","$groups":[],"library":"posthog-php","library_version":"' . PostHog::VERSION . '","library_consumer":"LibCurl","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                        'payload' => '{"batch":[{"properties":{"$feature_flag":"simple-flag","$feature_flag_response":true,"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$groups":[]},"distinct_id":"some-distinct-id","event":"$feature_flag_called","$groups":[],"library":"posthog-php","library_version":"' . PostHog::VERSION . '","library_consumer":"LibCurl","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),
