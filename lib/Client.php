@@ -149,27 +149,30 @@ class Client
             $message["properties"]['$groups'] = $message['$groups'];
         }
 
-        $extraProperties = [];
-        $flags = [];
         if (array_key_exists("send_feature_flags", $message) && $message["send_feature_flags"]) {
-            $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
-        } elseif (count($this->featureFlags) != 0) {
-            # Local evaluation is enabled, flags are loaded, so try and get all flags we can without going to the server
-            $flags = $this->getAllFlags($message["distinct_id"], $message["groups"], [], [], true);
+            $extraProperties = [];
+            $flags = [];
+
+            if (count($this->featureFlags) != 0) {
+                # Local evaluation is enabled, flags are loaded, so try and get all flags we can without going to the server
+                $flags = $this->getAllFlags($message["distinct_id"], $message["groups"], [], [], true);
+            } else {
+                $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
+            }
+
+            // Add all feature variants to event
+            foreach ($flags as $flagKey => $flagValue) {
+                $extraProperties[sprintf('$feature/%s', $flagKey)] = $flagValue;
+            }
+            // Add all feature flag keys that aren't false to $active_feature_flags
+            // decide v2 does this automatically, but we need it for when we upgrade to v3
+            $extraProperties['$active_feature_flags'] = array_keys(array_filter($flags, function ($flagValue) {
+                return $flagValue !== false;
+            }));
+
+            $message["properties"] = array_merge($extraProperties, $message["properties"]);
         }
 
-        // Add all feature variants to event
-        foreach ($flags as $flagKey => $flagValue) {
-            $extraProperties[sprintf('$feature/%s', $flagKey)] = $flagValue;
-        }
-
-        // Add all feature flag keys that aren't false to $active_feature_flags
-        // decide v2 does this automatically, but we need it for when we upgrade to v3
-        $extraProperties['$active_feature_flags'] = array_keys(array_filter($flags, function ($flagValue) {
-            return $flagValue !== false;
-        }));
-
-        $message["properties"] = array_merge($extraProperties, $message["properties"]);
 
         return $this->consumer->capture($message);
     }
