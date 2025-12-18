@@ -260,6 +260,7 @@ class Client
             $groupProperties
         );
         $result = null;
+        $featureFlagError = null;
 
         foreach ($this->featureFlags as $flag) {
             if ($flag["key"] == $key) {
@@ -290,6 +291,12 @@ class Client
         if (!$flagWasEvaluatedLocally && !$onlyEvaluateLocally) {
             try {
                 $response = $this->fetchFlagsResponse($distinctId, $groups, $personProperties, $groupProperties);
+                $errors = [];
+
+                if (isset($response['errorsWhileComputingFlags']) && $response['errorsWhileComputingFlags']) {
+                    $errors[] = FeatureFlagError::ERRORS_WHILE_COMPUTING_FLAGS;
+                }
+
                 $requestId = isset($response['requestId']) ? $response['requestId'] : null;
                 $evaluatedAt = isset($response['evaluatedAt']) ? $response['evaluatedAt'] : null;
                 $flagDetail = isset($response['flags'][$key]) ? $response['flags'][$key] : null;
@@ -297,10 +304,35 @@ class Client
                 if (array_key_exists($key, $featureFlags)) {
                     $result = $featureFlags[$key];
                 } else {
+                    $errors[] = FeatureFlagError::FLAG_MISSING;
                     $result = null;
                 }
+
+                if (!empty($errors)) {
+                    $featureFlagError = implode(',', $errors);
+                }
+            } catch (HttpException $e) {
+                error_log("[PostHog][Client] Unable to get feature variants: " . $e->getMessage());
+                switch ($e->getErrorType()) {
+                    case HttpException::QUOTA_LIMITED:
+                        $featureFlagError = FeatureFlagError::QUOTA_LIMITED;
+                        break;
+                    case HttpException::TIMEOUT:
+                        $featureFlagError = FeatureFlagError::TIMEOUT;
+                        break;
+                    case HttpException::CONNECTION_ERROR:
+                        $featureFlagError = FeatureFlagError::CONNECTION_ERROR;
+                        break;
+                    case HttpException::API_ERROR:
+                        $featureFlagError = FeatureFlagError::apiError($e->getStatusCode());
+                        break;
+                    default:
+                        $featureFlagError = FeatureFlagError::UNKNOWN_ERROR;
+                }
+                $result = null;
             } catch (Exception $e) {
-                error_log("[PostHog][Client] Unable to get feature variants:" . $e->getMessage());
+                error_log("[PostHog][Client] Unable to get feature variants: " . $e->getMessage());
+                $featureFlagError = FeatureFlagError::UNKNOWN_ERROR;
                 $result = null;
             }
         }
@@ -323,6 +355,10 @@ class Client
                 $properties['$feature_flag_id'] = $flagDetail['metadata']['id'];
                 $properties['$feature_flag_version'] = $flagDetail['metadata']['version'];
                 $properties['$feature_flag_reason'] = $flagDetail['reason']['description'];
+            }
+
+            if (!is_null($featureFlagError)) {
+                $properties['$feature_flag_error'] = $featureFlagError;
             }
 
             $this->capture([
@@ -355,10 +391,7 @@ class Client
         array $personProperties = array(),
         array $groupProperties = array(),
     ): mixed {
-        $results = json_decode(
-            $this->flags($distinctId, $groups, $personProperties, $groupProperties),
-            true
-        );
+        $results = $this->flags($distinctId, $groups, $personProperties, $groupProperties);
 
         if (isset($results['featureFlags'][$key]) === false || $results['featureFlags'][$key] !== true) {
             return null;
@@ -517,10 +550,7 @@ class Client
         array $personProperties = [],
         array $groupProperties = []
     ): ?array {
-        return json_decode(
-            $this->flags($distinctId, $groups, $personProperties, $groupProperties),
-            true
-        );
+        return $this->flags($distinctId, $groups, $personProperties, $groupProperties);
     }
 
     /**
@@ -600,9 +630,39 @@ class Client
         return $this->flagsEtag;
     }
 
-    private function normalizeFeatureFlags(string $response): string
+    /**
+     * Normalize feature flags response to ensure consistent format.
+     * Decodes JSON, checks for quota limits, and transforms v4 to v3 format.
+     *
+     * @param string $response The raw JSON response
+     * @return array The normalized response
+     * @throws HttpException On invalid JSON or quota limit
+     */
+    private function normalizeFeatureFlags(string $response): array
     {
         $decoded = json_decode($response, true);
+
+        if (!is_array($decoded)) {
+            throw new HttpException(
+                HttpException::API_ERROR,
+                0,
+                "Invalid JSON response"
+            );
+        }
+
+        // Check for quota limit in response body
+        if (
+            isset($decoded['quotaLimited'])
+            && is_array($decoded['quotaLimited'])
+            && in_array('feature_flags', $decoded['quotaLimited'])
+        ) {
+            throw new HttpException(
+                HttpException::QUOTA_LIMITED,
+                0,
+                "Feature flags quota limited"
+            );
+        }
+
         if (isset($decoded['flags']) && !empty($decoded['flags'])) {
             // This is a v4 response, we need to transform it to a v3 response for backwards compatibility
             $transformedFlags = [];
@@ -619,18 +679,27 @@ class Client
             }
             $decoded['featureFlags'] = $transformedFlags;
             $decoded['featureFlagPayloads'] = $transformedPayloads;
-            return json_encode($decoded);
         }
 
-        return $response;
+        return $decoded;
     }
 
+    /**
+     * Fetch feature flags from the PostHog API.
+     *
+     * @param string $distinctId The user's distinct ID
+     * @param array $groups Group identifiers
+     * @param array $personProperties Person properties for flag evaluation
+     * @param array $groupProperties Group properties for flag evaluation
+     * @return array The normalized feature flags response
+     * @throws HttpException On network errors, API errors, or quota limits
+     */
     public function flags(
         string $distinctId,
         array $groups = array(),
         array $personProperties = [],
         array $groupProperties = []
-    ) {
+    ): array {
         $payload = array(
             'api_key' => $this->apiKey,
             'distinct_id' => $distinctId,
@@ -648,7 +717,7 @@ class Client
             $payload["group_properties"] = $groupProperties;
         }
 
-        $response = $this->httpClient->sendRequest(
+        $httpResponse = $this->httpClient->sendRequest(
             '/flags/?v=2',
             json_encode($payload),
             [
@@ -659,9 +728,42 @@ class Client
                 "shouldRetry" => false,
                 "timeout" => $this->featureFlagsRequestTimeout
             ]
-        )->getResponse();
+        );
 
-        return $this->normalizeFeatureFlags($response);
+        $responseCode = $httpResponse->getResponseCode();
+        $curlErrno = $httpResponse->getCurlErrno();
+
+        if ($responseCode === 0) {
+            // CURLE_OPERATION_TIMEDOUT (28)
+            // https://curl.se/libcurl/c/libcurl-errors.html
+            if ($curlErrno === 28) {
+                throw new HttpException(
+                    HttpException::TIMEOUT,
+                    0,
+                    "Request timed out"
+                );
+            }
+            // Consider everything else a connection error
+            // CURLE_COULDNT_RESOLVE_HOST (6)
+            // CURLE_COULDNT_CONNECT (7)
+            // CURLE_WEIRD_SERVER_REPLY (8)
+            // etc.
+            throw new HttpException(
+                HttpException::CONNECTION_ERROR,
+                0,
+                "Connection error (curl errno: {$curlErrno})"
+            );
+        }
+
+        if ($responseCode >= 400) {
+            throw new HttpException(
+                HttpException::API_ERROR,
+                $responseCode,
+                "API error: HTTP {$responseCode}"
+            );
+        }
+
+        return $this->normalizeFeatureFlags($httpResponse->getResponse());
     }
 
     /**

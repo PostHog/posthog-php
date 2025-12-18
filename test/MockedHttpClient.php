@@ -18,6 +18,12 @@ class MockedHttpClient extends \PostHog\HttpClient
     /** @var array|null Queue of responses for sequential calls */
     private $flagEndpointResponseQueue;
 
+    /** @var int Response code for /flags/ endpoint (for error simulation) */
+    private $flagsEndpointResponseCode;
+
+    /** @var int Curl error number for /flags/ endpoint (for error simulation) */
+    private $flagsEndpointCurlErrno;
+
     public function __construct(
         string $host,
         bool $useSsl = true,
@@ -29,7 +35,9 @@ class MockedHttpClient extends \PostHog\HttpClient
         array $flagEndpointResponse = [],
         array $flagsEndpointResponse = [],
         ?string $flagEndpointEtag = null,
-        int $flagEndpointResponseCode = 200
+        int $flagEndpointResponseCode = 200,
+        int $flagsEndpointResponseCode = 200,
+        int $flagsEndpointCurlErrno = 0
     ) {
         parent::__construct(
             $host,
@@ -45,6 +53,8 @@ class MockedHttpClient extends \PostHog\HttpClient
         $this->flagEndpointEtag = $flagEndpointEtag;
         $this->flagEndpointResponseCode = $flagEndpointResponseCode;
         $this->flagEndpointResponseQueue = null;
+        $this->flagsEndpointResponseCode = $flagsEndpointResponseCode;
+        $this->flagsEndpointCurlErrno = $flagsEndpointCurlErrno;
     }
 
     /**
@@ -66,7 +76,12 @@ class MockedHttpClient extends \PostHog\HttpClient
         array_push($this->calls, array("path" => $path, "payload" => $payload, "extraHeaders" => $extraHeaders, "requestOptions" => $requestOptions));
 
         if (str_starts_with($path, "/flags/")) {
-            return new HttpResponse(json_encode($this->flagsEndpointResponse), 200);
+            return new HttpResponse(
+                json_encode($this->flagsEndpointResponse),
+                $this->flagsEndpointResponseCode,
+                null,
+                $this->flagsEndpointCurlErrno
+            );
         }
 
         if (str_starts_with($path, "/api/feature_flag/local_evaluation")) {
