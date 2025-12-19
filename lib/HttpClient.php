@@ -155,6 +155,7 @@ class HttpClient
     {
         $response = curl_exec($ch);
         $responseCode = curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $curlErrno = curl_errno($ch);
         $etag = null;
 
         if ($includeEtag && $response !== false) {
@@ -168,10 +169,10 @@ class HttpClient
                 $etag = trim($matches[1]);
             }
 
-            return new HttpResponse($body, $responseCode, $etag);
+            return new HttpResponse($body, $responseCode, $etag, $curlErrno);
         }
 
-        return new HttpResponse($response, $responseCode);
+        return new HttpResponse($response, $responseCode, null, $curlErrno);
     }
 
     private function handleError($code, $message)
