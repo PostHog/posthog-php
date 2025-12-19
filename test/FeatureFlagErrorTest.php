@@ -14,7 +14,7 @@ use SlopeIt\ClockMock\ClockMock;
 
 class FeatureFlagErrorTest extends TestCase
 {
-    const FAKE_API_KEY = "random_key";
+    public const FAKE_API_KEY = "random_key";
 
     private $http_client;
     private $client;
@@ -94,7 +94,10 @@ class FeatureFlagErrorTest extends TestCase
             $this->assertEquals('$feature_flag_called', $event['event']);
             $this->assertEquals('simple-test', $event['properties']['$feature_flag']);
             $this->assertTrue($event['properties']['$feature_flag_response']);
-            $this->assertEquals(FeatureFlagError::ERRORS_WHILE_COMPUTING_FLAGS, $event['properties']['$feature_flag_error']);
+            $this->assertEquals(
+                FeatureFlagError::ERRORS_WHILE_COMPUTING_FLAGS,
+                $event['properties']['$feature_flag_error']
+            );
         });
     }
 
@@ -164,12 +167,21 @@ class FeatureFlagErrorTest extends TestCase
         ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             // Create a mocked client that will throw an exception
             $this->http_client = new class ("app.posthog.com") extends MockedHttpClient {
-                public function sendRequest(string $path, ?string $payload, array $extraHeaders = [], array $requestOptions = []): \PostHog\HttpResponse
-                {
+                public function sendRequest(
+                    string $path,
+                    ?string $payload,
+                    array $extraHeaders = [],
+                    array $requestOptions = []
+                ): \PostHog\HttpResponse {
                     if (!isset($this->calls)) {
                         $this->calls = [];
                     }
-                    array_push($this->calls, array("path" => $path, "payload" => $payload, "extraHeaders" => $extraHeaders, "requestOptions" => $requestOptions));
+                    array_push($this->calls, array(
+                        "path" => $path,
+                        "payload" => $payload,
+                        "extraHeaders" => $extraHeaders,
+                        "requestOptions" => $requestOptions
+                    ));
 
                     if (str_starts_with($path, "/flags/")) {
                         throw new \Exception("Network error");
