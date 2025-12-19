@@ -1,5 +1,5 @@
 <?php
-
+// phpcs:ignoreFile
 namespace PostHog\Test;
 
 // comment out below to print all logs instead of failing tests
