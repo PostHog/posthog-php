@@ -10,11 +10,12 @@ use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\PostHog;
 use PostHog\Test\Assets\MockedResponses;
-use SlopeIt\ClockMock\ClockMock;
 
 
 class PostHogTest extends TestCase
 {
+    use ClockMockTrait;
+
     const FAKE_API_KEY = "random_key";
 
     private $http_client;
@@ -83,7 +84,7 @@ class PostHogTest extends TestCase
 
     public function testCaptureWithSendFeatureFlagsOption(): void
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST);
             $this->client = new Client(
                 self::FAKE_API_KEY,
@@ -150,7 +151,7 @@ class PostHogTest extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             $this->assertTrue(
                 PostHog::capture(
                     array (
@@ -196,7 +197,7 @@ class PostHogTest extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             $this->assertTrue(
                 PostHog::capture(
                     array (
@@ -477,7 +478,7 @@ class PostHogTest extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             $this->assertTrue(
                 PostHog::capture(
                     array (

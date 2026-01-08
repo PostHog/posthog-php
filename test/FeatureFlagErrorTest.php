@@ -10,10 +10,10 @@ use PostHog\Client;
 use PostHog\FeatureFlagError;
 use PostHog\PostHog;
 use PostHog\Test\Assets\MockedResponses;
-use SlopeIt\ClockMock\ClockMock;
 
 class FeatureFlagErrorTest extends TestCase
 {
+    use ClockMockTrait;
     public const FAKE_API_KEY = "random_key";
 
     private $http_client;
@@ -40,7 +40,7 @@ class FeatureFlagErrorTest extends TestCase
 
     public function testFlagMissingError()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             $this->setUp(MockedResponses::FLAGS_RESPONSE, personalApiKey: null);
 
             // Request a flag that doesn't exist in the response
@@ -70,7 +70,7 @@ class FeatureFlagErrorTest extends TestCase
 
     public function testErrorsWhileComputingFlagsError()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             // Create a response with errorsWhileComputingFlags set to true
             $responseWithErrors = array_merge(MockedResponses::FLAGS_RESPONSE, [
                 'errorsWhileComputingFlags' => true
@@ -103,7 +103,7 @@ class FeatureFlagErrorTest extends TestCase
 
     public function testMultipleErrors()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             // Create a response with errorsWhileComputingFlags set to true
             // and request a flag that doesn't exist
             $responseWithErrors = array_merge(MockedResponses::FLAGS_RESPONSE, [
@@ -137,7 +137,7 @@ class FeatureFlagErrorTest extends TestCase
 
     public function testNoErrorWhenFlagEvaluatesSuccessfully()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             $this->setUp(MockedResponses::FLAGS_RESPONSE, personalApiKey: null);
 
             // Request a flag that exists in the response
@@ -164,7 +164,7 @@ class FeatureFlagErrorTest extends TestCase
 
     public function testUnknownErrorWhenExceptionThrown()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             // Create a mocked client that will throw an exception
             $this->http_client = new class ("app.posthog.com") extends MockedHttpClient {
                 public function sendRequest(
@@ -245,7 +245,7 @@ class FeatureFlagErrorTest extends TestCase
 
     public function testTimeoutError()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             // Create a mocked client that simulates a timeout (responseCode=0, curlErrno=28)
             $this->http_client = new MockedHttpClient(
                 "app.posthog.com",
@@ -291,7 +291,7 @@ class FeatureFlagErrorTest extends TestCase
 
     public function testConnectionError()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             // Create a mocked client that simulates a connection error (responseCode=0, curlErrno=6)
             $this->http_client = new MockedHttpClient(
                 "app.posthog.com",
@@ -337,7 +337,7 @@ class FeatureFlagErrorTest extends TestCase
 
     public function testApiError500()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             // Create a mocked client that simulates a 500 error
             $this->http_client = new MockedHttpClient(
                 "app.posthog.com",
@@ -382,7 +382,7 @@ class FeatureFlagErrorTest extends TestCase
 
     public function testQuotaLimitedError()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             // Create a response with quotaLimited containing feature_flags
             $quotaLimitedResponse = array_merge(MockedResponses::FLAGS_RESPONSE, [
                 'quotaLimited' => ['feature_flags']
