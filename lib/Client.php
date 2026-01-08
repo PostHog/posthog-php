@@ -842,7 +842,7 @@ class Client
                 return date("c", strtotime($ts));
             }
 
-            return date("c");
+            return date("c", Clock::get()->now()->getTimestamp());
         }
 
         // fix for floatval casting in send.php
