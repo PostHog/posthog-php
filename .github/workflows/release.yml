@@ -72,7 +72,6 @@ jobs:
     permissions:
       contents: write
       actions: write
-      id-token: write
     steps:
       - name: Notify Slack - Approved
         if: needs.notify-approval-needed.outputs.slack_ts != ''
