@@ -130,7 +130,7 @@ jobs:
           current_version="${{ steps.bump-version.outputs.current_version }}"
           new_version="${{ steps.bump-version.outputs.new_version }}"
           release_date=$(date +%Y-%m-%d)
-          echo -e "## $new_version - $release_date\n\n* [Full Changelog](https://github.com/PostHog/posthog-php/compare/v${current_version}...v${new_version})\n\n$(cat CHANGELOG.md)" > CHANGELOG.md
+          echo -e "## $new_version - $release_date\n\n* [Full Changelog](https://github.com/PostHog/posthog-php/compare/${current_version}...${new_version})\n\n$(cat CHANGELOG.md)" > CHANGELOG.md
 
       - name: Commit version bump
         id: commit-version-bump
@@ -150,8 +150,8 @@ jobs:
       - name: Create and push tag
         if: steps.commit-version-bump.outputs.committed == 'true'
         run: |
-          git tag -a "v${{ steps.bump-version.outputs.new_version }}" -m "v${{ steps.bump-version.outputs.new_version }}"
-          git push origin "v${{ steps.bump-version.outputs.new_version }}"
+          git tag -a "${{ steps.bump-version.outputs.new_version }}" -m "${{ steps.bump-version.outputs.new_version }}"
+          git push origin "${{ steps.bump-version.outputs.new_version }}"
 
       - name: Create GitHub release
         if: steps.commit-version-bump.outputs.committed == 'true'
@@ -165,9 +165,9 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             /repos/PostHog/posthog-php/releases \
-            -f tag_name="v${{ steps.bump-version.outputs.new_version }}" \
+            -f tag_name="${{ steps.bump-version.outputs.new_version }}" \
             -f target_commitish='master' \
-            -f name="v${{ steps.bump-version.outputs.new_version }}" \
+            -f name="${{ steps.bump-version.outputs.new_version }}" \
             -f body="$LAST_CHANGELOG_ENTRY" \
             -F draft=false \
             -F prerelease=false \
@@ -185,7 +185,7 @@ jobs:
               "commitSha": "${{ github.sha }}",
               "jobStatus": "${{ job.status }}",
               "ref": "${{ github.ref }}",
-              "version": "v${{ steps.bump-version.outputs.new_version }}"
+              "version": "${{ steps.bump-version.outputs.new_version }}"
             }
 
       - name: Notify Slack - Failed
