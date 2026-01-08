@@ -84,7 +84,7 @@ class PostHogTest extends TestCase
 
     public function testCaptureWithSendFeatureFlagsOption(): void
     {
-        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST);
             $this->client = new Client(
                 self::FAKE_API_KEY,
@@ -151,7 +151,7 @@ class PostHogTest extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             $this->assertTrue(
                 PostHog::capture(
                     array (
@@ -197,7 +197,7 @@ class PostHogTest extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             $this->assertTrue(
                 PostHog::capture(
                     array (
@@ -478,7 +478,7 @@ class PostHogTest extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        self::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             $this->assertTrue(
                 PostHog::capture(
                     array (

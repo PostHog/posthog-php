@@ -215,7 +215,7 @@ class FeatureFlag
     public static function relativeDateParseForFeatureFlagMatching($value)
     {
         $regex = "/^-?(?<number>[0-9]+)(?<interval>[a-z])$/";
-        $parsedDt = \DateTime::createFromInterface(Clock::now())->setTimezone(new \DateTimeZone("UTC"));
+        $parsedDt = \DateTime::createFromInterface(Clock::get()->now())->setTimezone(new \DateTimeZone("UTC"));
         if (preg_match($regex, $value, $matches)) {
             $number = intval($matches["number"]);
 

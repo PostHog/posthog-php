@@ -830,7 +830,7 @@ class Client
     {
         // time()
         if (null == $ts || !$ts) {
-            $ts = Clock::now()->getTimestamp();
+            $ts = Clock::get()->now()->getTimestamp();
         }
         if (false !== filter_var($ts, FILTER_VALIDATE_INT)) {
             return date("c", (int)$ts);

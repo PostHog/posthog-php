@@ -4,6 +4,7 @@ namespace PostHog\Test;
 
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\MockClock;
+use Symfony\Component\Clock\NativeClock;
 
 /**
  * Trait providing time mocking functionality for tests using Symfony Clock.
@@ -19,7 +20,7 @@ trait ClockMockTrait
      * @param callable $callback The callback to execute
      * @return mixed The return value of the callback
      */
-    protected static function executeAtFrozenDateTime(\DateTimeInterface $dateTime, callable $callback): mixed
+    protected function executeAtFrozenDateTime(\DateTimeInterface $dateTime, callable $callback): mixed
     {
         $mockClock = new MockClock($dateTime instanceof \DateTimeImmutable
             ? $dateTime
@@ -31,7 +32,7 @@ trait ClockMockTrait
             return $callback();
         } finally {
             // Reset to real clock
-            Clock::set(new \Symfony\Component\Clock\NativeClock());
+            Clock::set(new NativeClock());
         }
     }
 }
