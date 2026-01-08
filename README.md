@@ -1,5 +1,8 @@
 # PostHog PHP
 
+[![PHP Version](https://img.shields.io/packagist/php-v/posthog/posthog-php?logo=php)](https://packagist.org/packages/posthog/posthog-php)
+[![CI](https://github.com/PostHog/posthog-php/actions/workflows/php.yml/badge.svg)](https://github.com/PostHog/posthog-php/actions/workflows/php.yml)
+
 Please see the main [PostHog docs](https://posthog.com/docs).
 
 Specifically, the [PHP integration](https://posthog.com/docs/integrations/php-integration) details.
