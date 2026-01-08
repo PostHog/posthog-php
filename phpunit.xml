@@ -2,12 +2,21 @@
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.5/phpunit.xsd"
          backupGlobals="true"
+         backupStaticProperties="false"
          colors="true"
          processIsolation="false"
          stopOnError="false"
          stopOnFailure="false"
+         stopOnIncomplete="false"
+         stopOnSkipped="false"
+         stopOnRisky="false"
          cacheDirectory=".phpunit.cache"
 >
+  <coverage includeUncoveredFiles="true">
+    <report>
+      <text outputFile="php://stdout" showUncoveredFiles="true"/>
+    </report>
+  </coverage>
   <source>
     <include>
       <directory suffix=".php">./lib</directory>
