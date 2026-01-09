@@ -24,18 +24,6 @@ lint: dependencies
 		printf "Please update PHP version to 5.5 or above for code formatting."; \
 	fi
 
-release:
-	@printf "releasing ${VERSION}..."
-	@if [ "$(shell uname)" = "Darwin" ]; then \
-		sed -i '' -E -e "s/public const VERSION = '[^']*'/public const VERSION = '${VERSION}'/" ./lib/PostHog.php; \
-	else \
-		sed -i -E -e "s/public const VERSION = '[^']*'/public const VERSION = '${VERSION}'/" ./lib/PostHog.php; \
-	fi
-	@node -e "var fs = require('fs'), pkg = require('./composer'); pkg.version = '${VERSION}'; fs.writeFileSync('./composer.json', JSON.stringify(pkg, null, '\t'));"
-	@git changelog -t ${VERSION}
-	@git release ${VERSION}
-	@gh release create ${VERSION} --generate-notes 
-
 clean:
 	rm -rf \
 		composer.phar \
