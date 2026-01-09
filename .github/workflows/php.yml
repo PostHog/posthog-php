@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        php-version: [8.0, 8.1, 8.2, 8.3, 8.4]
+        php-version: [8.2, 8.3, 8.4, 8.5]
     steps:
       - uses: actions/checkout@v2
 
@@ -22,11 +22,11 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php-version }}
-          extensions: uopz, xdebug
+          extensions: xdebug
           tools: composer, phpunit
 
       - name: Install Dependencies
-        run: composer install --prefer-dist --no-progress --no-suggest
+        run: composer install --prefer-dist --no-progress
 
       - name: Run PHPUnit Tests
         run: XDEBUG_MODE=coverage ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml --coverage-text

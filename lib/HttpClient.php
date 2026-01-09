@@ -114,9 +114,6 @@ class HttpClient
             $httpResponse = $this->executePost($ch, $includeEtag);
             $responseCode = $httpResponse->getResponseCode();
 
-            //close connection
-            curl_close($ch);
-
             // Handle 304 Not Modified - this is a success, not an error
             if ($responseCode === 304) {
                 if ($this->debug) {

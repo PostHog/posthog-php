@@ -7,6 +7,7 @@ use PostHog\Consumer\File;
 use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
 use PostHog\Consumer\Socket;
+use Symfony\Component\Clock\Clock;
 
 const SIZE_LIMIT = 50_000;
 
@@ -829,7 +830,7 @@ class Client
     {
         // time()
         if (null == $ts || !$ts) {
-            $ts = time();
+            $ts = Clock::get()->now()->getTimestamp();
         }
         if (false !== filter_var($ts, FILTER_VALIDATE_INT)) {
             return date("c", (int)$ts);
@@ -841,7 +842,7 @@ class Client
                 return date("c", strtotime($ts));
             }
 
-            return date("c");
+            return date("c", Clock::get()->now()->getTimestamp());
         }
 
         // fix for floatval casting in send.php

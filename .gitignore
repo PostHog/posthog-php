@@ -6,6 +6,7 @@ test/posthog.log
 .phplint-cache
 .idea
 .phpunit.result.cache
+.phpunit.cache
 clover.xml
 xdebug.log
 .DS_Store

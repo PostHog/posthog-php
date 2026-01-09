@@ -2,6 +2,8 @@
 
 namespace PostHog;
 
+use Symfony\Component\Clock\Clock;
+
 const LONG_SCALE = 0xfffffffffffffff;
 
 class FeatureFlag
@@ -213,7 +215,7 @@ class FeatureFlag
     public static function relativeDateParseForFeatureFlagMatching($value)
     {
         $regex = "/^-?(?<number>[0-9]+)(?<interval>[a-z])$/";
-        $parsedDt = new \DateTime("now", new \DateTimeZone("UTC"));
+        $parsedDt = \DateTime::createFromInterface(Clock::get()->now())->setTimezone(new \DateTimeZone("UTC"));
         if (preg_match($regex, $value, $matches)) {
             $number = intval($matches["number"]);
 

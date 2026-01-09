@@ -7,7 +7,6 @@ require_once 'test/error_log_mock.php';
 
 use Exception;
 use PHPUnit\Framework\TestCase;
-use SlopeIt\ClockMock\ClockMock;
 use PostHog\FeatureFlag;
 use PostHog\Client;
 use PostHog\PostHog;
@@ -17,6 +16,7 @@ use PostHog\SizeLimitedHash;
 
 class FeatureFlagLocalEvaluationTest extends TestCase
 {
+    use ClockMockTrait;
     protected const FAKE_API_KEY = "random_key";
 
     protected Client $client;
@@ -604,7 +604,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testMatchPropertyRelativeDateOperators(): void
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
 
             $prop_a = [
                 "key" => "key",
@@ -951,7 +951,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
     public function testRelativeDateParsingHours()
     {
 
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1h'), new \DateTime('2020-01-01T11:01:20Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2h'), new \DateTime('2020-01-01T10:01:20Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('24h'), new \DateTime('2019-12-31T12:01:20Z'));
@@ -965,7 +965,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testRelativeDateParsingDays()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1d'), new \DateTime('2019-12-31T12:01:20Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2d'), new \DateTime('2019-12-30T12:01:20Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('7d'), new \DateTime('2019-12-25T12:01:20Z'));
@@ -978,7 +978,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testRelativeDateParsingWeeks()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1w'), new \DateTime('2019-12-25T12:01:20Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2w'), new \DateTime('2019-12-18T12:01:20Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('4w'), new \DateTime('2019-12-04T12:01:20Z'));
@@ -991,7 +991,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testRelativeDateParsingMonths()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1m'), new \DateTime('2019-12-01T12:01:20Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2m'), new \DateTime('2019-11-01T12:01:20Z'));
 
@@ -1007,7 +1007,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('12m'), FeatureFlag::relativeDateParseForFeatureFlagMatching('1y'));
         });
 
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2020-04-03T00:00:00Z'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2020-04-03T00:00:00Z'), function () {
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1m'), new \DateTime('2020-03-03T00:00:00Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2m'), new \DateTime('2020-02-03T00:00:00Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('4m'), new \DateTime('2019-12-03T00:00:00Z'));
@@ -1021,7 +1021,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testRelativeDateParsingYears()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {
 
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('1y'), new \DateTime('2019-01-01T12:01:20Z'));
             self::assertEquals(FeatureFlag::relativeDateParseForFeatureFlagMatching('2y'), new \DateTime('2018-01-01T12:01:20Z'));
@@ -1339,7 +1339,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testSimpleFlag()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
 
             $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST);
             $this->client = new Client(

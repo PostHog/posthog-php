@@ -10,11 +10,12 @@ use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\PostHog;
 use PostHog\Test\Assets\MockedResponses;
-use SlopeIt\ClockMock\ClockMock;
 
 
 class FeatureFlagTest extends TestCase
 {
+    use ClockMockTrait;
+
     const FAKE_API_KEY = "random_key";
 
     private $http_client;
@@ -45,7 +46,7 @@ class FeatureFlagTest extends TestCase
         $this->assertTrue(empty($errorMessages), "Error logs are not empty: " . implode("\n", $errorMessages));
     }
 
-    public function decideResponseCases(): array
+    public static function decideResponseCases(): array
     {
         return [
             'v3 response' => [MockedResponses::FLAGS_RESPONSE],
@@ -81,7 +82,7 @@ class FeatureFlagTest extends TestCase
 
     public function testIsFeatureEnabledCapturesFeatureFlagCalledEventWithAdditionalMetadata()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             $this->setUp(MockedResponses::FLAGS_V2_RESPONSE, personalApiKey: null);
             $this->assertTrue(PostHog::isFeatureEnabled('simple-test', 'user-id'));
             PostHog::flush();
@@ -163,7 +164,7 @@ class FeatureFlagTest extends TestCase
 
     public function testGetFeatureFlagCapturesFeatureFlagCalledEventWithAdditionalMetadata()
     {
-        ClockMock::executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+        $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
             $this->setUp(MockedResponses::FLAGS_V2_RESPONSE, personalApiKey: null);
             $this->assertEquals("variant-value", PostHog::getFeatureFlag('multivariate-test', 'user-id'));
             PostHog::flush();
