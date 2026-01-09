@@ -1,3 +1,7 @@
+## 4.0.0 - 2026-01-09
+
+* [Full Changelog](https://github.com/PostHog/posthog-php/compare/3.7.3...4.0.0)
+
 3.7.3 / 2025-12-04
 ==================
 
@@ -259,7 +263,8 @@
   * Merge pull request #6 from chuva-inc/document_property
   * Merge pull request #5 from chuva-inc/issue_4
   * Posthog/posthog-php#3: Document the customer property
-  * PostHog/posthog-php#4: Removes \n from beginning of the file
+  * PostHog/posthog-php#4: Removes 
+ from beginning of the file
   * Update README.md
   * fix infinite loop on error 0 from libcurl
   * fix error when including https:// in host
