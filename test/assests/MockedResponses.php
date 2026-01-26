@@ -57,6 +57,7 @@ class MockedResponses
             'integer-payload' => true,
             'string-payload' => true,
             'array-payload' => true,
+            'disabled-flag-with-payload' => false,
         ],
         'featureFlagPayloads' => [
             'simpleFlag' => '{"key":"simpleFlag"}',
@@ -67,6 +68,7 @@ class MockedResponses
             'integer-payload' => '2500',
             'string-payload' => '"A String"',
             'array-payload' => '[1, 2, 3]',
+            'disabled-flag-with-payload' => '{"disabled":true}',
         ],
     ];
 
@@ -365,6 +367,21 @@ class MockedResponses
                 'metadata' => [
                     'id' => 19,
                     'payload' => '[1, 2, 3]',
+                    'version' => 1,
+                ]
+            ],
+            'disabled-flag-with-payload' => [
+                'key' => 'disabled-flag-with-payload',
+                'enabled' => false,
+                'variant' => null,
+                'reason' => [
+                    'code' => 'no_condition_match',
+                    'description' => 'No matching condition set',
+                    'condition_index' => null
+                ],
+                'metadata' => [
+                    'id' => 20,
+                    'payload' => '{"disabled":true}',
                     'version' => 1,
                 ]
             ],
