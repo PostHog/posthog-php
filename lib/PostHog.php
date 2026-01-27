@@ -171,6 +171,46 @@ class PostHog
     }
 
     /**
+     * Get the feature flag result including value and payload.
+     *
+     * This is the recommended method for getting feature flag data as it returns
+     * both the flag value and payload in a single call, while properly tracking analytics.
+     *
+     * @param string $key
+     * @param string $distinctId
+     * @param array $groups
+     * @param array $personProperties
+     * @param array $groupProperties
+     * @param bool $onlyEvaluateLocally
+     * @param bool $sendFeatureFlagEvents
+     * @return FeatureFlagResult|null
+     * @throws Exception
+     */
+    public static function getFeatureFlagResult(
+        string $key,
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false,
+        bool $sendFeatureFlagEvents = true
+    ): ?FeatureFlagResult {
+        self::checkClient();
+        return self::$client->getFeatureFlagResult(
+            $key,
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $onlyEvaluateLocally,
+            $sendFeatureFlagEvents
+        );
+    }
+
+    /**
+     * @deprecated Use getFeatureFlagResult() instead. This method does not send
+     * the $feature_flag_called event, leading to missing analytics.
+     *
      * @param string $key
      * @param string $distinctId
      * @param array $groups

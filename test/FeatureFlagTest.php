@@ -300,4 +300,252 @@ class FeatureFlagTest extends TestCase
 
         $this->assertNull(PostHog::getFeatureFlagPayload('non-existent-flag', 'some-distinct'));
     }
+
+    /**
+     * @dataProvider decideResponseCases
+     */
+    public function testGetFeatureFlagResult($response): void
+    {
+        $this->setUp($response);
+
+        $result = PostHog::getFeatureFlagResult('json-payload', 'user-id');
+
+        $this->assertNotNull($result);
+        $this->assertEquals('json-payload', $result->getKey());
+        $this->assertTrue($result->isEnabled());
+        $this->assertNull($result->getVariant());
+        $this->assertEquals(['key' => 'value'], $result->getPayload());
+        $this->assertTrue($result->getValue());
+    }
+
+    /**
+     * @dataProvider decideResponseCases
+     */
+    public function testGetFeatureFlagResultWithMultivariateFlag($response): void
+    {
+        $this->setUp($response);
+
+        $result = PostHog::getFeatureFlagResult('multivariate-test', 'user-id');
+
+        $this->assertNotNull($result);
+        $this->assertEquals('multivariate-test', $result->getKey());
+        $this->assertTrue($result->isEnabled());
+        $this->assertEquals('variant-value', $result->getVariant());
+        $this->assertEquals('variant-value', $result->getValue());
+    }
+
+    /**
+     * @dataProvider decideResponseCases
+     */
+    public function testGetFeatureFlagResultReturnsNullForMissingFlag($response): void
+    {
+        $this->setUp($response);
+
+        $result = PostHog::getFeatureFlagResult('non-existent-flag', 'user-id');
+
+        $this->assertNull($result);
+    }
+
+    /**
+     * @dataProvider decideResponseCases
+     */
+    public function testGetFeatureFlagResultForDisabledFlag($response): void
+    {
+        $this->setUp($response);
+
+        $result = PostHog::getFeatureFlagResult('disabled-flag', 'user-id');
+
+        $this->assertNotNull($result);
+        $this->assertEquals('disabled-flag', $result->getKey());
+        $this->assertFalse($result->isEnabled());
+        $this->assertNull($result->getVariant());
+        $this->assertFalse($result->getValue());
+    }
+
+    public function testGetFeatureFlagResultSendsEvent(): void
+    {
+        $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+            $this->setUp(MockedResponses::FLAGS_V2_RESPONSE, personalApiKey: null);
+
+            $result = PostHog::getFeatureFlagResult('json-payload', 'user-id');
+            PostHog::flush();
+
+            $this->assertNotNull($result);
+            $this->assertEquals(['key' => 'value'], $result->getPayload());
+
+            // Verify that the $feature_flag_called event was sent
+            $batchCall = null;
+            foreach ($this->http_client->calls as $call) {
+                if ($call['path'] === '/batch/') {
+                    $batchCall = $call;
+                    break;
+                }
+            }
+            $this->assertNotNull($batchCall, 'Expected a batch call to be made');
+
+            $payload = json_decode($batchCall['payload'], true);
+            $this->assertNotEmpty($payload['batch']);
+
+            $event = $payload['batch'][0];
+            $this->assertEquals('$feature_flag_called', $event['event']);
+            $this->assertEquals('json-payload', $event['properties']['$feature_flag']);
+            $this->assertTrue($event['properties']['$feature_flag_response']);
+        });
+    }
+
+    /**
+     * @dataProvider decideResponseCases
+     */
+    public function testGetFeatureFlagResultWithMultivariateFlagAndPayload($response): void
+    {
+        $this->setUp($response);
+
+        $result = PostHog::getFeatureFlagResult('multivariate-simple-test', 'user-id');
+
+        $this->assertNotNull($result);
+        $this->assertEquals('multivariate-simple-test', $result->getKey());
+        $this->assertTrue($result->isEnabled());
+        $this->assertEquals('variant-simple-value', $result->getVariant());
+        $this->assertEquals('variant-simple-value', $result->getValue());
+        $this->assertEquals('some string payload', $result->getPayload());
+    }
+
+    public function testGetFeatureFlagPayloadDoesNotSendEvent(): void
+    {
+        $this->setUp(MockedResponses::FLAGS_V2_RESPONSE, personalApiKey: null);
+
+        $payload = PostHog::getFeatureFlagPayload('json-payload', 'user-id');
+        PostHog::flush();
+
+        $this->assertEquals(['key' => 'value'], $payload);
+
+        // Verify that NO batch call was made (no event sent)
+        $batchCall = null;
+        foreach ($this->http_client->calls as $call) {
+            if ($call['path'] === '/batch/') {
+                $batchCall = $call;
+                break;
+            }
+        }
+        $this->assertNull($batchCall, 'Expected no batch call to be made for getFeatureFlagPayload');
+    }
+
+    /**
+     * @dataProvider decideResponseCases
+     */
+    public function testGetFeatureFlagResultForDisabledFlagWithPayload($response): void
+    {
+        $this->setUp($response);
+
+        $result = PostHog::getFeatureFlagResult('disabled-flag-with-payload', 'user-id');
+
+        $this->assertNotNull($result);
+        $this->assertEquals('disabled-flag-with-payload', $result->getKey());
+        $this->assertFalse($result->isEnabled());
+        $this->assertNull($result->getVariant());
+        $this->assertFalse($result->getValue());
+        $this->assertEquals(['disabled' => true], $result->getPayload());
+    }
+
+    public function testGetFeatureFlagResultWithLocalEvaluationOnly(): void
+    {
+        // For local evaluation, we need to set flagEndpointResponse (not flagsEndpointResponse)
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST
+        );
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            ["debug" => true],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        // Flag can be evaluated locally - should return result
+        $result = PostHog::getFeatureFlagResult(
+            'simple-flag',
+            'user-id',
+            [],
+            [],
+            [],
+            true  // onlyEvaluateLocally
+        );
+
+        $this->assertNotNull($result);
+        $this->assertEquals('simple-flag', $result->getKey());
+        $this->assertTrue($result->isEnabled());
+
+        // Verify no /flags/ network call was made
+        foreach ($this->http_client->calls as $call) {
+            $this->assertStringNotContainsString('/flags/', $call['path'], 'Expected no /flags/ call for local evaluation');
+        }
+    }
+
+    public function testGetFeatureFlagResultReturnsNullForLocalEvaluationWhenFlagCannotBeEvaluatedLocally(): void
+    {
+        // Use a flag config that requires cohorts which can't be evaluated locally
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_WITH_COHORTS_REQUEST
+        );
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            ["debug" => true],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        // beta-feature requires cohort evaluation which needs server
+        // When onlyEvaluateLocally is true, should return null
+        $result = PostHog::getFeatureFlagResult(
+            'beta-feature',
+            'user-id',
+            [],
+            [],
+            [],
+            true  // onlyEvaluateLocally
+        );
+
+        $this->assertNull($result);
+
+        // Verify no /flags/ network call was made
+        foreach ($this->http_client->calls as $call) {
+            $this->assertStringNotContainsString('/flags/', $call['path'], 'Expected no /flags/ call for local evaluation only');
+        }
+    }
+
+    /**
+     * @dataProvider decideResponseCases
+     */
+    public function testGetFeatureFlagResultWithGroups($response): void
+    {
+        $this->setUp($response);
+
+        $result = PostHog::getFeatureFlagResult(
+            'group-flag',
+            'user-id',
+            ['company' => 'id:5']
+        );
+
+        $this->assertNotNull($result);
+        $this->assertEquals('group-flag', $result->getKey());
+        $this->assertTrue($result->isEnabled());
+        $this->assertEquals('decide-fallback-value', $result->getVariant());
+
+        // Verify that groups were passed in the /flags/ request
+        $flagsCall = null;
+        foreach ($this->http_client->calls as $call) {
+            if (str_contains($call['path'], '/flags/')) {
+                $flagsCall = $call;
+                break;
+            }
+        }
+        $this->assertNotNull($flagsCall, 'Expected a /flags/ call to be made');
+
+        $payload = json_decode($flagsCall['payload'], true);
+        $this->assertArrayHasKey('groups', $payload);
+        $this->assertEquals(['company' => 'id:5'], $payload['groups']);
+    }
 }

@@ -254,6 +254,44 @@ class Client
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
     ): null | bool | string {
+        $result = $this->getFeatureFlagResult(
+            $key,
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $onlyEvaluateLocally,
+            $sendFeatureFlagEvents
+        );
+
+        return $result?->getValue();
+    }
+
+    /**
+     * Get the feature flag result including value and payload.
+     *
+     * This is the recommended method for getting feature flag data as it returns
+     * both the flag value and payload in a single call, while properly tracking analytics.
+     *
+     * @param string $key
+     * @param string $distinctId
+     * @param array $groups
+     * @param array $personProperties
+     * @param array $groupProperties
+     * @param bool $onlyEvaluateLocally
+     * @param bool $sendFeatureFlagEvents
+     * @return FeatureFlagResult|null
+     * @throws Exception
+     */
+    public function getFeatureFlagResult(
+        string $key,
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false,
+        bool $sendFeatureFlagEvents = true
+    ): ?FeatureFlagResult {
         [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
             $distinctId,
             $groups,
@@ -261,6 +299,7 @@ class Client
             $groupProperties
         );
         $result = null;
+        $payload = null;
         $featureFlagError = null;
 
         foreach ($this->featureFlags as $flag) {
@@ -307,6 +346,12 @@ class Client
                 } else {
                     $errors[] = FeatureFlagError::FLAG_MISSING;
                     $result = null;
+                }
+
+                // Extract payload from response
+                $rawPayload = $response['featureFlagPayloads'][$key] ?? null;
+                if ($rawPayload !== null) {
+                    $payload = json_decode($rawPayload, true);
                 }
 
                 if (!empty($errors)) {
@@ -371,13 +416,22 @@ class Client
             $this->distinctIdsFeatureFlagsReported->add($key, $distinctId);
         }
 
-        if (!is_null($result)) {
-            return $result;
+        if (is_null($result)) {
+            return null;
         }
-        return null;
+
+        // Determine enabled and variant from result
+        if (is_bool($result)) {
+            return new FeatureFlagResult($key, $result, null, $payload);
+        } else {
+            return new FeatureFlagResult($key, true, $result, $payload);
+        }
     }
 
     /**
+     * @deprecated Use `getFeatureFlagResult()` instead which properly tracks the feature flag call,
+     * and includes both the flag value and payload in a single method.
+     *
      * @param string $key
      * @param string $distinctId
      * @param array $groups
@@ -392,20 +446,17 @@ class Client
         array $personProperties = array(),
         array $groupProperties = array(),
     ): mixed {
-        $results = $this->flags($distinctId, $groups, $personProperties, $groupProperties);
+        $result = $this->getFeatureFlagResult(
+            $key,
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            false,
+            false
+        );
 
-        if (isset($results['featureFlags'][$key]) === false || $results['featureFlags'][$key] !== true) {
-            return null;
-        }
-
-        $payload = $results['featureFlagPayloads'][$key] ?? null;
-
-        if ($payload === null) {
-            return null;
-        }
-
-        # feature flag payloads are always JSON encoded strings.
-        return json_decode($payload, true);
+        return $result?->getPayload();
     }
 
     /**
