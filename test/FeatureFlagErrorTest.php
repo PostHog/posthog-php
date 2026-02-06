@@ -427,4 +427,169 @@ class FeatureFlagErrorTest extends TestCase
             $this->assertEquals(FeatureFlagError::QUOTA_LIMITED, $event['properties']['$feature_flag_error']);
         });
     }
+
+    public function testFailedFlagIsFilteredOutByFailedField()
+    {
+        $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+            // V4 response with three flags:
+            // - 'failed-flag': failed=true (transient error), should be filtered out
+            // - 'disabled-flag': enabled=false, failed=false (legitimately disabled), should NOT be filtered
+            // - 'good-flag': enabled=true, failed=false (successful), should NOT be filtered
+            $responseWithFailedFlag = [
+                'flags' => [
+                    'failed-flag' => [
+                        'key' => 'failed-flag',
+                        'enabled' => false,
+                        'variant' => null,
+                        'reason' => [
+                            'code' => 'database_error',
+                            'description' => 'Database connection error during evaluation',
+                            'condition_index' => null,
+                        ],
+                        'metadata' => ['id' => 1, 'version' => 1, 'payload' => null],
+                        'failed' => true,
+                    ],
+                    'disabled-flag' => [
+                        'key' => 'disabled-flag',
+                        'enabled' => false,
+                        'variant' => null,
+                        'reason' => [
+                            'code' => 'condition_match',
+                            'description' => 'No conditions matched',
+                            'condition_index' => null,
+                        ],
+                        'metadata' => ['id' => 2, 'version' => 1, 'payload' => null],
+                        'failed' => false,
+                    ],
+                    'good-flag' => [
+                        'key' => 'good-flag',
+                        'enabled' => true,
+                        'variant' => null,
+                        'reason' => [
+                            'code' => 'condition_match',
+                            'description' => 'Matched condition set 1',
+                            'condition_index' => 0,
+                        ],
+                        'metadata' => ['id' => 3, 'version' => 1, 'payload' => null],
+                        'failed' => false,
+                    ],
+                ],
+                'errorsWhileComputingFlags' => true,
+                'requestId' => 'test-request-id',
+            ];
+
+            $this->setUp($responseWithFailedFlag, personalApiKey: null);
+
+            // The failed flag should be filtered out entirely (null, not false)
+            $failedResult = PostHog::getFeatureFlag('failed-flag', 'user-id');
+            $this->assertNull($failedResult);
+
+            // A legitimately disabled flag (failed=false) should still return false
+            $disabledResult = PostHog::getFeatureFlag('disabled-flag', 'user-id');
+            $this->assertFalse($disabledResult);
+
+            // A successfully enabled flag should return its value
+            $goodResult = PostHog::getFeatureFlag('good-flag', 'user-id');
+            $this->assertTrue($goodResult);
+        });
+    }
+
+    public function testGetAllFlagsDoesNotOverwriteLocalResultWithFailedServerFlag()
+    {
+        $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
+            // Local flags: simple-flag evaluates locally; ec-flag requires server
+            // due to experience continuity.
+            $localFlags = [
+                'flags' => [
+                    [
+                        "id" => 1,
+                        "name" => "",
+                        "key" => "simple-flag",
+                        "filters" => [
+                            "groups" => [
+                                ["properties" => [], "rollout_percentage" => 100]
+                            ]
+                        ],
+                        "deleted" => false,
+                        "active" => true,
+                        "is_simple_flag" => true,
+                    ],
+                    [
+                        "id" => 2,
+                        "name" => "EC Feature",
+                        "key" => "ec-flag",
+                        "filters" => [
+                            "groups" => [
+                                ["properties" => [], "rollout_percentage" => 100]
+                            ]
+                        ],
+                        "ensure_experience_continuity" => true,
+                        "deleted" => false,
+                        "active" => true,
+                        "is_simple_flag" => true,
+                    ],
+                ],
+            ];
+
+            // Server response (v4): simple-flag failed due to transient error,
+            // ec-flag evaluated successfully.
+            $serverResponse = [
+                'flags' => [
+                    'simple-flag' => [
+                        'key' => 'simple-flag',
+                        'enabled' => false,
+                        'variant' => null,
+                        'reason' => [
+                            'code' => 'database_error',
+                            'description' => 'Database connection error',
+                            'condition_index' => null,
+                        ],
+                        'metadata' => ['id' => 1, 'version' => 1, 'payload' => null],
+                        'failed' => true,
+                    ],
+                    'ec-flag' => [
+                        'key' => 'ec-flag',
+                        'enabled' => true,
+                        'variant' => null,
+                        'reason' => [
+                            'code' => 'condition_match',
+                            'description' => 'Matched condition set 1',
+                            'condition_index' => 0,
+                        ],
+                        'metadata' => ['id' => 2, 'version' => 1, 'payload' => null],
+                        'failed' => false,
+                    ],
+                ],
+                'errorsWhileComputingFlags' => true,
+                'requestId' => 'test-request-id',
+            ];
+
+            $this->http_client = new MockedHttpClient(
+                host: "app.posthog.com",
+                flagEndpointResponse: $localFlags,
+                flagsEndpointResponse: $serverResponse
+            );
+            $this->client = new Client(
+                self::FAKE_API_KEY,
+                ["debug" => true],
+                $this->http_client,
+                "test" // personal API key enables local evaluation
+            );
+            PostHog::init(null, null, $this->client);
+
+            global $errorMessages;
+            $errorMessages = [];
+
+            $flags = PostHog::getAllFlags('distinct-id');
+
+            // simple-flag was locally evaluated as true. The server returned it
+            // as failed (enabled=false, failed=true). The failed server result
+            // must NOT overwrite the local value via array_merge.
+            $this->assertTrue($flags['simple-flag']);
+
+            // ec-flag could not be evaluated locally (experience continuity),
+            // so the successful server result should be used.
+            $this->assertTrue($flags['ec-flag']);
+        });
+    }
 }
