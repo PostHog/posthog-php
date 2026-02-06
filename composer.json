@@ -1,6 +1,6 @@
 {
 	"name": "posthog/posthog-php",
-	"version": "4.0.0",
+	"version": "4.0.1",
 	"description": "PostHog PHP Library",
 	"keywords": [
 		"posthog"
