@@ -339,7 +339,10 @@ class Client
 
                 $requestId = isset($response['requestId']) ? $response['requestId'] : null;
                 $evaluatedAt = isset($response['evaluatedAt']) ? $response['evaluatedAt'] : null;
-                $flagDetail = isset($response['flags'][$key]) ? $response['flags'][$key] : null;
+                $rawFlag = $response['flags'][$key] ?? null;
+                $flagDetail = ($rawFlag !== null && !($rawFlag['failed'] ?? false))
+                    ? $rawFlag
+                    : null;
                 $featureFlags = $response['featureFlags'] ?? [];
                 if (array_key_exists($key, $featureFlags)) {
                     $result = $featureFlags[$key];
@@ -720,6 +723,10 @@ class Client
             $transformedFlags = [];
             $transformedPayloads = [];
             foreach ($decoded['flags'] as $key => $flag) {
+                // Skip flags that failed evaluation to avoid overwriting cached values
+                if (isset($flag['failed']) && $flag['failed']) {
+                    continue;
+                }
                 if ($flag['variant'] !== null) {
                     $transformedFlags[$key] = $flag['variant'];
                 } else {
