@@ -2,6 +2,7 @@
 
 namespace PostHog\Consumer;
 
+use PostHog\HttpClient;
 use PostHog\QueueConsumer;
 
 class ForkCurl extends QueueConsumer
@@ -33,6 +34,25 @@ class ForkCurl extends QueueConsumer
     }
 
     /**
+     * Converts the configured timeout from milliseconds to integer seconds for curl.
+     * @return int|null Integer seconds or null for unlimited.
+     */
+    private function timeoutSeconds(): ?int
+    {
+        $ms = isset($this->options['timeout']) ? (int)$this->options['timeout'] : HttpClient::DEFAULT_CURL_TIMEOUT;
+        if ($ms <= 0) {
+            return null;
+        }
+        $seconds = (int)ceil($ms / 1000);
+        return max(1, $seconds);
+    }
+
+    protected function runCommand(string $cmd, ?array &$output, ?int &$exit): void
+    {
+        exec($cmd, $output, $exit);
+    }
+
+    /**
      * Make an async request to our API. Fork a curl process, immediately send
      * to the API. If debug is enabled, we wait for the response.
      * @param array $messages array of all the messages to send
@@ -58,7 +78,7 @@ class ForkCurl extends QueueConsumer
             // Compress request to file
             $tmpfname = tempnam("/tmp", "forkcurl_");
             $cmd2 = "echo " . $payload . " | gzip > " . $tmpfname;
-            exec($cmd2, $output, $exit);
+            $this->runCommand($cmd2, $output, $exit);
 
             if (0 != $exit) {
                 $this->handleError($exit, $output);
@@ -89,11 +109,17 @@ class ForkCurl extends QueueConsumer
         $libVersion = $messages[0]['library_version'];
         $cmd .= " -H 'User-Agent: $libName/$libVersion'";
 
+        // Timeout
+        $seconds = $this->timeoutSeconds();
+        if ($seconds !== null) {
+            $cmd .= " --max-time $seconds --connect-timeout $seconds";
+        }
+
         if (!$this->debug()) {
             $cmd .= " > /dev/null 2>&1 &";
         }
-
-        exec($cmd, $output, $exit);
+        
+        $this->runCommand($cmd, $output, $exit);
 
         if (0 != $exit) {
             $this->handleError($exit, $output);
