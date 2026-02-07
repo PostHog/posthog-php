@@ -95,16 +95,22 @@ abstract class QueueConsumer extends Consumer
     public function flush()
     {
         $count = count($this->queue);
-        $success = true;
+        $overallSuccess = true;
 
-        while ($count > 0 && $success) {
+        while ($count > 0) {
             $batch = array_splice($this->queue, 0, min($this->batch_size, $count));
-            $success = $this->flushBatch($batch);
+            $batchSuccess = $this->flushBatch($batch);
+
+            // Track overall success but continue processing remaining batches
+            // This ensures we attempt to send all queued events even if some batches fail
+            if (!$batchSuccess) {
+                $overallSuccess = false;
+            }
 
             $count = count($this->queue);
         }
 
-        return $success;
+        return $overallSuccess;
     }
 
     /**
