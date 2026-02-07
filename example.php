@@ -146,7 +146,7 @@ function identifyAndCaptureExamples()
             'property1' => 'value',
             'property2' => 'value',
         ],
-        'groups' => ['company' => 'id:5']
+        '$groups' => ['company' => 'id:5']
     ]);
 
     // Add properties to the person
