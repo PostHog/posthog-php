@@ -79,6 +79,11 @@ class Client
     private $flagsEtag;
 
     /**
+     * @var int
+     */
+    private $exceptionSourceContextLines;
+
+    /**
      * @var bool
      */
     private $debug;
@@ -113,6 +118,7 @@ class Client
             (int) ($options['timeout'] ?? 10000)
         );
         $this->featureFlagsRequestTimeout = (int) ($options['feature_flag_request_timeout_ms'] ?? 3000);
+        $this->exceptionSourceContextLines = (int) ($options['exception_source_context_lines'] ?? 5);
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
         $this->cohorts = [];
@@ -176,6 +182,62 @@ class Client
 
 
         return $this->consumer->capture($message);
+    }
+
+    /**
+     * Captures an exception as a PostHog error tracking event.
+     *
+     * @param \Throwable $exception The exception to capture
+     * @param string|null $distinctId User distinct ID. If null, generates a UUID and disables person processing.
+     * @param array $properties Additional properties to include with the event
+     * @param bool $handled Whether the exception was handled by the application
+     * @return bool whether the capture call succeeded
+     */
+    public function captureException(
+        \Throwable $exception,
+        ?string $distinctId = null,
+        array $properties = [],
+        bool $handled = true
+    ): bool {
+        $exceptionList = ExceptionUtils::buildExceptionList($exception, $this->exceptionSourceContextLines);
+
+        // Set handled flag on the outermost exception (first entry)
+        if (!empty($exceptionList)) {
+            $exceptionList[0]['mechanism']['handled'] = $handled;
+        }
+
+        $properties = array_merge($properties, [
+            '$exception_list' => $exceptionList,
+        ]);
+
+        $captureMessage = [
+            'event' => '$exception',
+            'properties' => $properties,
+        ];
+
+        if ($distinctId !== null) {
+            $captureMessage['distinct_id'] = $distinctId;
+        } else {
+            // Generate anonymous distinct ID and disable person processing
+            $captureMessage['distinct_id'] = self::generateUuidV4();
+            $captureMessage['properties']['$process_person_profile'] = false;
+        }
+
+        return $this->capture($captureMessage);
+    }
+
+    /**
+     * Generate a UUID v4 string.
+     *
+     * @return string
+     */
+    private static function generateUuidV4(): string
+    {
+        $data = random_bytes(16);
+        $data[6] = chr(ord($data[6]) & 0x0f | 0x40); // Version 4
+        $data[8] = chr(ord($data[8]) & 0x3f | 0x80); // Variant 1
+
+        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
     }
 
     /**

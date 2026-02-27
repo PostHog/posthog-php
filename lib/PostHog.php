@@ -62,6 +62,27 @@ class PostHog
     }
 
     /**
+     * Captures an exception as a PostHog error tracking event.
+     *
+     * @param \Throwable $exception The exception to capture
+     * @param string|null $distinctId User distinct ID. If null, generates a UUID and disables person processing.
+     * @param array $properties Additional properties to include with the event
+     * @param bool $handled Whether the exception was handled by the application
+     * @return bool whether the capture call succeeded
+     * @throws Exception
+     */
+    public static function captureException(
+        \Throwable $exception,
+        ?string $distinctId = null,
+        array $properties = [],
+        bool $handled = true
+    ): bool {
+        self::checkClient();
+
+        return self::$client->captureException($exception, $distinctId, $properties, $handled);
+    }
+
+    /**
      * Tags properties about the user.
      *
      * @param array $message
