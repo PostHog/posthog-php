@@ -98,6 +98,52 @@ class FeatureFlag
             }
         }
 
+        // Semver operators
+        if (in_array($operator, ["semver_eq", "semver_neq", "semver_gt", "semver_gte", "semver_lt", "semver_lte"])) {
+            $overrideTuple = FeatureFlag::parseSemver($overrideValue);
+            $valueTuple = FeatureFlag::parseSemver($value);
+
+            $comparison = FeatureFlag::compareSemverTuples($overrideTuple, $valueTuple);
+
+            if ($operator === "semver_eq") {
+                return $comparison === 0;
+            } elseif ($operator === "semver_neq") {
+                return $comparison !== 0;
+            } elseif ($operator === "semver_gt") {
+                return $comparison > 0;
+            } elseif ($operator === "semver_gte") {
+                return $comparison >= 0;
+            } elseif ($operator === "semver_lt") {
+                return $comparison < 0;
+            } elseif ($operator === "semver_lte") {
+                return $comparison <= 0;
+            }
+        }
+
+        if ($operator === "semver_tilde") {
+            $overrideTuple = FeatureFlag::parseSemver($overrideValue);
+            list($lower, $upper) = FeatureFlag::tildeBounds($value);
+
+            return FeatureFlag::compareSemverTuples($overrideTuple, $lower) >= 0
+                && FeatureFlag::compareSemverTuples($overrideTuple, $upper) < 0;
+        }
+
+        if ($operator === "semver_caret") {
+            $overrideTuple = FeatureFlag::parseSemver($overrideValue);
+            list($lower, $upper) = FeatureFlag::caretBounds($value);
+
+            return FeatureFlag::compareSemverTuples($overrideTuple, $lower) >= 0
+                && FeatureFlag::compareSemverTuples($overrideTuple, $upper) < 0;
+        }
+
+        if ($operator === "semver_wildcard") {
+            $overrideTuple = FeatureFlag::parseSemver($overrideValue);
+            list($lower, $upper) = FeatureFlag::wildcardBounds($value);
+
+            return FeatureFlag::compareSemverTuples($overrideTuple, $lower) >= 0
+                && FeatureFlag::compareSemverTuples($overrideTuple, $upper) < 0;
+        }
+
         return false;
     }
 
@@ -243,6 +289,189 @@ class FeatureFlag
         } else {
             return null;
         }
+    }
+
+    /**
+     * Parse a semver string into a tuple of [major, minor, patch].
+     *
+     * @param mixed $value The semver string to parse
+     * @return array{int, int, int} The parsed tuple [major, minor, patch]
+     * @throws InconclusiveMatchException If the value cannot be parsed as semver
+     */
+    public static function parseSemver($value): array
+    {
+        if ($value === null || $value === "") {
+            throw new InconclusiveMatchException("Cannot parse empty or null value as semver");
+        }
+
+        $text = trim(strval($value));
+
+        if ($text === "") {
+            throw new InconclusiveMatchException("Cannot parse empty value as semver");
+        }
+
+        // Strip v/V prefix
+        $text = ltrim($text, "vV");
+
+        if ($text === "") {
+            throw new InconclusiveMatchException("Cannot parse semver: only prefix found");
+        }
+
+        // Strip pre-release and build metadata (split on - or +, take first part)
+        $text = preg_split('/[-+]/', $text, 2)[0];
+
+        // Check for leading dot
+        if (str_starts_with($text, ".")) {
+            throw new InconclusiveMatchException("Cannot parse semver with leading dot: {$value}");
+        }
+
+        // Split on dots
+        $parts = explode(".", $text);
+
+        // Parse major
+        if (!isset($parts[0]) || $parts[0] === "" || !ctype_digit(ltrim($parts[0], "0") ?: "0")) {
+            // Allow pure zeros or numeric strings
+            if (isset($parts[0]) && preg_match('/^[0-9]+$/', $parts[0])) {
+                $major = intval($parts[0]);
+            } else {
+                throw new InconclusiveMatchException("Cannot parse semver: invalid major version in {$value}");
+            }
+        } else {
+            $major = intval($parts[0]);
+        }
+
+        // Parse minor (default to 0 if not present or empty)
+        $minor = 0;
+        if (isset($parts[1]) && $parts[1] !== "") {
+            if (!preg_match('/^[0-9]+$/', $parts[1])) {
+                throw new InconclusiveMatchException("Cannot parse semver: invalid minor version in {$value}");
+            }
+            $minor = intval($parts[1]);
+        }
+
+        // Parse patch (default to 0 if not present or empty)
+        $patch = 0;
+        if (isset($parts[2]) && $parts[2] !== "") {
+            if (!preg_match('/^[0-9]+$/', $parts[2])) {
+                throw new InconclusiveMatchException("Cannot parse semver: invalid patch version in {$value}");
+            }
+            $patch = intval($parts[2]);
+        }
+
+        return [$major, $minor, $patch];
+    }
+
+    /**
+     * Compare two semver tuples.
+     *
+     * @param array{int, int, int} $a First tuple
+     * @param array{int, int, int} $b Second tuple
+     * @return int -1 if a < b, 0 if a == b, 1 if a > b
+     */
+    private static function compareSemverTuples(array $a, array $b): int
+    {
+        if ($a[0] !== $b[0]) {
+            return $a[0] <=> $b[0];
+        }
+        if ($a[1] !== $b[1]) {
+            return $a[1] <=> $b[1];
+        }
+        return $a[2] <=> $b[2];
+    }
+
+    /**
+     * Calculate tilde bounds for semver matching.
+     * ~X.Y.Z means >=X.Y.Z and <X.(Y+1).0
+     *
+     * @param mixed $value The semver pattern
+     * @return array{array{int, int, int}, array{int, int, int}} [lower, upper] bounds
+     */
+    private static function tildeBounds($value): array
+    {
+        $tuple = FeatureFlag::parseSemver($value);
+        $lower = $tuple;
+        $upper = [$tuple[0], $tuple[1] + 1, 0];
+        return [$lower, $upper];
+    }
+
+    /**
+     * Calculate caret bounds for semver matching.
+     * ^X.Y.Z where:
+     * - X > 0: >=X.Y.Z <(X+1).0.0
+     * - X == 0, Y > 0: >=0.Y.Z <0.(Y+1).0
+     * - X == 0, Y == 0: >=0.0.Z <0.0.(Z+1)
+     *
+     * @param mixed $value The semver pattern
+     * @return array{array{int, int, int}, array{int, int, int}} [lower, upper] bounds
+     */
+    private static function caretBounds($value): array
+    {
+        $tuple = FeatureFlag::parseSemver($value);
+        $lower = $tuple;
+
+        if ($tuple[0] > 0) {
+            $upper = [$tuple[0] + 1, 0, 0];
+        } elseif ($tuple[1] > 0) {
+            $upper = [0, $tuple[1] + 1, 0];
+        } else {
+            $upper = [0, 0, $tuple[2] + 1];
+        }
+
+        return [$lower, $upper];
+    }
+
+    /**
+     * Calculate wildcard bounds for semver matching.
+     * X.Y.* means >=X.Y.0 <X.(Y+1).0
+     * X.* means >=X.0.0 <(X+1).0.0
+     *
+     * @param mixed $value The semver pattern with wildcard
+     * @return array{array{int, int, int}, array{int, int, int}} [lower, upper] bounds
+     */
+    private static function wildcardBounds($value): array
+    {
+        if ($value === null || $value === "") {
+            throw new InconclusiveMatchException("Cannot parse empty or null value as semver wildcard");
+        }
+
+        $text = trim(strval($value));
+
+        // Strip v/V prefix
+        $text = ltrim($text, "vV");
+
+        // Split on dots
+        $parts = explode(".", $text);
+
+        // Remove trailing wildcard parts and empty parts
+        while (count($parts) > 0 && (end($parts) === "*" || end($parts) === "x" || end($parts) === "X" || end($parts) === "")) {
+            array_pop($parts);
+        }
+
+        if (count($parts) === 0) {
+            throw new InconclusiveMatchException("Cannot parse semver wildcard: no version components found in {$value}");
+        }
+
+        // Parse major
+        if (!preg_match('/^[0-9]+$/', $parts[0])) {
+            throw new InconclusiveMatchException("Cannot parse semver wildcard: invalid major version in {$value}");
+        }
+        $major = intval($parts[0]);
+
+        if (count($parts) === 1) {
+            // X.* pattern
+            $lower = [$major, 0, 0];
+            $upper = [$major + 1, 0, 0];
+        } else {
+            // X.Y.* pattern
+            if (!preg_match('/^[0-9]+$/', $parts[1])) {
+                throw new InconclusiveMatchException("Cannot parse semver wildcard: invalid minor version in {$value}");
+            }
+            $minor = intval($parts[1]);
+            $lower = [$major, $minor, 0];
+            $upper = [$major, $minor + 1, 0];
+        }
+
+        return [$lower, $upper];
     }
 
     private static function convertToDateTime($value)
