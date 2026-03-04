@@ -294,6 +294,15 @@ class FeatureFlag
     /**
      * Parse a semver string into a tuple of [major, minor, patch].
      *
+     * Rules:
+     * 1. Strip leading/trailing whitespace
+     * 2. Strip `v` or `V` prefix (e.g., "v1.2.3" → "1.2.3")
+     * 3. Strip pre-release and build metadata suffixes (split on `-` or `+`, take first part)
+     * 4. Split on `.` and parse first 3 components as integers
+     * 5. Default missing components to 0 (e.g., "1.2" → (1, 2, 0), "1" → (1, 0, 0))
+     * 6. Ignore extra components beyond the third (e.g., "1.2.3.4" → (1, 2, 3))
+     * 7. Throw InconclusiveMatchException for invalid input (empty string, non-numeric parts, leading dot)
+     *
      * @param mixed $value The semver string to parse
      * @return array{int, int, int} The parsed tuple [major, minor, patch]
      * @throws InconclusiveMatchException If the value cannot be parsed as semver
