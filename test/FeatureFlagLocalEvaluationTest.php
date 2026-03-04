@@ -3932,4 +3932,492 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
         $this->checkEmptyErrorLogs();
     }
+
+    // ==================== Semver Operator Tests ====================
+
+    public function testParseSemverBasic(): void
+    {
+        // Basic parsing
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("1.2.3"));
+        self::assertEquals([0, 0, 0], FeatureFlag::parseSemver("0.0.0"));
+        self::assertEquals([10, 20, 30], FeatureFlag::parseSemver("10.20.30"));
+    }
+
+    public function testParseSemverVPrefix(): void
+    {
+        // v prefix handling
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("v1.2.3"));
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("V1.2.3"));
+    }
+
+    public function testParseSemverWhitespace(): void
+    {
+        // Whitespace handling
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("  1.2.3  "));
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver(" v1.2.3 "));
+    }
+
+    public function testParseSemverPreRelease(): void
+    {
+        // Pre-release suffixes are stripped
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("1.2.3-alpha"));
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("1.2.3-alpha.1"));
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("1.2.3-beta.2"));
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("1.2.3-rc.1"));
+    }
+
+    public function testParseSemverBuildMetadata(): void
+    {
+        // Build metadata is stripped
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("1.2.3+build"));
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("1.2.3+build.123"));
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("1.2.3-alpha+build"));
+    }
+
+    public function testParseSemverPartialVersions(): void
+    {
+        // Partial versions default missing parts to 0
+        self::assertEquals([1, 2, 0], FeatureFlag::parseSemver("1.2"));
+        self::assertEquals([1, 0, 0], FeatureFlag::parseSemver("1"));
+    }
+
+    public function testParseSemverExtraParts(): void
+    {
+        // Extra parts beyond 3 are ignored
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("1.2.3.4"));
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("1.2.3.4.5"));
+    }
+
+    public function testParseSemverLeadingZeros(): void
+    {
+        // Leading zeros are parsed correctly
+        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("01.02.03"));
+        self::assertEquals([0, 0, 1], FeatureFlag::parseSemver("00.00.01"));
+    }
+
+    public function testParseSemverInvalidEmpty(): void
+    {
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::parseSemver("");
+    }
+
+    public function testParseSemverInvalidNull(): void
+    {
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::parseSemver(null);
+    }
+
+    public function testParseSemverInvalidLeadingDot(): void
+    {
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::parseSemver(".1.2.3");
+    }
+
+    public function testParseSemverInvalidNonNumeric(): void
+    {
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::parseSemver("abc.def.ghi");
+    }
+
+    public function testParseSemverInvalidMixedNonNumeric(): void
+    {
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::parseSemver("1.2.abc");
+    }
+
+    public function testParseSemverInvalidOnlyV(): void
+    {
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::parseSemver("v");
+    }
+
+    public function testMatchPropertySemverEq(): void
+    {
+        // Basic equality
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.2.4"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.2.2"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.3.3"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "2.2.3"]));
+
+        // With v prefix
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "v1.2.3"]));
+
+        // With pre-release (stripped, so equals base version)
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3-alpha"]));
+
+        // Partial version comparison
+        $prop2 = ["key" => "version", "value" => "1.2", "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($prop2, ["version" => "1.2.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop2, ["version" => "1.2.1"]));
+    }
+
+    public function testMatchPropertySemverNeq(): void
+    {
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_neq"];
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.2.3"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.4"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.2"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "2.0.0"]));
+    }
+
+    public function testMatchPropertySemverGt(): void
+    {
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_gt"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.4"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.3.0"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "2.0.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.2.3"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.2.2"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.1.9"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.9.9"]));
+    }
+
+    public function testMatchPropertySemverGte(): void
+    {
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_gte"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.4"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.3.0"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "2.0.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.2.2"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.1.9"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.9.9"]));
+    }
+
+    public function testMatchPropertySemverLt(): void
+    {
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_lt"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.2"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.1.9"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "0.9.9"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.2.3"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.2.4"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "2.0.0"]));
+    }
+
+    public function testMatchPropertySemverLte(): void
+    {
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_lte"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.2"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.1.9"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "0.9.9"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.2.4"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "2.0.0"]));
+    }
+
+    public function testMatchPropertySemverTilde(): void
+    {
+        // ~1.2.3 means >=1.2.3 <1.3.0
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_tilde"];
+
+        // Within range
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.4"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.99"]));
+
+        // Below range
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.2.2"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.1.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.9.9"]));
+
+        // Above range (>=1.3.0)
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.3.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.3.1"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "2.0.0"]));
+    }
+
+    public function testMatchPropertySemverTildeEdgeCases(): void
+    {
+        // ~0.0.3 means >=0.0.3 <0.1.0
+        $prop1 = ["key" => "version", "value" => "0.0.3", "operator" => "semver_tilde"];
+        self::assertTrue(FeatureFlag::matchProperty($prop1, ["version" => "0.0.3"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop1, ["version" => "0.0.99"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop1, ["version" => "0.0.2"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop1, ["version" => "0.1.0"]));
+
+        // ~1.0.0 means >=1.0.0 <1.1.0
+        $prop2 = ["key" => "version", "value" => "1.0.0", "operator" => "semver_tilde"];
+        self::assertTrue(FeatureFlag::matchProperty($prop2, ["version" => "1.0.0"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop2, ["version" => "1.0.99"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop2, ["version" => "1.1.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop2, ["version" => "0.9.9"]));
+    }
+
+    public function testMatchPropertySemverCaret(): void
+    {
+        // ^1.2.3 means >=1.2.3 <2.0.0 (major > 0)
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_caret"];
+
+        // Within range
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.4"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.3.0"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.99.99"]));
+
+        // Below range
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.2.2"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.1.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.9.9"]));
+
+        // Above range (>=2.0.0)
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "2.0.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "2.0.1"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "3.0.0"]));
+    }
+
+    public function testMatchPropertySemverCaretMajorZeroMinorNonZero(): void
+    {
+        // ^0.2.3 means >=0.2.3 <0.3.0 (major == 0, minor > 0)
+        $prop = ["key" => "version", "value" => "0.2.3", "operator" => "semver_caret"];
+
+        // Within range
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "0.2.3"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "0.2.4"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "0.2.99"]));
+
+        // Below range
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.2.2"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.1.0"]));
+
+        // Above range (>=0.3.0)
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.3.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.0.0"]));
+    }
+
+    public function testMatchPropertySemverCaretMajorZeroMinorZero(): void
+    {
+        // ^0.0.3 means >=0.0.3 <0.0.4 (major == 0, minor == 0)
+        $prop = ["key" => "version", "value" => "0.0.3", "operator" => "semver_caret"];
+
+        // Within range (only 0.0.3)
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "0.0.3"]));
+
+        // Below range
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.0.2"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.0.1"]));
+
+        // Above range (>=0.0.4)
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.0.4"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.1.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.0.0"]));
+    }
+
+    public function testMatchPropertySemverWildcardMinor(): void
+    {
+        // 1.2.* means >=1.2.0 <1.3.0
+        $prop = ["key" => "version", "value" => "1.2.*", "operator" => "semver_wildcard"];
+
+        // Within range
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.0"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.1"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.99"]));
+
+        // Below range
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.1.9"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.1.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.9.9"]));
+
+        // Above range (>=1.3.0)
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.3.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.3.1"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "2.0.0"]));
+    }
+
+    public function testMatchPropertySemverWildcardMajor(): void
+    {
+        // 1.* means >=1.0.0 <2.0.0
+        $prop = ["key" => "version", "value" => "1.*", "operator" => "semver_wildcard"];
+
+        // Within range
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.0.0"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.99.99"]));
+
+        // Below range
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.9.9"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.0.1"]));
+
+        // Above range (>=2.0.0)
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "2.0.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "2.0.1"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "3.0.0"]));
+    }
+
+    public function testMatchPropertySemverWildcardXFormat(): void
+    {
+        // Test x and X wildcards
+        $prop1 = ["key" => "version", "value" => "1.2.x", "operator" => "semver_wildcard"];
+        self::assertTrue(FeatureFlag::matchProperty($prop1, ["version" => "1.2.0"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop1, ["version" => "1.2.99"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop1, ["version" => "1.3.0"]));
+
+        $prop2 = ["key" => "version", "value" => "1.X", "operator" => "semver_wildcard"];
+        self::assertTrue(FeatureFlag::matchProperty($prop2, ["version" => "1.0.0"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop2, ["version" => "1.99.99"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop2, ["version" => "2.0.0"]));
+    }
+
+    public function testMatchPropertySemverWithVPrefix(): void
+    {
+        $prop = ["key" => "version", "value" => "v1.2.3", "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "v1.2.3"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "V1.2.3"]));
+    }
+
+    public function testMatchPropertySemverWithWhitespace(): void
+    {
+        $prop = ["key" => "version", "value" => "  1.2.3  ", "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "  1.2.3  "]));
+    }
+
+    public function testMatchPropertySemverPreReleaseSuffixesStripped(): void
+    {
+        // Pre-release suffixes are stripped before comparison
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3-alpha"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3-beta.1"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3-rc.2"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3+build.456"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3-alpha+build"]));
+    }
+
+    public function testMatchPropertySemverLeadingZeros(): void
+    {
+        // Leading zeros are parsed correctly
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "01.02.03"]));
+
+        $prop2 = ["key" => "version", "value" => "01.02.03", "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($prop2, ["version" => "1.2.3"]));
+    }
+
+    public function testMatchPropertySemverPartialVersions(): void
+    {
+        // Partial versions default missing parts to 0
+        $prop = ["key" => "version", "value" => "1.2", "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "1.2.1"]));
+
+        $prop2 = ["key" => "version", "value" => "1", "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($prop2, ["version" => "1.0.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop2, ["version" => "1.0.1"]));
+    }
+
+    public function testMatchPropertySemverFourPartVersions(): void
+    {
+        // Extra parts beyond 3 are ignored
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3.4"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3.4.5"]));
+
+        $prop2 = ["key" => "version", "value" => "1.2.3.4", "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($prop2, ["version" => "1.2.3"]));
+    }
+
+    public function testMatchPropertySemverInvalidOverrideValue(): void
+    {
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_eq"];
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop, ["version" => "not-a-version"]);
+    }
+
+    public function testMatchPropertySemverInvalidFlagValue(): void
+    {
+        $prop = ["key" => "version", "value" => "not-a-version", "operator" => "semver_eq"];
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop, ["version" => "1.2.3"]);
+    }
+
+    public function testMatchPropertySemverMissingKey(): void
+    {
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_eq"];
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop, ["other_key" => "1.2.3"]);
+    }
+
+    public function testMatchPropertySemverNullOverrideValue(): void
+    {
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_eq"];
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop, ["version" => null]);
+    }
+
+    public function testMatchPropertySemverEmptyOverrideValue(): void
+    {
+        $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_eq"];
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop, ["version" => ""]);
+    }
+
+    public function testMatchPropertySemverComparisonOrder(): void
+    {
+        // Verify correct ordering of versions
+        $prop_gt = ["key" => "version", "value" => "1.0.0", "operator" => "semver_gt"];
+
+        // Major version comparison
+        self::assertTrue(FeatureFlag::matchProperty($prop_gt, ["version" => "2.0.0"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_gt, ["version" => "10.0.0"]));
+
+        // Minor version comparison
+        self::assertTrue(FeatureFlag::matchProperty($prop_gt, ["version" => "1.1.0"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_gt, ["version" => "1.10.0"]));
+
+        // Patch version comparison
+        self::assertTrue(FeatureFlag::matchProperty($prop_gt, ["version" => "1.0.1"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop_gt, ["version" => "1.0.10"]));
+    }
+
+    public function testMatchPropertySemverZeroVersions(): void
+    {
+        // Test 0.0.0 edge cases
+        $prop = ["key" => "version", "value" => "0.0.0", "operator" => "semver_gt"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "0.0.1"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "0.1.0"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.0.0"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "0.0.0"]));
+    }
+
+    public function testMatchPropertySemverRangeEdgeCases(): void
+    {
+        // Test exact boundary conditions for tilde
+        $prop_tilde = ["key" => "version", "value" => "1.2.3", "operator" => "semver_tilde"];
+        // Lower bound is inclusive
+        self::assertTrue(FeatureFlag::matchProperty($prop_tilde, ["version" => "1.2.3"]));
+        // Just below lower bound
+        self::assertFalse(FeatureFlag::matchProperty($prop_tilde, ["version" => "1.2.2"]));
+        // Just above lower bound
+        self::assertTrue(FeatureFlag::matchProperty($prop_tilde, ["version" => "1.2.4"]));
+        // Upper bound is exclusive
+        self::assertFalse(FeatureFlag::matchProperty($prop_tilde, ["version" => "1.3.0"]));
+        // Just below upper bound
+        self::assertTrue(FeatureFlag::matchProperty($prop_tilde, ["version" => "1.2.999"]));
+    }
+
+    public function testMatchPropertySemverWildcardInvalidPattern(): void
+    {
+        $prop = ["key" => "version", "value" => "*", "operator" => "semver_wildcard"];
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop, ["version" => "1.2.3"]);
+    }
+
+    public function testMatchPropertySemverWildcardWithVPrefix(): void
+    {
+        $prop = ["key" => "version", "value" => "v1.*", "operator" => "semver_wildcard"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.0.0"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.99.99"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["version" => "2.0.0"]));
+    }
+
+    public function testMatchPropertySemverNumericValues(): void
+    {
+        // Test that numeric values are converted to strings properly
+        $prop = ["key" => "version", "value" => 1, "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.0.0"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => 1]));
+    }
 }
