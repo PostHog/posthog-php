@@ -127,11 +127,12 @@ jobs:
           fi
 
       - name: Update CHANGELOG.md
+        env:
+          CURRENT_VERSION: ${{ steps.bump-version.outputs.current_version }}
+          NEW_VERSION: ${{ steps.bump-version.outputs.new_version }}
         run: |
-          current_version="${{ steps.bump-version.outputs.current_version }}"
-          new_version="${{ steps.bump-version.outputs.new_version }}"
           release_date=$(date +%Y-%m-%d)
-          echo -e "## $new_version - $release_date\n\n* [Full Changelog](https://github.com/PostHog/posthog-php/compare/${current_version}...${new_version})\n\n$(cat CHANGELOG.md)" > CHANGELOG.md
+          echo -e "## $NEW_VERSION - $release_date\n\n* [Full Changelog](https://github.com/PostHog/posthog-php/compare/${CURRENT_VERSION}...${NEW_VERSION})\n\n$(cat CHANGELOG.md)" > CHANGELOG.md
 
       - name: Commit version bump
         if: steps.bump-version.outputs.has_changes == 'true'
@@ -148,11 +149,12 @@ jobs:
         if: steps.bump-version.outputs.has_changes == 'true'
         env:
           GH_TOKEN: ${{ steps.releaser.outputs.token }}
+          NEW_VERSION: ${{ steps.bump-version.outputs.new_version }}
         run: |
           LAST_CHANGELOG_ENTRY=$(awk -v defText="see CHANGELOG.md" '/^## /{if (flag) exit; flag=1} flag && /^##$/{exit} flag; END{if (!flag) print defText}' CHANGELOG.md)
-          gh release create "${{ steps.bump-version.outputs.new_version }}" \
+          gh release create "$NEW_VERSION" \
             --target master \
-            --title "${{ steps.bump-version.outputs.new_version }}" \
+            --title "$NEW_VERSION" \
             --notes "$LAST_CHANGELOG_ENTRY"
 
       # Notify in case of a failure
