@@ -97,11 +97,6 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.releaser.outputs.token }}
 
-      - name: Configure Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
       - name: Bump version
         id: bump-version
         run: |
@@ -125,53 +120,42 @@ jobs:
           echo "current_version=$current_version" >> $GITHUB_OUTPUT
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
 
+          if ! git diff --quiet lib/PostHog.php composer.json; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Update CHANGELOG.md
+        env:
+          CURRENT_VERSION: ${{ steps.bump-version.outputs.current_version }}
+          NEW_VERSION: ${{ steps.bump-version.outputs.new_version }}
         run: |
-          current_version="${{ steps.bump-version.outputs.current_version }}"
-          new_version="${{ steps.bump-version.outputs.new_version }}"
           release_date=$(date +%Y-%m-%d)
-          echo -e "## $new_version - $release_date\n\n* [Full Changelog](https://github.com/PostHog/posthog-php/compare/${current_version}...${new_version})\n\n$(cat CHANGELOG.md)" > CHANGELOG.md
+          echo -e "## $NEW_VERSION - $release_date\n\n* [Full Changelog](https://github.com/PostHog/posthog-php/compare/${CURRENT_VERSION}...${NEW_VERSION})\n\n$(cat CHANGELOG.md)" > CHANGELOG.md
 
       - name: Commit version bump
-        id: commit-version-bump
-        run: |
-          git add lib/PostHog.php composer.json CHANGELOG.md
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-            echo "committed=false" >> "$GITHUB_OUTPUT"
-          else
-            git commit -m "chore: bump version to ${{ steps.bump-version.outputs.new_version }} [version bump]"
-            git push origin master
-            echo "committed=true" >> "$GITHUB_OUTPUT"
-          fi
+        if: steps.bump-version.outputs.has_changes == 'true'
+        uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
+        with:
+          commit_message: "chore: bump version to ${{ steps.bump-version.outputs.new_version }} [version bump]"
+          repo: ${{ github.repository }}
+          branch: master
+          file_pattern: "lib/PostHog.php composer.json CHANGELOG.md"
         env:
           GITHUB_TOKEN: ${{ steps.releaser.outputs.token }}
 
-      - name: Create and push tag
-        if: steps.commit-version-bump.outputs.committed == 'true'
-        run: |
-          git tag -a "${{ steps.bump-version.outputs.new_version }}" -m "${{ steps.bump-version.outputs.new_version }}"
-          git push origin "${{ steps.bump-version.outputs.new_version }}"
-
       - name: Create GitHub release
-        if: steps.commit-version-bump.outputs.committed == 'true'
+        if: steps.bump-version.outputs.has_changes == 'true'
         env:
           GH_TOKEN: ${{ steps.releaser.outputs.token }}
+          NEW_VERSION: ${{ steps.bump-version.outputs.new_version }}
         run: |
-          # Extract the latest changelog entry
           LAST_CHANGELOG_ENTRY=$(awk -v defText="see CHANGELOG.md" '/^## /{if (flag) exit; flag=1} flag && /^##$/{exit} flag; END{if (!flag) print defText}' CHANGELOG.md)
-          gh api \
-            --method POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            /repos/PostHog/posthog-php/releases \
-            -f tag_name="${{ steps.bump-version.outputs.new_version }}" \
-            -f target_commitish='master' \
-            -f name="${{ steps.bump-version.outputs.new_version }}" \
-            -f body="$LAST_CHANGELOG_ENTRY" \
-            -F draft=false \
-            -F prerelease=false \
-            -F generate_release_notes=false
+          gh release create "$NEW_VERSION" \
+            --target master \
+            --title "$NEW_VERSION" \
+            --notes "$LAST_CHANGELOG_ENTRY"
 
       # Notify in case of a failure
       - name: Send failure event to PostHog
