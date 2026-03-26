@@ -179,6 +179,55 @@ class Client
     }
 
     /**
+     * Captures an exception as a PostHog error tracking event.
+     *
+     * @param \Throwable|string $exception The exception to capture or a plain string message
+     * @param string|null $distinctId User ID; a random UUID is used when omitted (no person profile created)
+     * @param array $additionalProperties Extra properties merged into the event
+     * @return bool whether the capture call succeeded
+     */
+    public function captureException($exception, ?string $distinctId = null, array $additionalProperties = []): bool
+    {
+        $exceptionList = ExceptionCapture::buildParsedException($exception);
+
+        if ($exceptionList === null) {
+            return false;
+        }
+
+        // buildParsedException returns a single array for strings, a list for Throwables
+        if (isset($exceptionList['type'])) {
+            $exceptionList = [$exceptionList];
+        }
+
+        $noDistinctIdProvided = $distinctId === null;
+        if ($noDistinctIdProvided) {
+            $distinctId = sprintf(
+                '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+                mt_rand(0, 0xffff), mt_rand(0, 0xffff),
+                mt_rand(0, 0xffff),
+                mt_rand(0, 0x0fff) | 0x4000,
+                mt_rand(0, 0x3fff) | 0x8000,
+                mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
+            );
+        }
+
+        $properties = array_merge(
+            ['$exception_list' => $exceptionList],
+            $additionalProperties
+        );
+
+        if ($noDistinctIdProvided) {
+            $properties['$process_person_profile'] = false;
+        }
+
+        return $this->capture([
+            'distinctId'  => $distinctId,
+            'event'       => '$exception',
+            'properties'  => $properties,
+        ]);
+    }
+
+    /**
      * Tags properties about the user.
      *
      * @param array $message

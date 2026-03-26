@@ -89,9 +89,10 @@ echo "2. Feature flag local evaluation examples\n";
 echo "3. Feature flag dependencies examples\n";
 echo "4. Context management and tagging examples\n";
 echo "5. ETag polling examples (for local evaluation)\n";
-echo "6. Run all examples\n";
-echo "7. Exit\n";
-$choice = trim(readline("\nEnter your choice (1-7): "));
+echo "6. Error tracking examples\n";
+echo "7. Run all examples\n";
+echo "8. Exit\n";
+$choice = trim(readline("\nEnter your choice (1-8): "));
 
 function identifyAndCaptureExamples()
 {
@@ -498,6 +499,80 @@ function etagPollingExamples()
     }
 }
 
+function errorTrackingExamples()
+{
+    echo "\n" . str_repeat("=", 60) . "\n";
+    echo "ERROR TRACKING EXAMPLES\n";
+    echo str_repeat("=", 60) . "\n";
+
+    PostHog::init(
+        $_ENV['POSTHOG_PROJECT_API_KEY'],
+        [
+            'host' => $_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com',
+            'debug' => true,
+            'ssl' => !str_starts_with($_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 'http://')
+        ],
+        null,
+        $_ENV['POSTHOG_PERSONAL_API_KEY']
+    );
+
+    // 1. Capture a plain string error (no user context)
+    echo "1. Capturing anonymous string error...\n";
+    PostHog::captureException('Something went wrong during startup');
+    echo "   -> sent with auto-generated distinct_id, \$process_person_profile=false\n\n";
+
+    // 2. Capture an exception for a known user
+    echo "2. Capturing exception for a known user...\n";
+    try {
+        throw new \RuntimeException('Database connection failed');
+    } catch (\RuntimeException $e) {
+        PostHog::captureException($e, 'user-123');
+    }
+    echo "   -> sent as \$exception event with stacktrace\n\n";
+
+    // 3. Capture with additional context properties
+    echo "3. Capturing exception with request context...\n";
+    try {
+        throw new \InvalidArgumentException('Invalid email address provided');
+    } catch (\InvalidArgumentException $e) {
+        PostHog::captureException($e, 'user-456', [
+            '$current_url'    => 'https://example.com/signup',
+            '$request_method' => 'POST',
+            'form_field'      => 'email',
+        ]);
+    }
+    echo "   -> sent with URL and request context\n\n";
+
+    // 4. Capture a chained exception (cause + wrapper both appear in \$exception_list)
+    echo "4. Capturing chained exception...\n";
+    try {
+        try {
+            throw new \PDOException('SQLSTATE[HY000]: General error: disk full');
+        } catch (\PDOException $cause) {
+            throw new \RuntimeException('Failed to save user record', 0, $cause);
+        }
+    } catch (\RuntimeException $e) {
+        PostHog::captureException($e, 'user-789');
+    }
+    echo "   -> sent with 2 entries in \$exception_list (cause + wrapper)\n\n";
+
+    // 5. Capture a PHP Error (not just Exception)
+    echo "5. Capturing a TypeError (PHP Error subclass)...\n";
+    try {
+        $result = array_sum('not-an-array');
+    } catch (\TypeError $e) {
+        PostHog::captureException($e, 'user-123');
+    } catch (\Throwable $e) {
+        // array_sum triggers a warning not a TypeError in PHP 8 — capture generically
+        PostHog::captureException($e, 'user-123');
+    }
+    echo "   -> any Throwable (Error or Exception) is accepted\n\n";
+
+    PostHog::flush();
+    echo "Flushed all events.\n";
+    echo "Check your PostHog dashboard -> Error Tracking to see the captured exceptions.\n";
+}
+
 function runAllExamples()
 {
     identifyAndCaptureExamples();
@@ -510,6 +585,9 @@ function runAllExamples()
     echo "\n" . str_repeat("-", 60) . "\n";
 
     contextManagementExamples();
+    echo "\n" . str_repeat("-", 60) . "\n";
+
+    errorTrackingExamples();
 
     echo "\n🎉 All examples completed!\n";
     echo "   (ETag polling skipped - run separately with option 5)\n";
@@ -533,13 +611,16 @@ switch ($choice) {
         etagPollingExamples();
         break;
     case '6':
-        runAllExamples();
+        errorTrackingExamples();
         break;
     case '7':
+        runAllExamples();
+        break;
+    case '8':
         echo "👋 Goodbye!\n";
         exit(0);
     default:
-        echo "❌ Invalid choice. Please run the script again and choose 1-7.\n";
+        echo "❌ Invalid choice. Please run the script again and choose 1-8.\n";
         exit(1);
 }
 

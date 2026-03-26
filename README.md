@@ -10,6 +10,7 @@ Specifically, the [PHP integration](https://posthog.com/docs/integrations/php-in
 ## Features
 
 - ✅ Event capture and user identification
+- ✅ Error tracking with manual exception capture
 - ✅ Feature flag local evaluation
 - ✅ **Feature flag dependencies** (new!) - Create conditional flags based on other flags
 - ✅ Multivariate flags and payloads
@@ -20,6 +21,16 @@ Specifically, the [PHP integration](https://posthog.com/docs/integrations/php-in
 
 1. Copy `.env.example` to `.env` and add your PostHog credentials
 2. Run `php example.php` to see interactive examples of all features
+
+## Error Tracking
+
+Manual exception capture:
+
+```php
+PostHog::captureException($exception, 'user-123', [
+    '$current_url' => 'https://example.com/settings',
+]);
+```
 
 ## Questions?
 
