@@ -196,6 +196,51 @@ class ExceptionCaptureTest extends TestCase
         $this->assertNotEquals($frames[0], $frames[1]);
     }
 
+    public function testStrictTypeErrorUsesCallsiteBeforeDeclaration(): void
+    {
+        $scriptPath = tempnam(sys_get_temp_dir(), 'posthog-type-error-');
+        $this->assertNotFalse($scriptPath);
+
+        $script = <<<'PHP'
+<?php
+declare(strict_types=1);
+
+return (function () {
+    $declarationLine = __LINE__ + 1;
+    function requiresIntForTrace(int $value): int
+    {
+        return $value;
+    }
+
+    try {
+        $callLine = __LINE__ + 1;
+        requiresIntForTrace('nope');
+    } catch (\Throwable $e) {
+        return [$e, $callLine, $declarationLine];
+    }
+
+    return [null, 0, 0];
+})();
+PHP;
+
+        file_put_contents($scriptPath, $script);
+
+        try {
+            [$exception, $callLine, $declarationLine] = require $scriptPath;
+            $this->assertInstanceOf(\Throwable::class, $exception);
+
+            $result = ExceptionCapture::buildParsedException($exception);
+            $frames = array_values($result[0]['stacktrace']['frames']);
+
+            $this->assertSame($scriptPath, $frames[0]['abs_path']);
+            $this->assertSame('requiresIntForTrace', $frames[0]['function']);
+            $this->assertSame($callLine, $frames[0]['lineno']);
+            $this->assertNotSame($declarationLine, $frames[0]['lineno']);
+        } finally {
+            unlink($scriptPath);
+        }
+    }
+
     private function throwHelper(): \RuntimeException
     {
         try {

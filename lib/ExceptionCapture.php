@@ -4,10 +4,20 @@ namespace PostHog;
 
 class ExceptionCapture
 {
-    private const CONTEXT_LINES = 5;
-    private const MAX_FRAMES = 50;
-    private const MAX_CONTEXT_FRAMES = 3;
-    private const MAX_CONTEXT_LINE_LENGTH = 200;
+    private static bool $includeSourceContext = true;
+    private static int $contextLines = 5;
+    private static int $maxFrames = 50;
+    private static int $maxContextFrames = 3;
+    private static int $maxContextLineLength = 200;
+
+    public static function configure(array $options = []): void
+    {
+        self::$includeSourceContext = (bool) ($options['error_tracking_include_source_context'] ?? true);
+        self::$contextLines = max(0, (int) ($options['error_tracking_context_lines'] ?? 5));
+        self::$maxFrames = max(0, (int) ($options['error_tracking_max_frames'] ?? 50));
+        self::$maxContextFrames = max(0, (int) ($options['error_tracking_max_context_frames'] ?? 3));
+        self::$maxContextLineLength = max(0, (int) ($options['error_tracking_max_context_line_length'] ?? 200));
+    }
 
     /**
      * Build a parsed exception array from a Throwable or string.
@@ -36,6 +46,55 @@ class ExceptionCapture
         return null;
     }
 
+    public static function buildThrowableExceptionFromTrace(\Throwable $exception, array $trace): array
+    {
+        return self::buildSingleException(
+            get_class($exception),
+            $exception->getMessage(),
+            $trace
+        );
+    }
+
+    public static function buildExceptionFromTrace(string $type, string $message, array $trace): array
+    {
+        return self::buildSingleException($type, $message, $trace);
+    }
+
+    public static function buildExceptionFromLocation(
+        string $type,
+        string $message,
+        ?string $file,
+        ?int $line
+    ): array {
+        $trace = null;
+
+        if ($file !== null || $line !== null) {
+            $trace = [[
+                'file' => $file,
+                'line' => $line,
+            ]];
+        }
+
+        return self::buildSingleException($type, $message, $trace);
+    }
+
+    public static function normalizeExceptionList(array $exceptionList): array
+    {
+        if (isset($exceptionList['type'])) {
+            return [$exceptionList];
+        }
+
+        return $exceptionList;
+    }
+
+    public static function overrideMechanism(array $exceptionList, array $mechanism): array
+    {
+        return array_map(function (array $exception) use ($mechanism) {
+            $exception['mechanism'] = array_merge($exception['mechanism'] ?? [], $mechanism);
+            return $exception;
+        }, self::normalizeExceptionList($exceptionList));
+    }
+
     private static function buildThrowableException(\Throwable $exception): array
     {
         return self::buildSingleException(
@@ -60,7 +119,13 @@ class ExceptionCapture
             ($trace[0]['file'] ?? null) === $exception->getFile()
             && ($trace[0]['line'] ?? null) === $exception->getLine();
 
-        if (!$firstFrameMatchesThrowSite) {
+        if (
+            !$firstFrameMatchesThrowSite
+            && !self::isDeclarationLineForFirstFrame($exception, $trace[0])
+        ) {
+            // Many PHP exceptions report the throw site in getFile()/getLine() but omit it
+            // from getTrace()[0]. Prepending a synthetic top frame keeps the first frame aligned
+            // with the highlighted source location in PostHog.
             array_unshift($trace, array_filter([
                 'file'     => $exception->getFile(),
                 'line'     => $exception->getLine(),
@@ -71,6 +136,39 @@ class ExceptionCapture
         }
 
         return $trace;
+    }
+
+    private static function isDeclarationLineForFirstFrame(\Throwable $exception, array $firstFrame): bool
+    {
+        $function = $firstFrame['function'] ?? null;
+        $file = $exception->getFile();
+        $line = $exception->getLine();
+
+        if (!is_string($function) || $function === '' || $file === '' || $line <= 0 || !is_readable($file)) {
+            return false;
+        }
+
+        try {
+            $lines = file($file, FILE_IGNORE_NEW_LINES);
+            if ($lines === false || !isset($lines[$line - 1])) {
+                return false;
+            }
+
+            $sourceLine = trim($lines[$line - 1]);
+            if ($sourceLine === '') {
+                return false;
+            }
+
+            // Strict-types TypeErrors often point getFile()/getLine() at the callee declaration,
+            // while the trace already contains the real callsite as frame[0]. If we prepend a
+            // synthetic frame here, the stack looks reversed: declaration first, callsite second.
+            return (bool) preg_match(
+                '/\bfunction\b[^(]*\b' . preg_quote($function, '/') . '\s*\(/',
+                $sourceLine
+            );
+        } catch (\Throwable $e) {
+            return false;
+        }
     }
 
     private static function buildSingleException(string $type, string $message, ?array $trace): array
@@ -93,9 +191,9 @@ class ExceptionCapture
         }
 
         $frames = [];
-        $contextFramesRemaining = self::MAX_CONTEXT_FRAMES;
+        $contextFramesRemaining = self::$maxContextFrames;
 
-        foreach (array_slice($trace, 0, self::MAX_FRAMES) as $frame) {
+        foreach (array_slice($trace, 0, self::$maxFrames) as $frame) {
             $builtFrame = self::buildFrame($frame, $contextFramesRemaining > 0);
             if ($builtFrame === null) {
                 continue;
@@ -133,7 +231,13 @@ class ExceptionCapture
             'platform' => 'php',
         ], fn($value) => $value !== null);
 
-        if ($includeContext && $inApp && $absPath !== null && $lineno !== null) {
+        if (
+            self::$includeSourceContext
+            && $includeContext
+            && $inApp
+            && $absPath !== null
+            && $lineno !== null
+        ) {
             self::addContextLines($result, $absPath, $lineno);
         }
 
@@ -182,7 +286,7 @@ class ExceptionCapture
 
             $frame['context_line'] = self::truncateContextLine($lines[$idx]);
 
-            $preStart = max(0, $idx - self::CONTEXT_LINES);
+            $preStart = max(0, $idx - self::$contextLines);
             if ($preStart < $idx) {
                 $frame['pre_context'] = array_map(
                     [self::class, 'truncateContextLine'],
@@ -190,7 +294,7 @@ class ExceptionCapture
                 );
             }
 
-            $postEnd = min($total, $idx + self::CONTEXT_LINES + 1);
+            $postEnd = min($total, $idx + self::$contextLines + 1);
             if ($postEnd > $idx + 1) {
                 $frame['post_context'] = array_map(
                     [self::class, 'truncateContextLine'],
@@ -204,10 +308,18 @@ class ExceptionCapture
 
     private static function truncateContextLine(string $line): string
     {
-        if (strlen($line) <= self::MAX_CONTEXT_LINE_LENGTH) {
+        if (self::$maxContextLineLength <= 0) {
+            return '';
+        }
+
+        if (strlen($line) <= self::$maxContextLineLength) {
             return $line;
         }
 
-        return substr($line, 0, self::MAX_CONTEXT_LINE_LENGTH - 3) . '...';
+        if (self::$maxContextLineLength <= 3) {
+            return substr($line, 0, self::$maxContextLineLength);
+        }
+
+        return substr($line, 0, self::$maxContextLineLength - 3) . '...';
     }
 }

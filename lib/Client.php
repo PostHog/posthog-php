@@ -120,6 +120,8 @@ class Client
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
         $this->flagsEtag = null;
 
+        ErrorTrackingRegistrar::configure($this, $options);
+
         // Populate featureflags and grouptypemapping if possible
         if (
             count($this->featureFlags) == 0
@@ -188,33 +190,19 @@ class Client
      */
     public function captureException($exception, ?string $distinctId = null, array $additionalProperties = []): bool
     {
-        $exceptionList = ExceptionCapture::buildParsedException($exception);
-
-        if ($exceptionList === null) {
-            return false;
-        }
-
-        // buildParsedException returns a single array for strings, a list for Throwables
-        if (isset($exceptionList['type'])) {
-            $exceptionList = [$exceptionList];
-        }
-
         $noDistinctIdProvided = $distinctId === null;
         if ($noDistinctIdProvided) {
-            $distinctId = sprintf(
-                '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-                mt_rand(0, 0xffff), mt_rand(0, 0xffff),
-                mt_rand(0, 0xffff),
-                mt_rand(0, 0x0fff) | 0x4000,
-                mt_rand(0, 0x3fff) | 0x8000,
-                mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
-            );
+            $distinctId = $this->generateUuidV4();
         }
 
         $properties = array_merge(
-            ['$exception_list' => $exceptionList],
+            ['$exception_list' => $this->buildExceptionList($exception)],
             $additionalProperties
         );
+
+        if ($properties['$exception_list'] === null) {
+            return false;
+        }
 
         if ($noDistinctIdProvided) {
             $properties['$process_person_profile'] = false;
@@ -917,6 +905,35 @@ class Client
         }
 
         return true;
+    }
+
+    /**
+     * @param \Throwable|string $exception
+     * @return array|null
+     */
+    private function buildExceptionList($exception): ?array
+    {
+        $exceptionList = ExceptionCapture::buildParsedException($exception);
+        if ($exceptionList === null) {
+            return null;
+        }
+
+        return ExceptionCapture::normalizeExceptionList($exceptionList);
+    }
+
+    private function generateUuidV4(): string
+    {
+        return sprintf(
+            '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
+            mt_rand(0, 0xffff),
+            mt_rand(0, 0xffff),
+            mt_rand(0, 0xffff),
+            mt_rand(0, 0x0fff) | 0x4000,
+            mt_rand(0, 0x3fff) | 0x8000,
+            mt_rand(0, 0xffff),
+            mt_rand(0, 0xffff),
+            mt_rand(0, 0xffff)
+        );
     }
 
     /**

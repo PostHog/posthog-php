@@ -510,11 +510,27 @@ function errorTrackingExamples()
         [
             'host' => $_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com',
             'debug' => true,
-            'ssl' => !str_starts_with($_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 'http://')
+            'ssl' => !str_starts_with($_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 'http://'),
+            'enable_error_tracking' => true,
+            'capture_uncaught_exceptions' => true,
+            'capture_errors' => true,
+            'capture_fatal_errors' => true,
+            'error_reporting_mask' => E_ALL,
+            'error_tracking_context_provider' => static function (array $payload): array {
+                return [
+                    'distinctId' => 'sdk-demo-user',
+                    'properties' => [
+                        '$error_source' => $payload['source'],
+                    ],
+                ];
+            },
         ],
         null,
         $_ENV['POSTHOG_PERSONAL_API_KEY']
     );
+
+    echo "Auto capture enabled for uncaught exceptions, PHP errors, and fatal shutdown errors.\n";
+    echo "The demo below still uses manual capture so it can finish without crashing the process.\n\n";
 
     // 1. Capture a plain string error (no user context)
     echo "1. Capturing anonymous string error...\n";
