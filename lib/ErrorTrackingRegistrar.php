@@ -4,12 +4,19 @@ namespace PostHog;
 
 class ErrorTrackingRegistrar
 {
-    private const FATAL_ERROR_TYPES = [
+    private const SHUTDOWN_FATAL_ERROR_TYPES = [
         E_ERROR,
         E_PARSE,
         E_CORE_ERROR,
         E_COMPILE_ERROR,
         E_USER_ERROR,
+    ];
+
+    private const ERROR_HANDLER_DEFERRED_FATAL_TYPES = [
+        E_ERROR,
+        E_PARSE,
+        E_CORE_ERROR,
+        E_COMPILE_ERROR,
     ];
 
     private static ?Client $client = null;
@@ -41,16 +48,28 @@ class ErrorTrackingRegistrar
     /** @var array<string, true> */
     private static array $fatalErrorSignatures = [];
 
+    /** @var array<int, true> */
+    private static array $delegatedErrorExceptionIds = [];
+
     public static function configure(Client $client, array $options): void
     {
-        self::$client = $client;
-        self::$options = self::normalizeOptions($options);
+        $normalizedOptions = self::normalizeOptions($options);
 
-        ExceptionCapture::configure($options);
-
-        if (!self::$options['enable_error_tracking']) {
+        if (!$normalizedOptions['enable_error_tracking']) {
             return;
         }
+
+        if (
+            self::hasInstalledHandlers()
+            && self::$client !== null
+            && self::$client !== $client
+        ) {
+            return;
+        }
+
+        self::$client = $client;
+        self::$options = $normalizedOptions;
+        ExceptionCapture::configure($options);
 
         if (
             self::$options['capture_uncaught_exceptions']
@@ -76,13 +95,18 @@ class ErrorTrackingRegistrar
 
     public static function handleException(\Throwable $exception): void
     {
+        if (self::consumeDelegatedErrorException($exception)) {
+            self::finishUnhandledException($exception);
+            return;
+        }
+
         if (!self::shouldCaptureUncaughtExceptions()) {
-            self::callPreviousExceptionHandler($exception);
+            self::finishUnhandledException($exception);
             return;
         }
 
         if (!self::shouldCaptureThrowable($exception)) {
-            self::callPreviousExceptionHandler($exception);
+            self::finishUnhandledException($exception);
             return;
         }
 
@@ -98,7 +122,7 @@ class ErrorTrackingRegistrar
         );
 
         self::flushSafely();
-        self::callPreviousExceptionHandler($exception);
+        self::finishUnhandledException($exception);
     }
 
     public static function handleError(
@@ -115,7 +139,7 @@ class ErrorTrackingRegistrar
             return self::delegateError($errno, $message, $file, $line);
         }
 
-        if (in_array($errno, self::FATAL_ERROR_TYPES, true)) {
+        if (in_array($errno, self::ERROR_HANDLER_DEFERRED_FATAL_TYPES, true)) {
             // Fatal errors are handled from shutdown so we can flush at process end and avoid
             // double-sending the same failure from both the error and shutdown handlers.
             return self::delegateError($errno, $message, $file, $line);
@@ -127,21 +151,63 @@ class ErrorTrackingRegistrar
             self::normalizeErrorHandlerTrace(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS))
         );
 
+        try {
+            $delegated = self::delegateError($errno, $message, $file, $line);
+        } catch (\Throwable $delegatedException) {
+            if (
+                self::matchesErrorException(
+                    $delegatedException,
+                    $errno,
+                    $message,
+                    $file,
+                    $line
+                )
+                && self::shouldCaptureThrowable($exception)
+            ) {
+                self::rememberDelegatedErrorException($delegatedException);
+                self::captureThrowable(
+                    $exception,
+                    'error_handler',
+                    'php_error_handler',
+                    ['type' => 'auto.error_handler', 'handled' => false],
+                    $errno,
+                    $message,
+                    $file,
+                    $line,
+                    $exceptionList
+                );
+
+                if ($errno === E_USER_ERROR) {
+                    self::rememberFatalError($errno, $message, $file, $line);
+                    self::flushSafely();
+                }
+            }
+
+            throw $delegatedException;
+        }
+
+        $handled = $errno === E_USER_ERROR ? $delegated : true;
+
         if (self::shouldCaptureThrowable($exception)) {
             self::captureThrowable(
                 $exception,
                 'error_handler',
                 'php_error_handler',
-                ['type' => 'auto.error_handler', 'handled' => true],
+                ['type' => 'auto.error_handler', 'handled' => $handled],
                 $errno,
                 $message,
                 $file,
                 $line,
                 $exceptionList
             );
+
+            if (!$handled && $errno === E_USER_ERROR) {
+                self::rememberFatalError($errno, $message, $file, $line);
+                self::flushSafely();
+            }
         }
 
-        return self::delegateError($errno, $message, $file, $line);
+        return $delegated;
     }
 
     /**
@@ -159,7 +225,7 @@ class ErrorTrackingRegistrar
         }
 
         $severity = $lastError['type'] ?? null;
-        if (!is_int($severity) || !in_array($severity, self::FATAL_ERROR_TYPES, true)) {
+        if (!is_int($severity) || !in_array($severity, self::SHUTDOWN_FATAL_ERROR_TYPES, true)) {
             return;
         }
 
@@ -221,6 +287,7 @@ class ErrorTrackingRegistrar
         self::$previousExceptionHandler = null;
         self::$previousErrorHandler = null;
         self::$fatalErrorSignatures = [];
+        self::$delegatedErrorExceptionIds = [];
     }
 
     private static function shouldCaptureUncaughtExceptions(): bool
@@ -255,11 +322,14 @@ class ErrorTrackingRegistrar
         return true;
     }
 
-    private static function callPreviousExceptionHandler(\Throwable $exception): void
+    private static function callPreviousExceptionHandler(\Throwable $exception): bool
     {
         if (is_callable(self::$previousExceptionHandler)) {
             call_user_func(self::$previousExceptionHandler, $exception);
+            return true;
         }
+
+        return false;
     }
 
     private static function delegateError(
@@ -334,7 +404,7 @@ class ErrorTrackingRegistrar
 
             $distinctId = $providerContext['distinctId'];
             if ($distinctId === null) {
-                $distinctId = self::generateUuidV4();
+                $distinctId = Uuid::v4();
                 $properties['$process_person_profile'] = false;
             }
 
@@ -444,6 +514,19 @@ class ErrorTrackingRegistrar
         return isset(self::$fatalErrorSignatures[$signature]);
     }
 
+    private static function consumeDelegatedErrorException(\Throwable $exception): bool
+    {
+        $exceptionId = spl_object_id($exception);
+
+        if (!isset(self::$delegatedErrorExceptionIds[$exceptionId])) {
+            return false;
+        }
+
+        unset(self::$delegatedErrorExceptionIds[$exceptionId]);
+
+        return true;
+    }
+
     private static function rememberFatalError(
         int $severity,
         string $message,
@@ -454,13 +537,58 @@ class ErrorTrackingRegistrar
         self::$fatalErrorSignatures[$signature] = true;
     }
 
+    private static function rememberDelegatedErrorException(\Throwable $exception): void
+    {
+        self::$delegatedErrorExceptionIds[spl_object_id($exception)] = true;
+    }
+
     private static function fatalErrorSignature(
         int $severity,
         string $message,
         string $file,
         int $line
     ): string {
+        return self::errorSignature($severity, $message, $file, $line);
+    }
+
+    private static function errorSignature(
+        int $severity,
+        string $message,
+        string $file,
+        int $line
+    ): string {
         return implode('|', [$severity, $file, $line, $message]);
+    }
+
+    private static function matchesErrorException(
+        \Throwable $exception,
+        int $severity,
+        string $message,
+        string $file,
+        int $line
+    ): bool {
+        return $exception instanceof \ErrorException
+            && $exception->getSeverity() === $severity
+            && $exception->getMessage() === $message
+            && $exception->getFile() === $file
+            && $exception->getLine() === $line;
+    }
+
+    private static function hasInstalledHandlers(): bool
+    {
+        return self::$exceptionHandlerInstalled
+            || self::$errorHandlerInstalled
+            || self::$shutdownHandlerRegistered;
+    }
+
+    private static function finishUnhandledException(\Throwable $exception): void
+    {
+        if (self::callPreviousExceptionHandler($exception)) {
+            return;
+        }
+
+        restore_exception_handler();
+        throw $exception;
     }
 
     /**
@@ -482,20 +610,5 @@ class ErrorTrackingRegistrar
                 ? $options['error_tracking_context_provider']
                 : null,
         ];
-    }
-
-    private static function generateUuidV4(): string
-    {
-        return sprintf(
-            '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-            mt_rand(0, 0xffff),
-            mt_rand(0, 0xffff),
-            mt_rand(0, 0xffff),
-            mt_rand(0, 0x0fff) | 0x4000,
-            mt_rand(0, 0x3fff) | 0x8000,
-            mt_rand(0, 0xffff),
-            mt_rand(0, 0xffff),
-            mt_rand(0, 0xffff)
-        );
     }
 }

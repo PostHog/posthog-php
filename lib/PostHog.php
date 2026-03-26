@@ -65,7 +65,7 @@ class PostHog
      * @return bool
      * @throws Exception
      */
-    public static function captureException($exception, ?string $distinctId = null, array $additionalProperties = []): bool
+    public static function captureException(\Throwable|string $exception, ?string $distinctId = null, array $additionalProperties = []): bool
     {
         self::checkClient();
         return self::$client->captureException($exception, $distinctId, $additionalProperties);

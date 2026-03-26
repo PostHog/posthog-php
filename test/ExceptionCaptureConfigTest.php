@@ -46,7 +46,6 @@ class ExceptionCaptureConfigTest extends TestCase
         try {
             ExceptionCapture::configure([
                 'error_tracking_context_lines' => 1,
-                'error_tracking_max_context_line_length' => 200,
             ]);
 
             $frame = $this->buildFrame($path, 4);
@@ -59,11 +58,10 @@ class ExceptionCaptureConfigTest extends TestCase
         }
     }
 
-    public function testFrameAndContextLimitsCanBeConfigured(): void
+    public function testFrameLimitCanBeConfigured(): void
     {
         ExceptionCapture::configure([
             'error_tracking_max_frames' => 2,
-            'error_tracking_max_context_frames' => 1,
         ]);
 
         $exceptionList = ExceptionCapture::normalizeExceptionList(
@@ -74,33 +72,7 @@ class ExceptionCaptureConfigTest extends TestCase
 
         $this->assertCount(2, $frames);
         $this->assertArrayHasKey('context_line', $frames[0]);
-        $this->assertArrayNotHasKey('context_line', $frames[1]);
-    }
-
-    public function testContextLineLengthCanBeConfigured(): void
-    {
-        $path = tempnam(sys_get_temp_dir(), 'posthog-context-length-');
-        $this->assertNotFalse($path);
-
-        file_put_contents($path, implode("\n", [
-            '<?php',
-            '$short = "ok";',
-            '$value = "' . str_repeat('x', 40) . '";',
-            'done();',
-        ]) . "\n");
-
-        try {
-            ExceptionCapture::configure([
-                'error_tracking_context_lines' => 0,
-                'error_tracking_max_context_line_length' => 12,
-            ]);
-
-            $frame = $this->buildFrame($path, 3);
-
-            $this->assertSame('$value = ...', $frame['context_line']);
-        } finally {
-            unlink($path);
-        }
+        $this->assertArrayHasKey('context_line', $frames[1]);
     }
 
     private function throwHelper(): \RuntimeException

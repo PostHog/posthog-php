@@ -48,8 +48,6 @@ PostHog::init('phc_xxx', [
     'error_tracking_include_source_context' => true,
     'error_tracking_context_lines' => 5,
     'error_tracking_max_frames' => 50,
-    'error_tracking_max_context_frames' => 3,
-    'error_tracking_max_context_line_length' => 200,
     'error_tracking_context_provider' => static function (array $payload): array {
         return [
             'distinctId' => $_SESSION['user_id'] ?? null,

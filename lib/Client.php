@@ -84,6 +84,11 @@ class Client
     private $debug;
 
     /**
+     * @var array<string, mixed>
+     */
+    private $options;
+
+    /**
      * Create a new posthog object with your app's API key
      * key
      *
@@ -100,6 +105,7 @@ class Client
     ) {
         $this->apiKey = $apiKey;
         $this->personalAPIKey = $personalAPIKey;
+        $this->options = $options;
         $this->debug = $options["debug"] ?? false;
         $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($apiKey, $options, $httpClient);
@@ -188,11 +194,11 @@ class Client
      * @param array $additionalProperties Extra properties merged into the event
      * @return bool whether the capture call succeeded
      */
-    public function captureException($exception, ?string $distinctId = null, array $additionalProperties = []): bool
+    public function captureException(\Throwable|string $exception, ?string $distinctId = null, array $additionalProperties = []): bool
     {
         $noDistinctIdProvided = $distinctId === null;
         if ($noDistinctIdProvided) {
-            $distinctId = $this->generateUuidV4();
+            $distinctId = Uuid::v4();
         }
 
         $exceptionList = $this->buildExceptionList($exception);
@@ -201,11 +207,11 @@ class Client
         }
 
         $properties = array_merge(
+            $additionalProperties,
             [
                 '$exception_list' => $exceptionList,
                 '$exception_handled' => ExceptionCapture::getPrimaryHandled($exceptionList),
-            ],
-            $additionalProperties
+            ]
         );
 
         if ($noDistinctIdProvided) {
@@ -915,29 +921,16 @@ class Client
      * @param \Throwable|string $exception
      * @return array|null
      */
-    private function buildExceptionList($exception): ?array
+    private function buildExceptionList(\Throwable|string $exception): ?array
     {
+        ExceptionCapture::configure($this->options);
+
         $exceptionList = ExceptionCapture::buildParsedException($exception);
         if ($exceptionList === null) {
             return null;
         }
 
         return ExceptionCapture::normalizeExceptionList($exceptionList);
-    }
-
-    private function generateUuidV4(): string
-    {
-        return sprintf(
-            '%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
-            mt_rand(0, 0xffff),
-            mt_rand(0, 0xffff),
-            mt_rand(0, 0xffff),
-            mt_rand(0, 0x0fff) | 0x4000,
-            mt_rand(0, 0x3fff) | 0x8000,
-            mt_rand(0, 0xffff),
-            mt_rand(0, 0xffff),
-            mt_rand(0, 0xffff)
-        );
     }
 
     /**

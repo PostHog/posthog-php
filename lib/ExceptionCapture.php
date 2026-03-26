@@ -4,19 +4,19 @@ namespace PostHog;
 
 class ExceptionCapture
 {
+    // Keep source context bounded so large local variables / generated code snippets do not push
+    // $exception payloads past the transport size limit.
+    private const MAX_CONTEXT_LINE_LENGTH = 200;
+
     private static bool $includeSourceContext = true;
     private static int $contextLines = 5;
     private static int $maxFrames = 50;
-    private static int $maxContextFrames = 3;
-    private static int $maxContextLineLength = 200;
 
     public static function configure(array $options = []): void
     {
         self::$includeSourceContext = (bool) ($options['error_tracking_include_source_context'] ?? true);
         self::$contextLines = max(0, (int) ($options['error_tracking_context_lines'] ?? 5));
         self::$maxFrames = max(0, (int) ($options['error_tracking_max_frames'] ?? 50));
-        self::$maxContextFrames = max(0, (int) ($options['error_tracking_max_context_frames'] ?? 3));
-        self::$maxContextLineLength = max(0, (int) ($options['error_tracking_max_context_line_length'] ?? 200));
     }
 
     /**
@@ -25,7 +25,7 @@ class ExceptionCapture
      * @param \Throwable|string $exception
      * @return array|null
      */
-    public static function buildParsedException($exception): ?array
+    public static function buildParsedException(\Throwable|string $exception): ?array
     {
         if (is_string($exception)) {
             return self::buildSingleException('Error', $exception, null);
@@ -85,14 +85,6 @@ class ExceptionCapture
         }
 
         return $exceptionList;
-    }
-
-    public static function overrideMechanism(array $exceptionList, array $mechanism): array
-    {
-        return array_map(function (array $exception) use ($mechanism) {
-            $exception['mechanism'] = array_merge($exception['mechanism'] ?? [], $mechanism);
-            return $exception;
-        }, self::normalizeExceptionList($exceptionList));
     }
 
     public static function overridePrimaryMechanism(array $exceptionList, array $mechanism): array
@@ -210,16 +202,11 @@ class ExceptionCapture
         }
 
         $frames = [];
-        $contextFramesRemaining = self::$maxContextFrames;
 
         foreach (array_slice($trace, 0, self::$maxFrames) as $frame) {
-            $builtFrame = self::buildFrame($frame, $contextFramesRemaining > 0);
+            $builtFrame = self::buildFrame($frame);
             if ($builtFrame === null) {
                 continue;
-            }
-
-            if (isset($builtFrame['context_line'])) {
-                $contextFramesRemaining--;
             }
 
             $frames[] = $builtFrame;
@@ -233,7 +220,7 @@ class ExceptionCapture
         ];
     }
 
-    private static function buildFrame(array $frame, bool $includeContext = true): ?array
+    private static function buildFrame(array $frame): ?array
     {
         // getTrace() frames may lack file/line (e.g. internal PHP calls)
         $absPath  = $frame['file'] ?? null;
@@ -252,7 +239,6 @@ class ExceptionCapture
 
         if (
             self::$includeSourceContext
-            && $includeContext
             && $inApp
             && $absPath !== null
             && $lineno !== null
@@ -327,18 +313,16 @@ class ExceptionCapture
 
     private static function truncateContextLine(string $line): string
     {
-        if (self::$maxContextLineLength <= 0) {
-            return '';
-        }
-
-        if (strlen($line) <= self::$maxContextLineLength) {
+        if (strlen($line) <= self::MAX_CONTEXT_LINE_LENGTH) {
             return $line;
         }
 
-        if (self::$maxContextLineLength <= 3) {
-            return substr($line, 0, self::$maxContextLineLength);
+        if (self::MAX_CONTEXT_LINE_LENGTH <= 3) {
+            return substr($line, 0, self::MAX_CONTEXT_LINE_LENGTH);
         }
 
-        return substr($line, 0, self::$maxContextLineLength - 3) . '...';
+        // Truncation is intentionally fixed and internal-only: it protects payload size without
+        // reintroducing another public tuning knob.
+        return substr($line, 0, self::MAX_CONTEXT_LINE_LENGTH - 3) . '...';
     }
 }

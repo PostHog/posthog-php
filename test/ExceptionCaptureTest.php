@@ -135,8 +135,8 @@ class ExceptionCaptureTest extends TestCase
 
     public function testReturnsNullForInvalidInput(): void
     {
-        $result = ExceptionCapture::buildParsedException(42);
-        $this->assertNull($result);
+        $this->expectException(\TypeError::class);
+        ExceptionCapture::buildParsedException([]);
     }
 
     public function testContextLinesAddedForInAppFrames(): void
@@ -406,6 +406,27 @@ PHP;
         $this->assertArrayHasKey('$exception_list', $props);
     }
 
+    public function testCaptureExceptionReservedPropertiesCannotOverrideExceptionPayload(): void
+    {
+        $this->client->captureException(
+            new \RuntimeException('real error'),
+            'user-protected',
+            [
+                '$exception_list' => [['type' => 'FakeException', 'value' => 'fake']],
+                '$exception_handled' => false,
+            ]
+        );
+        PostHog::flush();
+
+        $batchCall = $this->findBatchCall();
+        $payload = json_decode($batchCall['payload'], true);
+        $props = $payload['batch'][0]['properties'];
+
+        $this->assertSame('RuntimeException', $props['$exception_list'][0]['type']);
+        $this->assertSame('real error', $props['$exception_list'][0]['value']);
+        $this->assertTrue($props['$exception_handled']);
+    }
+
     public function testCaptureExceptionFromString(): void
     {
         $this->client->captureException('a plain string error', 'user-str');
@@ -421,8 +442,8 @@ PHP;
 
     public function testCaptureExceptionReturnsFalseForInvalidInput(): void
     {
-        $result = $this->client->captureException(42);
-        $this->assertFalse($result);
+        $this->expectException(\TypeError::class);
+        $this->client->captureException([]);
     }
 
     public function testCaptureExceptionPayloadStaysBelowLibCurlLimitForLargeSourceContext(): void

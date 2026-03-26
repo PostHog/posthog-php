@@ -141,6 +141,23 @@ class ErrorTrackingRegistrarTest extends TestCase
         }
     }
 
+    public function testExceptionHandlerRethrowsWhenNoPreviousHandlerExists(): void
+    {
+        $this->buildClient(['enable_error_tracking' => true]);
+        $exception = new \RuntimeException('uncaught without previous');
+
+        try {
+            ErrorTrackingRegistrar::handleException($exception);
+            $this->fail('Expected the uncaught exception to be rethrown');
+        } catch (\RuntimeException $caught) {
+            $this->assertSame($exception, $caught);
+        }
+
+        $event = $this->findExceptionEvent();
+        $this->assertFalse($event['properties']['$exception_handled']);
+        $this->assertSame('php_exception_handler', $event['properties']['$exception_source']);
+    }
+
     public function testErrorHandlerCapturesNonFatalErrorsWithoutRegistrarFrames(): void
     {
         $previousCalls = 0;
@@ -242,47 +259,60 @@ class ErrorTrackingRegistrarTest extends TestCase
 
     public function testFatalShutdownCaptureIsDeduplicatedAcrossErrorAndShutdownPaths(): void
     {
+        $result = $this->runStandaloneErrorTrackingScript(<<<'PHP'
+set_error_handler(static function (int $errno, string $message, string $file, int $line): bool {
+    return false;
+});
+
+$http = new \PostHog\Test\MockedHttpClient("app.posthog.com");
+$client = new \PostHog\Client("key", ["debug" => true, "enable_error_tracking" => true], $http, null, false);
+
+\PostHog\ErrorTrackingRegistrar::handleError(E_USER_ERROR, 'fatal dedupe', __FILE__, 789);
+\PostHog\ErrorTrackingRegistrar::handleShutdown([
+    'type' => E_USER_ERROR,
+    'message' => 'fatal dedupe',
+    'file' => __FILE__,
+    'line' => 789,
+]);
+
+echo json_encode(['calls' => $http->calls], JSON_THROW_ON_ERROR);
+PHP);
+
+        $this->assertCount(1, $result['calls']);
+        $payload = json_decode($result['calls'][0]['payload'], true);
+        $event = $payload['batch'][0];
+        $this->assertSame('php_error_handler', $event['properties']['$exception_source']);
+        $this->assertFalse($event['properties']['$exception_handled']);
+    }
+
+    public function testExcludedExceptionsSkipThrowableAndGeneratedErrorExceptionCapture(): void
+    {
         $previousErrorHandler = static function (int $errno, string $message, string $file, int $line): bool {
             return true;
         };
 
         set_error_handler($previousErrorHandler);
 
-        try {
-            $this->buildClient(['enable_error_tracking' => true]);
-
-            ErrorTrackingRegistrar::handleError(E_USER_ERROR, 'fatal dedupe', __FILE__, 789);
-            ErrorTrackingRegistrar::handleShutdown([
-                'type' => E_USER_ERROR,
-                'message' => 'fatal dedupe',
-                'file' => __FILE__,
-                'line' => 789,
-            ]);
-
-            $batchCalls = $this->findBatchCalls();
-            $this->assertCount(1, $batchCalls);
-
-            $payload = json_decode($batchCalls[0]['payload'], true);
-            $event = $payload['batch'][0];
-            $this->assertSame('php_shutdown_handler', $event['properties']['$exception_source']);
-        } finally {
-            ErrorTrackingRegistrar::resetForTests();
-            restore_error_handler();
-        }
-    }
-
-    public function testExcludedExceptionsSkipThrowableAndGeneratedErrorExceptionCapture(): void
-    {
         $this->buildClient([
             'enable_error_tracking' => true,
             'excluded_exceptions' => [\RuntimeException::class, \ErrorException::class],
         ]);
 
-        ErrorTrackingRegistrar::handleException(new \RuntimeException('skip me'));
-        ErrorTrackingRegistrar::handleError(E_USER_WARNING, 'skip warning', __FILE__, 987);
-        $this->client->flush();
+        try {
+            try {
+                ErrorTrackingRegistrar::handleException(new \RuntimeException('skip me'));
+                $this->fail('Expected the excluded uncaught exception to be rethrown');
+            } catch (\RuntimeException $caught) {
+                $this->assertSame('skip me', $caught->getMessage());
+            }
+            ErrorTrackingRegistrar::handleError(E_USER_WARNING, 'skip warning', __FILE__, 987);
+            $this->client->flush();
 
-        $this->assertNull($this->findBatchCall());
+            $this->assertNull($this->findBatchCall());
+        } finally {
+            ErrorTrackingRegistrar::resetForTests();
+            restore_error_handler();
+        }
     }
 
     public function testContextProviderCanSupplyDistinctIdAndProperties(): void
@@ -304,7 +334,12 @@ class ErrorTrackingRegistrarTest extends TestCase
             },
         ]);
 
-        ErrorTrackingRegistrar::handleException(new \RuntimeException('provider boom'));
+        try {
+            ErrorTrackingRegistrar::handleException(new \RuntimeException('provider boom'));
+            $this->fail('Expected the uncaught exception to be rethrown');
+        } catch (\RuntimeException $caught) {
+            $this->assertSame('provider boom', $caught->getMessage());
+        }
 
         $event = $this->findExceptionEvent();
 
@@ -326,7 +361,12 @@ class ErrorTrackingRegistrarTest extends TestCase
             new \InvalidArgumentException('inner cause')
         );
 
-        ErrorTrackingRegistrar::handleException($exception);
+        try {
+            ErrorTrackingRegistrar::handleException($exception);
+            $this->fail('Expected the uncaught exception to be rethrown');
+        } catch (\RuntimeException $caught) {
+            $this->assertSame($exception, $caught);
+        }
 
         $event = $this->findExceptionEvent();
         $exceptionList = $event['properties']['$exception_list'];
@@ -341,6 +381,117 @@ class ErrorTrackingRegistrarTest extends TestCase
         $this->assertSame(
             ['type' => 'generic', 'handled' => true],
             $exceptionList[1]['mechanism']
+        );
+    }
+
+    public function testLaterClientsDoNotStealInstalledAutoCaptureHandlers(): void
+    {
+        $firstHttpClient = new MockedHttpClient("app.posthog.com");
+        $firstClient = new Client(
+            'first-key',
+            ['debug' => true, 'enable_error_tracking' => true],
+            $firstHttpClient,
+            null,
+            false
+        );
+
+        $secondHttpClient = new MockedHttpClient("eu.posthog.com");
+        new Client(
+            'second-key',
+            ['debug' => true, 'enable_error_tracking' => true, 'host' => 'eu.posthog.com'],
+            $secondHttpClient,
+            null,
+            false
+        );
+
+        try {
+            ErrorTrackingRegistrar::handleException(new \RuntimeException('owner stays first'));
+            $this->fail('Expected the uncaught exception to be rethrown');
+        } catch (\RuntimeException $caught) {
+            $this->assertSame('owner stays first', $caught->getMessage());
+        }
+
+        $firstBatchCalls = array_values(array_filter(
+            $firstHttpClient->calls ?? [],
+            static fn(array $call): bool => $call['path'] === '/batch/'
+        ));
+        $secondBatchCalls = array_values(array_filter(
+            $secondHttpClient->calls ?? [],
+            static fn(array $call): bool => $call['path'] === '/batch/'
+        ));
+
+        $this->assertCount(1, $firstBatchCalls);
+        $this->assertCount(0, $secondBatchCalls);
+
+        $payload = json_decode($firstBatchCalls[0]['payload'], true);
+        $this->assertSame('$exception', $payload['batch'][0]['event']);
+
+        $firstClient->flush();
+    }
+
+    public function testWarningPromotedToErrorExceptionIsCapturedOnlyOnce(): void
+    {
+        $result = $this->runStandaloneErrorTrackingScript(<<<'PHP'
+set_error_handler(static function (int $errno, string $message, string $file, int $line): bool {
+    throw new \ErrorException($message, 0, $errno, $file, $line);
+});
+
+$http = new \PostHog\Test\MockedHttpClient("app.posthog.com");
+$client = new \PostHog\Client("key", ["debug" => true, "enable_error_tracking" => true], $http, null, false);
+
+try {
+    \PostHog\ErrorTrackingRegistrar::handleError(E_USER_WARNING, 'promoted warning', __FILE__, 612);
+} catch (\Throwable $exception) {
+    try {
+        \PostHog\ErrorTrackingRegistrar::handleException($exception);
+    } catch (\Throwable $ignored) {
+    }
+}
+
+$client->flush();
+echo json_encode(['calls' => $http->calls], JSON_THROW_ON_ERROR);
+PHP);
+
+        $this->assertCount(1, $result['calls']);
+        $payload = json_decode($result['calls'][0]['payload'], true);
+        $event = $payload['batch'][0];
+        $this->assertSame('php_error_handler', $event['properties']['$exception_source']);
+        $this->assertFalse($event['properties']['$exception_handled']);
+    }
+
+    public function testUserErrorCanBeCapturedFromErrorHandlerWhenPreviousHandlerHandlesIt(): void
+    {
+        $result = $this->runStandaloneErrorTrackingScript(<<<'PHP'
+$previousCalls = 0;
+set_error_handler(static function (int $errno, string $message, string $file, int $line) use (&$previousCalls): bool {
+    $previousCalls++;
+    return true;
+});
+
+$http = new \PostHog\Test\MockedHttpClient("app.posthog.com");
+$client = new \PostHog\Client("key", ["debug" => true, "enable_error_tracking" => true], $http, null, false);
+$handled = \PostHog\ErrorTrackingRegistrar::handleError(E_USER_ERROR, 'handled user fatal', __FILE__, 733);
+$client->flush();
+
+echo json_encode([
+    'handled' => $handled,
+    'previous_calls' => $previousCalls,
+    'calls' => $http->calls,
+], JSON_THROW_ON_ERROR);
+PHP);
+
+        $this->assertTrue($result['handled']);
+        $this->assertSame(1, $result['previous_calls']);
+        $this->assertCount(1, $result['calls']);
+
+        $payload = json_decode($result['calls'][0]['payload'], true);
+        $event = $payload['batch'][0];
+
+        $this->assertSame('php_error_handler', $event['properties']['$exception_source']);
+        $this->assertTrue($event['properties']['$exception_handled']);
+        $this->assertSame(
+            ['type' => 'auto.error_handler', 'handled' => true],
+            $event['properties']['$exception_list'][0]['mechanism']
         );
     }
 
@@ -447,5 +598,46 @@ class ErrorTrackingRegistrarTest extends TestCase
         }
 
         return false;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function runStandaloneErrorTrackingScript(string $body): array
+    {
+        $scriptPath = tempnam(sys_get_temp_dir(), 'posthog-error-tracking-');
+        $this->assertNotFalse($scriptPath);
+
+        $autoloadPath = var_export(realpath(__DIR__ . '/../vendor/autoload.php'), true);
+        $errorLogMockPath = var_export(realpath(__DIR__ . '/error_log_mock.php'), true);
+        $mockedHttpClientPath = var_export(realpath(__DIR__ . '/MockedHttpClient.php'), true);
+
+        $script = <<<PHP
+<?php
+require {$autoloadPath};
+require {$errorLogMockPath};
+require {$mockedHttpClientPath};
+
+\PostHog\ErrorTrackingRegistrar::resetForTests();
+{$body}
+PHP;
+
+        file_put_contents($scriptPath, $script);
+
+        try {
+            $output = [];
+            $exitCode = 0;
+
+            exec(PHP_BINARY . ' ' . escapeshellarg($scriptPath), $output, $exitCode);
+
+            $this->assertSame(0, $exitCode, implode("\n", $output));
+
+            $decoded = json_decode(implode("\n", $output), true);
+            $this->assertIsArray($decoded);
+
+            return $decoded;
+        } finally {
+            unlink($scriptPath);
+        }
     }
 }

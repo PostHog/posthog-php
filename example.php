@@ -578,9 +578,6 @@ function errorTrackingExamples()
         $result = array_sum('not-an-array');
     } catch (\TypeError $e) {
         PostHog::captureException($e, 'user-123');
-    } catch (\Throwable $e) {
-        // array_sum triggers a warning not a TypeError in PHP 8 — capture generically
-        PostHog::captureException($e, 'user-123');
     }
     echo "   -> any Throwable (Error or Exception) is accepted\n\n";
 
