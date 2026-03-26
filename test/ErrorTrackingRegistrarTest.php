@@ -123,6 +123,7 @@ class ErrorTrackingRegistrarTest extends TestCase
             $event = $this->findExceptionEvent();
 
             $this->assertSame('$exception', $event['event']);
+            $this->assertFalse($event['properties']['$exception_handled']);
             $this->assertSame('php_exception_handler', $event['properties']['$exception_source']);
             $this->assertSame(
                 ['type' => 'auto.exception_handler', 'handled' => false],
@@ -163,6 +164,7 @@ class ErrorTrackingRegistrarTest extends TestCase
             $frames = $event['properties']['$exception_list'][0]['stacktrace']['frames'];
 
             $this->assertSame(1, $previousCalls);
+            $this->assertTrue($event['properties']['$exception_handled']);
             $this->assertSame('php_error_handler', $event['properties']['$exception_source']);
             $this->assertSame(E_USER_WARNING, $event['properties']['$php_error_severity']);
             $this->assertSame(
@@ -225,6 +227,7 @@ class ErrorTrackingRegistrarTest extends TestCase
         $event = $this->findExceptionEvent();
         $frames = $event['properties']['$exception_list'][0]['stacktrace']['frames'];
 
+        $this->assertFalse($event['properties']['$exception_handled']);
         $this->assertSame('php_shutdown_handler', $event['properties']['$exception_source']);
         $this->assertSame(E_ERROR, $event['properties']['$php_error_severity']);
         $this->assertSame(
@@ -311,6 +314,34 @@ class ErrorTrackingRegistrarTest extends TestCase
         $this->assertSame('https://example.com/error', $event['properties']['$current_url']);
         $this->assertSame('sync-users', $event['properties']['job_name']);
         $this->assertArrayNotHasKey('$process_person_profile', $event['properties']);
+    }
+
+    public function testAutoCaptureOnlyOverridesPrimaryMechanismForChains(): void
+    {
+        $this->buildClient(['enable_error_tracking' => true]);
+
+        $exception = new \RuntimeException(
+            'outer uncaught',
+            0,
+            new \InvalidArgumentException('inner cause')
+        );
+
+        ErrorTrackingRegistrar::handleException($exception);
+
+        $event = $this->findExceptionEvent();
+        $exceptionList = $event['properties']['$exception_list'];
+
+        $this->assertFalse($event['properties']['$exception_handled']);
+        $this->assertSame('RuntimeException', $exceptionList[0]['type']);
+        $this->assertSame(
+            ['type' => 'auto.exception_handler', 'handled' => false],
+            $exceptionList[0]['mechanism']
+        );
+        $this->assertSame('InvalidArgumentException', $exceptionList[1]['type']);
+        $this->assertSame(
+            ['type' => 'generic', 'handled' => true],
+            $exceptionList[1]['mechanism']
+        );
     }
 
     private function buildClient(array $options): void

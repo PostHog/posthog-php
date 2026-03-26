@@ -36,7 +36,7 @@ class ExceptionCapture
             $current = $exception;
 
             while ($current !== null) {
-                array_unshift($chain, self::buildThrowableException($current));
+                $chain[] = self::buildThrowableException($current);
                 $current = $current->getPrevious();
             }
 
@@ -93,6 +93,25 @@ class ExceptionCapture
             $exception['mechanism'] = array_merge($exception['mechanism'] ?? [], $mechanism);
             return $exception;
         }, self::normalizeExceptionList($exceptionList));
+    }
+
+    public static function overridePrimaryMechanism(array $exceptionList, array $mechanism): array
+    {
+        $exceptionList = self::normalizeExceptionList($exceptionList);
+        if (!isset($exceptionList[0]) || !is_array($exceptionList[0])) {
+            return $exceptionList;
+        }
+
+        $exceptionList[0]['mechanism'] = array_merge($exceptionList[0]['mechanism'] ?? [], $mechanism);
+
+        return $exceptionList;
+    }
+
+    public static function getPrimaryHandled(array $exceptionList): bool
+    {
+        $exceptionList = self::normalizeExceptionList($exceptionList);
+
+        return (bool) (($exceptionList[0]['mechanism']['handled'] ?? false) === true);
     }
 
     private static function buildThrowableException(\Throwable $exception): array

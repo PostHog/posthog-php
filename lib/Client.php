@@ -195,14 +195,18 @@ class Client
             $distinctId = $this->generateUuidV4();
         }
 
-        $properties = array_merge(
-            ['$exception_list' => $this->buildExceptionList($exception)],
-            $additionalProperties
-        );
-
-        if ($properties['$exception_list'] === null) {
+        $exceptionList = $this->buildExceptionList($exception);
+        if ($exceptionList === null) {
             return false;
         }
+
+        $properties = array_merge(
+            [
+                '$exception_list' => $exceptionList,
+                '$exception_handled' => ExceptionCapture::getPrimaryHandled($exceptionList),
+            ],
+            $additionalProperties
+        );
 
         if ($noDistinctIdProvided) {
             $properties['$process_person_profile'] = false;

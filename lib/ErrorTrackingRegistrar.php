@@ -309,7 +309,7 @@ class ErrorTrackingRegistrar
             }
 
             $exceptionList = ExceptionCapture::normalizeExceptionList($exceptionList);
-            $exceptionList = ExceptionCapture::overrideMechanism($exceptionList, $mechanism);
+            $exceptionList = ExceptionCapture::overridePrimaryMechanism($exceptionList, $mechanism);
 
             $providerContext = self::getProviderContext([
                 'source' => $contextSource,
@@ -322,6 +322,7 @@ class ErrorTrackingRegistrar
 
             $properties = [
                 '$exception_list' => $exceptionList,
+                '$exception_handled' => ExceptionCapture::getPrimaryHandled($exceptionList),
                 '$exception_source' => $eventSource,
             ];
 

@@ -129,9 +129,8 @@ class ExceptionCaptureTest extends TestCase
         $result = ExceptionCapture::buildParsedException($outer);
 
         $this->assertCount(2, $result);
-        // outermost first (unshift order)
-        $this->assertEquals('InvalidArgumentException', $result[0]['type']);
-        $this->assertEquals('RuntimeException', $result[1]['type']);
+        $this->assertEquals('RuntimeException', $result[0]['type']);
+        $this->assertEquals('InvalidArgumentException', $result[1]['type']);
     }
 
     public function testReturnsNullForInvalidInput(): void
@@ -333,10 +332,30 @@ PHP;
             $this->assertEquals('$exception', $event['event']);
             $this->assertEquals('user-123', $event['distinct_id']);
             $this->assertArrayHasKey('$exception_list', $event['properties']);
+            $this->assertTrue($event['properties']['$exception_handled']);
             $this->assertCount(1, $event['properties']['$exception_list']);
             $this->assertEquals('RuntimeException', $event['properties']['$exception_list'][0]['type']);
             $this->assertEquals('boom', $event['properties']['$exception_list'][0]['value']);
         });
+    }
+
+    public function testCaptureExceptionUsesOuterExceptionAsPrimaryForChains(): void
+    {
+        $cause = new \InvalidArgumentException('root cause');
+        $outer = new \RuntimeException('wrapped', 0, $cause);
+
+        $this->client->captureException($outer, 'user-chain');
+        PostHog::flush();
+
+        $batchCall = $this->findBatchCall();
+        $payload = json_decode($batchCall['payload'], true);
+        $props = $payload['batch'][0]['properties'];
+
+        $this->assertTrue($props['$exception_handled']);
+        $this->assertSame('RuntimeException', $props['$exception_list'][0]['type']);
+        $this->assertSame('wrapped', $props['$exception_list'][0]['value']);
+        $this->assertSame('InvalidArgumentException', $props['$exception_list'][1]['type']);
+        $this->assertSame('root cause', $props['$exception_list'][1]['value']);
     }
 
     public function testCaptureExceptionWithoutDistinctIdGeneratesUuidAndSetsNoProfile(): void
