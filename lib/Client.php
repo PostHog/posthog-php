@@ -163,7 +163,8 @@ class Client
             $flags = [];
 
             if (count($this->featureFlags) != 0) {
-                # Local evaluation is enabled, flags are loaded, so try and get all flags we can without going to the server
+                // Local evaluation is enabled, flags are loaded, so try and get all flags
+                // we can without going to the server.
                 $flags = $this->getAllFlags($message["distinct_id"], $message["groups"], [], [], true);
             } else {
                 $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
@@ -194,8 +195,11 @@ class Client
      * @param array $additionalProperties Extra properties merged into the event
      * @return bool whether the capture call succeeded
      */
-    public function captureException(\Throwable|string $exception, ?string $distinctId = null, array $additionalProperties = []): bool
-    {
+    public function captureException(
+        \Throwable|string $exception,
+        ?string $distinctId = null,
+        array $additionalProperties = []
+    ): bool {
         $noDistinctIdProvided = $distinctId === null;
         if ($noDistinctIdProvided) {
             $distinctId = Uuid::v4();

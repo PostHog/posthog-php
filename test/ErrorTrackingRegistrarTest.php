@@ -2,11 +2,10 @@
 
 namespace PostHog\Test;
 
-require_once 'test/error_log_mock.php';
-
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\ErrorTrackingRegistrar;
+use PostHog\ExceptionCapture;
 
 class ErrorTrackingRegistrarTest extends TestCase
 {
@@ -18,6 +17,7 @@ class ErrorTrackingRegistrarTest extends TestCase
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
+        ExceptionCapture::configure([]);
         ErrorTrackingRegistrar::resetForTests();
 
         global $errorMessages;
@@ -104,7 +104,12 @@ class ErrorTrackingRegistrarTest extends TestCase
         $previousCalls = 0;
         $receivedException = null;
 
-        $previousExceptionHandler = static function (\Throwable $exception) use (&$previousCalls, &$receivedException): void {
+        $previousExceptionHandler = static function (
+            \Throwable $exception
+        ) use (
+            &$previousCalls,
+            &$receivedException
+        ): void {
             $previousCalls++;
             $receivedException = $exception;
         };
@@ -161,7 +166,12 @@ class ErrorTrackingRegistrarTest extends TestCase
     public function testErrorHandlerCapturesNonFatalErrorsWithoutRegistrarFrames(): void
     {
         $previousCalls = 0;
-        $previousErrorHandler = static function (int $errno, string $message, string $file, int $line) use (&$previousCalls): bool {
+        $previousErrorHandler = static function (
+            int $errno,
+            string $message,
+            string $file,
+            int $line
+        ) use (&$previousCalls): bool {
             $previousCalls++;
             return true;
         };
@@ -206,7 +216,12 @@ class ErrorTrackingRegistrarTest extends TestCase
     public function testErrorHandlerRespectsRuntimeSuppression(): void
     {
         $previousCalls = 0;
-        $previousErrorHandler = static function (int $errno, string $message, string $file, int $line) use (&$previousCalls): bool {
+        $previousErrorHandler = static function (
+            int $errno,
+            string $message,
+            string $file,
+            int $line
+        ) use (&$previousCalls): bool {
             $previousCalls++;
             return true;
         };

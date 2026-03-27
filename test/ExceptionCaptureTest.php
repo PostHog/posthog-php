@@ -2,8 +2,6 @@
 
 namespace PostHog\Test;
 
-require_once 'test/error_log_mock.php';
-
 use Exception;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
@@ -22,6 +20,7 @@ class ExceptionCaptureTest extends TestCase
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
+        ExceptionCapture::configure([]);
         $this->httpClient = new MockedHttpClient("app.posthog.com");
         $this->client = new Client(
             self::FAKE_API_KEY,

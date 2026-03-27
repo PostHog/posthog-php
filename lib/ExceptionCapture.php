@@ -10,13 +10,13 @@ class ExceptionCapture
 
     private static bool $includeSourceContext = true;
     private static int $contextLines = 5;
-    private static int $maxFrames = 50;
+    private static int $maxFrames = 20;
 
     public static function configure(array $options = []): void
     {
         self::$includeSourceContext = (bool) ($options['error_tracking_include_source_context'] ?? true);
         self::$contextLines = max(0, (int) ($options['error_tracking_context_lines'] ?? 5));
-        self::$maxFrames = max(0, (int) ($options['error_tracking_max_frames'] ?? 50));
+        self::$maxFrames = max(0, (int) ($options['error_tracking_max_frames'] ?? 20));
     }
 
     /**

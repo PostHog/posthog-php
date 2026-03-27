@@ -1,5 +1,7 @@
 <?php
 
+// phpcs:disable PSR1.Files.SideEffects
+
 // PostHog PHP library example
 //
 // This script demonstrates various PostHog PHP SDK capabilities including:
@@ -267,7 +269,11 @@ function flagDependencyExamples()
         [],
         true
     );
-    echo "📊 Beta feature comparison - @example.com: " . json_encode($beta1) . ", regular: " . json_encode($beta2) . "\n";
+    echo "📊 Beta feature comparison - @example.com: "
+        . json_encode($beta1)
+        . ", regular: "
+        . json_encode($beta2)
+        . "\n";
 
     echo "\n🎯 Results Summary:\n";
     echo "   - Flag dependencies evaluated locally: " . ($result1 != $result2 ? "✅ YES" : "❌ NO") . "\n";
@@ -302,7 +308,10 @@ function flagDependencyExamples()
         true
     );
     if ($dependentResult3 !== "breaking-bad") {
-        echo "     ❌ Something went wrong evaluating 'multivariate-root-flag' with pineapple@example.com. Expected 'breaking-bad', got '" . json_encode($dependentResult3) . "'\n";
+        echo "     ❌ Something went wrong evaluating 'multivariate-root-flag' with pineapple@example.com. "
+            . "Expected 'breaking-bad', got '"
+            . json_encode($dependentResult3)
+            . "'\n";
     } else {
         echo "✅ 'multivariate-root-flag' with email pineapple@example.com succeeded\n";
     }
@@ -317,7 +326,10 @@ function flagDependencyExamples()
         true
     );
     if ($dependentResult4 !== "the-wire") {
-        echo "     ❌ Something went wrong evaluating multivariate-root-flag with mango@example.com. Expected 'the-wire', got '" . json_encode($dependentResult4) . "'\n";
+        echo "     ❌ Something went wrong evaluating multivariate-root-flag with mango@example.com. "
+            . "Expected 'the-wire', got '"
+            . json_encode($dependentResult4)
+            . "'\n";
     } else {
         echo "✅ 'multivariate-root-flag' with email mango@example.com succeeded\n";
     }
@@ -491,7 +503,9 @@ function etagPollingExamples()
         if ($beforeEtag === $afterEtag && $beforeEtag !== null) {
             echo "No change (304 Not Modified) - $currentFlagCount flag(s)\n";
         } else {
-            echo "🔄 Flags updated! New ETag: " . ($afterEtag ? substr($afterEtag, 0, 20) . "..." : "none") . " - $currentFlagCount flag(s)\n";
+            echo "🔄 Flags updated! New ETag: "
+                . ($afterEtag ? substr($afterEtag, 0, 20) . "..." : "none")
+                . " - $currentFlagCount flag(s)\n";
         }
 
         $iteration++;
