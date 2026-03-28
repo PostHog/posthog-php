@@ -28,12 +28,24 @@ class PostHog
         if (null === $client) {
             $apiKey = $apiKey ?: getenv(self::ENV_API_KEY);
 
+            $rawHost = null;
             if (array_key_exists("host", $options)) {
-                $options["host"] = self::cleanHost($options["host"]);
+                $rawHost = $options["host"];
+                $options["host"] = self::cleanHost($rawHost);
             } else {
                 $envHost = getenv(self::ENV_HOST) ?: null;
                 if (null !== $envHost) {
-                    $options["host"] = self::cleanHost(getenv(self::ENV_HOST));
+                    $rawHost = $envHost;
+                    $options["host"] = self::cleanHost($rawHost);
+                }
+            }
+
+            // Infer ssl from the host protocol if the user hasn't explicitly set it
+            if ($rawHost !== null && !array_key_exists("ssl", $options)) {
+                if (str_starts_with($rawHost, "http://")) {
+                    $options["ssl"] = false;
+                } elseif (str_starts_with($rawHost, "https://")) {
+                    $options["ssl"] = true;
                 }
             }
 

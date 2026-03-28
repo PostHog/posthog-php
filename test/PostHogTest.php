@@ -63,6 +63,75 @@ class PostHogTest extends TestCase
         putenv(PostHog::ENV_API_KEY);
     }
 
+    public function testInitWithHttpHostSetsSslFalse(): void
+    {
+        PostHog::init("random_key", ["host" => "http://localhost:8010"]);
+
+        $client = PostHog::getClient();
+        $ref = new \ReflectionClass($client);
+        $consumerProp = $ref->getProperty('consumer');
+        $consumerProp->setAccessible(true);
+        $consumer = $consumerProp->getValue($client);
+
+        $cRef = new \ReflectionClass($consumer);
+        $httpProp = $cRef->getProperty('httpClient');
+        $httpProp->setAccessible(true);
+        $httpClient = $httpProp->getValue($consumer);
+
+        $hRef = new \ReflectionClass($httpClient);
+        $sslProp = $hRef->getProperty('useSsl');
+        $sslProp->setAccessible(true);
+
+        $this->assertFalse($sslProp->getValue($httpClient), 'HttpClient should use ssl=false for http:// hosts');
+    }
+
+    public function testInitWithHttpsHostSetsSslTrue(): void
+    {
+        PostHog::init("random_key", ["host" => "https://app.posthog.com"]);
+
+        $client = PostHog::getClient();
+        $ref = new \ReflectionClass($client);
+        $consumerProp = $ref->getProperty('consumer');
+        $consumerProp->setAccessible(true);
+        $consumer = $consumerProp->getValue($client);
+
+        $cRef = new \ReflectionClass($consumer);
+        $httpProp = $cRef->getProperty('httpClient');
+        $httpProp->setAccessible(true);
+        $httpClient = $httpProp->getValue($consumer);
+
+        $hRef = new \ReflectionClass($httpClient);
+        $sslProp = $hRef->getProperty('useSsl');
+        $sslProp->setAccessible(true);
+
+        $this->assertTrue($sslProp->getValue($httpClient), 'HttpClient should use ssl=true for https:// hosts');
+    }
+
+    public function testInitWithEnvHttpHostSetsSslFalse(): void
+    {
+        putenv(PostHog::ENV_HOST . "=http://localhost:8010");
+        PostHog::init("random_key");
+
+        $client = PostHog::getClient();
+        $ref = new \ReflectionClass($client);
+        $consumerProp = $ref->getProperty('consumer');
+        $consumerProp->setAccessible(true);
+        $consumer = $consumerProp->getValue($client);
+
+        $cRef = new \ReflectionClass($consumer);
+        $httpProp = $cRef->getProperty('httpClient');
+        $httpProp->setAccessible(true);
+        $httpClient = $httpProp->getValue($consumer);
+
+        $hRef = new \ReflectionClass($httpClient);
+        $sslProp = $hRef->getProperty('useSsl');
+        $sslProp->setAccessible(true);
+
+        $this->assertFalse($sslProp->getValue($httpClient), 'HttpClient should use ssl=false for http:// env host');
+
+        putenv(PostHog::ENV_HOST);
+    }
+
     public function testInitThrowsExceptionWithNoApiKey(): void
     {
         $this->expectException(Exception::class);
