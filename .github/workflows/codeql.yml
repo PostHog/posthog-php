@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v4.31.9
+        uses: github/codeql-action/init@0e9f55954318745b37b7933c693bc093f7336125 # v4.35.1
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -39,6 +39,6 @@ jobs:
           trap-caching: false
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@5d4e8d1aca955e8d8589aabd499c5cae939e33c7 # v4.31.9
+        uses: github/codeql-action/analyze@0e9f55954318745b37b7933c693bc093f7336125 # v4.35.1
         with:
           category: '/language:${{matrix.language}}'
