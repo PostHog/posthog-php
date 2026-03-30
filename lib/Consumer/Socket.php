@@ -200,10 +200,9 @@ class Socket extends QueueConsumer
         $req .= "\r\n";
         $req .= $content;
 
-        // Verify message size is below than 32KB
-        if (strlen($req) >= 32 * 1024) {
+        if (strlen($req) >= self::MAX_BATCH_PAYLOAD_SIZE) {
             if ($this->debug()) {
-                $msg = "Message size is larger than 32KB";
+                $msg = "Message size is larger than " . self::MAX_BATCH_PAYLOAD_SIZE_HUMAN;
                 error_log("[PostHog][" . $this->type . "] " . $msg);
             }
 

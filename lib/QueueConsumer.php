@@ -4,6 +4,9 @@ namespace PostHog;
 
 abstract class QueueConsumer extends Consumer
 {
+    protected const MAX_BATCH_PAYLOAD_SIZE = 1024 * 1024; // 1MB
+    protected const MAX_BATCH_PAYLOAD_SIZE_HUMAN = (self::MAX_BATCH_PAYLOAD_SIZE / 1024) . 'KB';
+
     protected $type = "QueueConsumer";
 
     protected $queue;
