@@ -4,10 +4,6 @@ namespace PostHog;
 
 class ExceptionCapture
 {
-    // Keep source context bounded so large local variables / generated code snippets do not push
-    // $exception payloads past the transport size limit.
-    private const MAX_CONTEXT_LINE_LENGTH = 200;
-
     private static bool $includeSourceContext = true;
     private static int $contextLines = 5;
     private static int $maxFrames = 20;
@@ -289,40 +285,19 @@ class ExceptionCapture
                 return;
             }
 
-            $frame['context_line'] = self::truncateContextLine($lines[$idx]);
+            $frame['context_line'] = $lines[$idx];
 
             $preStart = max(0, $idx - self::$contextLines);
             if ($preStart < $idx) {
-                $frame['pre_context'] = array_map(
-                    [self::class, 'truncateContextLine'],
-                    array_slice($lines, $preStart, $idx - $preStart)
-                );
+                $frame['pre_context'] = array_slice($lines, $preStart, $idx - $preStart);
             }
 
             $postEnd = min($total, $idx + self::$contextLines + 1);
             if ($postEnd > $idx + 1) {
-                $frame['post_context'] = array_map(
-                    [self::class, 'truncateContextLine'],
-                    array_slice($lines, $idx + 1, $postEnd - $idx - 1)
-                );
+                $frame['post_context'] = array_slice($lines, $idx + 1, $postEnd - $idx - 1);
             }
         } catch (\Throwable $e) {
             // Silently ignore file read errors
         }
-    }
-
-    private static function truncateContextLine(string $line): string
-    {
-        if (strlen($line) <= self::MAX_CONTEXT_LINE_LENGTH) {
-            return $line;
-        }
-
-        if (self::MAX_CONTEXT_LINE_LENGTH <= 3) {
-            return substr($line, 0, self::MAX_CONTEXT_LINE_LENGTH);
-        }
-
-        // Truncation is intentionally fixed and internal-only: it protects payload size without
-        // reintroducing another public tuning knob.
-        return substr($line, 0, self::MAX_CONTEXT_LINE_LENGTH - 3) . '...';
     }
 }

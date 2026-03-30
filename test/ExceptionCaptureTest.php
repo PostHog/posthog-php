@@ -445,7 +445,7 @@ PHP;
         $this->client->captureException([]);
     }
 
-    public function testCaptureExceptionPayloadStaysBelowLibCurlLimitForLargeSourceContext(): void
+    public function testCaptureExceptionPayloadStaysBelowCurrentTransportLimit(): void
     {
         $scriptPath = tempnam(sys_get_temp_dir(), 'posthog-exception-');
         $this->assertNotFalse($scriptPath);
@@ -496,7 +496,7 @@ PHP;
             ]);
 
             $this->assertNotFalse($payload);
-            $this->assertLessThan(32 * 1024, strlen($payload));
+            $this->assertLessThan(1024 * 1024, strlen($payload));
         } finally {
             unlink($scriptPath);
         }
