@@ -174,7 +174,7 @@ jobs:
 
       - name: Notify Slack - Failed
         if: ${{ failure() && needs.notify-approval-needed.outputs.slack_ts != '' }}
-        uses: posthog/.github/.github/actions/slack-thread-reply@9b04bf3288aca2b4cd3883070858b034b4f7f334
+        uses: posthog/.github/.github/actions/slack-thread-reply@main
         with:
           slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
           slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
@@ -192,7 +192,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Notify Slack - Released
-        uses: posthog/.github/.github/actions/slack-thread-reply@9b04bf3288aca2b4cd3883070858b034b4f7f334
+        uses: posthog/.github/.github/actions/slack-thread-reply@main
         with:
           slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
           slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
