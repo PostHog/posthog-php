@@ -56,10 +56,9 @@ class LibCurl extends QueueConsumer
         $body = $this->payload($messages);
         $payload = json_encode($body);
 
-        // Verify message size is below than 5MB
-        if (strlen($payload) >= 5 * 1024 * 1024) {
+        if (strlen($payload) >= self::MAX_BATCH_PAYLOAD_SIZE) {
             if ($this->debug()) {
-                $msg = "Message size is larger than 5MB";
+                $msg = "Message size is larger than " . (self::MAX_BATCH_PAYLOAD_SIZE / 1024) . "KB";
                 error_log("[PostHog][" . $this->type . "] " . $msg);
             }
 
