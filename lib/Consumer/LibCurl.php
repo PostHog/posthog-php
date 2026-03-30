@@ -58,7 +58,7 @@ class LibCurl extends QueueConsumer
 
         if (strlen($payload) >= self::MAX_BATCH_PAYLOAD_SIZE) {
             if ($this->debug()) {
-                $msg = "Message size is larger than " . (self::MAX_BATCH_PAYLOAD_SIZE / 1024) . "KB";
+                $msg = "Message size is larger than " . self::MAX_BATCH_PAYLOAD_SIZE_HUMAN;
                 error_log("[PostHog][" . $this->type . "] " . $msg);
             }
 
