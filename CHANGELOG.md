@@ -1,3 +1,7 @@
+## 4.1.0 - 2026-03-30
+
+* [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.0.4...4.1.0)
+
 ## 4.0.4 - 2026-03-30
 
 * [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.0.3...4.0.4)
