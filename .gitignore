@@ -1,4 +1,7 @@
-composer.lock
+# We check in composer.lock for CI reproducibility and supply chain security.
+# Composer verifies package integrity hashes on install.
+# Run `composer update` to update dependencies explicitly.
+# composer.lock
 vendor
 composer.phar
 test/posthog.log

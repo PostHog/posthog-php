@@ -1,0 +1,8 @@
+# Exclude files from Composer package archive (packagist distribution).
+# Consumers should resolve their own dependency versions.
+/composer.lock export-ignore
+/test export-ignore
+/phpunit.xml export-ignore
+/phpcs.xml export-ignore
+/.github export-ignore
+/Makefile export-ignore
