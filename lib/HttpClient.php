@@ -6,6 +6,8 @@ use Closure;
 
 class HttpClient
 {
+    public const DEFAULT_CURL_TIMEOUT = 10000;
+
     /**
      * @var string
      */
@@ -47,7 +49,7 @@ class HttpClient
         bool $compressRequests = false,
         bool $debug = false,
         ?Closure $errorHandler = null,
-        int $curlTimeoutMilliseconds = 10000
+        int $curlTimeoutMilliseconds = self::DEFAULT_CURL_TIMEOUT
     ) {
         $this->host = $host;
         $this->useSsl = $useSsl;
