@@ -17,6 +17,7 @@ class ExceptionCaptureTest extends TestCase
     {
         date_default_timezone_set("UTC");
         ExceptionCapture::resetForTests();
+        ExceptionCapture::enableThrowOnUnhandledForTests();
 
         global $errorMessages;
         $errorMessages = [];
@@ -144,21 +145,31 @@ class ExceptionCaptureTest extends TestCase
         }
     }
 
-    public function testExceptionHandlerRethrowsWhenNoPreviousHandlerExists(): void
+    public function testExceptionHandlerWithoutPreviousHandlerLogsAndExits(): void
     {
-        $this->buildClient(['error_tracking' => ['enabled' => true]]);
-        $exception = new \RuntimeException('uncaught without previous');
+        $result = $this->runStandaloneScript(<<<'PHP'
+$http = new \PostHog\Test\MockedHttpClient("app.posthog.com");
+new \PostHog\Client("key", ["debug" => true, "error_tracking" => ["enabled" => true]], $http, null, false);
 
-        try {
-            ExceptionCapture::handleException($exception);
-            $this->fail('Expected the uncaught exception to be rethrown');
-        } catch (\RuntimeException $caught) {
-            $this->assertSame($exception, $caught);
-        }
+register_shutdown_function(static function () use ($http): void {
+    global $errorMessages;
 
-        $event = $this->findExceptionEvent();
+    echo json_encode([
+        'calls' => $http->calls,
+        'error_messages' => $errorMessages,
+    ], JSON_THROW_ON_ERROR);
+});
+
+throw new \RuntimeException('uncaught without previous');
+PHP, 255, false);
+
+        $this->assertCount(1, $result['calls']);
+        $payload = json_decode($result['calls'][0]['payload'], true);
+        $event = $payload['batch'][0];
         $this->assertFalse($event['properties']['$exception_handled']);
         $this->assertSame('php_exception_handler', $event['properties']['$exception_source']);
+        $this->assertNotEmpty($result['error_messages']);
+        $this->assertStringContainsString('uncaught without previous', $result['error_messages'][0]);
     }
 
     public function testErrorHandlerCapturesNonFatalErrorsWithoutCaptureFrames(): void
@@ -609,14 +620,20 @@ PHP);
     /**
      * @return array<string, mixed>
      */
-    private function runStandaloneScript(string $body): array
-    {
+    private function runStandaloneScript(
+        string $body,
+        int $expectedExitCode = 0,
+        bool $throwOnUnhandledInTests = true
+    ): array {
         $scriptPath = tempnam(sys_get_temp_dir(), 'posthog-error-tracking-');
         $this->assertNotFalse($scriptPath);
 
         $autoloadPath = var_export(realpath(__DIR__ . '/../vendor/autoload.php'), true);
         $errorLogMockPath = var_export(realpath(__DIR__ . '/error_log_mock.php'), true);
         $mockedHttpClientPath = var_export(realpath(__DIR__ . '/MockedHttpClient.php'), true);
+        $throwOnUnhandledBootstrap = $throwOnUnhandledInTests
+            ? "\n\\PostHog\\ExceptionCapture::enableThrowOnUnhandledForTests();"
+            : '';
 
         $script = <<<PHP
 <?php
@@ -625,6 +642,7 @@ require {$errorLogMockPath};
 require {$mockedHttpClientPath};
 
 \PostHog\ExceptionCapture::resetForTests();
+{$throwOnUnhandledBootstrap}
 {$body}
 PHP;
 
@@ -636,7 +654,7 @@ PHP;
 
             exec(PHP_BINARY . ' ' . escapeshellarg($scriptPath), $output, $exitCode);
 
-            $this->assertSame(0, $exitCode, implode("\n", $output));
+            $this->assertSame($expectedExitCode, $exitCode, implode("\n", $output));
 
             $decoded = json_decode(implode("\n", $output), true);
             $this->assertIsArray($decoded);

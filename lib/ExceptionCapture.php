@@ -30,6 +30,7 @@ class ExceptionCapture
     // Auto-capture itself can fail or trigger warnings; guard against recursively capturing
     // PostHog's own error path.
     private static bool $isCapturing = false;
+    private static bool $throwOnUnhandledInTests = false;
 
     /** @var callable|null */
     private static $previousExceptionHandler = null;
@@ -262,6 +263,12 @@ class ExceptionCapture
         self::$previousErrorHandler = null;
         self::$fatalErrorSignatures = [];
         self::$delegatedErrorExceptionIds = [];
+        self::$throwOnUnhandledInTests = false;
+    }
+
+    public static function enableThrowOnUnhandledForTests(): void
+    {
+        self::$throwOnUnhandledInTests = true;
     }
 
     private static function shouldCapture(): bool
@@ -555,8 +562,15 @@ class ExceptionCapture
             return;
         }
 
-        restore_exception_handler();
-        throw $exception;
+        if (self::$throwOnUnhandledInTests) {
+            restore_exception_handler();
+            throw $exception;
+        }
+
+        // Once PHP has entered a user exception handler there is no safe way to resume the
+        // built-in uncaught-exception flow, so log the throwable and terminate explicitly.
+        error_log('Uncaught ' . $exception);
+        exit(255);
     }
 
     /**
