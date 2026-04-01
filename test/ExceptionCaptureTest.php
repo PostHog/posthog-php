@@ -2,16 +2,12 @@
 
 namespace PostHog\Test;
 
-use Exception;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\ExceptionCapture;
-use PostHog\PostHog;
 
 class ExceptionCaptureTest extends TestCase
 {
-    use ClockMockTrait;
-
     private const FAKE_API_KEY = "random_key";
 
     private MockedHttpClient $httpClient;
@@ -20,505 +16,634 @@ class ExceptionCaptureTest extends TestCase
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
-        ExceptionCapture::configure([]);
-        $this->httpClient = new MockedHttpClient("app.posthog.com");
-        $this->client = new Client(
-            self::FAKE_API_KEY,
-            ["debug" => true],
-            $this->httpClient,
-            "test"
-        );
-        PostHog::init(null, null, $this->client);
+        ExceptionCapture::resetForTests();
 
         global $errorMessages;
         $errorMessages = [];
     }
 
-    // -------------------------------------------------------------------------
-    // ExceptionCapture unit tests
-    // -------------------------------------------------------------------------
-
-    public function testBuildParsedExceptionFromString(): void
+    public function tearDown(): void
     {
-        $result = ExceptionCapture::buildParsedException('something went wrong');
-
-        $this->assertIsArray($result);
-        $this->assertEquals('Error', $result['type']);
-        $this->assertEquals('something went wrong', $result['value']);
-        $this->assertEquals(['type' => 'generic', 'handled' => true], $result['mechanism']);
-        $this->assertNull($result['stacktrace']);
+        ExceptionCapture::resetForTests();
     }
 
-    public function testBuildParsedExceptionFromThrowable(): void
+    public function testDisabledErrorTrackingDoesNotRegisterHandlers(): void
     {
-        $exception = new \RuntimeException('test error');
-        $result = ExceptionCapture::buildParsedException($exception);
+        $previousExceptionHandler = static function (\Throwable $exception): void {
+        };
+        $previousErrorHandler = static function (int $errno, string $message, string $file, int $line): bool {
+            return true;
+        };
 
-        $this->assertIsArray($result);
-        $this->assertCount(1, $result);
-
-        $entry = $result[0];
-        $this->assertEquals('RuntimeException', $entry['type']);
-        $this->assertEquals('test error', $entry['value']);
-        $this->assertEquals(['type' => 'generic', 'handled' => true], $entry['mechanism']);
-    }
-
-    public function testStacktraceFramesArePresent(): void
-    {
-        $exception = new \RuntimeException('with trace');
-        $result = ExceptionCapture::buildParsedException($exception);
-
-        $entry = $result[0];
-        $this->assertNotNull($entry['stacktrace']);
-        $this->assertEquals('raw', $entry['stacktrace']['type']);
-        $this->assertNotEmpty($entry['stacktrace']['frames']);
-    }
-
-    public function testStacktraceFrameStructure(): void
-    {
-        $exception = new \RuntimeException('frame check');
-        $result = ExceptionCapture::buildParsedException($exception);
-
-        $frames = $result[0]['stacktrace']['frames'];
-        $frame  = $frames[0];
-
-        $this->assertArrayHasKey('filename', $frame);
-        $this->assertArrayHasKey('abs_path', $frame);
-        $this->assertArrayHasKey('lineno', $frame);
-        $this->assertArrayHasKey('function', $frame);
-        $this->assertArrayHasKey('in_app', $frame);
-        $this->assertEquals('php', $frame['platform']);
-    }
-
-    public function testInAppFalseForVendorFrames(): void
-    {
-        // Simulate a vendor frame
-        $reflector = new \ReflectionClass(ExceptionCapture::class);
-        $method    = $reflector->getMethod('buildFrame');
-        $method->setAccessible(true);
-
-        $frame = $method->invoke(null, [
-            'file'     => '/app/vendor/some/package/Foo.php',
-            'line'     => 10,
-            'function' => 'doSomething',
-        ]);
-
-        $this->assertFalse($frame['in_app']);
-    }
-
-    public function testInAppTrueForAppFrames(): void
-    {
-        $reflector = new \ReflectionClass(ExceptionCapture::class);
-        $method    = $reflector->getMethod('buildFrame');
-        $method->setAccessible(true);
-
-        $frame = $method->invoke(null, [
-            'file'     => '/app/src/Services/MyService.php',
-            'line'     => 42,
-            'function' => 'handle',
-        ]);
-
-        $this->assertTrue($frame['in_app']);
-    }
-
-    public function testChainedExceptionsProduceMultipleEntries(): void
-    {
-        $cause  = new \InvalidArgumentException('root cause');
-        $outer  = new \RuntimeException('wrapped', 0, $cause);
-        $result = ExceptionCapture::buildParsedException($outer);
-
-        $this->assertCount(2, $result);
-        $this->assertEquals('RuntimeException', $result[0]['type']);
-        $this->assertEquals('InvalidArgumentException', $result[1]['type']);
-    }
-
-    public function testReturnsNullForInvalidInput(): void
-    {
-        $this->expectException(\TypeError::class);
-        ExceptionCapture::buildParsedException([]);
-    }
-
-    public function testContextLinesAddedForInAppFrames(): void
-    {
-        // Throw inside a helper so the test file appears in getTrace()
-        $e = $this->throwHelper();
-        $result = ExceptionCapture::buildParsedException($e);
-
-        $frames = $result[0]['stacktrace']['frames'];
-        // Any in-app frame whose source file is readable should have context_line
-        $testFrames = array_filter($frames, fn($f) => isset($f['context_line']));
-        $this->assertNotEmpty($testFrames, 'At least one in-app frame should have context_line');
-    }
-
-    public function testStacktraceUsesThrowableFileAndLineForMostRecentFrame(): void
-    {
-        [$exception, $throwLine] = $this->throwHelperWithKnownLine();
-        $result = ExceptionCapture::buildParsedException($exception);
-
-        $frames = $result[0]['stacktrace']['frames'];
-        $frame = $frames[0];
-
-        $this->assertEquals(__FILE__, $frame['abs_path']);
-        $this->assertEquals($throwLine, $frame['lineno']);
-    }
-
-    public function testStacktracePreservesOriginalCallerFrame(): void
-    {
-        [$exception, $throwLine, $callerLine] = $this->nestedThrowHelperWithKnownLines();
-        $result = ExceptionCapture::buildParsedException($exception);
-
-        $frames = array_values($result[0]['stacktrace']['frames']);
-        $innermostFrame = $frames[0];
-        $callerFrame = $frames[1];
-
-        $this->assertEquals(__FILE__, $innermostFrame['abs_path']);
-        $this->assertEquals($throwLine, $innermostFrame['lineno']);
-        $this->assertEquals(__FILE__, $callerFrame['abs_path']);
-        $this->assertEquals($callerLine, $callerFrame['lineno']);
-        $this->assertEquals(__CLASS__ . '->throwNestedHelper', $callerFrame['function']);
-    }
-
-    public function testInternalFunctionErrorDoesNotDuplicateTopFrame(): void
-    {
-        [$exception, $arraySumLine, $callerLine] = $this->internalErrorHelperWithKnownLines();
-        $result = ExceptionCapture::buildParsedException($exception);
-
-        $frames = array_values($result[0]['stacktrace']['frames']);
-
-        $this->assertEquals('array_sum', $frames[0]['function']);
-        $this->assertEquals(__FILE__, $frames[0]['abs_path']);
-        $this->assertEquals($arraySumLine, $frames[0]['lineno']);
-        $this->assertEquals(__CLASS__ . '->internalErrorLeaf', $frames[1]['function']);
-        $this->assertEquals(__FILE__, $frames[1]['abs_path']);
-        $this->assertEquals($callerLine, $frames[1]['lineno']);
-        $this->assertNotEquals($frames[0], $frames[1]);
-    }
-
-    public function testStrictTypeErrorUsesCallsiteBeforeDeclaration(): void
-    {
-        $scriptPath = tempnam(sys_get_temp_dir(), 'posthog-type-error-');
-        $this->assertNotFalse($scriptPath);
-
-        $script = <<<'PHP'
-<?php
-declare(strict_types=1);
-
-return (function () {
-    $declarationLine = __LINE__ + 1;
-    function requiresIntForTrace(int $value): int
-    {
-        return $value;
-    }
-
-    try {
-        $callLine = __LINE__ + 1;
-        requiresIntForTrace('nope');
-    } catch (\Throwable $e) {
-        return [$e, $callLine, $declarationLine];
-    }
-
-    return [null, 0, 0];
-})();
-PHP;
-
-        file_put_contents($scriptPath, $script);
+        set_exception_handler($previousExceptionHandler);
+        set_error_handler($previousErrorHandler);
 
         try {
-            [$exception, $callLine, $declarationLine] = require $scriptPath;
-            $this->assertInstanceOf(\Throwable::class, $exception);
+            $this->buildClient(['error_tracking' => ['enabled' => false]]);
 
-            $result = ExceptionCapture::buildParsedException($exception);
-            $frames = array_values($result[0]['stacktrace']['frames']);
-
-            $this->assertSame($scriptPath, $frames[0]['abs_path']);
-            $this->assertSame('requiresIntForTrace', $frames[0]['function']);
-            $this->assertSame($callLine, $frames[0]['lineno']);
-            $this->assertNotSame($declarationLine, $frames[0]['lineno']);
+            $this->assertFalse($this->getFlag('exceptionHandlerInstalled'));
+            $this->assertFalse($this->getFlag('errorHandlerInstalled'));
+            $this->assertSame($previousExceptionHandler, $this->getCurrentExceptionHandler());
+            $this->assertSame($previousErrorHandler, $this->getCurrentErrorHandler());
         } finally {
-            unlink($scriptPath);
+            restore_exception_handler();
+            restore_error_handler();
         }
     }
 
-    private function throwHelper(): \RuntimeException
+    public function testEnabledErrorTrackingRegistersHandlersOnce(): void
     {
+        $previousExceptionHandler = static function (\Throwable $exception): void {
+        };
+        $previousErrorHandler = static function (int $errno, string $message, string $file, int $line): bool {
+            return true;
+        };
+
+        set_exception_handler($previousExceptionHandler);
+        set_error_handler($previousErrorHandler);
+
         try {
-            throw new \RuntimeException('context test');
-        } catch (\RuntimeException $e) {
-            return $e;
+            $shutdownRegisteredBefore = $this->getFlag('shutdownHandlerRegistered');
+
+            $this->buildClient(['error_tracking' => ['enabled' => true]]);
+            $this->buildClient(['error_tracking' => ['enabled' => true]]);
+
+            $this->assertTrue($this->getFlag('exceptionHandlerInstalled'));
+            $this->assertTrue($this->getFlag('errorHandlerInstalled'));
+            $this->assertSame(
+                [ExceptionCapture::class, 'handleException'],
+                $this->getCurrentExceptionHandler()
+            );
+            $this->assertSame(
+                [ExceptionCapture::class, 'handleError'],
+                $this->getCurrentErrorHandler()
+            );
+            $this->assertSame(
+                $previousExceptionHandler,
+                $this->getProperty('previousExceptionHandler')
+            );
+            $this->assertSame(
+                $previousErrorHandler,
+                $this->getProperty('previousErrorHandler')
+            );
+            $this->assertTrue($this->getFlag('shutdownHandlerRegistered'));
+            $this->assertTrue(
+                $shutdownRegisteredBefore || $this->getFlag('shutdownHandlerRegistered')
+            );
+        } finally {
+            ExceptionCapture::resetForTests();
+            restore_exception_handler();
+            restore_error_handler();
         }
     }
 
-    private function throwHelperWithKnownLine(): array
+    public function testExceptionHandlerCapturesFlushesAndChainsPreviousHandler(): void
     {
+        $previousCalls = 0;
+        $receivedException = null;
+
+        $previousExceptionHandler = static function (
+            \Throwable $exception
+        ) use (
+            &$previousCalls,
+            &$receivedException
+        ): void {
+            $previousCalls++;
+            $receivedException = $exception;
+        };
+
+        set_exception_handler($previousExceptionHandler);
+
         try {
-            $throwLine = __LINE__ + 1;
-            throw new \RuntimeException('known line');
-        } catch (\RuntimeException $e) {
-            return [$e, $throwLine];
+            $this->buildClient(['error_tracking' => ['enabled' => true]]);
+
+            $exception = new \RuntimeException('uncaught boom');
+            ExceptionCapture::handleException($exception);
+
+            $this->assertSame(1, $previousCalls);
+            $this->assertSame($exception, $receivedException);
+
+            $event = $this->findExceptionEvent();
+
+            $this->assertSame('$exception', $event['event']);
+            $this->assertFalse($event['properties']['$exception_handled']);
+            $this->assertSame('php_exception_handler', $event['properties']['$exception_source']);
+            $this->assertSame(
+                ['type' => 'auto.exception_handler', 'handled' => false],
+                $event['properties']['$exception_list'][0]['mechanism']
+            );
+            $this->assertSame('RuntimeException', $event['properties']['$exception_list'][0]['type']);
+            $this->assertFalse($event['properties']['$process_person_profile']);
+            $this->assertMatchesRegularExpression(
+                '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
+                $event['distinct_id']
+            );
+        } finally {
+            ExceptionCapture::resetForTests();
+            restore_exception_handler();
         }
     }
 
-    private function nestedThrowHelperWithKnownLines(): array
+    public function testExceptionHandlerRethrowsWhenNoPreviousHandlerExists(): void
     {
+        $this->buildClient(['error_tracking' => ['enabled' => true]]);
+        $exception = new \RuntimeException('uncaught without previous');
+
         try {
-            $throwLine = 0;
-            $callerLine = __LINE__ + 1;
-            $this->throwNestedHelper($throwLine);
-        } catch (\RuntimeException $e) {
-            return [$e, $throwLine, $callerLine];
+            ExceptionCapture::handleException($exception);
+            $this->fail('Expected the uncaught exception to be rethrown');
+        } catch (\RuntimeException $caught) {
+            $this->assertSame($exception, $caught);
         }
+
+        $event = $this->findExceptionEvent();
+        $this->assertFalse($event['properties']['$exception_handled']);
+        $this->assertSame('php_exception_handler', $event['properties']['$exception_source']);
     }
 
-    private function throwNestedHelper(int &$throwLine): never
+    public function testErrorHandlerCapturesNonFatalErrorsWithoutCaptureFrames(): void
     {
-        $throwLine = __LINE__ + 1;
-        throw new \RuntimeException('nested known line');
-    }
+        $previousCalls = 0;
+        $previousErrorHandler = static function (
+            int $errno,
+            string $message,
+            string $file,
+            int $line
+        ) use (&$previousCalls): bool {
+            $previousCalls++;
+            return true;
+        };
 
-    private function internalErrorHelperWithKnownLines(): array
-    {
+        set_error_handler($previousErrorHandler);
+        $previousReporting = error_reporting();
+
         try {
-            $arraySumLine = 0;
-            $callerLine = __LINE__ + 1;
-            $this->internalErrorLeaf($arraySumLine);
-        } catch (\TypeError $e) {
-            return [$e, $arraySumLine, $callerLine];
+            $this->buildClient(['error_tracking' => ['enabled' => true]]);
+            error_reporting(E_ALL);
+
+            $triggerLine = 0;
+            $callSiteLine = __LINE__ + 1;
+            $this->triggerWarningHelper($triggerLine);
+            $this->client->flush();
+            $event = $this->findExceptionEvent();
+            $frames = $event['properties']['$exception_list'][0]['stacktrace']['frames'];
+
+            $this->assertSame(1, $previousCalls);
+            $this->assertTrue($event['properties']['$exception_handled']);
+            $this->assertSame('php_error_handler', $event['properties']['$exception_source']);
+            $this->assertSame(E_USER_WARNING, $event['properties']['$php_error_severity']);
+            $this->assertSame(
+                ['type' => 'auto.error_handler', 'handled' => true],
+                $event['properties']['$exception_list'][0]['mechanism']
+            );
+            $this->assertSame('ErrorException', $event['properties']['$exception_list'][0]['type']);
+            $this->assertSame('trigger_error', $frames[0]['function']);
+            $this->assertSame(__FILE__, $frames[0]['abs_path']);
+            $this->assertSame($triggerLine, $frames[0]['lineno']);
+            $this->assertSame(__CLASS__ . '->triggerWarningHelper', $frames[1]['function']);
+            $this->assertSame(__FILE__, $frames[1]['abs_path']);
+            $this->assertSame($callSiteLine, $frames[1]['lineno']);
+            $this->assertFalse($this->framesContainFunction($frames, ExceptionCapture::class . '::handleError'));
+        } finally {
+            error_reporting($previousReporting);
+            ExceptionCapture::resetForTests();
+            restore_error_handler();
         }
     }
 
-    private function internalErrorLeaf(int &$arraySumLine): void
+    public function testErrorHandlerRespectsRuntimeSuppression(): void
     {
-        $arraySumLine = __LINE__ + 1;
-        array_sum('not-an-array');
-    }
+        $previousCalls = 0;
+        $previousErrorHandler = static function (
+            int $errno,
+            string $message,
+            string $file,
+            int $line
+        ) use (&$previousCalls): bool {
+            $previousCalls++;
+            return true;
+        };
 
-    public function testFunctionIncludesClass(): void
-    {
-        $reflector = new \ReflectionClass(ExceptionCapture::class);
-        $method    = $reflector->getMethod('buildFrame');
-        $method->setAccessible(true);
+        set_error_handler($previousErrorHandler);
+        $previousReporting = error_reporting();
 
-        $frame = $method->invoke(null, [
-            'file'     => '/app/src/Foo.php',
-            'line'     => 1,
-            'class'    => 'App\\Foo',
-            'type'     => '->',
-            'function' => 'bar',
-        ]);
+        try {
+            $this->buildClient(['error_tracking' => ['enabled' => true]]);
 
-        $this->assertEquals('App\\Foo->bar', $frame['function']);
-    }
-
-    // -------------------------------------------------------------------------
-    // Client::captureException integration tests
-    // -------------------------------------------------------------------------
-
-    public function testCaptureExceptionSendsExceptionEvent(): void
-    {
-        $this->executeAtFrozenDateTime(new \DateTime('2024-01-01'), function () {
-            $exception = new \RuntimeException('boom');
-            $result = $this->client->captureException($exception, 'user-123');
+            error_reporting(0);
+            $result = ExceptionCapture::handleError(E_USER_WARNING, 'suppressed', __FILE__, 321);
 
             $this->assertTrue($result);
-            PostHog::flush();
-
-            $batchCall = $this->findBatchCall();
-            $this->assertNotNull($batchCall);
-
-            $payload = json_decode($batchCall['payload'], true);
-            $event   = $payload['batch'][0];
-
-            $this->assertEquals('$exception', $event['event']);
-            $this->assertEquals('user-123', $event['distinct_id']);
-            $this->assertArrayHasKey('$exception_list', $event['properties']);
-            $this->assertTrue($event['properties']['$exception_handled']);
-            $this->assertCount(1, $event['properties']['$exception_list']);
-            $this->assertEquals('RuntimeException', $event['properties']['$exception_list'][0]['type']);
-            $this->assertEquals('boom', $event['properties']['$exception_list'][0]['value']);
-        });
+            $this->assertSame(1, $previousCalls);
+            $this->assertNull($this->findBatchCall());
+        } finally {
+            error_reporting($previousReporting);
+            ExceptionCapture::resetForTests();
+            restore_error_handler();
+        }
     }
 
-    public function testCaptureExceptionUsesOuterExceptionAsPrimaryForChains(): void
+    public function testShutdownHandlerCapturesFatalsAndFlushes(): void
     {
-        $cause = new \InvalidArgumentException('root cause');
-        $outer = new \RuntimeException('wrapped', 0, $cause);
+        $this->buildClient(['error_tracking' => ['enabled' => true]]);
 
-        $this->client->captureException($outer, 'user-chain');
-        PostHog::flush();
+        ExceptionCapture::handleShutdown([
+            'type' => E_ERROR,
+            'message' => 'fatal boom',
+            'file' => __FILE__,
+            'line' => 456,
+        ]);
 
-        $batchCall = $this->findBatchCall();
-        $payload = json_decode($batchCall['payload'], true);
-        $props = $payload['batch'][0]['properties'];
+        $event = $this->findExceptionEvent();
+        $frames = $event['properties']['$exception_list'][0]['stacktrace']['frames'];
 
-        $this->assertTrue($props['$exception_handled']);
-        $this->assertSame('RuntimeException', $props['$exception_list'][0]['type']);
-        $this->assertSame('wrapped', $props['$exception_list'][0]['value']);
-        $this->assertSame('InvalidArgumentException', $props['$exception_list'][1]['type']);
-        $this->assertSame('root cause', $props['$exception_list'][1]['value']);
-    }
-
-    public function testCaptureExceptionWithoutDistinctIdGeneratesUuidAndSetsNoProfile(): void
-    {
-        $this->client->captureException(new \Exception('anon error'));
-        PostHog::flush();
-
-        $batchCall = $this->findBatchCall();
-        $payload   = json_decode($batchCall['payload'], true);
-        $event     = $payload['batch'][0];
-
-        // distinct_id should look like a UUID
-        $this->assertMatchesRegularExpression(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
-            $event['distinct_id']
+        $this->assertFalse($event['properties']['$exception_handled']);
+        $this->assertSame('php_shutdown_handler', $event['properties']['$exception_source']);
+        $this->assertSame(E_ERROR, $event['properties']['$php_error_severity']);
+        $this->assertSame(
+            ['type' => 'auto.shutdown_handler', 'handled' => false],
+            $event['properties']['$exception_list'][0]['mechanism']
         );
-        $this->assertFalse($event['properties']['$process_person_profile']);
+        $this->assertCount(1, $frames);
+        $this->assertSame(__FILE__, $frames[0]['abs_path']);
+        $this->assertSame(456, $frames[0]['lineno']);
+        $this->assertArrayNotHasKey('function', $frames[0]);
     }
 
-    public function testCaptureExceptionWithDistinctIdDoesNotSetNoProfile(): void
+    public function testFatalShutdownCaptureIsDeduplicatedAcrossErrorAndShutdownPaths(): void
     {
-        $this->client->captureException(new \Exception('known user'), 'user-456');
-        PostHog::flush();
+        $result = $this->runStandaloneScript(<<<'PHP'
+set_error_handler(static function (int $errno, string $message, string $file, int $line): bool {
+    return false;
+});
 
-        $batchCall = $this->findBatchCall();
-        $payload   = json_decode($batchCall['payload'], true);
-        $event     = $payload['batch'][0];
+$http = new \PostHog\Test\MockedHttpClient("app.posthog.com");
+$client = new \PostHog\Client("key", ["debug" => true, "error_tracking" => ["enabled" => true]], $http, null, false);
 
-        $this->assertEquals('user-456', $event['distinct_id']);
+\PostHog\ExceptionCapture::handleError(E_USER_ERROR, 'fatal dedupe', __FILE__, 789);
+\PostHog\ExceptionCapture::handleShutdown([
+    'type' => E_USER_ERROR,
+    'message' => 'fatal dedupe',
+    'file' => __FILE__,
+    'line' => 789,
+]);
+
+echo json_encode(['calls' => $http->calls], JSON_THROW_ON_ERROR);
+PHP);
+
+        $this->assertCount(1, $result['calls']);
+        $payload = json_decode($result['calls'][0]['payload'], true);
+        $event = $payload['batch'][0];
+        $this->assertSame('php_error_handler', $event['properties']['$exception_source']);
+        $this->assertFalse($event['properties']['$exception_handled']);
+    }
+
+    public function testExcludedExceptionsSkipCapture(): void
+    {
+        $previousErrorHandler = static function (int $errno, string $message, string $file, int $line): bool {
+            return true;
+        };
+
+        set_error_handler($previousErrorHandler);
+
+        $this->buildClient([
+            'error_tracking' => [
+                'enabled' => true,
+                'excluded_exceptions' => [\RuntimeException::class, \ErrorException::class],
+            ],
+        ]);
+
+        try {
+            try {
+                ExceptionCapture::handleException(new \RuntimeException('skip me'));
+                $this->fail('Expected the excluded uncaught exception to be rethrown');
+            } catch (\RuntimeException $caught) {
+                $this->assertSame('skip me', $caught->getMessage());
+            }
+            ExceptionCapture::handleError(E_USER_WARNING, 'skip warning', __FILE__, 987);
+            $this->client->flush();
+
+            $this->assertNull($this->findBatchCall());
+        } finally {
+            ExceptionCapture::resetForTests();
+            restore_error_handler();
+        }
+    }
+
+    public function testContextProviderCanSupplyDistinctIdAndProperties(): void
+    {
+        $providerPayload = null;
+
+        $this->buildClient([
+            'error_tracking' => [
+                'enabled' => true,
+                'context_provider' => static function (array $payload) use (&$providerPayload): array {
+                    $providerPayload = $payload;
+
+                    return [
+                        'distinctId' => 'provider-user',
+                        'properties' => [
+                            '$current_url' => 'https://example.com/error',
+                            'job_name' => 'sync-users',
+                        ],
+                    ];
+                },
+            ],
+        ]);
+
+        try {
+            ExceptionCapture::handleException(new \RuntimeException('provider boom'));
+            $this->fail('Expected the uncaught exception to be rethrown');
+        } catch (\RuntimeException $caught) {
+            $this->assertSame('provider boom', $caught->getMessage());
+        }
+
+        $event = $this->findExceptionEvent();
+
+        $this->assertIsArray($providerPayload);
+        $this->assertSame('exception_handler', $providerPayload['source']);
+        $this->assertSame('provider-user', $event['distinct_id']);
+        $this->assertSame('https://example.com/error', $event['properties']['$current_url']);
+        $this->assertSame('sync-users', $event['properties']['job_name']);
         $this->assertArrayNotHasKey('$process_person_profile', $event['properties']);
     }
 
-    public function testCaptureExceptionMergesAdditionalProperties(): void
+    public function testAutoCaptureOnlyOverridesPrimaryMechanismForChains(): void
     {
-        $this->client->captureException(
-            new \Exception('ctx error'),
-            'user-789',
-            ['$current_url' => 'https://example.com', 'custom_key' => 'custom_value']
+        $this->buildClient(['error_tracking' => ['enabled' => true]]);
+
+        $exception = new \RuntimeException(
+            'outer uncaught',
+            0,
+            new \InvalidArgumentException('inner cause')
         );
-        PostHog::flush();
-
-        $batchCall = $this->findBatchCall();
-        $payload   = json_decode($batchCall['payload'], true);
-        $props     = $payload['batch'][0]['properties'];
-
-        $this->assertEquals('https://example.com', $props['$current_url']);
-        $this->assertEquals('custom_value', $props['custom_key']);
-        $this->assertArrayHasKey('$exception_list', $props);
-    }
-
-    public function testCaptureExceptionReservedPropertiesCannotOverrideExceptionPayload(): void
-    {
-        $this->client->captureException(
-            new \RuntimeException('real error'),
-            'user-protected',
-            [
-                '$exception_list' => [['type' => 'FakeException', 'value' => 'fake']],
-                '$exception_handled' => false,
-            ]
-        );
-        PostHog::flush();
-
-        $batchCall = $this->findBatchCall();
-        $payload = json_decode($batchCall['payload'], true);
-        $props = $payload['batch'][0]['properties'];
-
-        $this->assertSame('RuntimeException', $props['$exception_list'][0]['type']);
-        $this->assertSame('real error', $props['$exception_list'][0]['value']);
-        $this->assertTrue($props['$exception_handled']);
-    }
-
-    public function testCaptureExceptionFromString(): void
-    {
-        $this->client->captureException('a plain string error', 'user-str');
-        PostHog::flush();
-
-        $batchCall = $this->findBatchCall();
-        $payload   = json_decode($batchCall['payload'], true);
-        $props     = $payload['batch'][0]['properties'];
-
-        $this->assertEquals('Error', $props['$exception_list'][0]['type']);
-        $this->assertEquals('a plain string error', $props['$exception_list'][0]['value']);
-    }
-
-    public function testCaptureExceptionReturnsFalseForInvalidInput(): void
-    {
-        $this->expectException(\TypeError::class);
-        $this->client->captureException([]);
-    }
-
-    public function testCaptureExceptionPayloadStaysBelowCurrentTransportLimit(): void
-    {
-        $scriptPath = tempnam(sys_get_temp_dir(), 'posthog-exception-');
-        $this->assertNotFalse($scriptPath);
-
-        $longLine = '$junk = \'' . str_repeat('x', 2000) . '\';';
-        $script = <<<PHP
-<?php
-
-return (function () {
-    function recurseForPayloadLimit(int \$n): void
-    {
-        $longLine
-        if (\$n === 0) {
-            throw new \\RuntimeException('boom');
-        }
-
-        recurseForPayloadLimit(\$n - 1);
-    }
-
-    try {
-        recurseForPayloadLimit(45);
-    } catch (\\Throwable \$e) {
-        return \$e;
-    }
-})();
-PHP;
-
-        file_put_contents($scriptPath, $script);
 
         try {
-            $exception = require $scriptPath;
-            $this->assertInstanceOf(\Throwable::class, $exception);
-
-            $exceptionList = ExceptionCapture::buildParsedException($exception);
-            $payload = json_encode([
-                'batch' => [[
-                    'event' => '$exception',
-                    'properties' => ['$exception_list' => $exceptionList],
-                    'distinct_id' => 'user-123',
-                    'library' => 'posthog-php',
-                    'library_version' => PostHog::VERSION,
-                    'library_consumer' => 'LibCurl',
-                    'groups' => [],
-                    'timestamp' => date('c'),
-                    'type' => 'capture',
-                ]],
-                'api_key' => self::FAKE_API_KEY,
-            ]);
-
-            $this->assertNotFalse($payload);
-            $this->assertLessThan(1024 * 1024, strlen($payload));
-        } finally {
-            unlink($scriptPath);
+            ExceptionCapture::handleException($exception);
+            $this->fail('Expected the uncaught exception to be rethrown');
+        } catch (\RuntimeException $caught) {
+            $this->assertSame($exception, $caught);
         }
+
+        $event = $this->findExceptionEvent();
+        $exceptionList = $event['properties']['$exception_list'];
+
+        $this->assertFalse($event['properties']['$exception_handled']);
+        $this->assertSame('RuntimeException', $exceptionList[0]['type']);
+        $this->assertSame(
+            ['type' => 'auto.exception_handler', 'handled' => false],
+            $exceptionList[0]['mechanism']
+        );
+        $this->assertSame('InvalidArgumentException', $exceptionList[1]['type']);
+        $this->assertSame(
+            ['type' => 'generic', 'handled' => true],
+            $exceptionList[1]['mechanism']
+        );
     }
 
-    public function testPostHogFacadeCaptureException(): void
+    public function testLaterClientsDoNotStealInstalledAutoCaptureHandlers(): void
     {
-        $result = PostHog::captureException(new \Exception('facade test'), 'facade-user');
-        $this->assertTrue($result);
+        $firstHttpClient = new MockedHttpClient("app.posthog.com");
+        $firstClient = new Client(
+            'first-key',
+            ['debug' => true, 'error_tracking' => ['enabled' => true]],
+            $firstHttpClient,
+            null,
+            false
+        );
+
+        $secondHttpClient = new MockedHttpClient("eu.posthog.com");
+        new Client(
+            'second-key',
+            ['debug' => true, 'error_tracking' => ['enabled' => true], 'host' => 'eu.posthog.com'],
+            $secondHttpClient,
+            null,
+            false
+        );
+
+        try {
+            ExceptionCapture::handleException(new \RuntimeException('owner stays first'));
+            $this->fail('Expected the uncaught exception to be rethrown');
+        } catch (\RuntimeException $caught) {
+            $this->assertSame('owner stays first', $caught->getMessage());
+        }
+
+        $firstBatchCalls = array_values(array_filter(
+            $firstHttpClient->calls ?? [],
+            static fn(array $call): bool => $call['path'] === '/batch/'
+        ));
+        $secondBatchCalls = array_values(array_filter(
+            $secondHttpClient->calls ?? [],
+            static fn(array $call): bool => $call['path'] === '/batch/'
+        ));
+
+        $this->assertCount(1, $firstBatchCalls);
+        $this->assertCount(0, $secondBatchCalls);
+
+        $payload = json_decode($firstBatchCalls[0]['payload'], true);
+        $this->assertSame('$exception', $payload['batch'][0]['event']);
+
+        $firstClient->flush();
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
+    public function testWarningPromotedToErrorExceptionIsCapturedOnlyOnce(): void
+    {
+        $result = $this->runStandaloneScript(<<<'PHP'
+set_error_handler(static function (int $errno, string $message, string $file, int $line): bool {
+    throw new \ErrorException($message, 0, $errno, $file, $line);
+});
+
+$http = new \PostHog\Test\MockedHttpClient("app.posthog.com");
+$client = new \PostHog\Client("key", ["debug" => true, "error_tracking" => ["enabled" => true]], $http, null, false);
+
+try {
+    \PostHog\ExceptionCapture::handleError(E_USER_WARNING, 'promoted warning', __FILE__, 612);
+} catch (\Throwable $exception) {
+    try {
+        \PostHog\ExceptionCapture::handleException($exception);
+    } catch (\Throwable $ignored) {
+    }
+}
+
+$client->flush();
+echo json_encode(['calls' => $http->calls], JSON_THROW_ON_ERROR);
+PHP);
+
+        $this->assertCount(1, $result['calls']);
+        $payload = json_decode($result['calls'][0]['payload'], true);
+        $event = $payload['batch'][0];
+        $this->assertSame('php_error_handler', $event['properties']['$exception_source']);
+        $this->assertFalse($event['properties']['$exception_handled']);
+    }
+
+    public function testUserErrorCanBeCapturedFromErrorHandlerWhenPreviousHandlerHandlesIt(): void
+    {
+        $result = $this->runStandaloneScript(<<<'PHP'
+$previousCalls = 0;
+set_error_handler(static function (int $errno, string $message, string $file, int $line) use (&$previousCalls): bool {
+    $previousCalls++;
+    return true;
+});
+
+$http = new \PostHog\Test\MockedHttpClient("app.posthog.com");
+$client = new \PostHog\Client("key", ["debug" => true, "error_tracking" => ["enabled" => true]], $http, null, false);
+$handled = \PostHog\ExceptionCapture::handleError(E_USER_ERROR, 'handled user fatal', __FILE__, 733);
+$client->flush();
+
+echo json_encode([
+    'handled' => $handled,
+    'previous_calls' => $previousCalls,
+    'calls' => $http->calls,
+], JSON_THROW_ON_ERROR);
+PHP);
+
+        $this->assertTrue($result['handled']);
+        $this->assertSame(1, $result['previous_calls']);
+        $this->assertCount(1, $result['calls']);
+
+        $payload = json_decode($result['calls'][0]['payload'], true);
+        $event = $payload['batch'][0];
+
+        $this->assertSame('php_error_handler', $event['properties']['$exception_source']);
+        $this->assertTrue($event['properties']['$exception_handled']);
+        $this->assertSame(
+            ['type' => 'auto.error_handler', 'handled' => true],
+            $event['properties']['$exception_list'][0]['mechanism']
+        );
+    }
+
+    private function buildClient(array $options): void
+    {
+        $this->httpClient = new MockedHttpClient("app.posthog.com");
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            array_merge(['debug' => true], $options),
+            $this->httpClient,
+            null,
+            false
+        );
+    }
+
+    private function triggerWarningHelper(int &$triggerLine): void
+    {
+        $triggerLine = __LINE__ + 1;
+        trigger_error('warn', E_USER_WARNING);
+    }
 
     private function findBatchCall(): ?array
     {
-        foreach ($this->httpClient->calls as $call) {
+        foreach ($this->httpClient->calls ?? [] as $call) {
             if ($call['path'] === '/batch/') {
                 return $call;
             }
         }
+
         return null;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function findExceptionEvent(): array
+    {
+        $batchCall = $this->findBatchCall();
+        $this->assertNotNull($batchCall);
+
+        $payload = json_decode($batchCall['payload'], true);
+        $this->assertIsArray($payload);
+
+        return $payload['batch'][0];
+    }
+
+    private function getCurrentExceptionHandler(): callable|null
+    {
+        $probe = static function (\Throwable $exception): void {
+        };
+
+        $current = set_exception_handler($probe);
+        restore_exception_handler();
+
+        return $current;
+    }
+
+    private function getCurrentErrorHandler(): callable|null
+    {
+        $probe = static function (int $errno, string $message, string $file, int $line): bool {
+            return true;
+        };
+
+        $current = set_error_handler($probe);
+        restore_error_handler();
+
+        return $current;
+    }
+
+    private function getFlag(string $property): bool
+    {
+        return (bool) $this->getProperty($property);
+    }
+
+    private function getProperty(string $property): mixed
+    {
+        $reflection = new \ReflectionClass(ExceptionCapture::class);
+        $propertyReflection = $reflection->getProperty($property);
+        $propertyReflection->setAccessible(true);
+
+        return $propertyReflection->getValue();
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $frames
+     */
+    private function framesContainFunction(array $frames, string $function): bool
+    {
+        foreach ($frames as $frame) {
+            if (($frame['function'] ?? null) === $function) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function runStandaloneScript(string $body): array
+    {
+        $scriptPath = tempnam(sys_get_temp_dir(), 'posthog-error-tracking-');
+        $this->assertNotFalse($scriptPath);
+
+        $autoloadPath = var_export(realpath(__DIR__ . '/../vendor/autoload.php'), true);
+        $errorLogMockPath = var_export(realpath(__DIR__ . '/error_log_mock.php'), true);
+        $mockedHttpClientPath = var_export(realpath(__DIR__ . '/MockedHttpClient.php'), true);
+
+        $script = <<<PHP
+<?php
+require {$autoloadPath};
+require {$errorLogMockPath};
+require {$mockedHttpClientPath};
+
+\PostHog\ExceptionCapture::resetForTests();
+{$body}
+PHP;
+
+        file_put_contents($scriptPath, $script);
+
+        try {
+            $output = [];
+            $exitCode = 0;
+
+            exec(PHP_BINARY . ' ' . escapeshellarg($scriptPath), $output, $exitCode);
+
+            $this->assertSame(0, $exitCode, implode("\n", $output));
+
+            $decoded = json_decode(implode("\n", $output), true);
+            $this->assertIsArray($decoded);
+
+            return $decoded;
+        } finally {
+            unlink($scriptPath);
+        }
     }
 }

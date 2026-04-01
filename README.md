@@ -37,25 +37,21 @@ Opt-in automatic capture from the core SDK:
 
 ```php
 PostHog::init('phc_xxx', [
-    'enable_error_tracking' => true,
-    'capture_uncaught_exceptions' => true,
-    'capture_errors' => true,
-    'capture_fatal_errors' => true,
-    'error_reporting_mask' => E_ALL,
-    'excluded_exceptions' => [
-        \InvalidArgumentException::class,
+    'error_tracking' => [
+        'enabled' => true,
+        'capture_errors' => true,
+        'excluded_exceptions' => [
+            \InvalidArgumentException::class,
+        ],
+        'context_provider' => static function (array $payload): array {
+            return [
+                'distinctId' => $_SESSION['user_id'] ?? null,
+                'properties' => [
+                    '$current_url' => $_SERVER['REQUEST_URI'] ?? null,
+                ],
+            ];
+        },
     ],
-    'error_tracking_include_source_context' => true,
-    'error_tracking_context_lines' => 5,
-    'error_tracking_max_frames' => 20,
-    'error_tracking_context_provider' => static function (array $payload): array {
-        return [
-            'distinctId' => $_SESSION['user_id'] ?? null,
-            'properties' => [
-                '$current_url' => $_SERVER['REQUEST_URI'] ?? null,
-            ],
-        ];
-    },
 ]);
 ```
 

@@ -126,7 +126,7 @@ class Client
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
         $this->flagsEtag = null;
 
-        ErrorTrackingRegistrar::configure($this, $options);
+        ExceptionCapture::configure($this, $options['error_tracking'] ?? []);
 
         // Populate featureflags and grouptypemapping if possible
         if (
@@ -205,8 +205,11 @@ class Client
             $distinctId = Uuid::v4();
         }
 
-        $exceptionList = $this->buildExceptionList($exception);
-        if ($exceptionList === null) {
+        $errorTrackingConfig = $this->options['error_tracking'] ?? [];
+        $maxFrames = max(0, (int) ($errorTrackingConfig['max_frames'] ?? 20));
+
+        $exceptionList = ExceptionPayloadBuilder::buildExceptionList($exception, $maxFrames);
+        if (empty($exceptionList)) {
             return false;
         }
 
@@ -214,7 +217,7 @@ class Client
             $additionalProperties,
             [
                 '$exception_list' => $exceptionList,
-                '$exception_handled' => ExceptionCapture::getPrimaryHandled($exceptionList),
+                '$exception_handled' => ExceptionPayloadBuilder::getPrimaryHandled($exceptionList),
             ]
         );
 
@@ -919,22 +922,6 @@ class Client
         }
 
         return true;
-    }
-
-    /**
-     * @param \Throwable|string $exception
-     * @return array|null
-     */
-    private function buildExceptionList(\Throwable|string $exception): ?array
-    {
-        ExceptionCapture::configure($this->options);
-
-        $exceptionList = ExceptionCapture::buildParsedException($exception);
-        if ($exceptionList === null) {
-            return null;
-        }
-
-        return ExceptionCapture::normalizeExceptionList($exceptionList);
     }
 
     /**
