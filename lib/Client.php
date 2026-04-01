@@ -84,6 +84,11 @@ class Client
     private $debug;
 
     /**
+     * @var array<string, mixed>
+     */
+    private $options;
+
+    /**
      * Create a new posthog object with your app's API key
      * key
      *
@@ -100,6 +105,7 @@ class Client
     ) {
         $this->apiKey = $apiKey;
         $this->personalAPIKey = $personalAPIKey;
+        $this->options = $options;
         $this->debug = $options["debug"] ?? false;
         $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($apiKey, $options, $httpClient);
@@ -119,6 +125,8 @@ class Client
         $this->featureFlagsByKey = [];
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
         $this->flagsEtag = null;
+
+        ExceptionCapture::configure($this, $options['error_tracking'] ?? []);
 
         // Populate featureflags and grouptypemapping if possible
         if (
@@ -155,7 +163,8 @@ class Client
             $flags = [];
 
             if (count($this->featureFlags) != 0) {
-                # Local evaluation is enabled, flags are loaded, so try and get all flags we can without going to the server
+                // Local evaluation is enabled, flags are loaded, so try and get all flags
+                // we can without going to the server.
                 $flags = $this->getAllFlags($message["distinct_id"], $message["groups"], [], [], true);
             } else {
                 $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
@@ -176,6 +185,51 @@ class Client
 
 
         return $this->consumer->capture($message);
+    }
+
+    /**
+     * Captures an exception as a PostHog error tracking event.
+     *
+     * @param \Throwable|string $exception The exception to capture or a plain string message
+     * @param string|null $distinctId User ID; a random UUID is used when omitted (no person profile created)
+     * @param array $additionalProperties Extra properties merged into the event
+     * @return bool whether the capture call succeeded
+     */
+    public function captureException(
+        \Throwable|string $exception,
+        ?string $distinctId = null,
+        array $additionalProperties = []
+    ): bool {
+        $noDistinctIdProvided = $distinctId === null;
+        if ($noDistinctIdProvided) {
+            $distinctId = Uuid::v4();
+        }
+
+        $errorTrackingConfig = $this->options['error_tracking'] ?? [];
+        $maxFrames = max(0, (int) ($errorTrackingConfig['max_frames'] ?? 20));
+
+        $exceptionList = ExceptionPayloadBuilder::buildExceptionList($exception, $maxFrames);
+        if (empty($exceptionList)) {
+            return false;
+        }
+
+        $properties = array_merge(
+            $additionalProperties,
+            [
+                '$exception_list' => $exceptionList,
+                '$exception_handled' => ExceptionPayloadBuilder::getPrimaryHandled($exceptionList),
+            ]
+        );
+
+        if ($noDistinctIdProvided) {
+            $properties['$process_person_profile'] = false;
+        }
+
+        return $this->capture([
+            'distinctId'  => $distinctId,
+            'event'       => '$exception',
+            'properties'  => $properties,
+        ]);
     }
 
     /**

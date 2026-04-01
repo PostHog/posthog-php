@@ -57,6 +57,24 @@ class PostHog
     }
 
     /**
+     * Captures an exception as a PostHog error tracking event.
+     *
+     * @param \Throwable|string $exception
+     * @param string|null $distinctId
+     * @param array $additionalProperties
+     * @return bool
+     * @throws Exception
+     */
+    public static function captureException(
+        \Throwable|string $exception,
+        ?string $distinctId = null,
+        array $additionalProperties = []
+    ): bool {
+        self::checkClient();
+        return self::$client->captureException($exception, $distinctId, $additionalProperties);
+    }
+
+    /**
      * Captures a user action
      *
      * @param array $message

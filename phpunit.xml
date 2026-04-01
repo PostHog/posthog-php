@@ -11,6 +11,7 @@
          stopOnSkipped="false"
          stopOnRisky="false"
          cacheDirectory=".phpunit.cache"
+         bootstrap="test/error_log_mock.php"
 >
   <coverage includeUncoveredFiles="true">
     <report>
