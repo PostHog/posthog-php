@@ -18,6 +18,5 @@
 
 - [ ] Added the `release` label to the PR
 - [ ] Added exactly one version bump label: `bump-patch`, `bump-minor`, or `bump-major`
-- [ ] The release will be approved via the GitHub `Release` environment
 
 <!-- For more details check RELEASING.md -->
