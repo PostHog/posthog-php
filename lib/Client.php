@@ -724,7 +724,7 @@ class Client
         }
 
         return $this->httpClient->sendRequest(
-            '/api/feature_flag/local_evaluation?send_cohorts&token=' . $this->apiKey,
+            '/flags/definitions?send_cohorts&token=' . $this->apiKey,
             null,
             $headers,
             [
