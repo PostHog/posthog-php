@@ -75,6 +75,7 @@ class MockedHttpClient extends \PostHog\HttpClient
         }
         array_push($this->calls, array("path" => $path, "payload" => $payload, "extraHeaders" => $extraHeaders, "requestOptions" => $requestOptions));
 
+        // Local evaluation endpoint: /flags/definitions?...
         if (str_starts_with($path, "/flags/definitions")) {
             // Check if we have a response queue
             if ($this->flagEndpointResponseQueue !== null && !empty($this->flagEndpointResponseQueue)) {
@@ -103,7 +104,8 @@ class MockedHttpClient extends \PostHog\HttpClient
             );
         }
 
-        if (str_starts_with($path, "/flags/")) {
+        // Decide endpoint: /flags/?v=2
+        if (str_starts_with($path, "/flags/?")) {
             return new HttpResponse(
                 json_encode($this->flagsEndpointResponse),
                 $this->flagsEndpointResponseCode,
