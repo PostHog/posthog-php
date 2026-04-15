@@ -684,6 +684,11 @@ class Client
             return;
         }
 
+        $responseCode = $response->getResponseCode();
+        if ($responseCode !== 200) {
+            throw new Exception("Failed to load feature flags (HTTP $responseCode): " . $response->getResponse());
+        }
+
         $payload = json_decode($response->getResponse(), true);
 
         if ($payload && array_key_exists("detail", $payload)) {

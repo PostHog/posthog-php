@@ -1330,6 +1330,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             self::FAKE_API_KEY,
             [
                 "debug" => true,
+                "host" => "localhost:39876",
             ],
             null,
             self::FAKE_API_KEY
