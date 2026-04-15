@@ -84,7 +84,7 @@ class MockedHttpClient extends \PostHog\HttpClient
             );
         }
 
-        if (str_starts_with($path, "/api/feature_flag/local_evaluation")) {
+        if (str_starts_with($path, "/flags/definitions")) {
             // Check if we have a response queue
             if ($this->flagEndpointResponseQueue !== null && !empty($this->flagEndpointResponseQueue)) {
                 $nextResponse = array_shift($this->flagEndpointResponseQueue);
