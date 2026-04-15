@@ -554,7 +554,7 @@ class FeatureFlagTest extends TestCase
         // Verify that groups were passed in the /flags/ request
         $flagsCall = null;
         foreach ($this->http_client->calls as $call) {
-            if (str_contains($call['path'], '/flags/')) {
+            if (str_starts_with($call['path'], '/flags/?')) {
                 $flagsCall = $call;
                 break;
             }
