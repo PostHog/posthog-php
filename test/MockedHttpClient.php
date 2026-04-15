@@ -75,15 +75,6 @@ class MockedHttpClient extends \PostHog\HttpClient
         }
         array_push($this->calls, array("path" => $path, "payload" => $payload, "extraHeaders" => $extraHeaders, "requestOptions" => $requestOptions));
 
-        if (str_starts_with($path, "/flags/")) {
-            return new HttpResponse(
-                json_encode($this->flagsEndpointResponse),
-                $this->flagsEndpointResponseCode,
-                null,
-                $this->flagsEndpointCurlErrno
-            );
-        }
-
         if (str_starts_with($path, "/flags/definitions")) {
             // Check if we have a response queue
             if ($this->flagEndpointResponseQueue !== null && !empty($this->flagEndpointResponseQueue)) {
@@ -109,6 +100,15 @@ class MockedHttpClient extends \PostHog\HttpClient
                 json_encode($this->flagEndpointResponse),
                 $this->flagEndpointResponseCode,
                 $this->flagEndpointEtag
+            );
+        }
+
+        if (str_starts_with($path, "/flags/")) {
+            return new HttpResponse(
+                json_encode($this->flagsEndpointResponse),
+                $this->flagsEndpointResponseCode,
+                null,
+                $this->flagsEndpointCurlErrno
             );
         }
 
