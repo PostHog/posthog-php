@@ -1325,7 +1325,8 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testLoadFeatureFlagsWrongKey()
     {
-        self::expectException(Exception::class);
+        // Non-200 responses log and return gracefully (no exception).
+        // Flags remain empty.
         $this->http_client = new MockedHttpClient(
             host: "app.posthog.com",
             flagEndpointResponse: ["detail" => "Invalid personal API key."]
@@ -1340,6 +1341,8 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             self::FAKE_API_KEY
         );
         PostHog::init(null, null, $this->client);
+
+        $this->assertEmpty($this->client->featureFlags);
     }
 
     public function testSimpleFlag()

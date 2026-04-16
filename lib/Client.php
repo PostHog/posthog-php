@@ -690,7 +690,8 @@ class Client
 
         $responseCode = $response->getResponseCode();
         if ($responseCode !== 200) {
-            throw new Exception("Failed to load feature flags (HTTP $responseCode): " . $response->getResponse());
+            error_log("[PostHog][Client] Failed to load feature flags (HTTP $responseCode): " . $response->getResponse());
+            return;
         }
 
         $payload = json_decode($response->getResponse(), true);

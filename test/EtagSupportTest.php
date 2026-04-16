@@ -285,8 +285,8 @@ class EtagSupportTest extends TestCase
 
     public function testProcessesErrorResponseWithoutFlagsKey(): void
     {
-        // Server error responses (non-200) now throw an exception rather than
-        // silently clearing flags, so the client fails fast on errors.
+        // Server error responses (non-200) log and return gracefully,
+        // preserving previously loaded flags.
 
         $this->http_client = new MockedHttpClient(
             host: "app.posthog.com",
@@ -310,8 +310,9 @@ class EtagSupportTest extends TestCase
             ['response' => ['error' => 'Internal Server Error'], 'etag' => null, 'responseCode' => 500]
         ]);
 
-        $this->expectException(\Exception::class);
-        $this->expectExceptionMessage('Failed to load feature flags (HTTP 500)');
+        // loadFlags logs the error and returns — flags are preserved from the first load
         $this->client->loadFlags();
+        $this->assertCount(1, $this->client->featureFlags);
+        $this->assertEquals('person-flag', $this->client->featureFlags[0]['key']);
     }
 }
