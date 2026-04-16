@@ -1325,7 +1325,8 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testLoadFeatureFlagsWrongKey()
     {
-        self::expectException(Exception::class);
+        // Connection errors log and return gracefully (no exception).
+        // Flags remain empty.
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1336,6 +1337,8 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             self::FAKE_API_KEY
         );
         PostHog::init(null, null, $this->client);
+
+        $this->assertEmpty($this->client->featureFlags);
     }
 
     public function testSimpleFlag()
