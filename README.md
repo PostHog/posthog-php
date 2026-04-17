@@ -63,9 +63,7 @@ Auto error tracking is off by default. When enabled, the SDK chains existing exc
 
 ## Contributing
 
-1. [Download PHP](https://www.php.net/manual/en/install.php) and [Composer](https://getcomposer.org/download/)
-2. `php composer.phar update` to install dependencies
-3. `bin/test` to run tests (this script calls `./vendor/bin/phpunit --verbose test`)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup and test instructions.
 
 ## Releasing
 
