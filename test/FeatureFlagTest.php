@@ -65,7 +65,7 @@ class FeatureFlagTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                    "path" => "/flags/definitions?send_cohorts&token=random_key",
                     "payload" => null,
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                     "requestOptions" => array("includeEtag" => true),
@@ -118,7 +118,7 @@ class FeatureFlagTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                    "path" => "/flags/definitions?send_cohorts&token=random_key",
                     "payload" => null,
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                     "requestOptions" => array("includeEtag" => true),
@@ -147,7 +147,7 @@ class FeatureFlagTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                    "path" => "/flags/definitions?send_cohorts&token=random_key",
                     "payload" => null,
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                     "requestOptions" => array("includeEtag" => true),
@@ -214,7 +214,7 @@ class FeatureFlagTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                    "path" => "/flags/definitions?send_cohorts&token=random_key",
                     "payload" => null,
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                     "requestOptions" => array("includeEtag" => true),
@@ -476,9 +476,9 @@ class FeatureFlagTest extends TestCase
         $this->assertEquals('simple-flag', $result->getKey());
         $this->assertTrue($result->isEnabled());
 
-        // Verify no /flags/ network call was made
+        // Verify no decide (/flags/?v=2) call was made
         foreach ($this->http_client->calls as $call) {
-            $this->assertStringNotContainsString('/flags/', $call['path'], 'Expected no /flags/ call for local evaluation');
+            $this->assertFalse(str_starts_with($call['path'], '/flags/?'), 'Expected no decide call for local evaluation');
         }
     }
 
@@ -510,9 +510,9 @@ class FeatureFlagTest extends TestCase
 
         $this->assertNull($result);
 
-        // Verify no /flags/ network call was made
+        // Verify no decide (/flags/?v=2) call was made
         foreach ($this->http_client->calls as $call) {
-            $this->assertStringNotContainsString('/flags/', $call['path'], 'Expected no /flags/ call for local evaluation only');
+            $this->assertFalse(str_starts_with($call['path'], '/flags/?'), 'Expected no decide call for local evaluation only');
         }
     }
 
@@ -537,7 +537,7 @@ class FeatureFlagTest extends TestCase
         // Verify that groups were passed in the /flags/ request
         $flagsCall = null;
         foreach ($this->http_client->calls as $call) {
-            if (str_contains($call['path'], '/flags/')) {
+            if (str_starts_with($call['path'], '/flags/?')) {
                 $flagsCall = $call;
                 break;
             }

@@ -285,9 +285,8 @@ class EtagSupportTest extends TestCase
 
     public function testProcessesErrorResponseWithoutFlagsKey(): void
     {
-        // This test verifies current behavior: error responses without a 'flags' key
-        // will result in empty flags (due to $payload['flags'] ?? [])
-        // This is pre-existing behavior that's consistent with or without ETag support
+        // Server error responses (non-200) log and return gracefully,
+        // preserving previously loaded flags.
 
         $this->http_client = new MockedHttpClient(
             host: "app.posthog.com",
@@ -311,15 +310,9 @@ class EtagSupportTest extends TestCase
             ['response' => ['error' => 'Internal Server Error'], 'etag' => null, 'responseCode' => 500]
         ]);
 
-        // loadFlags will parse the response and set featureFlags to []
-        // This is pre-existing behavior: error responses clear flags
+        // loadFlags logs the error and returns — flags are preserved from the first load
         $this->client->loadFlags();
-
-        // Flags are cleared because response doesn't have 'flags' key
-        // ($payload['flags'] ?? [] evaluates to [])
-        $this->assertCount(0, $this->client->featureFlags);
-
-        // ETag is set to null (from the response)
-        $this->assertNull($this->client->getFlagsEtag());
+        $this->assertCount(1, $this->client->featureFlags);
+        $this->assertEquals('person-flag', $this->client->featureFlags[0]['key']);
     }
 }

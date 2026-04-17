@@ -181,7 +181,7 @@ class PostHogTest extends TestCase
                 $this->http_client->calls,
                 array (
                     0 => array (
-                        "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                        "path" => "/flags/definitions?send_cohorts&token=random_key",
                         "payload" => null,
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                         "requestOptions" => array("includeEtag" => true),
@@ -237,7 +237,7 @@ class PostHogTest extends TestCase
                 $this->http_client->calls,
                 array (
                     0 => array (
-                        "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                        "path" => "/flags/definitions?send_cohorts&token=random_key",
                         "payload" => null,
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                         "requestOptions" => array("includeEtag" => true),
@@ -286,7 +286,7 @@ class PostHogTest extends TestCase
                 $this->http_client->calls,
                 array (
                     0 => array (
-                        "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                        "path" => "/flags/definitions?send_cohorts&token=random_key",
                         "payload" => null,
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                         "requestOptions" => array("includeEtag" => true),
@@ -465,7 +465,7 @@ class PostHogTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                    "path" => "/flags/definitions?send_cohorts&token=random_key",
                     "payload" => null,
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                     "requestOptions" => array("includeEtag" => true),
@@ -565,7 +565,7 @@ class PostHogTest extends TestCase
                 $this->http_client->calls,
                 array (
                     0 => array (
-                        "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                        "path" => "/flags/definitions?send_cohorts&token=random_key",
                         "payload" => null,
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                         "requestOptions" => array("includeEtag" => true),
