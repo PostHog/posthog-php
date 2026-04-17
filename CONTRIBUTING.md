@@ -5,19 +5,26 @@ Thanks for your interest in improving the PostHog PHP SDK.
 ## Development setup
 
 1. Install [PHP](https://www.php.net/manual/en/install.php) and [Composer](https://getcomposer.org/download/).
-2. Install dependencies:
+2. Install dependencies using the same command CI uses:
 
    ```bash
-   php composer.phar update
+   composer install --prefer-dist --no-progress
    ```
 
-3. Run the test suite:
+## CI-aligned checks
 
-   ```bash
-   bin/test
-   ```
+Run the test command used in CI:
 
-   This script runs `./vendor/bin/phpunit --verbose test`.
+```bash
+XDEBUG_MODE=coverage ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml --coverage-text
+```
+
+CI also runs PHP_CodeSniffer with `phpcs.xml`. You can run an equivalent local check with:
+
+```bash
+curl -OL https://squizlabs.github.io/PHP_CodeSniffer/phpcs.phar
+php phpcs.phar --standard=phpcs.xml --extensions=php .
+```
 
 ## Pull requests
 
