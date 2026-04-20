@@ -106,6 +106,23 @@ class FeatureFlagTest extends TestCase
         });
     }
 
+    public function testWhitespacePersonalApiKeyFallsBackToFlagsEndpoint()
+    {
+        $this->setUp(MockedResponses::FLAGS_V2_RESPONSE, personalApiKey: " \n\t ");
+        $this->assertTrue(PostHog::isFeatureEnabled('simple-test', 'user-id'));
+        $this->assertEquals(
+            [
+                [
+                    "path" => "/flags/?v=2",
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","person_properties":{"distinct_id":"user-id"}}', self::FAKE_API_KEY),
+                    "extraHeaders" => [0 => 'User-Agent: posthog-php/' . PostHog::VERSION],
+                    "requestOptions" => ["timeout" => 3000, "shouldRetry" => false],
+                ],
+            ],
+            $this->http_client->calls
+        );
+    }
+
     /**
      * @dataProvider decideResponseCases
      */

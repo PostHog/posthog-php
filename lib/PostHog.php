@@ -373,8 +373,9 @@ class PostHog
 
     private static function cleanHost(?string $host): string
     {
-        if (!isset($host)) {
-            return $host;
+        $host = trim((string) $host);
+        if ($host === '') {
+            return 'app.posthog.com';
         }
         // remove protocol
         if (substr($host, 0, 8) === "https://") {

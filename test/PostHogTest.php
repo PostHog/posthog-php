@@ -63,6 +63,39 @@ class PostHogTest extends TestCase
         putenv(PostHog::ENV_API_KEY);
     }
 
+    public function testClientTrimsWhitespaceSensitiveConfig(): void
+    {
+        $client = new Client(
+            " \nrandom_key\t ",
+            ["host" => " \nhttps://app.posthog.com/\t ", "debug" => true],
+            $this->http_client,
+            " \n\t "
+        );
+
+        $ref = new \ReflectionClass($client);
+        $apiKeyProp = $ref->getProperty('apiKey');
+        $apiKeyProp->setAccessible(true);
+        $personalApiKeyProp = $ref->getProperty('personalAPIKey');
+        $personalApiKeyProp->setAccessible(true);
+        $optionsProp = $ref->getProperty('options');
+        $optionsProp->setAccessible(true);
+
+        $this->assertEquals('random_key', $apiKeyProp->getValue($client));
+        $this->assertNull($personalApiKeyProp->getValue($client));
+        $this->assertEquals('https://app.posthog.com/', $optionsProp->getValue($client)['host']);
+    }
+
+    public function testClientLogsWhenApiKeyIsEmptyAfterTrimmingWhitespace(): void
+    {
+        new Client(" \n\t ", ["debug" => true], $this->http_client);
+
+        global $errorMessages;
+        $this->assertContains(
+            '[PostHog][Client] apiKey is empty after trimming whitespace; check your project API key',
+            $errorMessages
+        );
+    }
+
     public function testInitWithHttpHostSetsSslFalse(): void
     {
         PostHog::init("random_key", ["host" => "http://localhost:8010"]);
@@ -83,6 +116,23 @@ class PostHogTest extends TestCase
         $sslProp->setAccessible(true);
 
         $this->assertFalse($sslProp->getValue($httpClient), 'HttpClient should use ssl=false for http:// hosts');
+    }
+
+    public function testInitDefaultsBlankHostAfterTrimmingWhitespace(): void
+    {
+        PostHog::init("random_key", ["host" => " \n\t "]);
+
+        $client = PostHog::getClient();
+        $ref = new \ReflectionClass($client);
+        $consumerProp = $ref->getProperty('consumer');
+        $consumerProp->setAccessible(true);
+        $consumer = $consumerProp->getValue($client);
+
+        $cRef = new \ReflectionClass($consumer);
+        $hostProp = $cRef->getProperty('host');
+        $hostProp->setAccessible(true);
+
+        $this->assertEquals('app.posthog.com', $hostProp->getValue($consumer));
     }
 
     public function testInitWithHttpsHostSetsSslTrue(): void
