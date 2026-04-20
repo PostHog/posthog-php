@@ -375,7 +375,7 @@ class PostHog
     {
         $host = trim((string) $host);
         if ($host === '') {
-            return 'app.posthog.com';
+            return 'us.i.posthog.com';
         }
         // remove protocol
         if (substr($host, 0, 8) === "https://") {

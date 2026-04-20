@@ -13,7 +13,7 @@ abstract class QueueConsumer extends Consumer
     protected $max_queue_size = 1000;
     protected $batch_size = 100;
     protected $maximum_backoff_duration = 10000;    // Set maximum waiting limit to 10s
-    protected $host = "app.posthog.com";
+    protected $host = "us.i.posthog.com";
     protected $compress_request = false;
 
     /**

@@ -160,7 +160,7 @@ class Client
     private static function normalizeHost(?string $host): string
     {
         $normalized = self::normalizeOptionalString($host);
-        return $normalized ?? 'app.posthog.com';
+        return $normalized ?? 'us.i.posthog.com';
     }
 
     /**

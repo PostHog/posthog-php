@@ -132,7 +132,7 @@ class PostHogTest extends TestCase
         $hostProp = $cRef->getProperty('host');
         $hostProp->setAccessible(true);
 
-        $this->assertEquals('app.posthog.com', $hostProp->getValue($consumer));
+        $this->assertEquals('us.i.posthog.com', $hostProp->getValue($consumer));
     }
 
     public function testInitWithHttpsHostSetsSslTrue(): void
