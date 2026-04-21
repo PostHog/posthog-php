@@ -103,14 +103,18 @@ class Client
         ?string $personalAPIKey = null,
         bool $loadFeatureFlags = true,
     ) {
-        $this->apiKey = $apiKey;
-        $this->personalAPIKey = $personalAPIKey;
+        $this->apiKey = trim($apiKey);
+        $this->personalAPIKey = StringNormalizer::normalizeOptional($personalAPIKey);
         $this->options = $options;
         $this->debug = $options["debug"] ?? false;
+        $this->options['host'] = StringNormalizer::normalizeHost($options['host'] ?? null);
+        if ($this->apiKey === '') {
+            error_log('[PostHog][Client] apiKey is empty after trimming whitespace; check your project API key');
+        }
         $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
-        $this->consumer = new $Consumer($apiKey, $options, $httpClient);
+        $this->consumer = new $Consumer($this->apiKey, $this->options, $httpClient);
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
-            $options['host'] ?? "app.posthog.com",
+            $this->options['host'],
             $options['ssl'] ?? true,
             (int) ($options['maximum_backoff_duration'] ?? 10000),
             false,
