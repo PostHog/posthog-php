@@ -135,6 +135,28 @@ class PostHogTest extends TestCase
         $this->assertEquals('us.i.posthog.com', $hostProp->getValue($consumer));
     }
 
+    public function testInitWithWhitespacePaddedHttpHostSetsSslFalse(): void
+    {
+        PostHog::init("random_key", ["host" => " \nhttp://localhost:8010\t "]);
+
+        $client = PostHog::getClient();
+        $ref = new \ReflectionClass($client);
+        $consumerProp = $ref->getProperty('consumer');
+        $consumerProp->setAccessible(true);
+        $consumer = $consumerProp->getValue($client);
+
+        $cRef = new \ReflectionClass($consumer);
+        $httpProp = $cRef->getProperty('httpClient');
+        $httpProp->setAccessible(true);
+        $httpClient = $httpProp->getValue($consumer);
+
+        $hRef = new \ReflectionClass($httpClient);
+        $sslProp = $hRef->getProperty('useSsl');
+        $sslProp->setAccessible(true);
+
+        $this->assertFalse($sslProp->getValue($httpClient), 'HttpClient should use ssl=false for whitespace-padded http:// hosts');
+    }
+
     public function testInitWithHttpsHostSetsSslTrue(): void
     {
         PostHog::init("random_key", ["host" => "https://app.posthog.com"]);
