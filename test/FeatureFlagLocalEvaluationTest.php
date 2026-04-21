@@ -1081,7 +1081,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                    "path" => "/flags/definitions?send_cohorts&token=random_key",
                     "payload" => null,
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                     "requestOptions" => array("includeEtag" => true),
@@ -1325,20 +1325,25 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testLoadFeatureFlagsWrongKey()
     {
-        self::expectException(Exception::class);
+        // Non-200 responses log and return gracefully (no exception).
+        // Flags remain empty.
         $this->http_client = new MockedHttpClient(
             host: "app.posthog.com",
-            flagEndpointResponse: ["detail" => "Invalid personal API key."]
+            flagEndpointResponse: ["detail" => "Invalid personal API key."],
+            flagEndpointResponseCode: 401
         );
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
                 "debug" => true,
+                "host" => "localhost:39876",
             ],
             $this->http_client,
             self::FAKE_API_KEY
         );
         PostHog::init(null, null, $this->client);
+
+        $this->assertEmpty($this->client->featureFlags);
     }
 
     public function testSimpleFlag()
@@ -1364,7 +1369,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
                 $this->http_client->calls,
                 array(
                     0 => array(
-                        "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                        "path" => "/flags/definitions?send_cohorts&token=random_key",
                         "payload" => null,
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                         "requestOptions" => array("includeEtag" => true),
@@ -1462,7 +1467,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                    "path" => "/flags/definitions?send_cohorts&token=random_key",
                     "payload" => null,
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                     "requestOptions" => array("includeEtag" => true),
@@ -1497,7 +1502,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                    "path" => "/flags/definitions?send_cohorts&token=random_key",
                     "payload" => null,
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                     "requestOptions" => array("includeEtag" => true),
@@ -1568,7 +1573,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             $this->http_client->calls,
             array(
                 0 => array(
-                    "path" => "/api/feature_flag/local_evaluation?send_cohorts&token=random_key",
+                    "path" => "/flags/definitions?send_cohorts&token=random_key",
                     "payload" => null,
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
                     "requestOptions" => array("includeEtag" => true),

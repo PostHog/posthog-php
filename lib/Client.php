@@ -688,6 +688,12 @@ class Client
             return;
         }
 
+        $responseCode = $response->getResponseCode();
+        if ($responseCode !== 200) {
+            error_log("[PostHog][Client] Failed to load feature flags (HTTP $responseCode): " . $response->getResponse());
+            return;
+        }
+
         $payload = json_decode($response->getResponse(), true);
 
         if ($payload && array_key_exists("detail", $payload)) {
@@ -724,7 +730,7 @@ class Client
         }
 
         return $this->httpClient->sendRequest(
-            '/api/feature_flag/local_evaluation?send_cohorts&token=' . $this->apiKey,
+            '/flags/definitions?send_cohorts&token=' . $this->apiKey,
             null,
             $headers,
             [
