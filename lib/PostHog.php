@@ -42,7 +42,7 @@ class PostHog
 
             // Infer ssl from the host protocol if the user hasn't explicitly set it
             if ($rawHost !== null && !array_key_exists("ssl", $options)) {
-                $normalizedHost = HostNormalizer::normalize($rawHost);
+                $normalizedHost = StringNormalizer::normalizeHost($rawHost);
                 if (str_starts_with($normalizedHost, "http://")) {
                     $options["ssl"] = false;
                 } elseif (str_starts_with($normalizedHost, "https://")) {
@@ -374,7 +374,7 @@ class PostHog
 
     private static function cleanHost(?string $host): string
     {
-        $host = HostNormalizer::normalize($host);
+        $host = StringNormalizer::normalizeHost($host);
 
         // remove protocol
         if (substr($host, 0, 8) === "https://") {

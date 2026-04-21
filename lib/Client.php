@@ -104,10 +104,10 @@ class Client
         bool $loadFeatureFlags = true,
     ) {
         $this->apiKey = trim($apiKey);
-        $this->personalAPIKey = self::normalizeOptionalString($personalAPIKey);
+        $this->personalAPIKey = StringNormalizer::normalizeOptional($personalAPIKey);
         $this->options = $options;
         $this->debug = $options["debug"] ?? false;
-        $this->options['host'] = HostNormalizer::normalize($options['host'] ?? null);
+        $this->options['host'] = StringNormalizer::normalizeHost($options['host'] ?? null);
         if ($this->apiKey === '') {
             error_log('[PostHog][Client] apiKey is empty after trimming whitespace; check your project API key');
         }
@@ -145,16 +145,6 @@ class Client
     public function __destruct()
     {
         $this->consumer->__destruct();
-    }
-
-    private static function normalizeOptionalString(?string $value): ?string
-    {
-        if ($value === null) {
-            return null;
-        }
-
-        $normalized = trim($value);
-        return $normalized === '' ? null : $normalized;
     }
 
     /**
