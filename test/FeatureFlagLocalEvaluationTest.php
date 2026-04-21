@@ -1329,7 +1329,8 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         // Flags remain empty.
         $this->http_client = new MockedHttpClient(
             host: "app.posthog.com",
-            flagEndpointResponse: ["detail" => "Invalid personal API key."]
+            flagEndpointResponse: ["detail" => "Invalid personal API key."],
+            flagEndpointResponseCode: 401
         );
         $this->client = new Client(
             self::FAKE_API_KEY,
