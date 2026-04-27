@@ -28,19 +28,15 @@ class SizeLimitedHash
         }
 
         if (array_key_exists($key, $this->mapping)) {
-            array_push($this->mapping, $element);
+            $this->mapping[$key][$element] = true;
         } else {
-            $this->mapping[$key] = [$element];
+            $this->mapping[$key] = [$element => true];
         }
     }
 
     public function contains($key, $element)
     {
-        if (array_key_exists($key, $this->mapping) && array_key_exists($element, $this->mapping[$key])) {
-            return true;
-        }
-
-        return false;
+        return isset($this->mapping[$key][$element]);
     }
 
     public function count()

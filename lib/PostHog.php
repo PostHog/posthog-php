@@ -235,6 +235,38 @@ class PostHog
     }
 
     /**
+     * Evaluate every feature flag for a distinct id in a single round trip and return a snapshot.
+     * Pass the snapshot to capture() via the `flags` key to attach $feature/<key> properties
+     * without making another /flags request.
+     *
+     * @param array $groups
+     * @param array $personProperties
+     * @param array $groupProperties
+     * @param list<string>|null $flagKeys When set, scope the underlying /flags request to these keys.
+     * @throws Exception
+     */
+    public static function evaluateFlags(
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false,
+        bool $disableGeoip = false,
+        ?array $flagKeys = null
+    ): FeatureFlagEvaluations {
+        self::checkClient();
+        return self::$client->evaluateFlags(
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $onlyEvaluateLocally,
+            $disableGeoip,
+            $flagKeys
+        );
+    }
+
+    /**
      * get all enabled flags for distinct_id
      *
      * @param string $distinctId
