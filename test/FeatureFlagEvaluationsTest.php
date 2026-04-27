@@ -1,5 +1,6 @@
 <?php
 
+// phpcs:disable PSR1.Files.SideEffects
 namespace PostHog\Test;
 
 // comment out below to print all logs instead of failing tests
