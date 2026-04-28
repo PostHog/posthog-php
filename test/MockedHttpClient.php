@@ -114,6 +114,10 @@ class MockedHttpClient extends \PostHog\HttpClient
             );
         }
 
+        if ($path === "/batch/") {
+            return new HttpResponse('{"status":1}', 200);
+        }
+
         return parent::sendRequest($path, $payload, $extraHeaders, $requestOptions);
     }
 }

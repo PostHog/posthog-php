@@ -86,6 +86,29 @@ class ConsumerSocketTest extends TestCase
         $client->__destruct();
     }
 
+    public function testBatchSizeOneConnectionErrorReturnsFalse(): void
+    {
+        $client = new Client(
+            "x",
+            array(
+                "batch_size" => 1,
+                "consumer" => "socket",
+                "host" => "invalid.invalid",
+                "ssl" => false,
+                "timeout" => 0.01,
+            )
+        );
+
+        self::assertFalse(
+            $client->capture(
+                array(
+                    "distinctId" => "some-user",
+                    "event" => "Socket PHP Event",
+                )
+            )
+        );
+    }
+
     public function testProductionProblems(): void
     {
         $client = new Client(
