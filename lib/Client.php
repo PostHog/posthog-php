@@ -620,7 +620,10 @@ class Client
                 $focusedGroupProperties,
                 $this->cohorts,
                 $this->featureFlagsByKey,
-                $evaluationCache
+                $evaluationCache,
+                $groups,
+                $groupProperties,
+                $this->groupTypeMapping
             );
         } else {
             return FeatureFlag::matchFeatureFlagProperties(
@@ -629,7 +632,10 @@ class Client
                 $personProperties,
                 $this->cohorts,
                 $this->featureFlagsByKey,
-                $evaluationCache
+                $evaluationCache,
+                $groups,
+                $groupProperties,
+                $this->groupTypeMapping
             );
         }
     }
