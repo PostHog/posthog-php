@@ -69,7 +69,8 @@ class LibCurl extends QueueConsumer
             $payload = gzencode($payload);
         }
 
-        return $this->httpClient->sendRequest(
+        $shouldVerify = $this->options['verify_batch_events_request'] ?? true;
+        $response = $this->httpClient->sendRequest(
             '/batch/',
             $payload,
             [
@@ -77,8 +78,15 @@ class LibCurl extends QueueConsumer
                 "User-Agent: {$messages[0]['library']}/{$messages[0]['library_version']}",
             ],
             [
-                'shouldVerify' => $this->options['verify_batch_events_request'] ?? true,
+                'shouldVerify' => $shouldVerify,
             ]
-        )->getResponse();
+        );
+
+        if (!$shouldVerify) {
+            return $response->getResponse() !== false;
+        }
+
+        // Keep batch success semantics aligned with HttpClient retry handling and the Socket consumer.
+        return $response->getResponseCode() === 200;
     }
 }
