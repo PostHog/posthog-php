@@ -511,12 +511,106 @@ class FeatureFlagEvaluationsTest extends TestCase
         $snapshot->isEnabled('simple-test');
 
         // The single-flag path should be deduped against the snapshot's earlier event because
-        // both share the Client's distinctIdsFeatureFlagsReported cache.
-        PostHog::isFeatureEnabled('simple-test', 'user-1');
+        // both share the Client's distinctIdsFeatureFlagsReported cache. The legacy single-flag
+        // method also emits a deprecation; we suppress it here so the test focuses on dedup.
+        $this->captureDeprecations(fn() => PostHog::isFeatureEnabled('simple-test', 'user-1'));
         PostHog::flush();
 
         $batches = $this->batchRequests();
         $this->assertCount(1, $batches);
         $this->assertCount(1, $batches[0]['batch']);
+    }
+
+    /**
+     * @return list<string> the deprecation messages emitted while running $callable
+     */
+    private function captureDeprecations(callable $callable): array
+    {
+        $messages = [];
+        $previous = set_error_handler(
+            function (int $errno, string $errstr) use (&$messages, &$previous) {
+                if ($errno === E_USER_DEPRECATED) {
+                    $messages[] = $errstr;
+                    return true;
+                }
+                if ($previous !== null) {
+                    return ($previous)($errno, $errstr);
+                }
+                return false;
+            },
+            E_USER_DEPRECATED
+        );
+
+        try {
+            $callable();
+        } finally {
+            restore_error_handler();
+        }
+
+        return $messages;
+    }
+
+    public function testIsFeatureEnabledEmitsDeprecationWarning(): void
+    {
+        $this->makeClient();
+        $messages = $this->captureDeprecations(
+            fn() => $this->client->isFeatureEnabled('simple-test', 'user-1')
+        );
+
+        $this->assertCount(1, $messages, 'Expected exactly one deprecation warning');
+        $this->assertStringContainsString('isFeatureEnabled', $messages[0]);
+        $this->assertStringContainsString('evaluateFlags', $messages[0]);
+    }
+
+    public function testGetFeatureFlagEmitsDeprecationWarning(): void
+    {
+        $this->makeClient();
+        $messages = $this->captureDeprecations(
+            fn() => $this->client->getFeatureFlag('simple-test', 'user-1')
+        );
+
+        $this->assertCount(1, $messages);
+        $this->assertStringContainsString('getFeatureFlag', $messages[0]);
+        $this->assertStringContainsString('evaluateFlags', $messages[0]);
+    }
+
+    public function testGetFeatureFlagPayloadEmitsDeprecationWarning(): void
+    {
+        $this->makeClient();
+        $messages = $this->captureDeprecations(
+            fn() => $this->client->getFeatureFlagPayload('json-payload', 'user-1')
+        );
+
+        $this->assertCount(1, $messages);
+        $this->assertStringContainsString('getFeatureFlagPayload', $messages[0]);
+        $this->assertStringContainsString('evaluateFlags', $messages[0]);
+    }
+
+    public function testCaptureSendFeatureFlagsEmitsDeprecationWarning(): void
+    {
+        $this->makeClient();
+        $messages = $this->captureDeprecations(
+            fn() => $this->client->capture([
+                'distinct_id' => 'user-1',
+                'event' => 'page_view',
+                'send_feature_flags' => true,
+            ])
+        );
+
+        $this->assertCount(1, $messages);
+        $this->assertStringContainsString('send_feature_flags', $messages[0]);
+        $this->assertStringContainsString('evaluateFlags', $messages[0]);
+    }
+
+    public function testIsFeatureEnabledDoesNotCascadeDeprecationWarnings(): void
+    {
+        // isFeatureEnabled bypasses the public getFeatureFlag() so users see only one
+        // warning per call, not two (or three if getFeatureFlagResult were also deprecated).
+        $this->makeClient();
+        $messages = $this->captureDeprecations(
+            fn() => $this->client->isFeatureEnabled('simple-test', 'user-1')
+        );
+
+        $this->assertCount(1, $messages);
     }
 }

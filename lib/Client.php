@@ -186,6 +186,14 @@ class Client implements FeatureFlagEvaluationsHost
                 $message["properties"]
             );
         } elseif (array_key_exists("send_feature_flags", $message) && $message["send_feature_flags"]) {
+            trigger_error(
+                'capture()\'s `send_feature_flags` option is deprecated and will be removed in a '
+                . 'future major version. Pass a `flags` snapshot from Client::evaluateFlags(...) '
+                . 'instead — it avoids a second /flags request per capture and guarantees the '
+                . 'event carries the exact flag values your code branched on.',
+                E_USER_DEPRECATED
+            );
+
             $extraProperties = [];
             $flags = [];
 
@@ -279,7 +287,9 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * decide if the feature flag is enabled for this distinct id.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call
+     * `$flags->isEnabled($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -298,7 +308,17 @@ class Client implements FeatureFlagEvaluationsHost
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
     ): null | bool {
-        $result = $this->getFeatureFlag(
+        trigger_error(
+            'Client::isFeatureEnabled() is deprecated and will be removed in a future major '
+            . 'version. Use Client::evaluateFlags($distinctId, ...) and call '
+            . '$flags->isEnabled($key) instead — this consolidates flag evaluation into a '
+            . 'single /flags request per incoming request.',
+            E_USER_DEPRECATED
+        );
+
+        // Bypass the public getFeatureFlag() so the user only sees a single deprecation
+        // warning per call, not two.
+        $result = $this->getFeatureFlagResult(
             $key,
             $distinctId,
             $groups,
@@ -308,15 +328,17 @@ class Client implements FeatureFlagEvaluationsHost
             $sendFeatureFlagEvents
         );
 
-        if (is_null($result)) {
-            return $result;
-        } else {
-            return boolval($result);
+        if ($result === null) {
+            return null;
         }
+
+        return boolval($result->getValue());
     }
 
     /**
-     * get the feature flag value for this distinct id.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call
+     * `$flags->getFlag($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -335,6 +357,14 @@ class Client implements FeatureFlagEvaluationsHost
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
     ): null | bool | string {
+        trigger_error(
+            'Client::getFeatureFlag() is deprecated and will be removed in a future major '
+            . 'version. Use Client::evaluateFlags($distinctId, ...) and call '
+            . '$flags->getFlag($key) instead — this consolidates flag evaluation into a '
+            . 'single /flags request per incoming request.',
+            E_USER_DEPRECATED
+        );
+
         $result = $this->getFeatureFlagResult(
             $key,
             $distinctId,
@@ -507,8 +537,9 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * @deprecated Use `getFeatureFlagResult()` instead which properly tracks the feature flag call,
-     * and includes both the flag value and payload in a single method.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call
+     * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -524,6 +555,14 @@ class Client implements FeatureFlagEvaluationsHost
         array $personProperties = array(),
         array $groupProperties = array(),
     ): mixed {
+        trigger_error(
+            'Client::getFeatureFlagPayload() is deprecated and will be removed in a future major '
+            . 'version. Use Client::evaluateFlags($distinctId, ...) and call '
+            . '$flags->getFlagPayload($key) instead — this consolidates flag evaluation into a '
+            . 'single /flags request per incoming request.',
+            E_USER_DEPRECATED
+        );
+
         $result = $this->getFeatureFlagResult(
             $key,
             $distinctId,

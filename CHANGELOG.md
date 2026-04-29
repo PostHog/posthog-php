@@ -4,6 +4,11 @@
   `FeatureFlagEvaluations` snapshot you can read repeatedly without further `/flags` requests; pass
   it to `capture()` via the new `flags` key to attach `$feature/<key>` and `$active_feature_flags`
   on the captured event without an extra round trip.
+* feat(flags): Deprecate `isFeatureEnabled()`, `getFeatureFlag()`, `getFeatureFlagPayload()`, and
+  the `send_feature_flags` `capture()` option in favor of `evaluateFlags()`. Each emits an
+  `E_USER_DEPRECATED` warning pointing at the new API; existing callers keep working unchanged
+  until the next major version. `getFeatureFlagResult()` and `getAllFlags()` are intentionally
+  *not* deprecated — they expose data the snapshot API doesn't yet cover.
 * fix(flags): `SizeLimitedHash::contains()` and `add()` were storing entries on the outer map and
   comparing values to keys, so the per-distinct_id `$feature_flag_called` dedup never matched after
   the first event. Both helpers now operate on a per-key set as intended.

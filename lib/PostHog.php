@@ -138,7 +138,9 @@ class PostHog
     }
 
     /**
-     * decide if the feature flag is enabled for this distinct id.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call
+     * `$flags->isEnabled($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -170,7 +172,9 @@ class PostHog
     }
 
     /**
-     * get the feature flag value for this distinct id.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call
+     * `$flags->getFlag($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -239,8 +243,9 @@ class PostHog
     }
 
     /**
-     * @deprecated Use getFeatureFlagResult() instead. This method does not send
-     * the $feature_flag_called event, leading to missing analytics.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call
+     * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
