@@ -172,8 +172,15 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         if ($flagsSnapshot instanceof FeatureFlagEvaluations) {
-            // The snapshot already has every flag value cached. No /flags request, no override of
-            // properties already set on the event.
+            // Precedence: an explicit `flags` snapshot always wins over `send_feature_flags`. The
+            // snapshot guarantees the event carries the same values the developer branched on, with
+            // no additional /flags request.
+            if (!empty($message["send_feature_flags"])) {
+                error_log(
+                    "[PostHog][Client] Both `flags` and `send_feature_flags` were passed to "
+                    . "capture(); using `flags` and ignoring `send_feature_flags`."
+                );
+            }
             $message["properties"] = array_merge(
                 $flagsSnapshot->getEventProperties(),
                 $message["properties"]
@@ -600,7 +607,11 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, mixed> $groups
      * @param array<string, mixed> $personProperties
      * @param array<string, array<string, mixed>> $groupProperties
-     * @param list<string>|null $flagKeys When set, scope the underlying /flags request to these keys.
+     * @param list<string>|null $flagKeys Optional list of flag keys. When provided, only these
+     *     flags are evaluated — the underlying /flags request asks the server for just this
+     *     subset, which makes the response smaller and the request cheaper. Use this when you
+     *     only need a handful of flags out of many. Distinct from FeatureFlagEvaluations::only(),
+     *     which scopes which already-evaluated flags get attached to a captured event.
      */
     public function evaluateFlags(
         string $distinctId,
@@ -630,6 +641,9 @@ class Client implements FeatureFlagEvaluationsHost
         );
 
         $records = [];
+        $requestId = null;
+        $errorsWhileComputing = false;
+        $quotaLimited = false;
 
         // Local pass: try to resolve any flag we can without going to the server.
         foreach ($this->featureFlags as $flag) {
@@ -675,8 +689,6 @@ class Client implements FeatureFlagEvaluationsHost
             );
         }
 
-        $requestId = null;
-
         if (!$onlyEvaluateLocally) {
             try {
                 $response = $this->flags(
@@ -689,6 +701,7 @@ class Client implements FeatureFlagEvaluationsHost
                 );
 
                 $requestId = $response['requestId'] ?? null;
+                $errorsWhileComputing = (bool) ($response['errorsWhileComputingFlags'] ?? false);
                 $remoteFlags = $response['flags'] ?? [];
 
                 foreach ($remoteFlags as $key => $flagDetail) {
@@ -719,6 +732,11 @@ class Client implements FeatureFlagEvaluationsHost
                         locallyEvaluated: false,
                     );
                 }
+            } catch (HttpException $e) {
+                if ($e->getErrorType() === HttpException::QUOTA_LIMITED) {
+                    $quotaLimited = true;
+                }
+                error_log("[PostHog][Client] Unable to evaluate flags: " . $e->getMessage());
             } catch (Exception $e) {
                 error_log("[PostHog][Client] Unable to evaluate flags: " . $e->getMessage());
             }
@@ -731,6 +749,9 @@ class Client implements FeatureFlagEvaluationsHost
             $this,
             $requestId,
             $this->featureFlagsLogWarnings,
+            null,
+            $errorsWhileComputing,
+            $quotaLimited,
         );
     }
 

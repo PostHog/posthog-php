@@ -26,6 +26,8 @@ class FeatureFlagEvaluations
         private readonly ?string $requestId = null,
         private readonly bool $logWarnings = true,
         ?array $accessed = null,
+        private readonly bool $errorsWhileComputing = false,
+        private readonly bool $quotaLimited = false,
     ) {
         $this->accessed = $accessed ?? [];
     }
@@ -75,19 +77,11 @@ class FeatureFlagEvaluations
 
     /**
      * Returns a clone of this snapshot containing only flags that were previously accessed via
-     * isEnabled() or getFlag(). When nothing has been accessed yet, logs a warning and returns a
-     * full clone so callers don't silently emit empty $feature/* property bags.
+     * isEnabled() or getFlag(). Order-dependent: if nothing has been accessed yet, the returned
+     * snapshot is empty. The method honors its name — pre-access if you want a populated result.
      */
     public function onlyAccessed(): self
     {
-        if (count($this->accessed) === 0) {
-            $this->emitWarning(
-                'FeatureFlagEvaluations::onlyAccessed() called before any flag was accessed; returning all flags.'
-            );
-
-            return $this->cloneWith($this->flags);
-        }
-
         $filtered = [];
         foreach ($this->accessed as $key => $_) {
             if (isset($this->flags[$key])) {
@@ -160,9 +154,7 @@ class FeatureFlagEvaluations
             '$feature_flag_response' => $record?->getValue() ?? false,
         ];
 
-        if ($record === null) {
-            $properties['$feature_flag_error'] = FeatureFlagError::FLAG_MISSING;
-        } else {
+        if ($record !== null) {
             if ($record->id !== null) {
                 $properties['$feature_flag_id'] = $record->id;
             }
@@ -181,6 +173,22 @@ class FeatureFlagEvaluations
         // call so we omit it for them, matching the existing single-flag local path.
         if ($this->requestId !== null && !($record?->locallyEvaluated ?? false)) {
             $properties['$feature_flag_request_id'] = $this->requestId;
+        }
+
+        // Build a comma-joined $feature_flag_error matching the single-flag path's granularity:
+        // response-level errors combine with per-flag errors so consumers can filter by type.
+        $errors = [];
+        if ($this->errorsWhileComputing) {
+            $errors[] = FeatureFlagError::ERRORS_WHILE_COMPUTING_FLAGS;
+        }
+        if ($this->quotaLimited) {
+            $errors[] = FeatureFlagError::QUOTA_LIMITED;
+        }
+        if ($record === null) {
+            $errors[] = FeatureFlagError::FLAG_MISSING;
+        }
+        if (!empty($errors)) {
+            $properties['$feature_flag_error'] = implode(',', $errors);
         }
 
         $this->host->captureFlagCalledIfNeeded(
@@ -206,6 +214,8 @@ class FeatureFlagEvaluations
             $this->requestId,
             $this->logWarnings,
             [],
+            $this->errorsWhileComputing,
+            $this->quotaLimited,
         );
     }
 

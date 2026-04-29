@@ -195,7 +195,7 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertStringContainsString('unknown-flag', $host->warnings[0]);
     }
 
-    public function testOnlyAccessedFallsBackAndWarnsWhenEmpty(): void
+    public function testOnlyAccessedReturnsEmptyWhenNoFlagsAccessed(): void
     {
         $host = new FakeFlagEvaluationsHost();
         $snapshot = new FeatureFlagEvaluations(
@@ -210,8 +210,8 @@ class FeatureFlagEvaluationsTest extends TestCase
 
         $filtered = $snapshot->onlyAccessed();
 
-        $this->assertEqualsCanonicalizing(['flag-a', 'flag-b'], $filtered->getKeys());
-        $this->assertCount(1, $host->warnings);
+        $this->assertSame([], $filtered->getKeys());
+        $this->assertSame([], $host->warnings);
     }
 
     public function testOnlyAccessedReturnsSubsetWhenAccessed(): void
@@ -431,6 +431,77 @@ class FeatureFlagEvaluationsTest extends TestCase
         $snapshot->onlyAccessed();
 
         $this->assertSame([], $host->warnings);
+    }
+
+    public function testCaptureWarnsWhenBothFlagsAndSendFeatureFlagsSet(): void
+    {
+        global $errorMessages;
+        $errorMessages = [];
+
+        $this->makeClient();
+        $host = new FakeFlagEvaluationsHost();
+        $snapshot = new FeatureFlagEvaluations(
+            'user-1',
+            ['flag-a' => $this->makeRecord('flag-a', true)],
+            [],
+            $host,
+        );
+
+        PostHog::capture([
+            'distinctId' => 'user-1',
+            'event' => 'page_view',
+            'flags' => $snapshot,
+            'send_feature_flags' => true,
+        ]);
+        PostHog::flush();
+
+        $warned = false;
+        foreach ($errorMessages as $message) {
+            if (str_contains($message, 'Both `flags` and `send_feature_flags`')) {
+                $warned = true;
+                break;
+            }
+        }
+        $this->assertTrue($warned, 'Expected warning when both `flags` and `send_feature_flags` are set');
+
+        // No extra /flags request.
+        $this->assertSame(0, $this->flagsRequestCount());
+    }
+
+    public function testErrorsWhileComputingFlagsPropagatesToEvent(): void
+    {
+        $errorResponse = MockedResponses::FLAGS_V2_RESPONSE;
+        $errorResponse['errorsWhileComputingFlags'] = true;
+        $this->makeClient(flagsEndpointResponse: $errorResponse);
+
+        $snapshot = PostHog::evaluateFlags('user-1');
+        $snapshot->isEnabled('simple-test');
+        PostHog::flush();
+
+        $batches = $this->batchRequests();
+        $this->assertCount(1, $batches);
+        $this->assertSame(
+            'errors_while_computing_flags',
+            $batches[0]['batch'][0]['properties']['$feature_flag_error']
+        );
+    }
+
+    public function testErrorsWhileComputingFlagsCombinesWithFlagMissing(): void
+    {
+        $errorResponse = MockedResponses::FLAGS_V2_RESPONSE;
+        $errorResponse['errorsWhileComputingFlags'] = true;
+        $this->makeClient(flagsEndpointResponse: $errorResponse);
+
+        $snapshot = PostHog::evaluateFlags('user-1');
+        $snapshot->isEnabled('does-not-exist');
+        PostHog::flush();
+
+        $batches = $this->batchRequests();
+        $this->assertCount(1, $batches);
+        $this->assertSame(
+            'errors_while_computing_flags,flag_missing',
+            $batches[0]['batch'][0]['properties']['$feature_flag_error']
+        );
     }
 
     public function testSnapshotDedupesAcrossClientPaths(): void
