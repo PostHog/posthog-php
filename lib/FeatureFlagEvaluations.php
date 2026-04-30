@@ -24,7 +24,7 @@ class FeatureFlagEvaluations
         private readonly array $groups,
         private readonly FeatureFlagEvaluationsHost $host,
         private readonly ?string $requestId = null,
-        private readonly bool $logWarnings = true,
+        private readonly ?int $evaluatedAt = null,
         ?array $accessed = null,
         private readonly bool $errorsWhileComputing = false,
         private readonly bool $quotaLimited = false,
@@ -105,7 +105,7 @@ class FeatureFlagEvaluations
             if (isset($this->flags[$key])) {
                 $filtered[$key] = $this->flags[$key];
             } else {
-                $this->emitWarning(
+                $this->host->logWarning(
                     sprintf('FeatureFlagEvaluations::only() dropped unknown flag key "%s".', $key)
                 );
             }
@@ -151,7 +151,11 @@ class FeatureFlagEvaluations
 
         $properties = [
             '$feature_flag' => $key,
-            '$feature_flag_response' => $record?->getValue() ?? false,
+            // Missing flags get a null response (not false), matching the legacy single-flag path
+            // so consumers can distinguish "flag exists and is disabled" from "flag not found".
+            '$feature_flag_response' => $record?->getValue(),
+            // Always set explicitly so consumers don't have to infer "missing key means remote".
+            'locally_evaluated' => $record?->locallyEvaluated ?? false,
         ];
 
         if ($record !== null) {
@@ -164,15 +168,16 @@ class FeatureFlagEvaluations
             if ($record->reason !== null) {
                 $properties['$feature_flag_reason'] = $record->reason;
             }
-            if ($record->locallyEvaluated) {
-                $properties['locally_evaluated'] = true;
-            }
         }
 
-        // request_id is per /flags response; locally-evaluated records aren't tied to a remote
-        // call so we omit it for them, matching the existing single-flag local path.
-        if ($this->requestId !== null && !($record?->locallyEvaluated ?? false)) {
+        // request_id and evaluated_at are per /flags response; locally-evaluated records aren't
+        // tied to a remote call so we omit them for those, matching the legacy single-flag path.
+        $isLocal = $record?->locallyEvaluated ?? false;
+        if ($this->requestId !== null && !$isLocal) {
             $properties['$feature_flag_request_id'] = $this->requestId;
+        }
+        if ($this->evaluatedAt !== null && !$isLocal) {
+            $properties['$feature_flag_evaluated_at'] = $this->evaluatedAt;
         }
 
         // Build a comma-joined $feature_flag_error matching the single-flag path's granularity:
@@ -212,17 +217,10 @@ class FeatureFlagEvaluations
             $this->groups,
             $this->host,
             $this->requestId,
-            $this->logWarnings,
+            $this->evaluatedAt,
             [],
             $this->errorsWhileComputing,
             $this->quotaLimited,
         );
-    }
-
-    private function emitWarning(string $message): void
-    {
-        if ($this->logWarnings) {
-            $this->host->logWarning($message);
-        }
     }
 }

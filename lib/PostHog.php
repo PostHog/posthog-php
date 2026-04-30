@@ -206,10 +206,9 @@ class PostHog
     }
 
     /**
-     * Get the feature flag result including value and payload.
-     *
-     * This is the recommended method for getting feature flag data as it returns
-     * both the flag value and payload in a single call, while properly tracking analytics.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call `$flags->getFlag($key)` and
+     * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId

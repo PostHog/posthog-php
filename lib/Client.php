@@ -89,11 +89,6 @@ class Client implements FeatureFlagEvaluationsHost
     private $options;
 
     /**
-     * @var bool Whether to surface non-fatal warnings from feature flag helpers.
-     */
-    private $featureFlagsLogWarnings;
-
-    /**
      * Create a new posthog object with your app's API key
      * key
      *
@@ -128,7 +123,6 @@ class Client implements FeatureFlagEvaluationsHost
             (int) ($options['timeout'] ?? 10000)
         );
         $this->featureFlagsRequestTimeout = (int) ($options['feature_flag_request_timeout_ms'] ?? 3000);
-        $this->featureFlagsLogWarnings = (bool) ($options['feature_flags_log_warnings'] ?? true);
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
         $this->cohorts = [];
@@ -316,9 +310,9 @@ class Client implements FeatureFlagEvaluationsHost
             E_USER_DEPRECATED
         );
 
-        // Bypass the public getFeatureFlag() so the user only sees a single deprecation
-        // warning per call, not two.
-        $result = $this->getFeatureFlagResult(
+        // Route through the private helper so the user sees exactly one deprecation warning
+        // per call, not two (or three).
+        $result = $this->doGetFeatureFlagResult(
             $key,
             $distinctId,
             $groups,
@@ -365,7 +359,8 @@ class Client implements FeatureFlagEvaluationsHost
             E_USER_DEPRECATED
         );
 
-        $result = $this->getFeatureFlagResult(
+        // Route through the private helper so the user sees exactly one deprecation warning.
+        $result = $this->doGetFeatureFlagResult(
             $key,
             $distinctId,
             $groups,
@@ -379,10 +374,9 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * Get the feature flag result including value and payload.
-     *
-     * This is the recommended method for getting feature flag data as it returns
-     * both the flag value and payload in a single call, while properly tracking analytics.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call `$flags->getFlag($key)` and
+     * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -400,6 +394,45 @@ class Client implements FeatureFlagEvaluationsHost
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false,
+        bool $sendFeatureFlagEvents = true
+    ): ?FeatureFlagResult {
+        trigger_error(
+            'Client::getFeatureFlagResult() is deprecated and will be removed in a future major '
+            . 'version. Use Client::evaluateFlags($distinctId, ...) and call $flags->getFlag($key) '
+            . '(and $flags->getFlagPayload($key) if you need the payload) instead — this '
+            . 'consolidates flag evaluation into a single /flags request per incoming request.',
+            E_USER_DEPRECATED
+        );
+
+        return $this->doGetFeatureFlagResult(
+            $key,
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $onlyEvaluateLocally,
+            $sendFeatureFlagEvents
+        );
+    }
+
+    /**
+     * Internal entry point for the rich single-flag fetch. Public callers should go through
+     * the deprecated `getFeatureFlagResult()`; the deprecated `isFeatureEnabled()` /
+     * `getFeatureFlag()` paths route directly here so a single user-level call surfaces exactly
+     * one deprecation warning, not two.
+     *
+     * @param array<string, mixed> $groups
+     * @param array<string, mixed> $personProperties
+     * @param array<string, array<string, mixed>> $groupProperties
+     * @throws Exception
+     */
+    private function doGetFeatureFlagResult(
+        string $key,
+        string $distinctId,
+        array $groups = [],
+        array $personProperties = [],
+        array $groupProperties = [],
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
     ): ?FeatureFlagResult {
@@ -563,7 +596,8 @@ class Client implements FeatureFlagEvaluationsHost
             E_USER_DEPRECATED
         );
 
-        $result = $this->getFeatureFlagResult(
+        // Route through the private helper so the user sees exactly one deprecation warning.
+        $result = $this->doGetFeatureFlagResult(
             $key,
             $distinctId,
             $groups,
@@ -667,8 +701,6 @@ class Client implements FeatureFlagEvaluationsHost
                 [],
                 $groups,
                 $this,
-                null,
-                $this->featureFlagsLogWarnings,
             );
         }
 
@@ -681,54 +713,82 @@ class Client implements FeatureFlagEvaluationsHost
 
         $records = [];
         $requestId = null;
+        $evaluatedAt = null;
         $errorsWhileComputing = false;
         $quotaLimited = false;
+        $fallbackToRemote = false;
 
-        // Local pass: try to resolve any flag we can without going to the server.
-        foreach ($this->featureFlags as $flag) {
-            $key = $flag['key'] ?? null;
-            if (!is_string($key) || $key === '') {
-                continue;
-            }
+        // Local pass: try to resolve any flag we can without going to the server. Track whether
+        // any flag was inconclusive (which forces a remote round trip) so we can skip /flags
+        // entirely when local evaluation covered everything we know about.
+        $hasLocalDefinitions = count($this->featureFlags) > 0;
+        if ($hasLocalDefinitions) {
+            $localKeys = [];
+            foreach ($this->featureFlags as $flag) {
+                $key = $flag['key'] ?? null;
+                if (!is_string($key) || $key === '') {
+                    continue;
+                }
+                $localKeys[$key] = true;
 
-            if ($flagKeys !== null && !in_array($key, $flagKeys, true)) {
-                continue;
-            }
+                if ($flagKeys !== null && !in_array($key, $flagKeys, true)) {
+                    continue;
+                }
 
-            try {
-                $value = $this->computeFlagLocally(
-                    $flag,
-                    $distinctId,
-                    $groups,
-                    $personProperties,
-                    $groupProperties
+                try {
+                    $value = $this->computeFlagLocally(
+                        $flag,
+                        $distinctId,
+                        $groups,
+                        $personProperties,
+                        $groupProperties
+                    );
+                } catch (RequiresServerEvaluationException $e) {
+                    $fallbackToRemote = true;
+                    continue;
+                } catch (InconclusiveMatchException $e) {
+                    $fallbackToRemote = true;
+                    continue;
+                } catch (Exception $e) {
+                    $fallbackToRemote = true;
+                    error_log("[PostHog][Client] Error while computing variant: " . $e->getMessage());
+                    continue;
+                }
+
+                $variant = is_string($value) ? $value : null;
+                $enabled = is_string($value) ? true : (bool) $value;
+                $id = isset($flag['id']) ? (int) $flag['id'] : null;
+
+                $records[$key] = new EvaluatedFlagRecord(
+                    key: $key,
+                    enabled: $enabled,
+                    variant: $variant,
+                    payload: null,
+                    id: $id,
+                    version: null,
+                    reason: 'Evaluated locally',
+                    locallyEvaluated: true,
                 );
-            } catch (RequiresServerEvaluationException $e) {
-                continue;
-            } catch (InconclusiveMatchException $e) {
-                continue;
-            } catch (Exception $e) {
-                error_log("[PostHog][Client] Error while computing variant: " . $e->getMessage());
-                continue;
             }
 
-            $variant = is_string($value) ? $value : null;
-            $enabled = is_string($value) ? true : (bool) $value;
-            $id = isset($flag['id']) ? (int) $flag['id'] : null;
-
-            $records[$key] = new EvaluatedFlagRecord(
-                key: $key,
-                enabled: $enabled,
-                variant: $variant,
-                payload: null,
-                id: $id,
-                version: null,
-                reason: 'Evaluated locally',
-                locallyEvaluated: true,
-            );
+            // If the caller asked for keys we don't have local definitions for, hit /flags so
+            // we can resolve them.
+            if ($flagKeys !== null) {
+                foreach ($flagKeys as $requestedKey) {
+                    if (!isset($localKeys[$requestedKey])) {
+                        $fallbackToRemote = true;
+                        break;
+                    }
+                }
+            }
+        } else {
+            // No local definitions loaded — every flag has to come from the server.
+            $fallbackToRemote = true;
         }
 
-        if (!$onlyEvaluateLocally) {
+        $shouldHitRemote = !$onlyEvaluateLocally && $fallbackToRemote;
+
+        if ($shouldHitRemote) {
             try {
                 $response = $this->flags(
                     $distinctId,
@@ -740,6 +800,9 @@ class Client implements FeatureFlagEvaluationsHost
                 );
 
                 $requestId = $response['requestId'] ?? null;
+                $evaluatedAt = isset($response['evaluatedAt']) && is_int($response['evaluatedAt'])
+                    ? $response['evaluatedAt']
+                    : null;
                 $errorsWhileComputing = (bool) ($response['errorsWhileComputingFlags'] ?? false);
                 $remoteFlags = $response['flags'] ?? [];
 
@@ -753,8 +816,16 @@ class Client implements FeatureFlagEvaluationsHost
 
                     $variant = $flagDetail['variant'] ?? null;
                     $enabled = (bool) ($flagDetail['enabled'] ?? false);
+                    // Payloads come down as JSON strings, but defensively handle pre-decoded
+                    // values too (some clients/middleware may deserialize transparently).
                     $rawPayload = $flagDetail['metadata']['payload'] ?? null;
-                    $payload = $rawPayload !== null ? json_decode($rawPayload, true) : null;
+                    if ($rawPayload === null) {
+                        $payload = null;
+                    } elseif (is_string($rawPayload)) {
+                        $payload = json_decode($rawPayload, true);
+                    } else {
+                        $payload = $rawPayload;
+                    }
 
                     $records[$key] = new EvaluatedFlagRecord(
                         key: $key,
@@ -787,7 +858,7 @@ class Client implements FeatureFlagEvaluationsHost
             $groups,
             $this,
             $requestId,
-            $this->featureFlagsLogWarnings,
+            $evaluatedAt,
             null,
             $errorsWhileComputing,
             $quotaLimited,
@@ -824,9 +895,7 @@ class Client implements FeatureFlagEvaluationsHost
 
     public function logWarning(string $message): void
     {
-        if ($this->featureFlagsLogWarnings) {
-            error_log("[PostHog][Client] " . $message);
-        }
+        error_log("[PostHog][Client] " . $message);
     }
 
     private function computeFlagLocally(

@@ -49,9 +49,11 @@ class FeatureFlagEvaluationsTest extends TestCase
 
     private function flagsRequestCount(): int
     {
+        // Counts the runtime /flags endpoint only; the /flags/definitions local-evaluation
+        // poller hits a different path and shouldn't be conflated with per-request evaluation.
         $count = 0;
         foreach ($this->http_client->calls ?? [] as $call) {
-            if (str_starts_with($call['path'], '/flags/')) {
+            if (str_starts_with($call['path'], '/flags/?')) {
                 $count++;
             }
         }
@@ -132,7 +134,7 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertSame(1, $properties['$feature_flag_version']);
         $this->assertSame('Matched condition set 1', $properties['$feature_flag_reason']);
         $this->assertSame('98487c8a-287a-4451-a085-299cd76228dd', $properties['$feature_flag_request_id']);
-        $this->assertArrayNotHasKey('locally_evaluated', $properties);
+        $this->assertFalse($properties['locally_evaluated']);
     }
 
     public function testGetFlagFiresEventOnFirstAccessDedupedOnSecond(): void
@@ -360,6 +362,64 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertSame(1, $properties['$feature_flag_id']);
         $this->assertArrayNotHasKey('$feature_flag_version', $properties);
         $this->assertArrayNotHasKey('$feature_flag_request_id', $properties);
+        $this->assertArrayNotHasKey('$feature_flag_evaluated_at', $properties);
+    }
+
+    public function testLocalEvaluationSkipsRemoteFlagsRequestWhenAllResolved(): void
+    {
+        // When local definitions cover every flag and they all evaluate without inconclusive
+        // results, evaluateFlags() should skip the /flags request entirely.
+        $this->makeClient(
+            personalApiKey: 'test-personal-key',
+            localEvaluationResponse: MockedResponses::LOCAL_EVALUATION_REQUEST,
+        );
+        PostHog::evaluateFlags('user-1', personProperties: ['region' => 'USA']);
+
+        $this->assertSame(0, $this->flagsRequestCount());
+    }
+
+    public function testRemoteEvaluatedAtPropagatesToEvent(): void
+    {
+        $response = MockedResponses::FLAGS_V2_RESPONSE;
+        $response['evaluatedAt'] = 1714435200;
+        $this->makeClient(flagsEndpointResponse: $response);
+
+        $snapshot = PostHog::evaluateFlags('user-1');
+        $snapshot->isEnabled('simple-test');
+        PostHog::flush();
+
+        $batches = $this->batchRequests();
+        $this->assertCount(1, $batches);
+        $this->assertSame(
+            1714435200,
+            $batches[0]['batch'][0]['properties']['$feature_flag_evaluated_at']
+        );
+    }
+
+    public function testMissingFlagResponseIsNullNotFalse(): void
+    {
+        $this->makeClient();
+        $snapshot = PostHog::evaluateFlags('user-1');
+        $snapshot->isEnabled('does-not-exist');
+        PostHog::flush();
+
+        $batches = $this->batchRequests();
+        $this->assertCount(1, $batches);
+        $properties = $batches[0]['batch'][0]['properties'];
+        $this->assertNull($properties['$feature_flag_response']);
+        $this->assertFalse($properties['locally_evaluated']);
+    }
+
+    public function testRemotePayloadHandlesPreDecodedValue(): void
+    {
+        // Some middleware may transparently decode JSON payloads before they reach the SDK; the
+        // snapshot should accept the value as-is rather than json_decode-ing a non-string.
+        $response = MockedResponses::FLAGS_V2_RESPONSE;
+        $response['flags']['json-payload']['metadata']['payload'] = ['already' => 'decoded'];
+        $this->makeClient(flagsEndpointResponse: $response);
+
+        $snapshot = PostHog::evaluateFlags('user-1');
+        $this->assertSame(['already' => 'decoded'], $snapshot->getFlagPayload('json-payload'));
     }
 
     public function testCaptureFlagsTakesPrecedenceOverSendFeatureFlags(): void
@@ -413,24 +473,6 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertStringNotContainsString('FeatureFlagEvaluations', $rawPayload);
         $batches = $this->batchRequests();
         $this->assertArrayNotHasKey('flags', $batches[0]['batch'][0]);
-    }
-
-    public function testFeatureFlagsLogWarningsFalseSilencesFilterWarnings(): void
-    {
-        $host = new FakeFlagEvaluationsHost();
-        $snapshot = new FeatureFlagEvaluations(
-            'user-1',
-            ['flag-a' => $this->makeRecord('flag-a', true)],
-            [],
-            $host,
-            null,
-            false,
-        );
-
-        $snapshot->only(['unknown']);
-        $snapshot->onlyAccessed();
-
-        $this->assertSame([], $host->warnings);
     }
 
     public function testCaptureWarnsWhenBothFlagsAndSendFeatureFlagsSet(): void
