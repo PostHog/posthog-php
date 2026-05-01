@@ -34,13 +34,21 @@ if (empty($options['apiKey'])) {
     error('apiKey flag required');
 }
 
+$initOptions = array(
+    'debug' => array_key_exists('debug', $options),
+);
+
+if (array_key_exists('host', $options)) {
+    $initOptions['host'] = $options['host'];
+}
+
+if (array_key_exists('no-ssl', $options)) {
+    $initOptions['ssl'] = false;
+}
+
 PostHog::init(
     $options['apiKey'],
-    array(
-        'host' => $options['host'],
-        'debug' => array_key_exists('debug', $options),
-        'ssl' => !array_key_exists('no-ssl', $options)
-    )
+    $initOptions
 );
 
 switch ($options['type']) {

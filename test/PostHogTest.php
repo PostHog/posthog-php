@@ -444,6 +444,30 @@ class PostHogTest extends TestCase
         );
     }
 
+    public function testAliasReturnsBooleanWhenBatchFlushesImmediately(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+                "batch_size" => 1,
+            ],
+            $httpClient
+        );
+        PostHog::init(null, null, $client);
+
+        $result = PostHog::alias(
+            array(
+                "alias" => "previous-id",
+                "distinctId" => "user-id",
+            )
+        );
+
+        $this->assertIsBool($result);
+        $this->assertTrue($result);
+    }
+
     public function testTimestamps(): void
     {
         self::assertTrue(

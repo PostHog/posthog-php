@@ -42,7 +42,7 @@ class Socket extends QueueConsumer
         $socket = $this->createSocket();
 
         if (!$socket) {
-            return;
+            return false;
         }
 
         $payload = $this->payload($batch);
@@ -166,7 +166,7 @@ class Socket extends QueueConsumer
             $socket = $this->createSocket();
         }
 
-        return true;
+        return false;
     }
 
     /**
