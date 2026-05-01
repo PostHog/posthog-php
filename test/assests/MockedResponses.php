@@ -768,6 +768,118 @@ class MockedResponses
         ]
     ];
 
+    public const LOCAL_EVALUATION_MIXED_TARGETING_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 1,
+                "name" => "Mixed Flag",
+                "key" => "mixed-flag",
+                "filters" => [
+                    "aggregation_group_type_index" => null,
+                    "groups" => [
+                        [
+                            "aggregation_group_type_index" => 0,
+                            "properties" => [
+                                [
+                                    "key" => "plan",
+                                    "value" => ["enterprise"],
+                                    "operator" => "exact",
+                                    "type" => "group",
+                                    "group_type_index" => 0
+                                ]
+                            ],
+                            "rollout_percentage" => 100
+                        ],
+                        [
+                            "aggregation_group_type_index" => null,
+                            "properties" => [
+                                [
+                                    "key" => "email",
+                                    "value" => ["test@example.com"],
+                                    "operator" => "exact",
+                                    "type" => "person"
+                                ]
+                            ],
+                            "rollout_percentage" => 100
+                        ]
+                    ]
+                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
+                "rollout_percentage" => null
+            ]
+        ],
+        'group_type_mapping' => ["0" => "company"]
+    ];
+
+    public const LOCAL_EVALUATION_ONLY_GROUP_CONDITION_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 2,
+                "name" => "Only Group Flag",
+                "key" => "only-group-flag",
+                "filters" => [
+                    "aggregation_group_type_index" => null,
+                    "groups" => [
+                        [
+                            "aggregation_group_type_index" => 0,
+                            "properties" => [
+                                [
+                                    "key" => "plan",
+                                    "value" => ["enterprise"],
+                                    "operator" => "exact",
+                                    "type" => "group",
+                                    "group_type_index" => 0
+                                ]
+                            ],
+                            "rollout_percentage" => 100
+                        ]
+                    ]
+                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
+                "rollout_percentage" => null
+            ]
+        ],
+        'group_type_mapping' => ["0" => "company"]
+    ];
+
+    public const LOCAL_EVALUATION_GROUP_ROLLOUT_REQUEST = [
+        'count' => 1,
+        'next' => null,
+        'previous' => null,
+        'flags' => [
+            [
+                "id" => 3,
+                "name" => "Rollout Flag",
+                "key" => "rollout-flag",
+                "filters" => [
+                    "aggregation_group_type_index" => null,
+                    "groups" => [
+                        [
+                            "aggregation_group_type_index" => 0,
+                            "properties" => [],
+                            "rollout_percentage" => 100
+                        ]
+                    ]
+                ],
+                "deleted" => false,
+                "active" => true,
+                "is_simple_flag" => false,
+                "rollout_percentage" => null
+            ]
+        ],
+        'group_type_mapping' => ["0" => "company"]
+    ];
+
     public const LOCAL_EVALUATION_COMPLEX_FLAG_REQUEST = [
         'count' => 1,
         'next' => null,

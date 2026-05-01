@@ -937,7 +937,10 @@ class Client implements FeatureFlagEvaluationsHost
                 $focusedGroupProperties,
                 $this->cohorts,
                 $this->featureFlagsByKey,
-                $evaluationCache
+                $evaluationCache,
+                $groups,
+                $groupProperties,
+                $this->groupTypeMapping
             );
         } else {
             return FeatureFlag::matchFeatureFlagProperties(
@@ -946,7 +949,10 @@ class Client implements FeatureFlagEvaluationsHost
                 $personProperties,
                 $this->cohorts,
                 $this->featureFlagsByKey,
-                $evaluationCache
+                $evaluationCache,
+                $groups,
+                $groupProperties,
+                $this->groupTypeMapping
             );
         }
     }
