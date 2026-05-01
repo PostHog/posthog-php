@@ -1,3 +1,7 @@
+## 4.3.0 - 2026-05-01
+
+* [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.2.4...4.3.0)
+
 ## Unreleased
 
 * feat(flags): Add `evaluateFlags()` API for single-call flag evaluation. Returns a
