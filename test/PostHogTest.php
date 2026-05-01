@@ -8,6 +8,7 @@ require_once 'test/error_log_mock.php';
 use Exception;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
+use PostHog\Consumer\NoOp;
 use PostHog\PostHog;
 use PostHog\Test\Assets\MockedResponses;
 
@@ -44,6 +45,14 @@ class PostHogTest extends TestCase
     {
         global $errorMessages;
         $this->assertEmpty($errorMessages);
+    }
+
+    private function getConsumer(Client $client): object
+    {
+        $ref = new \ReflectionClass($client);
+        $consumerProp = $ref->getProperty('consumer');
+
+        return $consumerProp->getValue($client);
     }
 
     public function testInitWithParamApiKey(): void
@@ -204,11 +213,79 @@ class PostHogTest extends TestCase
         putenv(PostHog::ENV_HOST);
     }
 
-    public function testInitThrowsExceptionWithNoApiKey(): void
+    public function testInitWithoutApiKeyConfiguresNoOpClient(): void
     {
-        $this->expectException(Exception::class);
-        $this->expectExceptionMessage("PostHog::init() requires an apiKey");
-        PostHog::init(null);
+        $previousApiKey = getenv(PostHog::ENV_API_KEY);
+        putenv(PostHog::ENV_API_KEY);
+
+        try {
+            PostHog::init();
+            $client = PostHog::getClient();
+
+            $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
+            $this->assertTrue(PostHog::capture([
+                "distinctId" => "john",
+                "event" => "Module PHP Event",
+            ]));
+        } finally {
+            if ($previousApiKey === false) {
+                putenv(PostHog::ENV_API_KEY);
+            } else {
+                putenv(PostHog::ENV_API_KEY . "=" . $previousApiKey);
+            }
+        }
+    }
+
+    public function testInitWithEmptyApiKeyConfiguresNoOpClient(): void
+    {
+        PostHog::init("", ["debug" => true]);
+        $client = PostHog::getClient();
+
+        $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
+        $this->assertTrue(PostHog::capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+    }
+
+    public function testInitWithWhitespaceApiKeyConfiguresNoOpClient(): void
+    {
+        PostHog::init(" \n\t ", ["debug" => true]);
+        $client = PostHog::getClient();
+
+        $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
+        $this->assertTrue(PostHog::capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+    }
+
+    public function testClientWithNullApiKeyDoesNotSendRequests(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(null, ["debug" => true, "batch_size" => 1], $httpClient);
+
+        $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
+        $this->assertTrue($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+        $this->assertSame([], $client->getAllFlags("john"));
+        $this->assertSame([], $httpClient->calls ?? []);
+    }
+
+    public function testClientWithTrimEmptyApiKeyDoesNotSendRequests(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(" \n\t ", ["debug" => true, "batch_size" => 1], $httpClient);
+
+        $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
+        $this->assertTrue($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+        $this->assertSame([], $client->fetchFeatureVariants("john"));
+        $this->assertSame([], $httpClient->calls ?? []);
     }
 
     public function testCapture(): void
