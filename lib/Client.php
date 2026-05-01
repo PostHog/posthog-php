@@ -11,7 +11,7 @@ use Symfony\Component\Clock\Clock;
 
 const SIZE_LIMIT = 50_000;
 
-class Client
+class Client implements FeatureFlagEvaluationsHost
 {
     private const CONSUMERS = [
         "socket" => Socket::class,
@@ -155,6 +155,9 @@ class Client
      */
     public function capture(array $message)
     {
+        $flagsSnapshot = $message["flags"] ?? null;
+        unset($message["flags"]);
+
         $message = $this->message($message);
         $message["type"] = "capture";
 
@@ -162,7 +165,29 @@ class Client
             $message["properties"]['$groups'] = $message['$groups'];
         }
 
-        if (array_key_exists("send_feature_flags", $message) && $message["send_feature_flags"]) {
+        if ($flagsSnapshot instanceof FeatureFlagEvaluations) {
+            // Precedence: an explicit `flags` snapshot always wins over `send_feature_flags`. The
+            // snapshot guarantees the event carries the same values the developer branched on, with
+            // no additional /flags request.
+            if (!empty($message["send_feature_flags"])) {
+                error_log(
+                    "[PostHog][Client] Both `flags` and `send_feature_flags` were passed to "
+                    . "capture(); using `flags` and ignoring `send_feature_flags`."
+                );
+            }
+            $message["properties"] = array_merge(
+                $flagsSnapshot->getEventProperties(),
+                $message["properties"]
+            );
+        } elseif (array_key_exists("send_feature_flags", $message) && $message["send_feature_flags"]) {
+            trigger_error(
+                'capture()\'s `send_feature_flags` option is deprecated and will be removed in a '
+                . 'future major version. Pass a `flags` snapshot from Client::evaluateFlags(...) '
+                . 'instead — it avoids a second /flags request per capture and guarantees the '
+                . 'event carries the exact flag values your code branched on.',
+                E_USER_DEPRECATED
+            );
+
             $extraProperties = [];
             $flags = [];
 
@@ -256,7 +281,9 @@ class Client
     }
 
     /**
-     * decide if the feature flag is enabled for this distinct id.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call
+     * `$flags->isEnabled($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -275,7 +302,17 @@ class Client
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
     ): null | bool {
-        $result = $this->getFeatureFlag(
+        trigger_error(
+            'Client::isFeatureEnabled() is deprecated and will be removed in a future major '
+            . 'version. Use Client::evaluateFlags($distinctId, ...) and call '
+            . '$flags->isEnabled($key) instead — this consolidates flag evaluation into a '
+            . 'single /flags request per incoming request.',
+            E_USER_DEPRECATED
+        );
+
+        // Route through the private helper so the user sees exactly one deprecation warning
+        // per call, not two (or three).
+        $result = $this->doGetFeatureFlagResult(
             $key,
             $distinctId,
             $groups,
@@ -285,15 +322,17 @@ class Client
             $sendFeatureFlagEvents
         );
 
-        if (is_null($result)) {
-            return $result;
-        } else {
-            return boolval($result);
+        if ($result === null) {
+            return null;
         }
+
+        return boolval($result->getValue());
     }
 
     /**
-     * get the feature flag value for this distinct id.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call
+     * `$flags->getFlag($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -312,7 +351,16 @@ class Client
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
     ): null | bool | string {
-        $result = $this->getFeatureFlagResult(
+        trigger_error(
+            'Client::getFeatureFlag() is deprecated and will be removed in a future major '
+            . 'version. Use Client::evaluateFlags($distinctId, ...) and call '
+            . '$flags->getFlag($key) instead — this consolidates flag evaluation into a '
+            . 'single /flags request per incoming request.',
+            E_USER_DEPRECATED
+        );
+
+        // Route through the private helper so the user sees exactly one deprecation warning.
+        $result = $this->doGetFeatureFlagResult(
             $key,
             $distinctId,
             $groups,
@@ -326,10 +374,9 @@ class Client
     }
 
     /**
-     * Get the feature flag result including value and payload.
-     *
-     * This is the recommended method for getting feature flag data as it returns
-     * both the flag value and payload in a single call, while properly tracking analytics.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call `$flags->getFlag($key)` and
+     * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -347,6 +394,45 @@ class Client
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false,
+        bool $sendFeatureFlagEvents = true
+    ): ?FeatureFlagResult {
+        trigger_error(
+            'Client::getFeatureFlagResult() is deprecated and will be removed in a future major '
+            . 'version. Use Client::evaluateFlags($distinctId, ...) and call $flags->getFlag($key) '
+            . '(and $flags->getFlagPayload($key) if you need the payload) instead — this '
+            . 'consolidates flag evaluation into a single /flags request per incoming request.',
+            E_USER_DEPRECATED
+        );
+
+        return $this->doGetFeatureFlagResult(
+            $key,
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $onlyEvaluateLocally,
+            $sendFeatureFlagEvents
+        );
+    }
+
+    /**
+     * Internal entry point for the rich single-flag fetch. Public callers should go through
+     * the deprecated `getFeatureFlagResult()`; the deprecated `isFeatureEnabled()` /
+     * `getFeatureFlag()` paths route directly here so a single user-level call surfaces exactly
+     * one deprecation warning, not two.
+     *
+     * @param array<string, mixed> $groups
+     * @param array<string, mixed> $personProperties
+     * @param array<string, array<string, mixed>> $groupProperties
+     * @throws Exception
+     */
+    private function doGetFeatureFlagResult(
+        string $key,
+        string $distinctId,
+        array $groups = [],
+        array $personProperties = [],
+        array $groupProperties = [],
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
     ): ?FeatureFlagResult {
@@ -444,7 +530,7 @@ class Client
             }
         }
 
-        if ($sendFeatureFlagEvents && !$this->distinctIdsFeatureFlagsReported->contains($key, $distinctId)) {
+        if ($sendFeatureFlagEvents) {
             $properties = [
                 '$feature_flag' => $key,
                 '$feature_flag_response' => $result,
@@ -468,13 +554,7 @@ class Client
                 $properties['$feature_flag_error'] = $featureFlagError;
             }
 
-            $this->capture([
-                "properties" => $properties,
-                "distinct_id" => $distinctId,
-                "event" => '$feature_flag_called',
-                '$groups' => $groups
-            ]);
-            $this->distinctIdsFeatureFlagsReported->add($key, $distinctId);
+            $this->captureFlagCalledIfNeeded($distinctId, $key, $properties, $groups);
         }
 
         if (is_null($result)) {
@@ -490,8 +570,9 @@ class Client
     }
 
     /**
-     * @deprecated Use `getFeatureFlagResult()` instead which properly tracks the feature flag call,
-     * and includes both the flag value and payload in a single method.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call
+     * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -507,7 +588,16 @@ class Client
         array $personProperties = array(),
         array $groupProperties = array(),
     ): mixed {
-        $result = $this->getFeatureFlagResult(
+        trigger_error(
+            'Client::getFeatureFlagPayload() is deprecated and will be removed in a future major '
+            . 'version. Use Client::evaluateFlags($distinctId, ...) and call '
+            . '$flags->getFlagPayload($key) instead — this consolidates flag evaluation into a '
+            . 'single /flags request per incoming request.',
+            E_USER_DEPRECATED
+        );
+
+        // Route through the private helper so the user sees exactly one deprecation warning.
+        $result = $this->doGetFeatureFlagResult(
             $key,
             $distinctId,
             $groups,
@@ -579,6 +669,233 @@ class Client
         }
 
         return $response;
+    }
+
+    /**
+     * Evaluate every feature flag for a distinct id in a single round trip and return a
+     * FeatureFlagEvaluations snapshot. Reads on the snapshot do not trigger additional /flags
+     * requests; access via isEnabled() or getFlag() fires a deduped $feature_flag_called event the
+     * first time each key is touched.
+     *
+     * @param array<string, mixed> $groups
+     * @param array<string, mixed> $personProperties
+     * @param array<string, array<string, mixed>> $groupProperties
+     * @param list<string>|null $flagKeys Optional list of flag keys. When provided, only these
+     *     flags are evaluated — the underlying /flags request asks the server for just this
+     *     subset, which makes the response smaller and the request cheaper. Use this when you
+     *     only need a handful of flags out of many. Distinct from FeatureFlagEvaluations::only(),
+     *     which scopes which already-evaluated flags get attached to a captured event.
+     */
+    public function evaluateFlags(
+        string $distinctId,
+        array $groups = [],
+        array $personProperties = [],
+        array $groupProperties = [],
+        bool $onlyEvaluateLocally = false,
+        bool $disableGeoip = false,
+        ?array $flagKeys = null
+    ): FeatureFlagEvaluations {
+        if ($distinctId === '') {
+            return new FeatureFlagEvaluations(
+                $distinctId,
+                [],
+                $groups,
+                $this,
+            );
+        }
+
+        [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties
+        );
+
+        $records = [];
+        $requestId = null;
+        $evaluatedAt = null;
+        $errorsWhileComputing = false;
+        $quotaLimited = false;
+        $fallbackToRemote = false;
+
+        // Local pass: try to resolve any flag we can without going to the server. Track whether
+        // any flag was inconclusive (which forces a remote round trip) so we can skip /flags
+        // entirely when local evaluation covered everything we know about.
+        $hasLocalDefinitions = count($this->featureFlags) > 0;
+        if ($hasLocalDefinitions) {
+            $localKeys = [];
+            foreach ($this->featureFlags as $flag) {
+                $key = $flag['key'] ?? null;
+                if (!is_string($key) || $key === '') {
+                    continue;
+                }
+                $localKeys[$key] = true;
+
+                if ($flagKeys !== null && !in_array($key, $flagKeys, true)) {
+                    continue;
+                }
+
+                try {
+                    $value = $this->computeFlagLocally(
+                        $flag,
+                        $distinctId,
+                        $groups,
+                        $personProperties,
+                        $groupProperties
+                    );
+                } catch (RequiresServerEvaluationException $e) {
+                    $fallbackToRemote = true;
+                    continue;
+                } catch (InconclusiveMatchException $e) {
+                    $fallbackToRemote = true;
+                    continue;
+                } catch (Exception $e) {
+                    $fallbackToRemote = true;
+                    error_log("[PostHog][Client] Error while computing variant: " . $e->getMessage());
+                    continue;
+                }
+
+                $variant = is_string($value) ? $value : null;
+                $enabled = is_string($value) ? true : (bool) $value;
+                $id = isset($flag['id']) ? (int) $flag['id'] : null;
+
+                $records[$key] = new EvaluatedFlagRecord(
+                    key: $key,
+                    enabled: $enabled,
+                    variant: $variant,
+                    payload: null,
+                    id: $id,
+                    version: null,
+                    reason: 'Evaluated locally',
+                    locallyEvaluated: true,
+                );
+            }
+
+            // If the caller asked for keys we don't have local definitions for, hit /flags so
+            // we can resolve them.
+            if ($flagKeys !== null) {
+                foreach ($flagKeys as $requestedKey) {
+                    if (!isset($localKeys[$requestedKey])) {
+                        $fallbackToRemote = true;
+                        break;
+                    }
+                }
+            }
+        } else {
+            // No local definitions loaded — every flag has to come from the server.
+            $fallbackToRemote = true;
+        }
+
+        $shouldHitRemote = !$onlyEvaluateLocally && $fallbackToRemote;
+
+        if ($shouldHitRemote) {
+            try {
+                $response = $this->flags(
+                    $distinctId,
+                    $groups,
+                    $personProperties,
+                    $groupProperties,
+                    $disableGeoip,
+                    $flagKeys
+                );
+
+                $requestId = $response['requestId'] ?? null;
+                $evaluatedAt = isset($response['evaluatedAt']) && is_int($response['evaluatedAt'])
+                    ? $response['evaluatedAt']
+                    : null;
+                $errorsWhileComputing = (bool) ($response['errorsWhileComputingFlags'] ?? false);
+                $remoteFlags = $response['flags'] ?? [];
+
+                foreach ($remoteFlags as $key => $flagDetail) {
+                    if (!is_string($key) || $key === '' || isset($records[$key])) {
+                        continue;
+                    }
+                    if (!is_array($flagDetail) || ($flagDetail['failed'] ?? false)) {
+                        continue;
+                    }
+
+                    $variant = $flagDetail['variant'] ?? null;
+                    $enabled = (bool) ($flagDetail['enabled'] ?? false);
+                    // Payloads come down as JSON strings, but defensively handle pre-decoded
+                    // values too (some clients/middleware may deserialize transparently).
+                    $rawPayload = $flagDetail['metadata']['payload'] ?? null;
+                    if ($rawPayload === null) {
+                        $payload = null;
+                    } elseif (is_string($rawPayload)) {
+                        $payload = json_decode($rawPayload, true);
+                    } else {
+                        $payload = $rawPayload;
+                    }
+
+                    $records[$key] = new EvaluatedFlagRecord(
+                        key: $key,
+                        enabled: $enabled,
+                        variant: is_string($variant) ? $variant : null,
+                        payload: $payload,
+                        id: isset($flagDetail['metadata']['id'])
+                            ? (int) $flagDetail['metadata']['id']
+                            : null,
+                        version: isset($flagDetail['metadata']['version'])
+                            ? (int) $flagDetail['metadata']['version']
+                            : null,
+                        reason: $flagDetail['reason']['description'] ?? null,
+                        locallyEvaluated: false,
+                    );
+                }
+            } catch (HttpException $e) {
+                if ($e->getErrorType() === HttpException::QUOTA_LIMITED) {
+                    $quotaLimited = true;
+                }
+                error_log("[PostHog][Client] Unable to evaluate flags: " . $e->getMessage());
+            } catch (Exception $e) {
+                error_log("[PostHog][Client] Unable to evaluate flags: " . $e->getMessage());
+            }
+        }
+
+        return new FeatureFlagEvaluations(
+            $distinctId,
+            $records,
+            $groups,
+            $this,
+            $requestId,
+            $evaluatedAt,
+            null,
+            $errorsWhileComputing,
+            $quotaLimited,
+        );
+    }
+
+    /**
+     * Fire a $feature_flag_called event the first time a (flag key, distinct id) pair is seen by
+     * this Client, deduped via the per-distinct_id cache shared with every other flag-reading code
+     * path. Properties are built by the caller so each call site can shape the payload to match its
+     * available metadata.
+     *
+     * @param array<string, mixed> $properties
+     * @param array<string, mixed> $groups
+     */
+    public function captureFlagCalledIfNeeded(
+        string $distinctId,
+        string $key,
+        array $properties,
+        array $groups = []
+    ): void {
+        if ($this->distinctIdsFeatureFlagsReported->contains($key, $distinctId)) {
+            return;
+        }
+
+        $this->capture([
+            'properties' => $properties,
+            'distinct_id' => $distinctId,
+            'event' => '$feature_flag_called',
+            '$groups' => $groups,
+        ]);
+        $this->distinctIdsFeatureFlagsReported->add($key, $distinctId);
+    }
+
+    public function logWarning(string $message): void
+    {
+        error_log("[PostHog][Client] " . $message);
     }
 
     private function computeFlagLocally(
@@ -821,7 +1138,9 @@ class Client
         string $distinctId,
         array $groups = array(),
         array $personProperties = [],
-        array $groupProperties = []
+        array $groupProperties = [],
+        bool $disableGeoip = false,
+        ?array $flagKeys = null
     ): array {
         $payload = array(
             'api_key' => $this->apiKey,
@@ -838,6 +1157,14 @@ class Client
 
         if (!empty($groupProperties)) {
             $payload["group_properties"] = $groupProperties;
+        }
+
+        if ($disableGeoip) {
+            $payload["geoip_disable"] = true;
+        }
+
+        if ($flagKeys !== null) {
+            $payload["flag_keys_to_evaluate"] = array_values($flagKeys);
         }
 
         $httpResponse = $this->httpClient->sendRequest(

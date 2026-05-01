@@ -1,3 +1,18 @@
+## Unreleased
+
+* feat(flags): Add `evaluateFlags()` API for single-call flag evaluation. Returns a
+  `FeatureFlagEvaluations` snapshot you can read repeatedly without further `/flags` requests; pass
+  it to `capture()` via the new `flags` key to attach `$feature/<key>` and `$active_feature_flags`
+  on the captured event without an extra round trip.
+* feat(flags): Deprecate `isFeatureEnabled()`, `getFeatureFlag()`, `getFeatureFlagResult()`,
+  `getFeatureFlagPayload()`, and the `send_feature_flags` `capture()` option in favor of
+  `evaluateFlags()`. Each emits an `E_USER_DEPRECATED` warning pointing at the new API; existing
+  callers keep working unchanged until the next major version. `getAllFlags()` is intentionally
+  *not* deprecated — it returns an arbitrary key list the snapshot API doesn't yet cover.
+* fix(flags): `SizeLimitedHash::contains()` and `add()` were storing entries on the outer map and
+  comparing values to keys, so the per-distinct_id `$feature_flag_called` dedup never matched after
+  the first event. Both helpers now operate on a per-key set as intended.
+
 ## 4.2.4 - 2026-04-28
 
 * [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.2.3...4.2.4)

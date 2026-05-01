@@ -138,7 +138,9 @@ class PostHog
     }
 
     /**
-     * decide if the feature flag is enabled for this distinct id.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call
+     * `$flags->isEnabled($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -170,7 +172,9 @@ class PostHog
     }
 
     /**
-     * get the feature flag value for this distinct id.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call
+     * `$flags->getFlag($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -202,10 +206,9 @@ class PostHog
     }
 
     /**
-     * Get the feature flag result including value and payload.
-     *
-     * This is the recommended method for getting feature flag data as it returns
-     * both the flag value and payload in a single call, while properly tracking analytics.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call `$flags->getFlag($key)` and
+     * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -239,8 +242,9 @@ class PostHog
     }
 
     /**
-     * @deprecated Use getFeatureFlagResult() instead. This method does not send
-     * the $feature_flag_called event, leading to missing analytics.
+     * @deprecated Use `evaluateFlags($distinctId, ...)` and call
+     * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
+     * `/flags` request per incoming request.
      *
      * @param string $key
      * @param string $distinctId
@@ -262,6 +266,42 @@ class PostHog
             $groups,
             $personProperties,
             $groupProperties
+        );
+    }
+
+    /**
+     * Evaluate every feature flag for a distinct id in a single round trip and return a snapshot.
+     * Pass the snapshot to capture() via the `flags` key to attach $feature/<key> properties
+     * without making another /flags request.
+     *
+     * @param array $groups
+     * @param array $personProperties
+     * @param array $groupProperties
+     * @param list<string>|null $flagKeys Optional list of flag keys. When provided, only these
+     *     flags are evaluated — the underlying /flags request asks the server for just this
+     *     subset, which makes the response smaller and the request cheaper. Use this when you
+     *     only need a handful of flags out of many. Distinct from FeatureFlagEvaluations::only(),
+     *     which scopes which already-evaluated flags get attached to a captured event.
+     * @throws Exception
+     */
+    public static function evaluateFlags(
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array(),
+        bool $onlyEvaluateLocally = false,
+        bool $disableGeoip = false,
+        ?array $flagKeys = null
+    ): FeatureFlagEvaluations {
+        self::checkClient();
+        return self::$client->evaluateFlags(
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $onlyEvaluateLocally,
+            $disableGeoip,
+            $flagKeys
         );
     }
 
