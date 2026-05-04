@@ -1,0 +1,13 @@
+{
+  "name": "posthog-php",
+  "version": "4.2.4",
+  "private": true,
+  "description": "Release metadata and changesets for the PostHog PHP SDK",
+  "packageManager": "pnpm@10.33.2",
+  "scripts": {
+    "changeset": "changeset"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.30.0"
+  }
+}
