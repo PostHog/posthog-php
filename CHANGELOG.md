@@ -2,8 +2,6 @@
 
 * [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.2.4...4.3.0)
 
-## Unreleased
-
 * feat(flags): Add `evaluateFlags()` API for single-call flag evaluation. Returns a
   `FeatureFlagEvaluations` snapshot you can read repeatedly without further `/flags` requests; pass
   it to `capture()` via the new `flags` key to attach `$feature/<key>` and `$active_feature_flags`
