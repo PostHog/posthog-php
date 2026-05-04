@@ -108,17 +108,7 @@ jobs:
         run: |
           pnpm changeset version
           NEW_VERSION=$(node -p "require('./package.json').version")
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          version = json.loads(Path('package.json').read_text())['version']
-          posthog = Path('lib/PostHog.php')
-          posthog.write_text(__import__('re').sub(r"public const VERSION = '[^']+'", f"public const VERSION = '{version}'", posthog.read_text()))
-          composer = Path('composer.json')
-          data = json.loads(composer.read_text())
-          data['version'] = version
-          composer.write_text(json.dumps(data, indent="\t") + "\n")
-          PY
+          ./scripts/bump-version.sh "$NEW_VERSION"
           echo "new-version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "New version: $NEW_VERSION"
 
