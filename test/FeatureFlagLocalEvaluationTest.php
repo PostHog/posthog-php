@@ -1153,6 +1153,83 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->assertEquals(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', ["company" => "amazon"], [], ["company" => []]), 'decide-fallback-value');
     }
 
+    /**
+     * @dataProvider mixedTargetingProvider
+     */
+    public function testMixedTargetingLocalEvaluation(string $flagKey, array $opts, $expected, array $localFlags)
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: $localFlags);
+        $this->client = new Client(self::FAKE_API_KEY, ["debug" => true], $this->http_client, "test");
+        PostHog::init(null, null, $this->client);
+
+        $result = PostHog::getFeatureFlag(
+            $flagKey,
+            'test-distinct-id',
+            $opts['groups'] ?? [],
+            $opts['person_properties'] ?? [],
+            $opts['group_properties'] ?? []
+        );
+        $this->assertSame($expected, $result);
+    }
+
+    public static function mixedTargetingProvider(): array
+    {
+        return [
+            'person condition matches when no groups passed' => [
+                'mixed-flag',
+                ['person_properties' => ['email' => 'test@example.com']],
+                true,
+                MockedResponses::LOCAL_EVALUATION_MIXED_TARGETING_REQUEST,
+            ],
+            'group condition matches when group props match' => [
+                'mixed-flag',
+                [
+                    'groups' => ['company' => 'acme'],
+                    'group_properties' => ['company' => ['plan' => 'enterprise']],
+                    'person_properties' => ['email' => 'nope@example.com'],
+                ],
+                true,
+                MockedResponses::LOCAL_EVALUATION_MIXED_TARGETING_REQUEST,
+            ],
+            'no match when both person and group fail' => [
+                'mixed-flag',
+                [
+                    'groups' => ['company' => 'acme'],
+                    'group_properties' => ['company' => ['plan' => 'free']],
+                    'person_properties' => ['email' => 'nope@example.com'],
+                ],
+                false,
+                MockedResponses::LOCAL_EVALUATION_MIXED_TARGETING_REQUEST,
+            ],
+            'only group condition, no groups passed: returns false without server fallback' => [
+                'only-group-flag',
+                [],
+                false,
+                MockedResponses::LOCAL_EVALUATION_ONLY_GROUP_CONDITION_REQUEST,
+            ],
+        ];
+    }
+
+    public function testMixedTargetingRolloutBucketing()
+    {
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_GROUP_ROLLOUT_REQUEST
+        );
+        $this->client = new Client(self::FAKE_API_KEY, ["debug" => true], $this->http_client, "test");
+        PostHog::init(null, null, $this->client);
+
+        // With rollout 100% and a group passed, the group condition resolves locally —
+        // the matcher must hash on the group key, not the distinct_id.
+        $this->assertTrue(PostHog::getFeatureFlag(
+            'rollout-flag',
+            'any-distinct-id',
+            ["company" => "acme"],
+            [],
+            ["company" => []]
+        ));
+    }
+
     public function testFlagComplexDefinition()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_COMPLEX_FLAG_REQUEST);

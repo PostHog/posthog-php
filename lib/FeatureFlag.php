@@ -586,16 +586,55 @@ class FeatureFlag
         return $lookupTable;
     }
 
-    public static function matchFeatureFlagProperties($flag, $distinctId, $properties, $cohorts = [], $flagsByKey = null, $evaluationCache = null)
-    {
-        $flagConditions = ($flag["filters"] ?? [])["groups"] ?? [];
+    public static function matchFeatureFlagProperties(
+        $flag,
+        $distinctId,
+        $properties,
+        $cohorts = [],
+        $flagsByKey = null,
+        $evaluationCache = null,
+        $groups = [],
+        $groupProperties = [],
+        $groupTypeMapping = []
+    ) {
+        $flagFilters = $flag["filters"] ?? [];
+        $flagConditions = $flagFilters["groups"] ?? [];
+        $flagAggregation = $flagFilters["aggregation_group_type_index"] ?? null;
         $isInconclusive = false;
 
         foreach ($flagConditions as $condition) {
             try {
-                if (FeatureFlag::isConditionMatch($flag, $distinctId, $condition, $properties, $cohorts, $flagsByKey, $evaluationCache)) {
+                // Per-condition aggregation overrides only when the condition explicitly
+                // sets its own aggregation_group_type_index (mixed targeting). When absent,
+                // use the properties/bucketing already resolved by the caller.
+                $hasConditionAggregation = array_key_exists("aggregation_group_type_index", $condition);
+                $conditionAggregation = $hasConditionAggregation
+                    ? $condition["aggregation_group_type_index"]
+                    : $flagAggregation;
+
+                $effectiveProperties = $properties;
+                $effectiveBucketing = $distinctId;
+
+                // Mixed-override path: condition-level aggregation differs from flag-level.
+                // This assumes flag-level aggregation is null for mixed flags.
+                if ($conditionAggregation !== $flagAggregation) {
+                    if (!is_null($conditionAggregation)) {
+                        $groupName = $groupTypeMapping[strval($conditionAggregation)] ?? null;
+                        if (is_null($groupName) || !array_key_exists($groupName, $groups)) {
+                            continue;
+                        }
+                        if (!array_key_exists($groupName, $groupProperties)) {
+                            $isInconclusive = true;
+                            continue;
+                        }
+                        $effectiveProperties = $groupProperties[$groupName];
+                        $effectiveBucketing = $groups[$groupName];
+                    }
+                }
+
+                if (FeatureFlag::isConditionMatch($flag, $effectiveBucketing, $condition, $effectiveProperties, $cohorts, $flagsByKey, $evaluationCache)) {
                     $variantOverride = $condition["variant"] ?? null;
-                    $flagVariants = (($flag["filters"] ?? [])["multivariate"] ?? [])["variants"] ?? [];
+                    $flagVariants = ($flagFilters["multivariate"] ?? [])["variants"] ?? [];
                     $variantKeys = array_map(function ($variant) {
                         return $variant["key"];
                     }, $flagVariants);
@@ -603,7 +642,7 @@ class FeatureFlag
                     if ($variantOverride && in_array($variantOverride, $variantKeys)) {
                         return $variantOverride;
                     } else {
-                        return FeatureFlag::getMatchingVariant($flag, $distinctId) ?? true;
+                        return FeatureFlag::getMatchingVariant($flag, $effectiveBucketing) ?? true;
                     }
                 }
             } catch (RequiresServerEvaluationException $e) {
