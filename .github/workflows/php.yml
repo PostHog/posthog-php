@@ -8,6 +8,15 @@ on:
       - "phpcs.xml"
       - "phpunit.xml"
       - ".github/workflows/php.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "**.php"
+      - "bin/posthog"
+      - "phpcs.xml"
+      - "phpunit.xml"
+      - ".github/workflows/php.yml"
 
 jobs:
   phpunit:
