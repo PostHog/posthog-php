@@ -5,6 +5,7 @@ namespace PostHog\Test;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\ExceptionCapture;
+use PostHog\RequestContext;
 
 class ExceptionCaptureTest extends TestCase
 {
@@ -16,6 +17,7 @@ class ExceptionCaptureTest extends TestCase
     public function setUp(): void
     {
         date_default_timezone_set("UTC");
+        RequestContext::reset();
         ExceptionCapture::resetForTests();
         ExceptionCapture::enableThrowOnUnhandledForTests();
 
@@ -26,6 +28,7 @@ class ExceptionCaptureTest extends TestCase
     public function tearDown(): void
     {
         ExceptionCapture::resetForTests();
+        RequestContext::reset();
     }
 
     public function testDisabledErrorTrackingDoesNotRegisterHandlers(): void
@@ -376,6 +379,38 @@ PHP);
         $this->assertSame('provider-user', $event['distinct_id']);
         $this->assertSame('https://example.com/error', $event['properties']['$current_url']);
         $this->assertSame('sync-users', $event['properties']['job_name']);
+        $this->assertArrayNotHasKey('$process_person_profile', $event['properties']);
+    }
+
+    public function testExceptionHandlerUsesCurrentClientContextProperties(): void
+    {
+        $this->buildClient(['error_tracking' => ['enabled' => true]]);
+
+        try {
+            $this->client->withContext([
+                'distinctId' => 'context-user',
+                'sessionId' => 'context-session',
+                'properties' => [
+                    '$request_path' => '/api/context',
+                    '$exception_source' => 'context-source',
+                    'context_property' => 'context-value',
+                ],
+            ], function (): void {
+                ExceptionCapture::handleException(new \RuntimeException('context boom'));
+            });
+            $this->fail('Expected the uncaught exception to be rethrown');
+        } catch (\RuntimeException $caught) {
+            $this->assertSame('context boom', $caught->getMessage());
+        }
+
+        $event = $this->findExceptionEvent();
+
+        $this->assertSame('context-user', $event['distinct_id']);
+        $this->assertSame('context-session', $event['properties']['$session_id']);
+        $this->assertSame('/api/context', $event['properties']['$request_path']);
+        $this->assertSame('context-value', $event['properties']['context_property']);
+        $this->assertSame('php_exception_handler', $event['properties']['$exception_source']);
+        $this->assertFalse($event['properties']['$exception_handled']);
         $this->assertArrayNotHasKey('$process_person_profile', $event['properties']);
     }
 

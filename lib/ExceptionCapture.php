@@ -444,34 +444,47 @@ class ExceptionCapture
      */
     private static function getProviderContext(array $payload): array
     {
+        $requestContext = self::$client?->getContext() ?? ['distinctId' => null, 'properties' => []];
+        $distinctId = $requestContext['distinctId'] ?? null;
+        $properties = $requestContext['properties'] ?? [];
+
         $provider = self::$options['context_provider'];
         if (!is_callable($provider)) {
-            return ['distinctId' => null, 'properties' => []];
+            return [
+                'distinctId' => $distinctId !== null && $distinctId !== '' ? (string) $distinctId : null,
+                'properties' => is_array($properties) ? $properties : [],
+            ];
         }
 
         try {
             $result = $provider($payload);
         } catch (\Throwable $providerError) {
-            return ['distinctId' => null, 'properties' => []];
+            return [
+                'distinctId' => $distinctId !== null && $distinctId !== '' ? (string) $distinctId : null,
+                'properties' => is_array($properties) ? $properties : [],
+            ];
         }
 
         if (!is_array($result)) {
-            return ['distinctId' => null, 'properties' => []];
+            return [
+                'distinctId' => $distinctId !== null && $distinctId !== '' ? (string) $distinctId : null,
+                'properties' => is_array($properties) ? $properties : [],
+            ];
         }
 
-        $distinctId = $result['distinctId'] ?? null;
-        if ($distinctId !== null && !is_scalar($distinctId)) {
-            $distinctId = null;
+        $providerDistinctId = $result['distinctId'] ?? null;
+        if ($providerDistinctId !== null && is_scalar($providerDistinctId) && (string) $providerDistinctId !== '') {
+            $distinctId = (string) $providerDistinctId;
         }
 
-        $properties = $result['properties'] ?? [];
-        if (!is_array($properties)) {
-            $properties = [];
+        $providerProperties = $result['properties'] ?? [];
+        if (!is_array($providerProperties)) {
+            $providerProperties = [];
         }
 
         return [
             'distinctId' => $distinctId !== null && $distinctId !== '' ? (string) $distinctId : null,
-            'properties' => $properties,
+            'properties' => array_merge(is_array($properties) ? $properties : [], $providerProperties),
         ];
     }
 
