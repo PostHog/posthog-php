@@ -89,6 +89,11 @@ class Client implements FeatureFlagEvaluationsHost
     private $options;
 
     /**
+     * @var array<string, bool>
+     */
+    private array $missingDistinctIdWarnings = [];
+
+    /**
      * Create a new posthog object with your app's API key
      * key
      *
@@ -158,6 +163,10 @@ class Client implements FeatureFlagEvaluationsHost
         $flagsSnapshot = $message["flags"] ?? null;
         unset($message["flags"]);
 
+        $usedGeneratedPersonlessDistinctId = false;
+        if ($this->shouldApplyCaptureContext($message)) {
+            $message = $this->applyCaptureContext($message, $usedGeneratedPersonlessDistinctId);
+        }
         $message = $this->message($message);
         $message["type"] = "capture";
 
@@ -188,28 +197,30 @@ class Client implements FeatureFlagEvaluationsHost
                 E_USER_DEPRECATED
             );
 
-            $extraProperties = [];
-            $flags = [];
+            if (!$usedGeneratedPersonlessDistinctId) {
+                $extraProperties = [];
+                $flags = [];
 
-            if (count($this->featureFlags) != 0) {
-                // Local evaluation is enabled, flags are loaded, so try and get all flags
-                // we can without going to the server.
-                $flags = $this->getAllFlags($message["distinct_id"], $message["groups"], [], [], true);
-            } else {
-                $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
+                if (count($this->featureFlags) != 0) {
+                    // Local evaluation is enabled, flags are loaded, so try and get all flags
+                    // we can without going to the server.
+                    $flags = $this->getAllFlags($message["distinct_id"], $message["groups"], [], [], true);
+                } else {
+                    $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
+                }
+
+                // Add all feature variants to event
+                foreach ($flags as $flagKey => $flagValue) {
+                    $extraProperties[sprintf('$feature/%s', $flagKey)] = $flagValue;
+                }
+                // Add all feature flag keys that aren't false to $active_feature_flags
+                // decide v2 does this automatically, but we need it for when we upgrade to v3
+                $extraProperties['$active_feature_flags'] = array_keys(array_filter($flags, function ($flagValue) {
+                    return $flagValue !== false;
+                }));
+
+                $message["properties"] = array_merge($extraProperties, $message["properties"]);
             }
-
-            // Add all feature variants to event
-            foreach ($flags as $flagKey => $flagValue) {
-                $extraProperties[sprintf('$feature/%s', $flagKey)] = $flagValue;
-            }
-            // Add all feature flag keys that aren't false to $active_feature_flags
-            // decide v2 does this automatically, but we need it for when we upgrade to v3
-            $extraProperties['$active_feature_flags'] = array_keys(array_filter($flags, function ($flagValue) {
-                return $flagValue !== false;
-            }));
-
-            $message["properties"] = array_merge($extraProperties, $message["properties"]);
         }
 
 
@@ -229,11 +240,6 @@ class Client implements FeatureFlagEvaluationsHost
         ?string $distinctId = null,
         array $additionalProperties = []
     ): bool {
-        $noDistinctIdProvided = $distinctId === null;
-        if ($noDistinctIdProvided) {
-            $distinctId = Uuid::v4();
-        }
-
         $errorTrackingConfig = $this->options['error_tracking'] ?? [];
         $maxFrames = max(0, (int) ($errorTrackingConfig['max_frames'] ?? 20));
 
@@ -250,15 +256,16 @@ class Client implements FeatureFlagEvaluationsHost
             ]
         );
 
-        if ($noDistinctIdProvided) {
-            $properties['$process_person_profile'] = false;
-        }
-
-        return $this->capture([
-            'distinctId'  => $distinctId,
+        $message = [
             'event'       => '$exception',
             'properties'  => $properties,
-        ]);
+        ];
+
+        if ($distinctId !== null) {
+            $message['distinctId'] = $distinctId;
+        }
+
+        return $this->capture($message);
     }
 
     /**
@@ -286,7 +293,7 @@ class Client implements FeatureFlagEvaluationsHost
      * `/flags` request per incoming request.
      *
      * @param string $key
-     * @param string $distinctId
+     * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -295,7 +302,7 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function isFeatureEnabled(
         string $key,
-        string $distinctId,
+        ?string $distinctId = null,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
@@ -335,7 +342,7 @@ class Client implements FeatureFlagEvaluationsHost
      * `/flags` request per incoming request.
      *
      * @param string $key
-     * @param string $distinctId
+     * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -344,7 +351,7 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function getFeatureFlag(
         string $key,
-        string $distinctId,
+        ?string $distinctId = null,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
@@ -379,7 +386,7 @@ class Client implements FeatureFlagEvaluationsHost
      * `/flags` request per incoming request.
      *
      * @param string $key
-     * @param string $distinctId
+     * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -390,7 +397,7 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function getFeatureFlagResult(
         string $key,
-        string $distinctId,
+        ?string $distinctId = null,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
@@ -429,13 +436,19 @@ class Client implements FeatureFlagEvaluationsHost
      */
     private function doGetFeatureFlagResult(
         string $key,
-        string $distinctId,
+        ?string $distinctId = null,
         array $groups = [],
         array $personProperties = [],
         array $groupProperties = [],
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true
     ): ?FeatureFlagResult {
+        $distinctId = $this->resolveDistinctId($distinctId);
+        if ($distinctId === '') {
+            $this->warnMissingDistinctId('Feature flag evaluation');
+            return null;
+        }
+
         [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
             $distinctId,
             $groups,
@@ -575,7 +588,7 @@ class Client implements FeatureFlagEvaluationsHost
      * `/flags` request per incoming request.
      *
      * @param string $key
-     * @param string $distinctId
+     * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -583,7 +596,7 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function getFeatureFlagPayload(
         string $key,
-        string $distinctId,
+        ?string $distinctId = null,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
@@ -613,7 +626,7 @@ class Client implements FeatureFlagEvaluationsHost
     /**
      * get the feature flag value for this distinct id.
      *
-     * @param string $distinctId
+     * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -621,12 +634,18 @@ class Client implements FeatureFlagEvaluationsHost
      * @throws Exception
      */
     public function getAllFlags(
-        string $distinctId,
+        ?string $distinctId = null,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false
     ): array {
+        $distinctId = $this->resolveDistinctId($distinctId);
+        if ($distinctId === '') {
+            $this->warnMissingDistinctId('getAllFlags()');
+            return [];
+        }
+
         [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
             $distinctId,
             $groups,
@@ -673,7 +692,8 @@ class Client implements FeatureFlagEvaluationsHost
 
     /**
      * Evaluate every feature flag for a distinct id in a single round trip and return a
-     * FeatureFlagEvaluations snapshot. Reads on the snapshot do not trigger additional /flags
+     * FeatureFlagEvaluations snapshot. When distinctId is omitted, the current request context
+     * distinctId is used if available. Reads on the snapshot do not trigger additional /flags
      * requests; access via isEnabled() or getFlag() fires a deduped $feature_flag_called event the
      * first time each key is touched.
      *
@@ -687,7 +707,7 @@ class Client implements FeatureFlagEvaluationsHost
      *     which scopes which already-evaluated flags get attached to a captured event.
      */
     public function evaluateFlags(
-        string $distinctId,
+        ?string $distinctId = null,
         array $groups = [],
         array $personProperties = [],
         array $groupProperties = [],
@@ -695,7 +715,9 @@ class Client implements FeatureFlagEvaluationsHost
         bool $disableGeoip = false,
         ?array $flagKeys = null
     ): FeatureFlagEvaluations {
+        $distinctId = $this->resolveDistinctId($distinctId);
         if ($distinctId === '') {
+            $this->warnMissingDistinctId('evaluateFlags()');
             return new FeatureFlagEvaluations(
                 $distinctId,
                 [],
@@ -1013,7 +1035,10 @@ class Client implements FeatureFlagEvaluationsHost
 
         $responseCode = $response->getResponseCode();
         if ($responseCode !== 200) {
-            error_log("[PostHog][Client] Failed to load feature flags (HTTP $responseCode): " . $response->getResponse());
+            error_log(
+                "[PostHog][Client] Failed to load feature flags (HTTP $responseCode): "
+                . $response->getResponse()
+            );
             return;
         }
 
@@ -1315,6 +1340,130 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
+     * Run a callback with request context applied to all captures in the callback.
+     *
+     * @param array<string, mixed> $data
+     * @param callable $fn
+     * @param array<string, mixed> $options
+     * @return mixed
+     */
+    public function withContext(array $data, callable $fn, array $options = []): mixed
+    {
+        return RequestContext::withContext($data, $fn, $options, $this->contextKey());
+    }
+
+    /**
+     * @return array{distinctId?: string|null, sessionId?: string|null, properties: array<string, mixed>}|null
+     */
+    public function getContext(): ?array
+    {
+        return RequestContext::getContext($this->contextKey());
+    }
+
+    /**
+     * @param array<string, mixed> $headers
+     * @return array{distinctId?: string|null, sessionId?: string|null, properties: array<string, mixed>}
+     */
+    public function contextFromHeaders(array $headers): array
+    {
+        return RequestContext::contextFromHeaders($headers);
+    }
+
+    private function contextKey(): int
+    {
+        return spl_object_id($this);
+    }
+
+    private function resolveDistinctId(?string $distinctId): string
+    {
+        if ($distinctId !== null && $distinctId !== '') {
+            return $distinctId;
+        }
+
+        return RequestContext::getDistinctId($this->contextKey()) ?? '';
+    }
+
+    private function warnMissingDistinctId(string $operation): void
+    {
+        if (isset($this->missingDistinctIdWarnings[$operation])) {
+            return;
+        }
+
+        $this->missingDistinctIdWarnings[$operation] = true;
+        $this->logWarning(
+            "$operation requires distinctId — pass it explicitly or use withContext()."
+        );
+    }
+
+    private function shouldApplyCaptureContext(array $msg): bool
+    {
+        return ($msg['event'] ?? null) !== '$groupidentify';
+    }
+
+    /**
+     * Apply request context to capture-like events only. Identification, alias,
+     * and group identify calls must keep explicit identity/properties to avoid
+     * accidentally mutating the wrong entity from ambient request state.
+     *
+     * @param array $msg
+     * @return array
+     */
+    private function applyCaptureContext(array $msg, bool &$usedGeneratedPersonlessDistinctId): array
+    {
+        if (!isset($msg["properties"]) || !is_array($msg["properties"])) {
+            $msg["properties"] = array();
+        }
+
+        $explicitDistinctId = $this->hasExplicitCaptureDistinctId($msg);
+
+        $context = RequestContext::getContext($this->contextKey());
+        $msg["properties"] = array_merge($context['properties'] ?? [], $msg["properties"]);
+
+        if (
+            isset($context['sessionId'])
+            && !array_key_exists('$session_id', $msg["properties"])
+        ) {
+            $msg["properties"]['$session_id'] = $context['sessionId'];
+        }
+
+        if (!$explicitDistinctId && isset($context['distinctId']) && (string) $context['distinctId'] !== '') {
+            $msg["distinct_id"] = $context['distinctId'];
+            $explicitDistinctId = true;
+        }
+
+        if (!$explicitDistinctId) {
+            $msg["distinct_id"] = Uuid::v4();
+            $usedGeneratedPersonlessDistinctId = true;
+            if (!array_key_exists('$process_person_profile', $msg["properties"])) {
+                $msg["properties"]['$process_person_profile'] = false;
+            }
+        }
+
+        return $msg;
+    }
+
+    private function hasExplicitCaptureDistinctId(array &$msg): bool
+    {
+        if (array_key_exists("distinctId", $msg)) {
+            if (is_scalar($msg["distinctId"]) && (string) $msg["distinctId"] !== '') {
+                return true;
+            }
+
+            unset($msg["distinctId"]);
+        }
+
+        if (array_key_exists("distinct_id", $msg)) {
+            if (is_scalar($msg["distinct_id"]) && (string) $msg["distinct_id"] !== '') {
+                return true;
+            }
+
+            unset($msg["distinct_id"]);
+        }
+
+        return false;
+    }
+
+    /**
      * Add common fields to the given `message`
      *
      * @param array $msg
@@ -1322,7 +1471,7 @@ class Client implements FeatureFlagEvaluationsHost
      */
     private function message($msg)
     {
-        if (!isset($msg["properties"])) {
+        if (!isset($msg["properties"]) || !is_array($msg["properties"])) {
             $msg["properties"] = array();
         }
 

@@ -87,7 +87,6 @@ class PostHog
         self::checkClient();
         $event = !empty($message["event"]);
         self::assert($event, "PostHog::capture() expects an event");
-        self::validate($message, "capture");
 
         return self::$client->capture($message);
     }
@@ -143,7 +142,7 @@ class PostHog
      * `/flags` request per incoming request.
      *
      * @param string $key
-     * @param string $distinctId
+     * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -152,7 +151,7 @@ class PostHog
      */
     public static function isFeatureEnabled(
         string $key,
-        string $distinctId,
+        ?string $distinctId = null,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
@@ -177,7 +176,7 @@ class PostHog
      * `/flags` request per incoming request.
      *
      * @param string $key
-     * @param string $distinctId
+     * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -186,7 +185,7 @@ class PostHog
      */
     public static function getFeatureFlag(
         string $key,
-        string $distinctId,
+        ?string $distinctId = null,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
@@ -211,7 +210,7 @@ class PostHog
      * `/flags` request per incoming request.
      *
      * @param string $key
-     * @param string $distinctId
+     * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -222,7 +221,7 @@ class PostHog
      */
     public static function getFeatureFlagResult(
         string $key,
-        string $distinctId,
+        ?string $distinctId = null,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
@@ -247,7 +246,7 @@ class PostHog
      * `/flags` request per incoming request.
      *
      * @param string $key
-     * @param string $distinctId
+     * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -255,7 +254,7 @@ class PostHog
      */
     public static function getFeatureFlagPayload(
         string $key,
-        string $distinctId,
+        ?string $distinctId = null,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
@@ -271,6 +270,7 @@ class PostHog
 
     /**
      * Evaluate every feature flag for a distinct id in a single round trip and return a snapshot.
+     * When distinctId is omitted, the current request context distinctId is used if available.
      * Pass the snapshot to capture() via the `flags` key to attach $feature/<key> properties
      * without making another /flags request.
      *
@@ -285,7 +285,7 @@ class PostHog
      * @throws Exception
      */
     public static function evaluateFlags(
-        string $distinctId,
+        ?string $distinctId = null,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
@@ -308,7 +308,7 @@ class PostHog
     /**
      * get all enabled flags for distinct_id
      *
-     * @param string $distinctId
+     * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array $groups
      * @param array $personProperties
      * @param array $groupProperties
@@ -316,7 +316,7 @@ class PostHog
      * @throws Exception
      */
     public static function getAllFlags(
-        string $distinctId,
+        ?string $distinctId = null,
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
@@ -363,6 +363,38 @@ class PostHog
     }
 
     /**
+     * Run a callback with request context applied to all captures in the callback.
+     *
+     * @param array<string, mixed> $data
+     * @param callable $fn
+     * @param array<string, mixed> $options
+     * @return mixed
+     */
+    public static function withContext(array $data, callable $fn, array $options = []): mixed
+    {
+        self::checkClient();
+        return self::$client->withContext($data, $fn, $options);
+    }
+
+    /**
+     * @return array{distinctId?: string|null, sessionId?: string|null, properties: array<string, mixed>}|null
+     */
+    public static function getContext(): ?array
+    {
+        self::checkClient();
+        return self::$client->getContext();
+    }
+
+    /**
+     * @param array<string, mixed> $headers
+     * @return array{distinctId?: string|null, sessionId?: string|null, properties: array<string, mixed>}
+     */
+    public static function contextFromHeaders(array $headers): array
+    {
+        return RequestContext::contextFromHeaders($headers);
+    }
+
+    /**
      * Send a raw (prepared) message
      *
      * @param array $message distinct id to alias from
@@ -383,7 +415,7 @@ class PostHog
      */
     public static function validate($msg, $type)
     {
-        $distinctId = !empty($msg["distinctId"]);
+        $distinctId = !empty($msg["distinctId"]) || !empty($msg["distinct_id"]);
         self::assert($distinctId, "PostHog::{$type}() requires distinctId");
     }
 
@@ -438,7 +470,7 @@ class PostHog
      */
     private static function checkClient()
     {
-        if (null != self::$client) {
+        if (isset(self::$client)) {
             return;
         }
 
