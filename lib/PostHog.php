@@ -110,7 +110,8 @@ class PostHog
     /**
      * Adds properties to a group.
      *
-     * @param array $message Must contain keys `groupType`, `groupKey`, `properties`
+     * @param array $message Must contain keys `groupType`, `groupKey`; accepts optional `properties`
+     *                       and `distinctId`/`distinct_id` to override the default synthetic ID.
      * @return boolean whether the groupIdentify call succeeded
      * @throws Exception
      */
@@ -123,9 +124,24 @@ class PostHog
             $message["properties"] = array();
         }
 
+        $distinctId = "\${$message['groupType']}_{$message['groupKey']}";
+        if (
+            array_key_exists("distinctId", $message)
+            && is_scalar($message["distinctId"])
+            && (string) $message["distinctId"] !== ""
+        ) {
+            $distinctId = (string) $message["distinctId"];
+        } elseif (
+            array_key_exists("distinct_id", $message)
+            && is_scalar($message["distinct_id"])
+            && (string) $message["distinct_id"] !== ""
+        ) {
+            $distinctId = (string) $message["distinct_id"];
+        }
+
         $msg = array(
             "event" => "\$groupidentify",
-            "distinctId" => "\${$message['groupType']}_{$message['groupKey']}",
+            "distinctId" => $distinctId,
             "properties" => array(
                 "\$group_type" => $message["groupType"],
                 "\$group_key" => $message["groupKey"],
