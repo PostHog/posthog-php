@@ -438,6 +438,38 @@ class RequestContextTest extends TestCase
         $this->assertArrayNotHasKey('$session_id', $event['properties']);
     }
 
+    public function testGroupIdentifyAllowsDistinctIdOverride(): void
+    {
+        PostHog::groupIdentify([
+            'groupType' => 'organization',
+            'groupKey' => 'acme',
+            'distinctId' => 'user-123',
+            'properties' => ['name' => 'Acme Inc.'],
+        ]);
+
+        $event = $this->flushAndGetEvents()[0];
+
+        $this->assertSame('user-123', $event['distinct_id']);
+        $this->assertSame('$groupidentify', $event['event']);
+        $this->assertSame('organization', $event['properties']['$group_type']);
+        $this->assertSame('acme', $event['properties']['$group_key']);
+        $this->assertSame(['name' => 'Acme Inc.'], $event['properties']['$group_set']);
+    }
+
+    public function testGroupIdentifyAllowsSnakeCaseDistinctIdOverride(): void
+    {
+        PostHog::groupIdentify([
+            'groupType' => 'organization',
+            'groupKey' => 'acme',
+            'distinct_id' => 'snake-user-123',
+            'properties' => ['name' => 'Acme Inc.'],
+        ]);
+
+        $event = $this->flushAndGetEvents()[0];
+
+        $this->assertSame('snake-user-123', $event['distinct_id']);
+    }
+
     public function testEvaluateFlagsUsesContextDistinctIdWhenOmitted(): void
     {
         PostHog::withContext(['distinctId' => 'context-user'], function (): void {

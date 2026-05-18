@@ -81,13 +81,15 @@ switch ($options['type']) {
         break;
 
     case 'groupIdentify':
-        PostHog::groupIdentify(
-            array(
-                'groupType' => $options['groupType'],
-                'groupKey' => $options['groupKey'],
-                'properties' => parse_json($options['properties'])
-            )
+        $message = array(
+            'groupType' => $options['groupType'],
+            'groupKey' => $options['groupKey'],
+            'properties' => parse_json($options['properties'])
         );
+        if (!empty($options['distinctId'])) {
+            $message['distinctId'] = $options['distinctId'];
+        }
+        PostHog::groupIdentify($message);
         break;
 
     case 'getFeatureFlag':
@@ -121,7 +123,7 @@ function usage(): string
         "\n    posthog --type capture --distinctId \"id\" --event \"event name\" --properties '{ \"json\": \"object\" }'" .
         "\n    posthog --type identify --distinctId \"id\" --properties '{ \"json\": \"object\" }'" .
         "\n    posthog --type alias --distinctId \"id\" --alias \"alias\"" .
-        "\n    posthog --type groupIdentify --groupType \"organization\" --groupKey \"id:5\" --properties '{ \"json\": \"object\" }'" .
+        "\n    posthog --type groupIdentify --groupType \"organization\" --groupKey \"id:5\" --distinctId \"user-id\" --properties '{ \"json\": \"object\" }'" .
         "\n    posthog --type getFeatureFlag --flag some-flag --apiKey phc_... --host localhost:8010 --no-ssl" .
         "\n    posthog --type getFeatureFlag --flag some-flag --apiKey phc_... --host localhost:8010 --no-ssl" .
         "\n\n\n";
