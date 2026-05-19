@@ -1,10 +1,3 @@
-## 4.3.0
-
-### Minor Changes
-
-- 7ab9080: Add request context helpers for propagating request metadata and optional PostHog tracing headers.
-- 10e985b: Add an optional `distinctId`/`distinct_id` override for `groupIdentify()` events.
-
 ## 4.3.0 - 2026-05-01
 
 - [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.2.4...4.3.0)
