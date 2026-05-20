@@ -4,6 +4,9 @@ namespace PostHog;
 
 use Exception;
 
+/**
+ * Static facade for the default PostHog PHP SDK client.
+ */
 class PostHog
 {
     public const VERSION = '4.4.0';
@@ -14,10 +17,38 @@ class PostHog
 
     /**
      * Initializes the default client to use. Uses the libcurl consumer by default.
-     * @param string|null $apiKey your project's API key
-     * @param array|null $options passed straight to the client
-     * @param Client|null $client
-     * @throws Exception
+     *
+     * When $apiKey or the host option are omitted, POSTHOG_API_KEY and POSTHOG_HOST are used
+     * when present.
+     *
+     * @param string|null $apiKey Your project API key.
+     * @param array{
+     *     host?: string,
+     *     ssl?: bool,
+     *     timeout?: int,
+     *     verify_batch_events_request?: bool,
+     *     feature_flag_request_timeout_ms?: int,
+     *     maximum_backoff_duration?: int,
+     *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl',
+     *     debug?: bool,
+     *     max_queue_size?: int,
+     *     batch_size?: int,
+     *     compress_request?: bool|string,
+     *     error_handler?: callable,
+     *     filename?: string,
+     *     error_tracking?: array{
+     *         enabled?: bool,
+     *         capture_errors?: bool,
+     *         excluded_exceptions?: list<class-string>,
+     *         max_frames?: int,
+     *         context_provider?: callable
+     *     }
+     * }|null $options Client and consumer configuration options.
+     * @param Client|null $client Preconfigured client instance. When provided, $apiKey, $options,
+     *     and $personalAPIKey are ignored.
+     * @param string|null $personalAPIKey Personal API key used to load local feature flag definitions.
+     * @return void
+     * @throws Exception When no API key can be resolved.
      */
     public static function init(
         ?string $apiKey = null,
@@ -60,10 +91,10 @@ class PostHog
     /**
      * Captures an exception as a PostHog error tracking event.
      *
-     * @param \Throwable|string $exception
-     * @param string|null $distinctId
-     * @param array $additionalProperties
-     * @return bool
+     * @param \Throwable|string $exception The exception to capture or a plain string message.
+     * @param string|null $distinctId User ID; a random UUID is used when omitted (no person profile created).
+     * @param array<string, mixed> $additionalProperties Extra properties merged into the event.
+     * @return bool Whether the capture call succeeded.
      * @throws Exception
      */
     public static function captureException(
@@ -76,10 +107,21 @@ class PostHog
     }
 
     /**
-     * Captures a user action
+     * Captures a user action.
      *
-     * @param array $message
-     * @return boolean whether the capture call succeeded
+     * @param array{
+     *     event: string,
+     *     distinctId?: string,
+     *     distinct_id?: string,
+     *     properties?: array<string, mixed>,
+     *     groups?: array<string, mixed>,
+     *     timestamp?: mixed,
+     *     flags?: FeatureFlagEvaluations,
+     *     send_feature_flags?: bool,
+     *     sendFeatureFlags?: bool
+     * } $message Event payload. `send_feature_flags` and `sendFeatureFlags` are deprecated; pass
+     *     a `flags` snapshot from evaluateFlags() instead.
+     * @return bool Whether the capture call succeeded.
      * @throws Exception
      */
     public static function capture(array $message)
@@ -94,8 +136,8 @@ class PostHog
     /**
      * Tags properties about the user.
      *
-     * @param array $message
-     * @return boolean whether the identify call succeeded
+     * @param array{distinctId?: string, distinct_id?: string, properties?: array<string, mixed>} $message
+     * @return bool Whether the identify call succeeded.
      * @throws Exception
      */
     public static function identify(array $message)
@@ -110,9 +152,14 @@ class PostHog
     /**
      * Adds properties to a group.
      *
-     * @param array $message Must contain keys `groupType`, `groupKey`; accepts optional `properties`
-     *                       and `distinctId`/`distinct_id` to override the default synthetic ID.
-     * @return boolean whether the groupIdentify call succeeded
+     * @param array{
+     *     groupType: string,
+     *     groupKey: string,
+     *     properties?: array<string, mixed>,
+     *     distinctId?: string,
+     *     distinct_id?: string
+     * } $message Group identify payload. `distinctId`/`distinct_id` override the default synthetic ID.
+     * @return bool Whether the groupIdentify call succeeded.
      * @throws Exception
      */
     public static function groupIdentify(array $message)
@@ -159,10 +206,12 @@ class PostHog
      *
      * @param string $key
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
-     * @param array $groups
-     * @param array $personProperties
-     * @param array $groupProperties
-     * @return boolean
+     * @param array<string, mixed> $groups
+     * @param array<string, mixed> $personProperties
+     * @param array<string, array<string, mixed>> $groupProperties
+     * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
+     * @param bool $sendFeatureFlagEvents Whether to send $feature_flag_called events.
+     * @return bool|null
      * @throws Exception
      */
     public static function isFeatureEnabled(
@@ -193,10 +242,12 @@ class PostHog
      *
      * @param string $key
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
-     * @param array $groups
-     * @param array $personProperties
-     * @param array $groupProperties
-     * @return boolean | string
+     * @param array<string, mixed> $groups
+     * @param array<string, mixed> $personProperties
+     * @param array<string, array<string, mixed>> $groupProperties
+     * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
+     * @param bool $sendFeatureFlagEvents Whether to send $feature_flag_called events.
+     * @return bool|string|null
      * @throws Exception
      */
     public static function getFeatureFlag(
@@ -225,13 +276,13 @@ class PostHog
      * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
      * `/flags` request per incoming request.
      *
-     * @param string $key
+     * @param string $key Feature flag key.
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
-     * @param array $groups
-     * @param array $personProperties
-     * @param array $groupProperties
-     * @param bool $onlyEvaluateLocally
-     * @param bool $sendFeatureFlagEvents
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
+     * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
+     * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
+     * @param bool $sendFeatureFlagEvents Whether to send $feature_flag_called events.
      * @return FeatureFlagResult|null
      * @throws Exception
      */
@@ -263,9 +314,9 @@ class PostHog
      *
      * @param string $key
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
-     * @param array $groups
-     * @param array $personProperties
-     * @param array $groupProperties
+     * @param array<string, mixed> $groups
+     * @param array<string, mixed> $personProperties
+     * @param array<string, array<string, mixed>> $groupProperties
      * @return mixed
      */
     public static function getFeatureFlagPayload(
@@ -290,14 +341,18 @@ class PostHog
      * Pass the snapshot to capture() via the `flags` key to attach $feature/<key> properties
      * without making another /flags request.
      *
-     * @param array $groups
-     * @param array $personProperties
-     * @param array $groupProperties
+     * @param string|null $distinctId Defaults to the current request context distinctId, when set.
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
+     * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
+     * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
+     * @param bool $disableGeoip Whether to disable GeoIP enrichment during remote evaluation.
      * @param list<string>|null $flagKeys Optional list of flag keys. When provided, only these
      *     flags are evaluated — the underlying /flags request asks the server for just this
      *     subset, which makes the response smaller and the request cheaper. Use this when you
      *     only need a handful of flags out of many. Distinct from FeatureFlagEvaluations::only(),
      *     which scopes which already-evaluated flags get attached to a captured event.
+     * @return FeatureFlagEvaluations
      * @throws Exception
      */
     public static function evaluateFlags(
@@ -322,13 +377,14 @@ class PostHog
     }
 
     /**
-     * get all enabled flags for distinct_id
+     * Get all enabled flags for a distinct id.
      *
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
-     * @param array $groups
-     * @param array $personProperties
-     * @param array $groupProperties
-     * @return array
+     * @param array<string, mixed> $groups
+     * @param array<string, mixed> $personProperties
+     * @param array<string, array<string, mixed>> $groupProperties
+     * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
+     * @return array<string, bool|string>
      * @throws Exception
      */
     public static function getAllFlags(
@@ -350,9 +406,11 @@ class PostHog
 
 
     /**
+     * Fetch all feature flag variants for a distinct id from the remote /flags endpoint.
      *
-     * @param string $distinctId
-     * @return array
+     * @param string $distinctId The user's distinct ID.
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @return array<string, bool|string>
      * @throws Exception
      */
     public static function fetchFeatureVariants(string $distinctId, array $groups = array()): array
@@ -362,10 +420,15 @@ class PostHog
     }
 
     /**
-     * Aliases the distinct id from a temporary id to a permanent one
+     * Aliases the distinct id from a temporary id to a permanent one.
      *
-     * @param array $message distinct id to alias from
-     * @return boolean whether the alias call succeeded
+     * @param array{
+     *     distinctId?: string,
+     *     distinct_id?: string,
+     *     alias: string,
+     *     properties?: array<string, mixed>
+     * } $message
+     * @return bool Whether the alias call succeeded.
      * @throws Exception
      */
     public static function alias(array $message)
@@ -381,10 +444,18 @@ class PostHog
     /**
      * Run a callback with request context applied to all captures in the callback.
      *
-     * @param array<string, mixed> $data
-     * @param callable $fn
-     * @param array<string, mixed> $options
+     * @param array{
+     *     distinctId?: string,
+     *     distinct_id?: string,
+     *     sessionId?: string,
+     *     session_id?: string,
+     *     properties?: array<string, mixed>
+     * } $data
+     * @param callable $fn Callback to run while the context is active.
+     * @param array{fresh?: bool} $options Use `fresh => true` to avoid inheriting the current context.
      * @return mixed
+     * @throws Exception When the client has not been initialized.
+     * @throws \Throwable Re-throws any exception thrown by $fn after restoring context.
      */
     public static function withContext(array $data, callable $fn, array $options = []): mixed
     {
@@ -393,7 +464,10 @@ class PostHog
     }
 
     /**
+     * Get the currently active request context for this client, if any.
+     *
      * @return array{distinctId?: string|null, sessionId?: string|null, properties: array<string, mixed>}|null
+     * @throws Exception
      */
     public static function getContext(): ?array
     {
@@ -402,7 +476,9 @@ class PostHog
     }
 
     /**
-     * @param array<string, mixed> $headers
+     * Extract PostHog frontend tracing context from HTTP headers.
+     *
+     * @param array<string, mixed> $headers HTTP headers, including $_SERVER-style HTTP_* keys.
      * @return array{distinctId?: string|null, sessionId?: string|null, properties: array<string, mixed>}
      */
     public static function contextFromHeaders(array $headers): array
@@ -411,10 +487,10 @@ class PostHog
     }
 
     /**
-     * Send a raw (prepared) message
+     * Send a raw, already-prepared message to the underlying consumer queue.
      *
-     * @param array $message distinct id to alias from
-     * @return boolean whether the alias call succeeded
+     * @param array<string, mixed> $message Prepared message payload.
+     * @return mixed Whether the underlying consumer accepted the message.
      */
     public static function raw(array $message)
     {
@@ -425,8 +501,10 @@ class PostHog
     /**
      * Validate common properties.
      *
-     * @param array $msg
+     * @internal
+     * @param array<string, mixed> $msg
      * @param string $type
+     * @return void
      * @throws Exception
      */
     public static function validate($msg, $type)
@@ -436,9 +514,11 @@ class PostHog
     }
 
     /**
-     * Flush the client
+     * Flush queued events on the underlying client.
+     *
+     * @return bool True when flushing succeeded or the consumer has no flush operation.
+     * @throws Exception
      */
-
     public static function flush()
     {
         self::checkClient();

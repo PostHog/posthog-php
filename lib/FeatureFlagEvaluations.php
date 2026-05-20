@@ -15,8 +15,17 @@ class FeatureFlagEvaluations
     private array $accessed;
 
     /**
-     * @param array<string, EvaluatedFlagRecord> $flags
-     * @param array<string, mixed> $groups
+     * Create a feature flag evaluation snapshot.
+     *
+     * @param string $distinctId Distinct ID the snapshot was evaluated for.
+     * @param array<string, EvaluatedFlagRecord> $flags Evaluated flags keyed by flag key.
+     * @param array<string, mixed> $groups Group identifiers used for evaluation.
+     * @param FeatureFlagEvaluationsHost $host Owning host used to emit access events and warnings.
+     * @param string|null $requestId Remote /flags request ID, when available.
+     * @param int|null $evaluatedAt Remote evaluation timestamp, when available.
+     * @param array<string, bool>|null $accessed Flags already accessed on this snapshot.
+     * @param bool $errorsWhileComputing Whether the remote response reported computation errors.
+     * @param bool $quotaLimited Whether the remote response was quota limited.
      */
     public function __construct(
         private readonly string $distinctId,
@@ -33,6 +42,8 @@ class FeatureFlagEvaluations
     }
 
     /**
+     * Get the keys of all flags included in this snapshot.
+     *
      * @return list<string>
      */
     public function getKeys(): array
@@ -42,6 +53,9 @@ class FeatureFlagEvaluations
 
     /**
      * Whether the flag is enabled for the snapshot's distinct id. Returns false for unknown keys.
+     *
+     * @param string $key Feature flag key.
+     * @return bool
      */
     public function isEnabled(string $key): bool
     {
@@ -53,6 +67,9 @@ class FeatureFlagEvaluations
 
     /**
      * Returns the variant (string), enabled state (bool), or null for unknown keys.
+     *
+     * @param string $key Feature flag key.
+     * @return bool|string|null
      */
     public function getFlag(string $key): bool|string|null
     {
@@ -69,6 +86,9 @@ class FeatureFlagEvaluations
     /**
      * Returns the decoded payload for a flag without recording access or firing a $feature_flag_called event.
      * Returns null for unknown keys or flags without a payload.
+     *
+     * @param string $key Feature flag key.
+     * @return mixed
      */
     public function getFlagPayload(string $key): mixed
     {
@@ -79,6 +99,8 @@ class FeatureFlagEvaluations
      * Returns a clone of this snapshot containing only flags that were previously accessed via
      * isEnabled() or getFlag(). Order-dependent: if nothing has been accessed yet, the returned
      * snapshot is empty. The method honors its name — pre-access if you want a populated result.
+     *
+     * @return self
      */
     public function onlyAccessed(): self
     {
@@ -96,7 +118,8 @@ class FeatureFlagEvaluations
      * Returns a clone of this snapshot filtered to the given keys. Unknown keys are dropped with a
      * warning so silent typos don't slip into captured events.
      *
-     * @param list<string> $keys
+     * @param list<string> $keys Feature flag keys to keep.
+     * @return self
      */
     public function only(array $keys): self
     {

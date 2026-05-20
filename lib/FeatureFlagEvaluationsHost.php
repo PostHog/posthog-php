@@ -7,6 +7,8 @@ namespace PostHog;
  *
  * Splitting the interface out keeps the snapshot easy to unit-test with a fake host instead of a
  * full Client.
+ *
+ * @internal
  */
 interface FeatureFlagEvaluationsHost
 {
@@ -17,8 +19,11 @@ interface FeatureFlagEvaluationsHost
      * The properties array is built by the caller so this helper does not need to reconstruct the
      * shape from raw response data.
      *
-     * @param array<string, mixed> $properties
-     * @param array<string, mixed> $groups
+     * @param string $distinctId The distinct ID that accessed the flag.
+     * @param string $key Feature flag key.
+     * @param array<string, mixed> $properties Event properties for the $feature_flag_called event.
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @return void
      */
     public function captureFlagCalledIfNeeded(
         string $distinctId,
@@ -28,8 +33,10 @@ interface FeatureFlagEvaluationsHost
     ): void;
 
     /**
-     * Emit a non-fatal warning. Implementations may suppress these when feature_flags_log_warnings
-     * is disabled in the client configuration.
+     * Emit a non-fatal warning.
+     *
+     * @param string $message Warning message.
+     * @return void
      */
     public function logWarning(string $message): void;
 }

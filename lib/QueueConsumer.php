@@ -2,6 +2,11 @@
 
 namespace PostHog;
 
+/**
+ * Base class for consumers that batch messages before delivery.
+ *
+ * @internal
+ */
 abstract class QueueConsumer extends Consumer
 {
     protected const MAX_BATCH_PAYLOAD_SIZE = 1024 * 1024; // 1MB
@@ -53,6 +58,9 @@ abstract class QueueConsumer extends Consumer
         $this->queue = array();
     }
 
+    /**
+     * Flush queued messages when the consumer is destroyed.
+     */
     public function __destruct()
     {
         // Flush our queue on destruction
@@ -62,8 +70,8 @@ abstract class QueueConsumer extends Consumer
     /**
      * Captures a user action
      *
-     * @param array $message
-     * @return boolean whether the capture call succeeded
+     * @param array<string, mixed> $message Event payload.
+     * @return bool Whether the capture call succeeded.
      */
     public function capture(array $message)
     {
@@ -73,8 +81,8 @@ abstract class QueueConsumer extends Consumer
     /**
      * Tags properties about the user.
      *
-     * @param array $message
-     * @return boolean whether the identify call succeeded
+     * @param array<string, mixed> $message Identify payload.
+     * @return bool Whether the identify call succeeded.
      */
     public function identify(array $message)
     {
@@ -84,8 +92,8 @@ abstract class QueueConsumer extends Consumer
     /**
      * Aliases from one user id to another
      *
-     * @param array $message
-     * @return boolean whether the alias call succeeded
+     * @param array<string, mixed> $message Alias payload.
+     * @return bool Whether the alias call succeeded.
      */
     public function alias(array $message)
     {
@@ -93,7 +101,9 @@ abstract class QueueConsumer extends Consumer
     }
 
     /**
-     * Flushes our queue of messages by batching them to the server
+     * Flushes our queue of messages by batching them to the server.
+     *
+     * @return bool True when all queued batches were sent successfully.
      */
     public function flush()
     {
@@ -112,8 +122,8 @@ abstract class QueueConsumer extends Consumer
 
     /**
      * Adds an item to our queue.
-     * @param mixed $item
-     * @return boolean whether call has succeeded
+     * @param mixed $item Queue item to append.
+     * @return bool Whether the call succeeded.
      */
     public function enqueue($item)
     {
@@ -136,8 +146,8 @@ abstract class QueueConsumer extends Consumer
      * Given a batch of messages the method returns
      * a valid payload.
      *
-     * @param {Array} $batch
-     * @return {Array}
+     * @param array<int, array<string, mixed>> $batch Batch of queued messages.
+     * @return array{batch: array<int, array<string, mixed>>, api_key: string}
      */
     protected function payload($batch)
     {
