@@ -103,6 +103,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate current version metadata
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          COMPOSER_VERSION=$(node -p "require('./composer.json').version")
+          SDK_VERSION=$(grep -E "public const VERSION = '[^']+'" lib/PostHog.php | sed -E "s/.*'([^']+)'.*/\1/")
+
+          echo "package.json version: $PACKAGE_VERSION"
+          echo "composer.json version: $COMPOSER_VERSION"
+          echo "lib/PostHog.php version: $SDK_VERSION"
+
+          if [ "$PACKAGE_VERSION" != "$COMPOSER_VERSION" ] || [ "$PACKAGE_VERSION" != "$SDK_VERSION" ]; then
+            echo "::error::Version metadata is out of sync. package.json, composer.json, and lib/PostHog.php must match before running a release."
+            exit 1
+          fi
+
       - name: Apply changesets and update version
         id: apply-changesets
         run: |
@@ -111,6 +126,21 @@ jobs:
           ./scripts/bump-version.sh "$NEW_VERSION"
           echo "new-version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "New version: $NEW_VERSION"
+
+      - name: Check release version is available
+        env:
+          GH_TOKEN: ${{ steps.releaser.outputs.token }}
+          NEW_VERSION: ${{ steps.apply-changesets.outputs.new-version }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/$NEW_VERSION" >/dev/null; then
+            echo "::error::Tag $NEW_VERSION already exists. The release metadata may be stale; refusing to commit a duplicate version bump."
+            exit 1
+          fi
+
+          if gh release view "$NEW_VERSION" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "::error::GitHub release $NEW_VERSION already exists. Refusing to commit a duplicate version bump."
+            exit 1
+          fi
 
       - name: Check for version bump changes
         id: check-changes
@@ -137,9 +167,10 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.releaser.outputs.token }}
           NEW_VERSION: ${{ steps.apply-changesets.outputs.new-version }}
+          VERSION_BUMP_COMMIT: ${{ steps.commit-version-bump.outputs.commit-hash }}
         run: |
           CHANGELOG_ENTRY=$(awk -v defText="see CHANGELOG.md" '/^## /{if (flag) exit; flag=1} flag && /^##$/{exit} flag; END{if (!flag) print defText}' CHANGELOG.md)
-          gh release create "$NEW_VERSION" --target main --title "$NEW_VERSION" --notes "$CHANGELOG_ENTRY"
+          gh release create "$NEW_VERSION" --target "$VERSION_BUMP_COMMIT" --title "$NEW_VERSION" --notes "$CHANGELOG_ENTRY"
 
       - name: Send failure event to PostHog
         if: failure()
