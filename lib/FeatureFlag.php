@@ -292,6 +292,23 @@ class FeatureFlag
     }
 
     /**
+     * Parse a semver numeric identifier (e.g., the "1" in "1.2.3").
+     *
+     * @throws InconclusiveMatchException If the part is empty, non-numeric, or has a leading zero.
+     */
+    private static function parseSemverNumeric(string $part, string $component, $value): int
+    {
+        // Semver 2.0.0 §2: numeric identifiers MUST NOT include leading zeros.
+        if ($part === "" || !ctype_digit($part)) {
+            throw new InconclusiveMatchException("Cannot parse semver: invalid {$component} version in {$value}");
+        }
+        if (strlen($part) > 1 && $part[0] === "0") {
+            throw new InconclusiveMatchException("Cannot parse semver: {$component} version has leading zero in {$value}");
+        }
+        return intval($part);
+    }
+
+    /**
      * Parse a semver string into a tuple of [major, minor, patch].
      *
      * Rules:
@@ -301,7 +318,8 @@ class FeatureFlag
      * 4. Split on `.` and parse first 3 components as integers
      * 5. Default missing components to 0 (e.g., "1.2" → (1, 2, 0), "1" → (1, 0, 0))
      * 6. Ignore extra components beyond the third (e.g., "1.2.3.4" → (1, 2, 3))
-     * 7. Throw InconclusiveMatchException for invalid input (empty string, non-numeric parts, leading dot)
+     * 7. Reject numeric identifiers with leading zeros per semver 2.0.0 §2
+     * 8. Throw InconclusiveMatchException for invalid input (empty string, non-numeric parts, leading dot)
      *
      * @param mixed $value The semver string to parse
      * @return array{int, int, int} The parsed tuple [major, minor, patch]
@@ -337,34 +355,16 @@ class FeatureFlag
         // Split on dots
         $parts = explode(".", $text);
 
-        // Parse major
-        if (!isset($parts[0]) || $parts[0] === "" || !ctype_digit(ltrim($parts[0], "0") ?: "0")) {
-            // Allow pure zeros or numeric strings
-            if (isset($parts[0]) && preg_match('/^[0-9]+$/', $parts[0])) {
-                $major = intval($parts[0]);
-            } else {
-                throw new InconclusiveMatchException("Cannot parse semver: invalid major version in {$value}");
-            }
-        } else {
-            $major = intval($parts[0]);
-        }
+        $major = FeatureFlag::parseSemverNumeric($parts[0] ?? "", "major", $value);
 
-        // Parse minor (default to 0 if not present or empty)
         $minor = 0;
         if (isset($parts[1]) && $parts[1] !== "") {
-            if (!preg_match('/^[0-9]+$/', $parts[1])) {
-                throw new InconclusiveMatchException("Cannot parse semver: invalid minor version in {$value}");
-            }
-            $minor = intval($parts[1]);
+            $minor = FeatureFlag::parseSemverNumeric($parts[1], "minor", $value);
         }
 
-        // Parse patch (default to 0 if not present or empty)
         $patch = 0;
         if (isset($parts[2]) && $parts[2] !== "") {
-            if (!preg_match('/^[0-9]+$/', $parts[2])) {
-                throw new InconclusiveMatchException("Cannot parse semver: invalid patch version in {$value}");
-            }
-            $patch = intval($parts[2]);
+            $patch = FeatureFlag::parseSemverNumeric($parts[2], "patch", $value);
         }
 
         return [$major, $minor, $patch];
@@ -460,11 +460,7 @@ class FeatureFlag
             throw new InconclusiveMatchException("Cannot parse semver wildcard: no version components found in {$value}");
         }
 
-        // Parse major
-        if (!preg_match('/^[0-9]+$/', $parts[0])) {
-            throw new InconclusiveMatchException("Cannot parse semver wildcard: invalid major version in {$value}");
-        }
-        $major = intval($parts[0]);
+        $major = FeatureFlag::parseSemverNumeric($parts[0], "major", $value);
 
         if (count($parts) === 1) {
             // X.* pattern
@@ -472,10 +468,7 @@ class FeatureFlag
             $upper = [$major + 1, 0, 0];
         } else {
             // X.Y.* pattern
-            if (!preg_match('/^[0-9]+$/', $parts[1])) {
-                throw new InconclusiveMatchException("Cannot parse semver wildcard: invalid minor version in {$value}");
-            }
-            $minor = intval($parts[1]);
+            $minor = FeatureFlag::parseSemverNumeric($parts[1], "minor", $value);
             $lower = [$major, $minor, 0];
             $upper = [$major, $minor + 1, 0];
         }
