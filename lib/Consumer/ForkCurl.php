@@ -4,6 +4,11 @@ namespace PostHog\Consumer;
 
 use PostHog\QueueConsumer;
 
+/**
+ * Queue consumer that sends batches through a forked curl process.
+ *
+ * @internal
+ */
 class ForkCurl extends QueueConsumer
 {
     protected $type = "ForkCurl";
@@ -11,11 +16,8 @@ class ForkCurl extends QueueConsumer
     /**
      * Creates a new queued fork consumer which queues fork and identify
      * calls before adding them to
-     * @param string $apiKey
-     * @param array $options
-     *     boolean  "debug" - whether to use debug output, wait for response.
-     *     number   "max_queue_size" - the max size of messages to enqueue
-     *     number   "batch_size" - how many messages to send in a single request
+     * @param string $apiKey Project API key.
+     * @param array<string, mixed> $options Consumer options.
      */
     public function __construct($apiKey, $options = array())
     {
@@ -35,8 +37,8 @@ class ForkCurl extends QueueConsumer
     /**
      * Make an async request to our API. Fork a curl process, immediately send
      * to the API. If debug is enabled, we wait for the response.
-     * @param array $messages array of all the messages to send
-     * @return boolean whether the request succeeded
+     * @param array<int, array<string, mixed>> $messages Array of messages to send.
+     * @return bool Whether the request succeeded.
      */
     public function flushBatch($messages)
     {

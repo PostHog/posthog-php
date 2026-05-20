@@ -5,6 +5,11 @@ namespace PostHog\Consumer;
 use PostHog\HttpClient;
 use PostHog\QueueConsumer;
 
+/**
+ * Queue consumer that sends batches using libcurl.
+ *
+ * @internal
+ */
 class LibCurl extends QueueConsumer
 {
     protected $type = "LibCurl";
@@ -15,11 +20,9 @@ class LibCurl extends QueueConsumer
 
     /**
      * Creates a new queued libcurl consumer
-     * @param string $apiKey
-     * @param array $options
-     *     boolean  "debug" - whether to use debug output, wait for response.
-     *     number   "max_queue_size" - the max size of messages to enqueue
-     *     number   "batch_size" - how many messages to send in a single request
+     * @param string $apiKey Project API key.
+     * @param array<string, mixed> $options Consumer options.
+     * @param HttpClient|null $httpClient Custom HTTP client, primarily for tests.
      */
     public function __construct($apiKey, $options = [], ?HttpClient $httpClient = null)
     {
@@ -48,8 +51,8 @@ class LibCurl extends QueueConsumer
      * Make a sync request to our API. If debug is
      * enabled, we wait for the response
      * and retry once to diminish impact on performance.
-     * @param array $messages array of all the messages to send
-     * @return boolean whether the request succeeded
+     * @param array<int, array<string, mixed>> $messages Array of messages to send.
+     * @return bool Whether the request succeeded.
      */
     public function flushBatch($messages)
     {

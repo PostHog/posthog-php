@@ -2,6 +2,11 @@
 
 namespace PostHog;
 
+/**
+ * Installs and runs automatic PHP exception/error capture handlers.
+ *
+ * @internal
+ */
 class ExceptionCapture
 {
     private const SHUTDOWN_FATAL_ERROR_TYPES = [
@@ -45,7 +50,17 @@ class ExceptionCapture
     private static array $delegatedErrorExceptionIds = [];
 
     /**
-     * @param array<string, mixed> $config Contents of the 'error_tracking' options subkey.
+     * Configure automatic error tracking for a client.
+     *
+     * @param Client $client Client used to send captured exception events.
+     * @param array{
+     *     enabled?: bool,
+     *     capture_errors?: bool,
+     *     excluded_exceptions?: list<class-string>,
+     *     max_frames?: int,
+     *     context_provider?: callable
+     * } $config Contents of the 'error_tracking' options subkey.
+     * @return void
      */
     public static function configure(Client $client, array $config): void
     {
@@ -82,6 +97,12 @@ class ExceptionCapture
         }
     }
 
+    /**
+     * Handle an uncaught exception from PHP's exception handler.
+     *
+     * @param \Throwable $exception Uncaught exception.
+     * @return void
+     */
     public static function handleException(\Throwable $exception): void
     {
         if (self::consumeDelegatedErrorException($exception)) {
@@ -104,6 +125,15 @@ class ExceptionCapture
         self::finishUnhandledException($exception);
     }
 
+    /**
+     * Handle a PHP error from PHP's error handler.
+     *
+     * @param int $errno PHP error severity.
+     * @param string $message Error message.
+     * @param string $file Source file path.
+     * @param int $line Source line number.
+     * @return bool Whether the error was handled.
+     */
     public static function handleError(
         int $errno,
         string $message,
@@ -186,7 +216,10 @@ class ExceptionCapture
     }
 
     /**
-     * @param array<string, mixed>|null $lastError
+     * Handle a fatal PHP error from PHP's shutdown handler.
+     *
+     * @param array<string, mixed>|null $lastError Last PHP error, or null to read error_get_last().
+     * @return void
      */
     public static function handleShutdown(?array $lastError = null): void
     {
@@ -244,6 +277,11 @@ class ExceptionCapture
         self::flushSafely();
     }
 
+    /**
+     * Reset installed handlers and static state for tests.
+     *
+     * @return void
+     */
     public static function resetForTests(): void
     {
         if (self::$exceptionHandlerInstalled) {
@@ -266,6 +304,11 @@ class ExceptionCapture
         self::$throwOnUnhandledInTests = false;
     }
 
+    /**
+     * Re-throw unhandled exceptions instead of exiting, for tests.
+     *
+     * @return void
+     */
     public static function enableThrowOnUnhandledForTests(): void
     {
         self::$throwOnUnhandledInTests = true;

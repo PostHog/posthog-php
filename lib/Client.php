@@ -11,6 +11,9 @@ use Symfony\Component\Clock\Clock;
 
 const SIZE_LIMIT = 50_000;
 
+/**
+ * PostHog PHP SDK client for event capture, user identification, feature flags, and error tracking.
+ */
 class Client implements FeatureFlagEvaluationsHost
 {
     private const CONSUMERS = [
@@ -94,12 +97,34 @@ class Client implements FeatureFlagEvaluationsHost
     private array $missingDistinctIdWarnings = [];
 
     /**
-     * Create a new posthog object with your app's API key
-     * key
+     * Create a new PostHog client with your project's API key.
      *
-     * @param string $apiKey
-     * @param array $options array of consumer options [optional]
-     * @param HttpClient|null $httpClient
+     * @param string $apiKey Your project API key.
+     * @param array{
+     *     host?: string,
+     *     ssl?: bool,
+     *     timeout?: int,
+     *     verify_batch_events_request?: bool,
+     *     feature_flag_request_timeout_ms?: int,
+     *     maximum_backoff_duration?: int,
+     *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl',
+     *     debug?: bool,
+     *     max_queue_size?: int,
+     *     batch_size?: int,
+     *     compress_request?: bool|string,
+     *     error_handler?: callable,
+     *     filename?: string,
+     *     error_tracking?: array{
+     *         enabled?: bool,
+     *         capture_errors?: bool,
+     *         excluded_exceptions?: list<class-string>,
+     *         max_frames?: int,
+     *         context_provider?: callable
+     *     }
+     * } $options Client and consumer configuration options.
+     * @param HttpClient|null $httpClient Custom HTTP client, primarily for tests and advanced integrations.
+     * @param string|null $personalAPIKey Personal API key used to load local feature flag definitions.
+     * @param bool $loadFeatureFlags Whether to load local feature flag definitions during construction.
      */
     public function __construct(
         string $apiKey,
@@ -147,16 +172,30 @@ class Client implements FeatureFlagEvaluationsHost
         }
     }
 
+    /**
+     * Flush and clean up the underlying consumer when the client is destroyed.
+     */
     public function __destruct()
     {
         $this->consumer->__destruct();
     }
 
     /**
-     * Captures a user action
+     * Captures a user action.
      *
-     * @param array $message
-     * @return bool whether the capture call succeeded
+     * @param array{
+     *     event: string,
+     *     distinctId?: string,
+     *     distinct_id?: string,
+     *     properties?: array<string, mixed>,
+     *     groups?: array<string, mixed>,
+     *     timestamp?: mixed,
+     *     flags?: FeatureFlagEvaluations,
+     *     send_feature_flags?: bool,
+     *     sendFeatureFlags?: bool
+     * } $message Event payload. `send_feature_flags` and `sendFeatureFlags` are deprecated; pass
+     *     a `flags` snapshot from evaluateFlags() instead.
+     * @return bool Whether the capture call succeeded.
      */
     public function capture(array $message)
     {
@@ -271,8 +310,8 @@ class Client implements FeatureFlagEvaluationsHost
     /**
      * Tags properties about the user.
      *
-     * @param array $message
-     * @return bool whether the identify call succeeded
+     * @param array{distinctId?: string, distinct_id?: string, properties?: array<string, mixed>} $message
+     * @return bool Whether the identify call succeeded.
      */
     public function identify(array $message)
     {
@@ -292,12 +331,14 @@ class Client implements FeatureFlagEvaluationsHost
      * `$flags->isEnabled($key)` instead. This consolidates flag evaluation into a single
      * `/flags` request per incoming request.
      *
-     * @param string $key
+     * @param string $key Feature flag key.
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
-     * @param array $groups
-     * @param array $personProperties
-     * @param array $groupProperties
-     * @return bool
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
+     * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
+     * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
+     * @param bool $sendFeatureFlagEvents Whether to send $feature_flag_called events.
+     * @return bool|null
      * @throws Exception
      */
     public function isFeatureEnabled(
@@ -341,12 +382,14 @@ class Client implements FeatureFlagEvaluationsHost
      * `$flags->getFlag($key)` instead. This consolidates flag evaluation into a single
      * `/flags` request per incoming request.
      *
-     * @param string $key
+     * @param string $key Feature flag key.
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
-     * @param array $groups
-     * @param array $personProperties
-     * @param array $groupProperties
-     * @return bool | string
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
+     * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
+     * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
+     * @param bool $sendFeatureFlagEvents Whether to send $feature_flag_called events.
+     * @return bool|string|null
      * @throws Exception
      */
     public function getFeatureFlag(
@@ -385,13 +428,13 @@ class Client implements FeatureFlagEvaluationsHost
      * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
      * `/flags` request per incoming request.
      *
-     * @param string $key
+     * @param string $key Feature flag key.
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
-     * @param array $groups
-     * @param array $personProperties
-     * @param array $groupProperties
-     * @param bool $onlyEvaluateLocally
-     * @param bool $sendFeatureFlagEvents
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
+     * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
+     * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
+     * @param bool $sendFeatureFlagEvents Whether to send $feature_flag_called events.
      * @return FeatureFlagResult|null
      * @throws Exception
      */
@@ -587,11 +630,11 @@ class Client implements FeatureFlagEvaluationsHost
      * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
      * `/flags` request per incoming request.
      *
-     * @param string $key
+     * @param string $key Feature flag key.
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
-     * @param array $groups
-     * @param array $personProperties
-     * @param array $groupProperties
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
+     * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
      * @return mixed
      */
     public function getFeatureFlagPayload(
@@ -627,10 +670,11 @@ class Client implements FeatureFlagEvaluationsHost
      * get the feature flag value for this distinct id.
      *
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
-     * @param array $groups
-     * @param array $personProperties
-     * @param array $groupProperties
-     * @return array
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
+     * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
+     * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
+     * @return array<string, bool|string>
      * @throws Exception
      */
     public function getAllFlags(
@@ -697,14 +741,18 @@ class Client implements FeatureFlagEvaluationsHost
      * requests; access via isEnabled() or getFlag() fires a deduped $feature_flag_called event the
      * first time each key is touched.
      *
-     * @param array<string, mixed> $groups
-     * @param array<string, mixed> $personProperties
-     * @param array<string, array<string, mixed>> $groupProperties
+     * @param string|null $distinctId Defaults to the current request context distinctId, when set.
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
+     * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
+     * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
+     * @param bool $disableGeoip Whether to disable GeoIP enrichment during remote evaluation.
      * @param list<string>|null $flagKeys Optional list of flag keys. When provided, only these
      *     flags are evaluated — the underlying /flags request asks the server for just this
      *     subset, which makes the response smaller and the request cheaper. Use this when you
      *     only need a handful of flags out of many. Distinct from FeatureFlagEvaluations::only(),
      *     which scopes which already-evaluated flags get attached to a captured event.
+     * @return FeatureFlagEvaluations
      */
     public function evaluateFlags(
         ?string $distinctId = null,
@@ -893,8 +941,11 @@ class Client implements FeatureFlagEvaluationsHost
      * path. Properties are built by the caller so each call site can shape the payload to match its
      * available metadata.
      *
-     * @param array<string, mixed> $properties
-     * @param array<string, mixed> $groups
+     * @param string $distinctId The distinct ID that accessed the flag.
+     * @param string $key Feature flag key.
+     * @param array<string, mixed> $properties Event properties for the $feature_flag_called event.
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @return void
      */
     public function captureFlagCalledIfNeeded(
         string $distinctId,
@@ -915,6 +966,12 @@ class Client implements FeatureFlagEvaluationsHost
         $this->distinctIdsFeatureFlagsReported->add($key, $distinctId);
     }
 
+    /**
+     * Emit a non-fatal SDK warning.
+     *
+     * @param string $message Warning message without the SDK prefix.
+     * @return void
+     */
     public function logWarning(string $message): void
     {
         error_log("[PostHog][Client] " . $message);
@@ -981,9 +1038,13 @@ class Client implements FeatureFlagEvaluationsHost
 
 
     /**
-     * @param string $distinctId
-     * @param array $groups
-     * @return array of feature flags
+     * Fetch all feature flag variants for a distinct id from the remote /flags endpoint.
+     *
+     * @param string $distinctId The user's distinct ID.
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
+     * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
+     * @return array<string, bool|string> Feature flag values by key.
      * @throws Exception
      */
     public function fetchFeatureVariants(
@@ -1012,9 +1073,11 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
+     * Load local feature flag definitions using the configured personal API key.
+     *
+     * @return void
      * @throws Exception
      */
-
     public function loadFlags()
     {
         $response = $this->localFlags();
@@ -1064,6 +1127,11 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
 
+    /**
+     * Fetch local feature flag definitions from the PostHog API.
+     *
+     * @return HttpResponse Raw HTTP response, including ETag metadata when available.
+     */
     public function localFlags(): HttpResponse
     {
         $headers = [
@@ -1158,12 +1226,14 @@ class Client implements FeatureFlagEvaluationsHost
     /**
      * Fetch feature flags from the PostHog API.
      *
-     * @param string $distinctId The user's distinct ID
-     * @param array $groups Group identifiers
-     * @param array $personProperties Person properties for flag evaluation
-     * @param array $groupProperties Group properties for flag evaluation
-     * @return array The normalized feature flags response
-     * @throws HttpException On network errors, API errors, or quota limits
+     * @param string $distinctId The user's distinct ID.
+     * @param array<string, mixed> $groups Group identifiers.
+     * @param array<string, mixed> $personProperties Person properties for flag evaluation.
+     * @param array<string, array<string, mixed>> $groupProperties Group properties for flag evaluation.
+     * @param bool $disableGeoip Whether to disable GeoIP enrichment during remote evaluation.
+     * @param list<string>|null $flagKeys Optional list of flag keys to evaluate.
+     * @return array<string, mixed> The normalized feature flags response.
+     * @throws HttpException On network errors, API errors, or quota limits.
      */
     public function flags(
         string $distinctId,
@@ -1248,10 +1318,15 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * Aliases from one user id to another
+     * Aliases from one user id to another.
      *
-     * @param array $message
-     * @return boolean whether the alias call succeeded
+     * @param array{
+     *     distinctId?: string,
+     *     distinct_id?: string,
+     *     alias: string,
+     *     properties?: array<string, mixed>
+     * } $message
+     * @return bool Whether the alias call succeeded.
      */
     public function alias(array $message)
     {
@@ -1269,10 +1344,10 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * Queue a raw (prepared) message
+     * Queue a raw, already-prepared message.
      *
-     * @param array $message
-     * @return mixed whether the identify call succeeded
+     * @param array<string, mixed> $message Prepared message payload.
+     * @return mixed Whether the underlying consumer accepted the message.
      */
     public function raw(array $message)
     {
@@ -1280,8 +1355,9 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * Flush any async consumers
-     * @return boolean true if flushed successfully
+     * Flush any async consumers.
+     *
+     * @return bool True if flushed successfully.
      */
     public function flush()
     {
@@ -1342,10 +1418,17 @@ class Client implements FeatureFlagEvaluationsHost
     /**
      * Run a callback with request context applied to all captures in the callback.
      *
-     * @param array<string, mixed> $data
-     * @param callable $fn
-     * @param array<string, mixed> $options
+     * @param array{
+     *     distinctId?: string,
+     *     distinct_id?: string,
+     *     sessionId?: string,
+     *     session_id?: string,
+     *     properties?: array<string, mixed>
+     * } $data
+     * @param callable $fn Callback to run while the context is active.
+     * @param array{fresh?: bool} $options Use `fresh => true` to avoid inheriting the current context.
      * @return mixed
+     * @throws \Throwable Re-throws any exception thrown by $fn after restoring context.
      */
     public function withContext(array $data, callable $fn, array $options = []): mixed
     {
@@ -1353,6 +1436,8 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
+     * Get the currently active request context for this client, if any.
+     *
      * @return array{distinctId?: string|null, sessionId?: string|null, properties: array<string, mixed>}|null
      */
     public function getContext(): ?array
@@ -1361,7 +1446,9 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * @param array<string, mixed> $headers
+     * Extract PostHog frontend tracing context from HTTP headers.
+     *
+     * @param array<string, mixed> $headers HTTP headers, including $_SERVER-style HTTP_* keys.
      * @return array{distinctId?: string|null, sessionId?: string|null, properties: array<string, mixed>}
      */
     public function contextFromHeaders(array $headers): array

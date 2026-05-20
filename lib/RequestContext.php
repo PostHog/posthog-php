@@ -32,6 +32,7 @@ final class RequestContext
      * @param array<string, mixed> $options Use ['fresh' => true] to avoid inheriting the current context.
      * @param int|null $contextKey Internal Client scope key. Null keeps backwards-compatible global scope.
      * @return mixed
+     * @throws \Throwable Re-throws any exception thrown by $fn after restoring context.
      */
     public static function withContext(
         array $data,
@@ -50,6 +51,9 @@ final class RequestContext
     }
 
     /**
+     * Get the current context for a context scope.
+     *
+     * @param int|null $contextKey Internal Client scope key. Null keeps backwards-compatible global scope.
      * @return array{distinctId?: string|null, sessionId?: string|null, properties: array<string, mixed>}|null
      */
     public static function getContext(?int $contextKey = null): ?array
@@ -65,6 +69,12 @@ final class RequestContext
         return $stack[array_key_last($stack)]['context'];
     }
 
+    /**
+     * Get the current distinct ID for a context scope.
+     *
+     * @param int|null $contextKey Internal Client scope key. Null keeps backwards-compatible global scope.
+     * @return string|null
+     */
     public static function getDistinctId(?int $contextKey = null): ?string
     {
         $context = self::getContext($contextKey);
@@ -74,7 +84,10 @@ final class RequestContext
     }
 
     /**
+     * Clear all stored request contexts.
+     *
      * @internal Test helper for clearing leaked context between tests/processes.
+     * @return void
      */
     public static function reset(): void
     {

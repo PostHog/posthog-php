@@ -4,6 +4,9 @@ namespace PostHog;
 
 use Closure;
 
+/**
+ * HTTP client used by the SDK for PostHog API requests.
+ */
 class HttpClient
 {
     /**
@@ -40,6 +43,17 @@ class HttpClient
      */
     private $curlTimeoutMilliseconds;
 
+    /**
+     * Create an HTTP client.
+     *
+     * @param string $host PostHog host without protocol.
+     * @param bool $useSsl Whether to use HTTPS.
+     * @param int $maximumBackoffDuration Maximum retry backoff duration in milliseconds.
+     * @param bool $compressRequests Whether to gzip request bodies.
+     * @param bool $debug Whether to emit debug logs.
+     * @param Closure|null $errorHandler Optional callback invoked for request errors.
+     * @param int $curlTimeoutMilliseconds Default cURL timeout in milliseconds.
+     */
     public function __construct(
         string $host,
         bool $useSsl = true,
@@ -59,10 +73,12 @@ class HttpClient
     }
 
     /**
-     * @param string $path
-     * @param string|null $payload
-     * @param array $extraHeaders
-     * @param array $requestOptions
+     * Send a request to the configured PostHog host.
+     *
+     * @param string $path Request path, including leading slash.
+     * @param string|null $payload JSON request body, or null for no body.
+     * @param array<int, string> $extraHeaders Additional cURL header strings.
+     * @param array{shouldRetry?: bool, shouldVerify?: bool, includeEtag?: bool, timeout?: int} $requestOptions
      * @return HttpResponse
      */
     public function sendRequest(string $path, ?string $payload, array $extraHeaders = [], array $requestOptions = []): HttpResponse

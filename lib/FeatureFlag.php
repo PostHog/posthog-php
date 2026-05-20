@@ -6,8 +6,21 @@ use Symfony\Component\Clock\Clock;
 
 const LONG_SCALE = 0xfffffffffffffff;
 
+/**
+ * Local feature flag matching helpers.
+ *
+ * @internal
+ */
 class FeatureFlag
 {
+    /**
+     * Match a single property filter against provided property values.
+     *
+     * @param array<string, mixed> $property Feature flag property filter.
+     * @param array<string, mixed> $propertyValues Available property values keyed by property name.
+     * @return bool Whether the property matches.
+     * @throws InconclusiveMatchException When the property cannot be evaluated locally.
+     */
     public static function matchProperty($property, $propertyValues)
     {
         $key = $property["key"];
@@ -147,6 +160,19 @@ class FeatureFlag
         return false;
     }
 
+    /**
+     * Match a cohort property filter against provided property values.
+     *
+     * @param array<string, mixed> $property Cohort property filter.
+     * @param array<string, mixed> $propertyValues Available property values keyed by property name.
+     * @param array<string, mixed> $cohortProperties Local cohort definitions keyed by cohort ID.
+     * @param array<string, array<string, mixed>>|null $flagsByKey Local feature flag definitions keyed by key.
+     * @param array<string, mixed>|null $evaluationCache Cache used for flag dependency evaluation.
+     * @param string|null $distinctId Distinct ID used for nested flag dependency evaluation.
+     * @return bool Whether the cohort matches.
+     * @throws RequiresServerEvaluationException When the cohort requires server-side data.
+     * @throws InconclusiveMatchException When the cohort cannot be evaluated locally.
+     */
     public static function matchCohort($property, $propertyValues, $cohortProperties, $flagsByKey = null, $evaluationCache = null, $distinctId = null)
     {
         $cohortId = strval($property["value"]);
@@ -161,6 +187,19 @@ class FeatureFlag
         return FeatureFlag::matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties, $flagsByKey, $evaluationCache, $distinctId);
     }
 
+    /**
+     * Match a property group against provided property values.
+     *
+     * @param array<string, mixed>|null $propertyGroup Property group definition.
+     * @param array<string, mixed> $propertyValues Available property values keyed by property name.
+     * @param array<string, mixed> $cohortProperties Local cohort definitions keyed by cohort ID.
+     * @param array<string, array<string, mixed>>|null $flagsByKey Local feature flag definitions keyed by key.
+     * @param array<string, mixed>|null $evaluationCache Cache used for flag dependency evaluation.
+     * @param string|null $distinctId Distinct ID used for nested flag dependency evaluation.
+     * @return bool Whether the property group matches.
+     * @throws RequiresServerEvaluationException When server-side data is required.
+     * @throws InconclusiveMatchException When the group cannot be evaluated locally.
+     */
     public static function matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties, $flagsByKey = null, $evaluationCache = null, $distinctId = null)
     {
         if (!$propertyGroup) {
@@ -258,6 +297,12 @@ class FeatureFlag
         }
     }
 
+    /**
+     * Parse a PostHog relative date string for feature flag matching.
+     *
+     * @param mixed $value Relative date string such as `1h`, `7d`, `2w`, `3m`, or `1y`.
+     * @return \DateTime|null Parsed UTC date, or null when the value is invalid.
+     */
     public static function relativeDateParseForFeatureFlagMatching($value)
     {
         $regex = "/^-?(?<number>[0-9]+)(?<interval>[a-z])$/";
@@ -586,6 +631,22 @@ class FeatureFlag
         return $lookupTable;
     }
 
+    /**
+     * Match a full feature flag definition for a distinct id and properties.
+     *
+     * @param array<string, mixed> $flag Feature flag definition.
+     * @param string $distinctId Distinct ID or group key used for bucketing.
+     * @param array<string, mixed> $properties Person or group properties for evaluation.
+     * @param array<string, mixed> $cohorts Local cohort definitions keyed by cohort ID.
+     * @param array<string, array<string, mixed>>|null $flagsByKey Local feature flag definitions keyed by key.
+     * @param array<string, mixed>|null $evaluationCache Cache used for flag dependency evaluation.
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @param array<string, array<string, mixed>> $groupProperties Group properties for evaluation.
+     * @param array<string, string> $groupTypeMapping Mapping from group type index to group type name.
+     * @return bool|string False for disabled, true for enabled boolean flags, or variant key.
+     * @throws RequiresServerEvaluationException When server-side data is required.
+     * @throws InconclusiveMatchException When the flag cannot be evaluated locally.
+     */
     public static function matchFeatureFlagProperties(
         $flag,
         $distinctId,
@@ -732,6 +793,18 @@ class FeatureFlag
         return $regex;
     }
 
+    /**
+     * Evaluate a feature flag dependency property.
+     *
+     * @param array<string, mixed> $property Flag dependency property.
+     * @param array<string, array<string, mixed>>|null $flagsByKey Local feature flag definitions keyed by key.
+     * @param array<string, mixed>|null $evaluationCache Cache used for dependency evaluation.
+     * @param string $distinctId Distinct ID used for bucketing.
+     * @param array<string, mixed> $properties Person or group properties for evaluation.
+     * @param array<string, mixed> $cohortProperties Local cohort definitions keyed by cohort ID.
+     * @return bool Whether the dependency matches.
+     * @throws InconclusiveMatchException When the dependency cannot be evaluated locally.
+     */
     public static function evaluateFlagDependency($property, $flagsByKey, $evaluationCache, $distinctId, $properties, $cohortProperties)
     {
         if ($flagsByKey === null || $evaluationCache === null) {
@@ -841,6 +914,13 @@ class FeatureFlag
         return true;
     }
 
+    /**
+     * Compare an expected flag dependency value with an evaluated flag value.
+     *
+     * @param mixed $expectedValue Expected dependency value from the property filter.
+     * @param mixed $actualValue Actual evaluated flag value.
+     * @return bool Whether the values match dependency semantics.
+     */
     public static function matchesDependencyValue($expectedValue, $actualValue)
     {
         // String variant case - check for exact match or boolean true
@@ -854,9 +934,8 @@ class FeatureFlag
             } else {
                 return false;
             }
-        }
-        // Boolean case - must match expected boolean value
-        elseif (is_bool($actualValue) && is_bool($expectedValue)) {
+        } elseif (is_bool($actualValue) && is_bool($expectedValue)) {
+            // Boolean case - must match expected boolean value
             return $actualValue === $expectedValue;
         }
 

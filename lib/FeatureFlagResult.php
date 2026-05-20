@@ -12,6 +12,14 @@ class FeatureFlagResult
     private ?string $variant;
     private mixed $payload;
 
+    /**
+     * Create a feature flag result.
+     *
+     * @param string $key Feature flag key.
+     * @param bool $enabled Whether the flag is enabled.
+     * @param string|null $variant Variant key for multivariate flags.
+     * @param mixed $payload Decoded JSON payload associated with this flag.
+     */
     public function __construct(
         string $key,
         bool $enabled,
@@ -26,6 +34,8 @@ class FeatureFlagResult
 
     /**
      * Get the feature flag key.
+     *
+     * @return string
      */
     public function getKey(): string
     {
@@ -34,6 +44,8 @@ class FeatureFlagResult
 
     /**
      * Whether the flag is enabled.
+     *
+     * @return bool
      */
     public function isEnabled(): bool
     {
@@ -42,6 +54,8 @@ class FeatureFlagResult
 
     /**
      * Get the variant value if this is a multivariate flag.
+     *
+     * @return string|null
      */
     public function getVariant(): ?string
     {
@@ -50,6 +64,8 @@ class FeatureFlagResult
 
     /**
      * Get the decoded JSON payload associated with this flag.
+     *
+     * @return mixed
      */
     public function getPayload(): mixed
     {
@@ -60,6 +76,8 @@ class FeatureFlagResult
      * Get the flag value in the same format as getFeatureFlag().
      * Returns the variant if set, otherwise the enabled boolean.
      * This matches the $feature_flag_response format.
+     *
+     * @return bool|string
      */
     public function getValue(): bool|string
     {
