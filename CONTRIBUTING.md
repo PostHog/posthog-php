@@ -11,6 +11,15 @@ Thanks for your interest in improving the PostHog PHP SDK.
    composer install --prefer-dist --no-progress
    ```
 
+## Running the example app
+
+1. Copy `.env.example` to `.env` and add your PostHog credentials.
+2. Run the interactive example script:
+
+   ```bash
+   php example.php
+   ```
+
 ## CI-aligned checks
 
 Run the test command used in CI:

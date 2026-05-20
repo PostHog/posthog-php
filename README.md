@@ -10,52 +10,11 @@ Specifically, the [PHP integration](https://posthog.com/docs/integrations/php-in
 ## Features
 
 - ✅ Event capture and user identification
-- ✅ Error tracking with manual exception capture
-- ✅ Opt-in automatic PHP exception, error, and fatal shutdown capture
-- ✅ Feature flag local evaluation
-- ✅ **Feature flag dependencies** (new!) - Create conditional flags based on other flags
-- ✅ Multivariate flags and payloads
+- ✅ Feature flags, including local evaluation, multivariate flags, payloads, and flag dependencies
 - ✅ Group analytics
+- ✅ Error tracking with manual exception capture and opt-in automatic PHP exception, error, and fatal shutdown capture
+- ✅ Request context helpers for applying distinct IDs, session IDs, and common properties across a request
 - ✅ Comprehensive test coverage
-
-## Quick Start
-
-1. Copy `.env.example` to `.env` and add your PostHog credentials
-2. Run `php example.php` to see interactive examples of all features
-
-## Error Tracking
-
-Manual exception capture:
-
-```php
-PostHog::captureException($exception, 'user-123', [
-    '$current_url' => 'https://example.com/settings',
-]);
-```
-
-Opt-in automatic capture from the core SDK:
-
-```php
-PostHog::init('phc_xxx', [
-    'error_tracking' => [
-        'enabled' => true,
-        'capture_errors' => true,
-        'excluded_exceptions' => [
-            \InvalidArgumentException::class,
-        ],
-        'context_provider' => static function (array $payload): array {
-            return [
-                'distinctId' => $_SESSION['user_id'] ?? null,
-                'properties' => [
-                    '$current_url' => $_SERVER['REQUEST_URI'] ?? null,
-                ],
-            ];
-        },
-    ],
-]);
-```
-
-Auto error tracking is off by default. When enabled, the SDK chains existing exception and error handlers instead of replacing app behavior.
 
 ## Questions?
 
