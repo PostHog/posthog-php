@@ -155,13 +155,14 @@ jobs:
       - name: Commit version bump
         id: commit-version-bump
         if: steps.check-changes.outputs.committed == 'true'
-        uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
-        with:
-          commit_message: "chore: release ${{ steps.apply-changesets.outputs.new-version }} [version bump] [skip ci]"
-          repo: ${{ github.repository }}
-          branch: main
         env:
           GITHUB_TOKEN: ${{ steps.releaser.outputs.token }}
+          COMMIT_RETRY_ATTEMPTS: 4
+        run: |
+          node scripts/create-github-signed-commit.mjs \
+            --repo "${{ github.repository }}" \
+            --branch main \
+            --message "chore: release ${{ steps.apply-changesets.outputs.new-version }} [version bump] [skip ci]"
       - name: Create GitHub release
         if: steps.commit-version-bump.outputs.commit-hash != ''
         env:
