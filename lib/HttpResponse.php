@@ -4,6 +4,8 @@ namespace PostHog;
 
 /**
  * Response wrapper returned by the SDK HTTP client.
+ *
+ * @internal
  */
 class HttpResponse
 {

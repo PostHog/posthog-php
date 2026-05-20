@@ -6,6 +6,8 @@ use Closure;
 
 /**
  * HTTP client used by the SDK for PostHog API requests.
+ *
+ * @internal
  */
 class HttpClient
 {
