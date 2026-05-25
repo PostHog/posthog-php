@@ -563,6 +563,93 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertCount(1, $batches[0]['batch']);
     }
 
+    public function testFeatureFlagCalledFiresPerGroupContext(): void
+    {
+        $this->makeClient();
+
+        // Same user, same flag, two different group contexts must produce two events.
+        $snapA = PostHog::evaluateFlags('user-1', groups: ['organization' => 'org-a']);
+        $snapA->isEnabled('simple-test');
+
+        $snapB = PostHog::evaluateFlags('user-1', groups: ['organization' => 'org-b']);
+        $snapB->isEnabled('simple-test');
+
+        PostHog::flush();
+
+        $events = [];
+        foreach ($this->batchRequests() as $batch) {
+            foreach ($batch['batch'] as $event) {
+                if ($event['event'] === '$feature_flag_called'
+                    && ($event['properties']['$feature_flag'] ?? null) === 'simple-test') {
+                    $events[] = $event;
+                }
+            }
+        }
+
+        $this->assertCount(2, $events, 'expected one $feature_flag_called event per group context');
+        $seen = array_map(
+            fn($e) => $e['properties']['$groups']['organization'] ?? null,
+            $events
+        );
+        $this->assertContains('org-a', $seen);
+        $this->assertContains('org-b', $seen);
+    }
+
+    public function testFeatureFlagCalledDedupesAcrossRepeatedCallsUnderSameGroup(): void
+    {
+        $this->makeClient();
+
+        $snap = PostHog::evaluateFlags('user-1', groups: ['organization' => 'org-a']);
+        $snap->isEnabled('simple-test');
+        $snap->isEnabled('simple-test');
+        $snap->isEnabled('simple-test');
+
+        PostHog::flush();
+
+        $count = 0;
+        foreach ($this->batchRequests() as $batch) {
+            foreach ($batch['batch'] as $event) {
+                if ($event['event'] === '$feature_flag_called'
+                    && ($event['properties']['$feature_flag'] ?? null) === 'simple-test') {
+                    $count++;
+                }
+            }
+        }
+        $this->assertSame(1, $count, 'expected a single deduped $feature_flag_called event');
+    }
+
+    public function testFeatureFlagCalledDedupesAcrossGroupKeyOrder(): void
+    {
+        $this->makeClient();
+
+        // Same groups, two different array insertion orders. Both must produce the same canonical
+        // dedup element so only one event is fired.
+        $snapA = PostHog::evaluateFlags(
+            'user-1',
+            groups: ['organization' => 'org-a', 'team' => 'red']
+        );
+        $snapA->isEnabled('simple-test');
+
+        $snapB = PostHog::evaluateFlags(
+            'user-1',
+            groups: ['team' => 'red', 'organization' => 'org-a']
+        );
+        $snapB->isEnabled('simple-test');
+
+        PostHog::flush();
+
+        $count = 0;
+        foreach ($this->batchRequests() as $batch) {
+            foreach ($batch['batch'] as $event) {
+                if ($event['event'] === '$feature_flag_called'
+                    && ($event['properties']['$feature_flag'] ?? null) === 'simple-test') {
+                    $count++;
+                }
+            }
+        }
+        $this->assertSame(1, $count, 'expected a single deduped $feature_flag_called event');
+    }
+
     /**
      * @return list<string> the deprecation messages emitted while running $callable
      */
