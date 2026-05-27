@@ -982,7 +982,7 @@ class Client implements FeatureFlagEvaluationsHost
             return '';
         }
         ksort($groups);
-        return '_' . json_encode($groups, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return '_' . json_encode($groups, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     }
 
     /**

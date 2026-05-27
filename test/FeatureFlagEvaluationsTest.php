@@ -595,46 +595,42 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertContains('org-b', $seen);
     }
 
-    public function testFeatureFlagCalledDedupesAcrossRepeatedCallsUnderSameGroup(): void
+    /**
+     * @return array<string, array{list<array<string,string>>, int}>
+     */
+    public static function dedupCallsProvider(): array
     {
-        $this->makeClient();
-
-        $snap = PostHog::evaluateFlags('user-1', groups: ['organization' => 'org-a']);
-        $snap->isEnabled('simple-test');
-        $snap->isEnabled('simple-test');
-        $snap->isEnabled('simple-test');
-
-        PostHog::flush();
-
-        $count = 0;
-        foreach ($this->batchRequests() as $batch) {
-            foreach ($batch['batch'] as $event) {
-                if ($event['event'] === '$feature_flag_called'
-                    && ($event['properties']['$feature_flag'] ?? null) === 'simple-test') {
-                    $count++;
-                }
-            }
-        }
-        $this->assertSame(1, $count, 'expected a single deduped $feature_flag_called event');
+        return [
+            'repeated calls under same group' => [
+                [
+                    ['organization' => 'org-a'],
+                    ['organization' => 'org-a'],
+                    ['organization' => 'org-a'],
+                ],
+                1,
+            ],
+            'same groups different key insertion order' => [
+                [
+                    ['organization' => 'org-a', 'team' => 'red'],
+                    ['team' => 'red', 'organization' => 'org-a'],
+                ],
+                1,
+            ],
+        ];
     }
 
-    public function testFeatureFlagCalledDedupesAcrossGroupKeyOrder(): void
+    /**
+     * @dataProvider dedupCallsProvider
+     * @param list<array<string,string>> $groupsPerCall
+     */
+    public function testFeatureFlagCalledDedupes(array $groupsPerCall, int $expectedCount): void
     {
         $this->makeClient();
 
-        // Same groups, two different array insertion orders. Both must produce the same canonical
-        // dedup element so only one event is fired.
-        $snapA = PostHog::evaluateFlags(
-            'user-1',
-            groups: ['organization' => 'org-a', 'team' => 'red']
-        );
-        $snapA->isEnabled('simple-test');
-
-        $snapB = PostHog::evaluateFlags(
-            'user-1',
-            groups: ['team' => 'red', 'organization' => 'org-a']
-        );
-        $snapB->isEnabled('simple-test');
+        foreach ($groupsPerCall as $groups) {
+            $snap = PostHog::evaluateFlags('user-1', groups: $groups);
+            $snap->isEnabled('simple-test');
+        }
 
         PostHog::flush();
 
@@ -647,7 +643,7 @@ class FeatureFlagEvaluationsTest extends TestCase
                 }
             }
         }
-        $this->assertSame(1, $count, 'expected a single deduped $feature_flag_called event');
+        $this->assertSame($expectedCount, $count, 'unexpected $feature_flag_called event count');
     }
 
     /**
