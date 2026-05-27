@@ -936,10 +936,11 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * Fire a $feature_flag_called event the first time a (flag key, distinct id) pair is seen by
-     * this Client, deduped via the per-distinct_id cache shared with every other flag-reading code
-     * path. Properties are built by the caller so each call site can shape the payload to match its
-     * available metadata.
+     * Fire a $feature_flag_called event the first time a (flag key, distinct id, groups) tuple is
+     * seen by this Client, deduped via the per-distinct_id cache shared with every other
+     * flag-reading code path. Group context is included so that group-scoped flags fire a separate
+     * event for each group a user is evaluated under. Properties are built by the caller so each
+     * call site can shape the payload to match its available metadata.
      *
      * @param string $distinctId The distinct ID that accessed the flag.
      * @param string $key Feature flag key.
@@ -953,7 +954,8 @@ class Client implements FeatureFlagEvaluationsHost
         array $properties,
         array $groups = []
     ): void {
-        if ($this->distinctIdsFeatureFlagsReported->contains($key, $distinctId)) {
+        $dedupElement = $distinctId . self::canonicalGroupsRepr($groups);
+        if ($this->distinctIdsFeatureFlagsReported->contains($key, $dedupElement)) {
             return;
         }
 
@@ -963,7 +965,24 @@ class Client implements FeatureFlagEvaluationsHost
             'event' => '$feature_flag_called',
             '$groups' => $groups,
         ]);
-        $this->distinctIdsFeatureFlagsReported->add($key, $distinctId);
+        $this->distinctIdsFeatureFlagsReported->add($key, $dedupElement);
+    }
+
+    /**
+     * Canonicalize the groups map so two equal arrays with keys in a different order produce the
+     * same dedup suffix. Empty / missing groups produce an empty string so the legacy "no groups"
+     * dedupe shape is preserved.
+     *
+     * @param array<string, mixed> $groups
+     * @return string
+     */
+    private static function canonicalGroupsRepr(array $groups): string
+    {
+        if (empty($groups)) {
+            return '';
+        }
+        ksort($groups);
+        return '_' . json_encode($groups, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     }
 
     /**
