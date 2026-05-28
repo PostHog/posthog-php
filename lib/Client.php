@@ -1112,6 +1112,10 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function loadFlags()
     {
+        if (!$this->enabled) {
+            return;
+        }
+
         $response = $this->localFlags();
 
         // Handle 304 Not Modified - flags haven't changed, skip processing.

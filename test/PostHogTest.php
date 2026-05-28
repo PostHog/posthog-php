@@ -55,6 +55,27 @@ class PostHogTest extends TestCase
         return $consumerProp->getValue($client);
     }
 
+    private function withEnvApiKey(?string $apiKey, callable $callback): void
+    {
+        $previousApiKey = getenv(PostHog::ENV_API_KEY);
+
+        if ($apiKey === null) {
+            putenv(PostHog::ENV_API_KEY);
+        } else {
+            putenv(PostHog::ENV_API_KEY . "=" . $apiKey);
+        }
+
+        try {
+            $callback();
+        } finally {
+            if ($previousApiKey === false) {
+                putenv(PostHog::ENV_API_KEY);
+            } else {
+                putenv(PostHog::ENV_API_KEY . "=" . $previousApiKey);
+            }
+        }
+    }
+
     public function testInitWithParamApiKey(): void
     {
         $this->expectNotToPerformAssertions();
@@ -65,11 +86,10 @@ class PostHogTest extends TestCase
     public function testInitWithEnvApiKey(): void
     {
         $this->expectNotToPerformAssertions();
-        putenv(PostHog::ENV_API_KEY . "=BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg");
-        PostHog::init(null, array("debug" => true));
 
-        // Clear the environment variable
-        putenv(PostHog::ENV_API_KEY);
+        $this->withEnvApiKey("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", function () {
+            PostHog::init(null, array("debug" => true));
+        });
     }
 
     public function testClientTrimsWhitespaceSensitiveConfig(): void
@@ -215,10 +235,7 @@ class PostHogTest extends TestCase
 
     public function testInitWithoutApiKeyConfiguresNoOpClient(): void
     {
-        $previousApiKey = getenv(PostHog::ENV_API_KEY);
-        putenv(PostHog::ENV_API_KEY);
-
-        try {
+        $this->withEnvApiKey(null, function () {
             PostHog::init();
             $client = PostHog::getClient();
 
@@ -227,37 +244,50 @@ class PostHogTest extends TestCase
                 "distinctId" => "john",
                 "event" => "Module PHP Event",
             ]));
-        } finally {
-            if ($previousApiKey === false) {
-                putenv(PostHog::ENV_API_KEY);
-            } else {
-                putenv(PostHog::ENV_API_KEY . "=" . $previousApiKey);
-            }
-        }
+        });
     }
 
     public function testInitWithEmptyApiKeyConfiguresNoOpClient(): void
     {
-        PostHog::init("", ["debug" => true]);
-        $client = PostHog::getClient();
+        $this->withEnvApiKey(null, function () {
+            PostHog::init("", ["debug" => true]);
+            $client = PostHog::getClient();
 
-        $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
-        $this->assertFalse(PostHog::capture([
-            "distinctId" => "john",
-            "event" => "Module PHP Event",
-        ]));
+            $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
+            $this->assertFalse(PostHog::capture([
+                "distinctId" => "john",
+                "event" => "Module PHP Event",
+            ]));
+        });
     }
 
     public function testInitWithWhitespaceApiKeyConfiguresNoOpClient(): void
     {
-        PostHog::init(" \n\t ", ["debug" => true]);
-        $client = PostHog::getClient();
+        $this->withEnvApiKey(null, function () {
+            PostHog::init(" \n\t ", ["debug" => true]);
+            $client = PostHog::getClient();
 
-        $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
-        $this->assertFalse(PostHog::capture([
-            "distinctId" => "john",
-            "event" => "Module PHP Event",
-        ]));
+            $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
+            $this->assertFalse(PostHog::capture([
+                "distinctId" => "john",
+                "event" => "Module PHP Event",
+            ]));
+        });
+    }
+
+    public function testInitWithEmptyApiKeyFallsBackToEnvApiKey(): void
+    {
+        $this->withEnvApiKey(self::FAKE_API_KEY, function () {
+            PostHog::init("", ["debug" => true]);
+            $client = PostHog::getClient();
+
+            $ref = new \ReflectionClass($client);
+            $apiKeyProp = $ref->getProperty('apiKey');
+            $apiKeyProp->setAccessible(true);
+
+            $this->assertSame(self::FAKE_API_KEY, $apiKeyProp->getValue($client));
+            $this->assertNotInstanceOf(NoOp::class, $this->getConsumer($client));
+        });
     }
 
     public function testClientWithNullApiKeyDoesNotSendRequests(): void
@@ -285,6 +315,22 @@ class PostHogTest extends TestCase
             "event" => "Module PHP Event",
         ]));
         $this->assertSame([], $client->fetchFeatureVariants("john"));
+        $this->assertSame([], $httpClient->calls ?? []);
+    }
+
+    public function testDisabledClientLoadFlagsDoesNotMutateCachedFlags(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client("", ["debug" => true], $httpClient, "test", false);
+        $client->featureFlags = [["key" => "existing-flag"]];
+        $client->groupTypeMapping = ["0" => "organization"];
+        $client->cohorts = ["1" => ["type" => "static"]];
+
+        $client->loadFlags();
+
+        $this->assertSame([["key" => "existing-flag"]], $client->featureFlags);
+        $this->assertSame(["0" => "organization"], $client->groupTypeMapping);
+        $this->assertSame(["1" => ["type" => "static"]], $client->cohorts);
         $this->assertSame([], $httpClient->calls ?? []);
     }
 

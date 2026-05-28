@@ -18,8 +18,9 @@ class PostHog
     /**
      * Initializes the default client to use. Uses the libcurl consumer by default.
      *
-     * When $apiKey or the host option are omitted, POSTHOG_API_KEY and POSTHOG_HOST are used
-     * when present.
+     * When $apiKey is omitted or blank, POSTHOG_API_KEY is used when present. When no
+     * non-empty API key can be resolved, a disabled no-op client is initialized. When the
+     * host option is omitted, POSTHOG_HOST is used when present.
      *
      * @param string|null $apiKey Your project API key.
      * @param array{
@@ -57,9 +58,10 @@ class PostHog
     ): void {
         if (null === $client) {
             $options = $options ?? [];
+            $apiKey = StringNormalizer::normalizeOptional($apiKey);
             if ($apiKey === null) {
                 $envApiKey = getenv(self::ENV_API_KEY);
-                $apiKey = $envApiKey === false ? null : $envApiKey;
+                $apiKey = $envApiKey === false ? null : StringNormalizer::normalizeOptional($envApiKey);
             }
 
             $rawHost = null;
