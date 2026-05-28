@@ -18,8 +18,9 @@ class PostHog
     /**
      * Initializes the default client to use. Uses the libcurl consumer by default.
      *
-     * When $apiKey or the host option are omitted, POSTHOG_API_KEY and POSTHOG_HOST are used
-     * when present.
+     * When $apiKey is omitted or blank, POSTHOG_API_KEY is used when present. When no
+     * non-empty API key can be resolved, a disabled no-op client is initialized. When the
+     * host option is omitted, POSTHOG_HOST is used when present.
      *
      * @param string|null $apiKey Your project API key.
      * @param array{
@@ -29,7 +30,7 @@ class PostHog
      *     verify_batch_events_request?: bool,
      *     feature_flag_request_timeout_ms?: int,
      *     maximum_backoff_duration?: int,
-     *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl',
+     *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl'|'noop',
      *     debug?: bool,
      *     max_queue_size?: int,
      *     batch_size?: int,
@@ -48,7 +49,6 @@ class PostHog
      *     and $personalAPIKey are ignored.
      * @param string|null $personalAPIKey Personal API key used to load local feature flag definitions.
      * @return void
-     * @throws Exception When no API key can be resolved.
      */
     public static function init(
         ?string $apiKey = null,
@@ -57,7 +57,12 @@ class PostHog
         ?string $personalAPIKey = null
     ): void {
         if (null === $client) {
-            $apiKey = $apiKey ?: getenv(self::ENV_API_KEY);
+            $options = $options ?? [];
+            $apiKey = StringNormalizer::normalizeOptional($apiKey);
+            if ($apiKey === null) {
+                $envApiKey = getenv(self::ENV_API_KEY);
+                $apiKey = $envApiKey === false ? null : StringNormalizer::normalizeOptional($envApiKey);
+            }
 
             $rawHost = null;
             if (array_key_exists("host", $options)) {
@@ -81,7 +86,6 @@ class PostHog
                 }
             }
 
-            self::assert($apiKey, "PostHog::init() requires an apiKey");
             self::$client = new Client($apiKey, $options, null, $personalAPIKey);
         } else {
             self::$client = $client;

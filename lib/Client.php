@@ -6,6 +6,7 @@ use Exception;
 use PostHog\Consumer\File;
 use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
+use PostHog\Consumer\NoOp;
 use PostHog\Consumer\Socket;
 use Symfony\Component\Clock\Clock;
 
@@ -21,6 +22,7 @@ class Client implements FeatureFlagEvaluationsHost
         "file" => File::class,
         "fork_curl" => ForkCurl::class,
         "lib_curl" => LibCurl::class,
+        "noop" => NoOp::class,
     ];
 
 
@@ -92,6 +94,11 @@ class Client implements FeatureFlagEvaluationsHost
     private $options;
 
     /**
+     * @var bool
+     */
+    private $enabled;
+
+    /**
      * @var array<string, bool>
      */
     private array $missingDistinctIdWarnings = [];
@@ -99,7 +106,8 @@ class Client implements FeatureFlagEvaluationsHost
     /**
      * Create a new PostHog client with your project's API key.
      *
-     * @param string $apiKey Your project API key.
+     * @param string|null $apiKey Your project API key. When omitted or empty, the client is disabled
+     *     and uses the noop consumer.
      * @param array{
      *     host?: string,
      *     ssl?: bool,
@@ -107,7 +115,7 @@ class Client implements FeatureFlagEvaluationsHost
      *     verify_batch_events_request?: bool,
      *     feature_flag_request_timeout_ms?: int,
      *     maximum_backoff_duration?: int,
-     *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl',
+     *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl'|'noop',
      *     debug?: bool,
      *     max_queue_size?: int,
      *     batch_size?: int,
@@ -127,21 +135,23 @@ class Client implements FeatureFlagEvaluationsHost
      * @param bool $loadFeatureFlags Whether to load local feature flag definitions during construction.
      */
     public function __construct(
-        string $apiKey,
+        ?string $apiKey = null,
         array $options = [],
         ?HttpClient $httpClient = null,
         ?string $personalAPIKey = null,
         bool $loadFeatureFlags = true,
     ) {
-        $this->apiKey = trim($apiKey);
+        $this->apiKey = StringNormalizer::normalizeOptional($apiKey) ?? '';
+        $this->enabled = $this->apiKey !== '';
         $this->personalAPIKey = StringNormalizer::normalizeOptional($personalAPIKey);
         $this->options = $options;
         $this->debug = $options["debug"] ?? false;
         $this->options['host'] = StringNormalizer::normalizeHost($options['host'] ?? null);
-        if ($this->apiKey === '') {
+        if (!$this->enabled) {
             error_log('[PostHog][Client] apiKey is empty after trimming whitespace; check your project API key');
+            $this->options['consumer'] = 'noop';
         }
-        $Consumer = self::CONSUMERS[$options["consumer"] ?? "lib_curl"];
+        $Consumer = self::CONSUMERS[$this->options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($this->apiKey, $this->options, $httpClient);
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $this->options['host'],
@@ -160,11 +170,14 @@ class Client implements FeatureFlagEvaluationsHost
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
         $this->flagsEtag = null;
 
-        ExceptionCapture::configure($this, $options['error_tracking'] ?? []);
+        if ($this->enabled) {
+            ExceptionCapture::configure($this, $options['error_tracking'] ?? []);
+        }
 
         // Populate featureflags and grouptypemapping if possible
         if (
-            count($this->featureFlags) == 0
+            $this->enabled
+            && count($this->featureFlags) == 0
             && !is_null($this->personalAPIKey)
             && $loadFeatureFlags
         ) {
@@ -1099,6 +1112,10 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function loadFlags()
     {
+        if (!$this->enabled) {
+            return;
+        }
+
         $response = $this->localFlags();
 
         // Handle 304 Not Modified - flags haven't changed, skip processing.
@@ -1153,6 +1170,17 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function localFlags(): HttpResponse
     {
+        if (!$this->enabled) {
+            return new HttpResponse(
+                json_encode([
+                    'flags' => [],
+                    'group_type_mapping' => [],
+                    'cohorts' => [],
+                ]),
+                200
+            );
+        }
+
         $headers = [
             // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
             "User-Agent: posthog-php/" . PostHog::VERSION,
@@ -1262,6 +1290,14 @@ class Client implements FeatureFlagEvaluationsHost
         bool $disableGeoip = false,
         ?array $flagKeys = null
     ): array {
+        if (!$this->enabled) {
+            return [
+                'featureFlags' => [],
+                'featureFlagPayloads' => [],
+                'flags' => [],
+            ];
+        }
+
         $payload = array(
             'api_key' => $this->apiKey,
             'distinct_id' => $distinctId,
