@@ -141,7 +141,7 @@ class Client implements FeatureFlagEvaluationsHost
         ?string $personalAPIKey = null,
         bool $loadFeatureFlags = true,
     ) {
-        $this->apiKey = trim($apiKey ?? '');
+        $this->apiKey = StringNormalizer::normalizeOptional($apiKey) ?? '';
         $this->enabled = $this->apiKey !== '';
         $this->personalAPIKey = StringNormalizer::normalizeOptional($personalAPIKey);
         $this->options = $options;
