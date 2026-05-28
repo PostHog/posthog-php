@@ -6,8 +6,21 @@ use Symfony\Component\Clock\Clock;
 
 const LONG_SCALE = 0xfffffffffffffff;
 
+/**
+ * Local feature flag matching helpers.
+ *
+ * @internal
+ */
 class FeatureFlag
 {
+    /**
+     * Match a single property filter against provided property values.
+     *
+     * @param array<string, mixed> $property Feature flag property filter.
+     * @param array<string, mixed> $propertyValues Available property values keyed by property name.
+     * @return bool Whether the property matches.
+     * @throws InconclusiveMatchException When the property cannot be evaluated locally.
+     */
     public static function matchProperty($property, $propertyValues)
     {
         $key = $property["key"];
@@ -147,6 +160,19 @@ class FeatureFlag
         return false;
     }
 
+    /**
+     * Match a cohort property filter against provided property values.
+     *
+     * @param array<string, mixed> $property Cohort property filter.
+     * @param array<string, mixed> $propertyValues Available property values keyed by property name.
+     * @param array<string, mixed> $cohortProperties Local cohort definitions keyed by cohort ID.
+     * @param array<string, array<string, mixed>>|null $flagsByKey Local feature flag definitions keyed by key.
+     * @param array<string, mixed>|null $evaluationCache Cache used for flag dependency evaluation.
+     * @param string|null $distinctId Distinct ID used for nested flag dependency evaluation.
+     * @return bool Whether the cohort matches.
+     * @throws RequiresServerEvaluationException When the cohort requires server-side data.
+     * @throws InconclusiveMatchException When the cohort cannot be evaluated locally.
+     */
     public static function matchCohort($property, $propertyValues, $cohortProperties, $flagsByKey = null, $evaluationCache = null, $distinctId = null)
     {
         $cohortId = strval($property["value"]);
@@ -161,6 +187,19 @@ class FeatureFlag
         return FeatureFlag::matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties, $flagsByKey, $evaluationCache, $distinctId);
     }
 
+    /**
+     * Match a property group against provided property values.
+     *
+     * @param array<string, mixed>|null $propertyGroup Property group definition.
+     * @param array<string, mixed> $propertyValues Available property values keyed by property name.
+     * @param array<string, mixed> $cohortProperties Local cohort definitions keyed by cohort ID.
+     * @param array<string, array<string, mixed>>|null $flagsByKey Local feature flag definitions keyed by key.
+     * @param array<string, mixed>|null $evaluationCache Cache used for flag dependency evaluation.
+     * @param string|null $distinctId Distinct ID used for nested flag dependency evaluation.
+     * @return bool Whether the property group matches.
+     * @throws RequiresServerEvaluationException When server-side data is required.
+     * @throws InconclusiveMatchException When the group cannot be evaluated locally.
+     */
     public static function matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties, $flagsByKey = null, $evaluationCache = null, $distinctId = null)
     {
         if (!$propertyGroup) {
@@ -258,6 +297,12 @@ class FeatureFlag
         }
     }
 
+    /**
+     * Parse a PostHog relative date string for feature flag matching.
+     *
+     * @param mixed $value Relative date string such as `1h`, `7d`, `2w`, `3m`, or `1y`.
+     * @return \DateTime|null Parsed UTC date, or null when the value is invalid.
+     */
     public static function relativeDateParseForFeatureFlagMatching($value)
     {
         $regex = "/^-?(?<number>[0-9]+)(?<interval>[a-z])$/";
@@ -292,6 +337,23 @@ class FeatureFlag
     }
 
     /**
+     * Parse a semver numeric identifier (e.g., the "1" in "1.2.3").
+     *
+     * @throws InconclusiveMatchException If the part is empty, non-numeric, or has a leading zero.
+     */
+    private static function parseSemverNumeric(string $part, string $component, $value): int
+    {
+        // Semver 2.0.0 §2: numeric identifiers MUST NOT include leading zeros.
+        if ($part === "" || !ctype_digit($part)) {
+            throw new InconclusiveMatchException("Cannot parse semver: invalid {$component} version in {$value}");
+        }
+        if (strlen($part) > 1 && $part[0] === "0") {
+            throw new InconclusiveMatchException("Cannot parse semver: {$component} version has leading zero in {$value}");
+        }
+        return intval($part);
+    }
+
+    /**
      * Parse a semver string into a tuple of [major, minor, patch].
      *
      * Rules:
@@ -301,7 +363,8 @@ class FeatureFlag
      * 4. Split on `.` and parse first 3 components as integers
      * 5. Default missing components to 0 (e.g., "1.2" → (1, 2, 0), "1" → (1, 0, 0))
      * 6. Ignore extra components beyond the third (e.g., "1.2.3.4" → (1, 2, 3))
-     * 7. Throw InconclusiveMatchException for invalid input (empty string, non-numeric parts, leading dot)
+     * 7. Reject numeric identifiers with leading zeros per semver 2.0.0 §2
+     * 8. Throw InconclusiveMatchException for invalid input (empty string, non-numeric parts, leading dot)
      *
      * @param mixed $value The semver string to parse
      * @return array{int, int, int} The parsed tuple [major, minor, patch]
@@ -337,34 +400,16 @@ class FeatureFlag
         // Split on dots
         $parts = explode(".", $text);
 
-        // Parse major
-        if (!isset($parts[0]) || $parts[0] === "" || !ctype_digit(ltrim($parts[0], "0") ?: "0")) {
-            // Allow pure zeros or numeric strings
-            if (isset($parts[0]) && preg_match('/^[0-9]+$/', $parts[0])) {
-                $major = intval($parts[0]);
-            } else {
-                throw new InconclusiveMatchException("Cannot parse semver: invalid major version in {$value}");
-            }
-        } else {
-            $major = intval($parts[0]);
-        }
+        $major = FeatureFlag::parseSemverNumeric($parts[0] ?? "", "major", $value);
 
-        // Parse minor (default to 0 if not present or empty)
         $minor = 0;
         if (isset($parts[1]) && $parts[1] !== "") {
-            if (!preg_match('/^[0-9]+$/', $parts[1])) {
-                throw new InconclusiveMatchException("Cannot parse semver: invalid minor version in {$value}");
-            }
-            $minor = intval($parts[1]);
+            $minor = FeatureFlag::parseSemverNumeric($parts[1], "minor", $value);
         }
 
-        // Parse patch (default to 0 if not present or empty)
         $patch = 0;
         if (isset($parts[2]) && $parts[2] !== "") {
-            if (!preg_match('/^[0-9]+$/', $parts[2])) {
-                throw new InconclusiveMatchException("Cannot parse semver: invalid patch version in {$value}");
-            }
-            $patch = intval($parts[2]);
+            $patch = FeatureFlag::parseSemverNumeric($parts[2], "patch", $value);
         }
 
         return [$major, $minor, $patch];
@@ -460,11 +505,7 @@ class FeatureFlag
             throw new InconclusiveMatchException("Cannot parse semver wildcard: no version components found in {$value}");
         }
 
-        // Parse major
-        if (!preg_match('/^[0-9]+$/', $parts[0])) {
-            throw new InconclusiveMatchException("Cannot parse semver wildcard: invalid major version in {$value}");
-        }
-        $major = intval($parts[0]);
+        $major = FeatureFlag::parseSemverNumeric($parts[0], "major", $value);
 
         if (count($parts) === 1) {
             // X.* pattern
@@ -472,10 +513,7 @@ class FeatureFlag
             $upper = [$major + 1, 0, 0];
         } else {
             // X.Y.* pattern
-            if (!preg_match('/^[0-9]+$/', $parts[1])) {
-                throw new InconclusiveMatchException("Cannot parse semver wildcard: invalid minor version in {$value}");
-            }
-            $minor = intval($parts[1]);
+            $minor = FeatureFlag::parseSemverNumeric($parts[1], "minor", $value);
             $lower = [$major, $minor, 0];
             $upper = [$major, $minor + 1, 0];
         }
@@ -586,16 +624,71 @@ class FeatureFlag
         return $lookupTable;
     }
 
-    public static function matchFeatureFlagProperties($flag, $distinctId, $properties, $cohorts = [], $flagsByKey = null, $evaluationCache = null)
-    {
-        $flagConditions = ($flag["filters"] ?? [])["groups"] ?? [];
+    /**
+     * Match a full feature flag definition for a distinct id and properties.
+     *
+     * @param array<string, mixed> $flag Feature flag definition.
+     * @param string $distinctId Distinct ID or group key used for bucketing.
+     * @param array<string, mixed> $properties Person or group properties for evaluation.
+     * @param array<string, mixed> $cohorts Local cohort definitions keyed by cohort ID.
+     * @param array<string, array<string, mixed>>|null $flagsByKey Local feature flag definitions keyed by key.
+     * @param array<string, mixed>|null $evaluationCache Cache used for flag dependency evaluation.
+     * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @param array<string, array<string, mixed>> $groupProperties Group properties for evaluation.
+     * @param array<string, string> $groupTypeMapping Mapping from group type index to group type name.
+     * @return bool|string False for disabled, true for enabled boolean flags, or variant key.
+     * @throws RequiresServerEvaluationException When server-side data is required.
+     * @throws InconclusiveMatchException When the flag cannot be evaluated locally.
+     */
+    public static function matchFeatureFlagProperties(
+        $flag,
+        $distinctId,
+        $properties,
+        $cohorts = [],
+        $flagsByKey = null,
+        $evaluationCache = null,
+        $groups = [],
+        $groupProperties = [],
+        $groupTypeMapping = []
+    ) {
+        $flagFilters = $flag["filters"] ?? [];
+        $flagConditions = $flagFilters["groups"] ?? [];
+        $flagAggregation = $flagFilters["aggregation_group_type_index"] ?? null;
         $isInconclusive = false;
 
         foreach ($flagConditions as $condition) {
             try {
-                if (FeatureFlag::isConditionMatch($flag, $distinctId, $condition, $properties, $cohorts, $flagsByKey, $evaluationCache)) {
+                // Per-condition aggregation overrides only when the condition explicitly
+                // sets its own aggregation_group_type_index (mixed targeting). When absent,
+                // use the properties/bucketing already resolved by the caller.
+                $hasConditionAggregation = array_key_exists("aggregation_group_type_index", $condition);
+                $conditionAggregation = $hasConditionAggregation
+                    ? $condition["aggregation_group_type_index"]
+                    : $flagAggregation;
+
+                $effectiveProperties = $properties;
+                $effectiveBucketing = $distinctId;
+
+                // Mixed-override path: condition-level aggregation differs from flag-level.
+                // This assumes flag-level aggregation is null for mixed flags.
+                if ($conditionAggregation !== $flagAggregation) {
+                    if (!is_null($conditionAggregation)) {
+                        $groupName = $groupTypeMapping[strval($conditionAggregation)] ?? null;
+                        if (is_null($groupName) || !array_key_exists($groupName, $groups)) {
+                            continue;
+                        }
+                        if (!array_key_exists($groupName, $groupProperties)) {
+                            $isInconclusive = true;
+                            continue;
+                        }
+                        $effectiveProperties = $groupProperties[$groupName];
+                        $effectiveBucketing = $groups[$groupName];
+                    }
+                }
+
+                if (FeatureFlag::isConditionMatch($flag, $effectiveBucketing, $condition, $effectiveProperties, $cohorts, $flagsByKey, $evaluationCache)) {
                     $variantOverride = $condition["variant"] ?? null;
-                    $flagVariants = (($flag["filters"] ?? [])["multivariate"] ?? [])["variants"] ?? [];
+                    $flagVariants = ($flagFilters["multivariate"] ?? [])["variants"] ?? [];
                     $variantKeys = array_map(function ($variant) {
                         return $variant["key"];
                     }, $flagVariants);
@@ -603,7 +696,7 @@ class FeatureFlag
                     if ($variantOverride && in_array($variantOverride, $variantKeys)) {
                         return $variantOverride;
                     } else {
-                        return FeatureFlag::getMatchingVariant($flag, $distinctId) ?? true;
+                        return FeatureFlag::getMatchingVariant($flag, $effectiveBucketing) ?? true;
                     }
                 }
             } catch (RequiresServerEvaluationException $e) {
@@ -693,6 +786,18 @@ class FeatureFlag
         return $regex;
     }
 
+    /**
+     * Evaluate a feature flag dependency property.
+     *
+     * @param array<string, mixed> $property Flag dependency property.
+     * @param array<string, array<string, mixed>>|null $flagsByKey Local feature flag definitions keyed by key.
+     * @param array<string, mixed>|null $evaluationCache Cache used for dependency evaluation.
+     * @param string $distinctId Distinct ID used for bucketing.
+     * @param array<string, mixed> $properties Person or group properties for evaluation.
+     * @param array<string, mixed> $cohortProperties Local cohort definitions keyed by cohort ID.
+     * @return bool Whether the dependency matches.
+     * @throws InconclusiveMatchException When the dependency cannot be evaluated locally.
+     */
     public static function evaluateFlagDependency($property, $flagsByKey, $evaluationCache, $distinctId, $properties, $cohortProperties)
     {
         if ($flagsByKey === null || $evaluationCache === null) {
@@ -802,6 +907,13 @@ class FeatureFlag
         return true;
     }
 
+    /**
+     * Compare an expected flag dependency value with an evaluated flag value.
+     *
+     * @param mixed $expectedValue Expected dependency value from the property filter.
+     * @param mixed $actualValue Actual evaluated flag value.
+     * @return bool Whether the values match dependency semantics.
+     */
     public static function matchesDependencyValue($expectedValue, $actualValue)
     {
         // String variant case - check for exact match or boolean true
@@ -815,9 +927,8 @@ class FeatureFlag
             } else {
                 return false;
             }
-        }
-        // Boolean case - must match expected boolean value
-        elseif (is_bool($actualValue) && is_bool($expectedValue)) {
+        } elseif (is_bool($actualValue) && is_bool($expectedValue)) {
+            // Boolean case - must match expected boolean value
             return $actualValue === $expectedValue;
         }
 

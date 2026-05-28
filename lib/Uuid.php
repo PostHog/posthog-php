@@ -2,8 +2,19 @@
 
 namespace PostHog;
 
+/**
+ * UUID generation helpers.
+ *
+ * @internal
+ */
 final class Uuid
 {
+    /**
+     * Generate a random UUID v4 string.
+     *
+     * @return string UUID v4.
+     * @throws \Random\RandomException When random_int() cannot gather sufficient entropy.
+     */
     public static function v4(): string
     {
         return sprintf(

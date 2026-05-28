@@ -2,6 +2,11 @@
 
 namespace PostHog;
 
+/**
+ * Response wrapper returned by the SDK HTTP client.
+ *
+ * @internal
+ */
 class HttpResponse
 {
     private $response;
@@ -9,6 +14,14 @@ class HttpResponse
     private $etag;
     private $curlErrno;
 
+    /**
+     * Create an HTTP response wrapper.
+     *
+     * @param mixed $response Raw response body or false on cURL failure.
+     * @param int $responseCode HTTP status code, or 0 when no response was received.
+     * @param string|null $etag ETag response header, when requested and present.
+     * @param int $curlErrno cURL error number, or 0 when no cURL error occurred.
+     */
     public function __construct($response, $responseCode, ?string $etag = null, int $curlErrno = 0)
     {
         $this->response = $response;
@@ -18,6 +31,8 @@ class HttpResponse
     }
 
     /**
+     * Get the raw response body.
+     *
      * @return mixed
      */
     public function getResponse()
@@ -26,6 +41,8 @@ class HttpResponse
     }
 
     /**
+     * Get the HTTP response code.
+     *
      * @return mixed
      */
     public function getResponseCode()
@@ -34,6 +51,8 @@ class HttpResponse
     }
 
     /**
+     * Get the ETag response header, when captured.
+     *
      * @return string|null
      */
     public function getEtag(): ?string

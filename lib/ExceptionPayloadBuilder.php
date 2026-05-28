@@ -2,6 +2,11 @@
 
 namespace PostHog;
 
+/**
+ * Builds PostHog error tracking exception payloads.
+ *
+ * @internal
+ */
 class ExceptionPayloadBuilder
 {
     private const CONTEXT_LINES = 5;
@@ -41,6 +46,11 @@ class ExceptionPayloadBuilder
 
     /**
      * Build a single exception entry from a Throwable using a custom trace.
+     *
+     * @param \Throwable $exception Exception to serialize.
+     * @param array<int, array<string, mixed>> $trace Normalized stack trace frames.
+     * @param int $maxFrames Maximum number of frames to include.
+     * @return array<string, mixed>
      */
     public static function buildFromTrace(
         \Throwable $exception,
@@ -57,6 +67,13 @@ class ExceptionPayloadBuilder
 
     /**
      * Build a single exception entry from type, message, and file/line location.
+     *
+     * @param string $type Exception type name.
+     * @param string $message Exception message.
+     * @param string|null $file Source file path, when known.
+     * @param int|null $line Source line number, when known.
+     * @param int $maxFrames Maximum number of frames to include.
+     * @return array<string, mixed>
      */
     public static function buildFromLocation(
         string $type,
@@ -98,7 +115,8 @@ class ExceptionPayloadBuilder
     /**
      * Get the handled flag from the primary (first) exception.
      *
-     * @param array[] $exceptionList
+     * @param array[] $exceptionList Exception entries.
+     * @return bool
      */
     public static function getPrimaryHandled(array $exceptionList): bool
     {

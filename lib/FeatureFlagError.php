@@ -2,6 +2,11 @@
 
 namespace PostHog;
 
+/**
+ * Feature flag error codes used for $feature_flag_called event properties.
+ *
+ * @internal
+ */
 class FeatureFlagError
 {
     /**

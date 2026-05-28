@@ -1,319 +1,308 @@
+## 4.4.1
+
+### Patch Changes
+
+- 83afee8: Include group context in the `$feature_flag_called` dedupe element so group-scoped flags fire a separate event for each group a user is evaluated under, instead of being dedup-ed against the first group context the same `(distinct_id, flag)` was seen under.
+
+## 4.4.0
+
+### Minor Changes
+
+- 9adcdd6: Add request context helpers for propagating request metadata and optional PostHog tracing headers.
+- 9adcdd6: Add an optional `distinctId`/`distinct_id` override for `groupIdentify()` events.
+
+## 4.3.0 - 2026-05-01
+
+- [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.2.4...4.3.0)
+
+- feat(flags): Add `evaluateFlags()` API for single-call flag evaluation. Returns a
+  `FeatureFlagEvaluations` snapshot you can read repeatedly without further `/flags` requests; pass
+  it to `capture()` via the new `flags` key to attach `$feature/<key>` and `$active_feature_flags`
+  on the captured event without an extra round trip.
+- feat(flags): Deprecate `isFeatureEnabled()`, `getFeatureFlag()`, `getFeatureFlagResult()`,
+  `getFeatureFlagPayload()`, and the `send_feature_flags` `capture()` option in favor of
+  `evaluateFlags()`. Each emits an `E_USER_DEPRECATED` warning pointing at the new API; existing
+  callers keep working unchanged until the next major version. `getAllFlags()` is intentionally
+  _not_ deprecated — it returns an arbitrary key list the snapshot API doesn't yet cover.
+- fix(flags): `SizeLimitedHash::contains()` and `add()` were storing entries on the outer map and
+  comparing values to keys, so the per-distinct_id `$feature_flag_called` dedup never matched after
+  the first event. Both helpers now operate on a per-key set as intended.
+
 ## 4.2.4 - 2026-04-28
 
-* [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.2.3...4.2.4)
+- [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.2.3...4.2.4)
 
 ## 4.2.3 - 2026-04-28
 
-* [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.2.2...4.2.3)
+- [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.2.2...4.2.3)
 
 ## 4.2.2 - 2026-04-21
 
-* [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.2.1...4.2.2)
+- [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.2.1...4.2.2)
 
 ## 4.2.1 - 2026-04-21
 
-* [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.2.0...4.2.1)
+- [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.2.0...4.2.1)
 
 ## 4.2.0 - 2026-04-06
 
-* [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.1.1...4.2.0)
+- [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.1.1...4.2.0)
 
 ## 4.1.1 - 2026-03-30
 
-* [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.1.0...4.1.1)
+- [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.1.0...4.1.1)
 
 ## 4.1.0 - 2026-03-30
 
-* [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.0.4...4.1.0)
+- [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.0.4...4.1.0)
 
 ## 4.0.4 - 2026-03-30
 
-* [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.0.3...4.0.4)
+- [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.0.3...4.0.4)
 
 ## 4.0.3 - 2026-03-19
 
-* [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.0.2...4.0.3)
+- [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.0.2...4.0.3)
 
 ## 4.0.2 - 2026-03-05
 
-* [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.0.1...4.0.2)
+- [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.0.1...4.0.2)
 
 ## 4.0.1 - 2026-02-06
 
-* [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.0.0...4.0.1)
+- [Full Changelog](https://github.com/PostHog/posthog-php/compare/4.0.0...4.0.1)
 
 ## 4.0.0 - 2026-01-09
 
-* [Full Changelog](https://github.com/PostHog/posthog-php/compare/3.7.3...4.0.0)
+- [Full Changelog](https://github.com/PostHog/posthog-php/compare/3.7.3...4.0.0)
 
-3.7.3 / 2025-12-04
-==================
+  # 3.7.3 / 2025-12-04
 
-* feat(flags): Add ETag support for local evaluation caching
-* feat(flags): include `evaluated_at` properties in `$feature_flag_called` events
+- feat(flags): Add ETag support for local evaluation caching
+- feat(flags): include `evaluated_at` properties in `$feature_flag_called` events
 
+  # 3.7.2 / 2025-10-22
 
-3.7.2 / 2025-10-22
-==================
+  - fix(flags): fallback to API for multi-condition flags with static cohorts (#86)
 
-  * fix(flags): fallback to API for multi-condition flags with static cohorts (#86)
+  # 3.7.1 / 2025-09-26
 
+  - fix: don't sort condition sets with variant overrides to the top (#85)
 
-3.7.1 / 2025-09-26
-==================
+  # 3.7.0 / 2025-08-26
 
-  * fix: don't sort condition sets with variant overrides to the top (#85)
+  - feat(flags): Implement local evaluation of flag dependencies (#84)
+  - fix: Ignore new `flag` filter type in local evaluation (#80)
+  - chore: Add feature flags project board workflow (#79)
 
+  # 3.6.0 / 2025-04-30
 
-3.7.0 / 2025-08-26
-==================
+  - chore(flags): use new `/flags` endpoint instead of `/decide` (#76)
 
-  * feat(flags): Implement local evaluation of flag dependencies (#84)
-  * fix: Ignore new `flag` filter type in local evaluation (#80)
-  * chore: Add feature flags project board workflow (#79)
+  # 3.5.0 / 2025-04-17
 
-3.6.0 / 2025-04-30
-==================
+  - feat: Add request id, version, id, and evaluation reason to $feature_flag_called events (#75)
+  - Bump version to 3.4.0 (#74)
+    3.4.0 / 2025-04-15
+    ==================
 
-  * chore(flags): use new `/flags` endpoint instead of `/decide` (#76)
+  - feat(flags): Add getFeatureFlagPayload method (#53)
 
-3.5.0 / 2025-04-17
-==================
+  # 3.3.5 / 2025-03-26
 
-  * feat: Add request id, version, id, and evaluation reason to $feature_flag_called events (#75)
-  * Bump version to 3.4.0 (#74)
-3.4.0 / 2025-04-15
-==================
+  - Fix version updating in Makefile (#72)
 
-  * feat(flags): Add getFeatureFlagPayload method (#53)
+  # 3.3.4 / 2025-03-11
 
-3.3.5 / 2025-03-26
-==================
+  - Add support for 'verify_batch_events_request=>false' (#70)
+  - Run GitHub actions on all supported PHP versions (#67)
 
-  * Fix version updating in Makefile (#72)
+  # 3.3.3 / 2025-02-28
 
-3.3.4 / 2025-03-11
-==================
+  - Fix PHP 8.4 deprecation on Client.php constructor (Backwards Compatible) (#66)
 
-  * Add support for 'verify_batch_events_request=>false' (#70)
-  * Run GitHub actions on all supported PHP versions (#67)
+  # 3.3.2 / 2024-04-03
 
-3.3.3 / 2025-02-28
-==================
+  - Make the feature flag fetch optional on initialisation (#65)
 
-  * Fix PHP 8.4 deprecation on Client.php constructor (Backwards Compatible) (#66)
+  # 3.3.1 / 2024-03-22
 
+  - fix(flags): Handle bool value matching (#64)
+  - Fixes a bug with local evaluation where passing in true and false values for a property wouldn't match correctly.
 
-3.3.2 / 2024-04-03
-==================
+  # 3.3.0 / 2024-03-13
 
-  * Make the feature flag fetch optional on initialisation (#65)
+  - feat(flags): Locally evaluate all cohorts (#63)
 
-3.3.1 / 2024-03-22
-==================
+  # 3.2.2 / 2024-03-11
 
-  * fix(flags): Handle bool value matching (#64)
-  * Fixes a bug with local evaluation where passing in true and false values for a property wouldn't match correctly.
+  - feat(flags): Add specific timeout for feature flags (#62)
+  - Adds a new `feature_flag_request_timeout_ms` timeout parameter for feature flags which defaults to 3 seconds, updated from the default 10s for all other API calls.
 
-3.3.0 / 2024-03-13
-==================
+  # 3.2.1 / 2024-01-26
 
-  * feat(flags): Locally evaluate all cohorts (#63)
+  - fix(flags): Update relative date op names (#61)
+  - Remove new relative date operators, combine into regular date operators
 
-3.2.2 / 2024-03-11
-==================
+  # 3.2.0 / 2024-01-10
 
-  * feat(flags): Add specific timeout for feature flags (#62)
-  * Adds a new `feature_flag_request_timeout_ms` timeout parameter for feature flags which defaults to 3 seconds, updated from the default 10s for all other API calls.
+  - feat(flags): Add local props and flags to all calls (#60)
+  - When local evaluation is enabled, we automatically add flag information to all events sent to PostHog, whenever possible. This makes it easier to use these events in experiments.
 
-3.2.1 / 2024-01-26
-==================
+  # 3.1.0 / 2024-01-10
 
-  * fix(flags): Update relative date op names (#61)
-  * Remove new relative date operators, combine into regular date operators
+  - feat(flags): Add relative date operator and fix numeric ops (#58)
+  - Numeric property handling for feature flags now does the expected: When passed in a number, we do a numeric comparison. When passed in a string, we do a string comparison. Previously, we always did a string comparison.
+  - Add support for relative date operators for local evaluation.
+  - Fixes issue with regex matching for local evaluation.
 
-3.2.0 / 2024-01-10
-==================
+  # 3.0.8 / 2023-09-25
 
-  * feat(flags): Add local props and flags to all calls (#60)
-  * When local evaluation is enabled, we automatically add flag information to all events sent to PostHog, whenever possible. This makes it easier to use these events in experiments.
+  - fix(flags): Safe access flags in decide v2 (#55)
 
-3.1.0 / 2024-01-10
-==================
+  # 3.0.7 / 2023-08-31
 
-  * feat(flags): Add relative date operator and fix numeric ops (#58)
-  * Numeric property handling for feature flags now does the expected: When passed in a number, we do a numeric comparison. When passed in a string, we do a string comparison. Previously, we always did a string comparison.
-  * Add support for relative date operators for local evaluation.
-  * Fixes issue with regex matching for local evaluation.
+  - PHP 8.1+ Support + Fix Errors When API/Internet Connection Down (#54)
 
-3.0.8 / 2023-09-25
-==================
+  # 3.0.6 / 2023-07-04
 
-  * fix(flags): Safe access flags in decide v2 (#55)
+  - Fix typehint (#52)
 
-3.0.7 / 2023-08-31
-==================
+  # 3.0.5 / 2023-06-16
 
-  * PHP 8.1+ Support + Fix Errors When API/Internet Connection Down (#54)
+  - Prevent "Undefined array key" warning in isFeatureEnabled() (#51)
 
-3.0.6 / 2023-07-04
-==================
+  # 3.0.4 / 2023-05-19
 
-  * Fix typehint (#52)
+  - fix(flags): Handle no rollout percentage condition (#49)
 
-3.0.5 / 2023-06-16
-==================
+  # 3.0.3 / 2023-03-21
 
-  * Prevent "Undefined array key" warning in isFeatureEnabled() (#51)
+  - Merge branch 'master' into groups-fix
+  - Make timeout configurable (#44)
+  - format
+  - fix(groups): actually add groups support for capture
 
-3.0.4 / 2023-05-19
-==================
+  # 3.0.2 / 2023-03-08
 
-  * fix(flags): Handle no rollout percentage condition (#49)
+  - update version 3.0.2
+  - Allow to configure the HttpClient maximumBackoffDuration (#33)
 
-3.0.3 / 2023-03-21
-==================
+  # 3.0.1 / 2022-12-09
 
-  * Merge branch 'master' into groups-fix
-  * Make timeout configurable (#44)
-  * format
-  * fix(groups): actually add groups support for capture
+  - feat(flags): Add support for variant overrides (#39)
+  - Update history (#37)
 
-3.0.2 / 2023-03-08
-==================
+  # 3.0.0 / 2022-08-15
 
-  * update version 3.0.2
-  * Allow to configure the HttpClient maximumBackoffDuration (#33)
-
-3.0.1 / 2022-12-09
-==================
-
-  * feat(flags): Add support for variant overrides (#39)
-  * Update history (#37)
-
-3.0.0 / 2022-08-15
-==================
-
-
-  * Requires posthog 1.38
-  * Local Evaluation: isFeatureEnabled and getFeatureFlag accept group and person properties now which will evaluate relevant flags locally.
-  * isFeatureEnabled and getFeatureFlag also have new parameters:
+  - Requires posthog 1.38
+  - Local Evaluation: isFeatureEnabled and getFeatureFlag accept group and person properties now which will evaluate relevant flags locally.
+  - isFeatureEnabled and getFeatureFlag also have new parameters:
     onlyEvaluateLocally (bool) - turns on and off local evaluation
     sendFeatureFlagEvents (bool) - turns on and off $feature_flag_called events
-  * Removes default parameter from isFeatureEnabled and getFeatureFlag. Returns null instead
+  - Removes default parameter from isFeatureEnabled and getFeatureFlag. Returns null instead
 
-2.1.1 / 2022-01-21
-==================
+  # 2.1.1 / 2022-01-21
 
-  * more sensible default timeout for requests
-  * Merge pull request #29 from PostHog/group-analytics-flags
-  * Add groups feature flags support
-  * Test default behavior
-  * Release 2.1.0
-  * Merge pull request #26 from PostHog/group-analytics-support
-  * Add basic group analytics support
-  * Fix bin/posthog help text
-  * Allow bypassing ssl in bin/ command
-  * Solve linter issues
+  - more sensible default timeout for requests
+  - Merge pull request #29 from PostHog/group-analytics-flags
+  - Add groups feature flags support
+  - Test default behavior
+  - Release 2.1.0
+  - Merge pull request #26 from PostHog/group-analytics-support
+  - Add basic group analytics support
+  - Fix bin/posthog help text
+  - Allow bypassing ssl in bin/ command
+  - Solve linter issues
 
-2.1.0 / 2021-10-28
-==================
+  # 2.1.0 / 2021-10-28
 
-  * Add basic group analytics support
-  * Fix bin/posthog help text
-  * Allow bypassing ssl in bin/ command
+  - Add basic group analytics support
+  - Fix bin/posthog help text
+  - Allow bypassing ssl in bin/ command
 
-2.0.6 / 2021-10-05
-==================
+  # 2.0.6 / 2021-10-05
 
-  * Separate timeout from maxBackoffDuration
-  * Set the timeout config for HttpClient curl
+  - Separate timeout from maxBackoffDuration
+  - Set the timeout config for HttpClient curl
 
-2.0.5 / 2021-07-13
-==================
+  # 2.0.5 / 2021-07-13
 
-  * Merge pull request #23 from joesaunderson/bugfix/send-user-agent
-  * Send user agent with decide request
+  - Merge pull request #23 from joesaunderson/bugfix/send-user-agent
+  - Send user agent with decide request
 
-2.0.5 / 2021-07-13
-==================
+  # 2.0.5 / 2021-07-13
 
+  # 2.0.4 / 2021-07-08
 
+  - Release 2.0.3
+  - Merge pull request #21 from joesaunderson/bugfix/optional-apikey
+  - API key is optional
+  - Merge pull request #20 from imhmdb/patch-1
+  - Fix calling error handler Closure function stored in class properties
 
-2.0.4 / 2021-07-08
-==================
+  # 2.0.3 / 2021-07-08
 
-  * Release 2.0.3
-  * Merge pull request #21 from joesaunderson/bugfix/optional-apikey
-  * API key is optional
-  * Merge pull request #20 from imhmdb/patch-1
-  * Fix calling error handler Closure function stored in class properties
+  - Merge pull request #21 from joesaunderson/bugfix/optional-apikey
+  - API key is optional
+  - Merge pull request #20 from imhmdb/patch-1
+  - Fix calling error handler Closure function stored in class properties
 
-2.0.3 / 2021-07-08
-==================
+  # 2.0.2 / 2021-07-08
 
-  * Merge pull request #21 from joesaunderson/bugfix/optional-apikey
-  * API key is optional
-  * Merge pull request #20 from imhmdb/patch-1
-  * Fix calling error handler Closure function stored in class properties
+  - Merge pull request #19 from PostHog/handle-host
+  - fix tests for good
+  - check if host exists before operating on it
+  - undefined check
+  - fix tests
+  - Allow hosts with protocol specified
+  - Merge pull request #18 from PostHog/feature-flags
+  - remove useless comment
+  - have env var as the secondary option
+  - bump version
+  - bring back destruct
+  - remove feature flags
+  - simplify everything
+  - Cleanup isFeatureEnabled docblock
+  - Fix user agent undefined array key
+  - Merge pull request #17 from PostHog/releasing-update
+  - Note `git-extras` in RELEASING.md
+  - Add test case for isFeatureEnabled with the simple flag in the mocked response
+  - Fix: make rolloutPercentage nullable in isSimpleFlagEnabled
+  - Merge remote-tracking branch 'upstream/master'
+  - Fix is_simple_flag tests by mocking response
+  - Use LONG_SCALE const
+  - Implement isSimpleFlagEnabled
+  - Don't set payload on get requests
+  - (WIP) Rework feature flags based on spec `https://github.com/PostHog/posthog.com/pull/1455`
+  - Extract http client functionalities
+  - Remove extra line
+  - Change default host to app.posthog.com
+  - Feature/support feature flags decide API
+  - Upgrade phplint
+    2.0.1 / 2021-06-11
+    ==================
 
-2.0.2 / 2021-07-08
-==================
+  - Allow for setup via environment variables POSTHOG_API_KEY and POSTHOG_HOST
+  - Make code adhere to PSR-4 and PSR-12
 
-  * Merge pull request #19 from PostHog/handle-host
-  * fix tests for good
-  * check if host exists before operating on it
-  * undefined check
-  * fix tests
-  * Allow hosts with protocol specified
-  * Merge pull request #18 from PostHog/feature-flags
-  * remove useless comment
-  * have env var as the secondary option
-  * bump version
-  * bring back destruct
-  * remove feature flags
-  * simplify everything
-  * Cleanup isFeatureEnabled docblock
-  * Fix user agent undefined array key
-  * Merge pull request #17 from PostHog/releasing-update
-  * Note `git-extras` in RELEASING.md
-  * Add test case for isFeatureEnabled with the simple flag in the mocked response
-  * Fix: make rolloutPercentage nullable in isSimpleFlagEnabled
-  * Merge remote-tracking branch 'upstream/master'
-  * Fix is_simple_flag tests by mocking response
-  * Use LONG_SCALE const
-  * Implement isSimpleFlagEnabled
-  * Don't set payload on get requests
-  * (WIP) Rework feature flags based on spec `https://github.com/PostHog/posthog.com/pull/1455`
-  * Extract http client functionalities
-  * Remove extra line
-  * Change default host to app.posthog.com
-  * Feature/support feature flags decide API
-  * Upgrade phplint
-2.0.1 / 2021-06-11
-==================
+  # 2.0.0 / 2021-05-22
 
-  * Allow for setup via environment variables POSTHOG_API_KEY and POSTHOG_HOST
-  * Make code adhere to PSR-4 and PSR-12
-
-2.0.0 / 2021-05-22
-==================
-
-  * fix sed command for macos
-  * Merge pull request #9 from adrienbrault/psr-4
-  * Finish psr-4 refactoring
-  * PostHog/posthog-php#3: Update composer.json to support PSR-4
-  * Update README.md
-  * Merge pull request #6 from chuva-inc/document_property
-  * Merge pull request #5 from chuva-inc/issue_4
-  * Posthog/posthog-php#3: Document the customer property
-  * PostHog/posthog-php#4: Removes 
- from beginning of the file
-  * Update README.md
-  * fix infinite loop on error 0 from libcurl
-  * fix error when including https:// in host
-  * fix tests for php 7.1, phpunit 8.5
-  * upgrade phpunit and switch php to >=7.1
-  * Update README.md
-  * make tests pass
-  * first commit
+  - fix sed command for macos
+  - Merge pull request #9 from adrienbrault/psr-4
+  - Finish psr-4 refactoring
+  - PostHog/posthog-php#3: Update composer.json to support PSR-4
+  - Update README.md
+  - Merge pull request #6 from chuva-inc/document_property
+  - Merge pull request #5 from chuva-inc/issue_4
+  - Posthog/posthog-php#3: Document the customer property
+  - PostHog/posthog-php#4: Removes
+    from beginning of the file
+  - Update README.md
+  - fix infinite loop on error 0 from libcurl
+  - fix error when including https:// in host
+  - fix tests for php 7.1, phpunit 8.5
+  - upgrade phpunit and switch php to >=7.1
+  - Update README.md
+  - make tests pass
+  - first commit

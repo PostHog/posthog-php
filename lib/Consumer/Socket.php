@@ -5,6 +5,11 @@ namespace PostHog\Consumer;
 use Exception;
 use PostHog\QueueConsumer;
 
+/**
+ * Queue consumer that sends batches over a raw socket.
+ *
+ * @internal
+ */
 class Socket extends QueueConsumer
 {
     protected $type = "Socket";
@@ -12,11 +17,8 @@ class Socket extends QueueConsumer
 
     /**
      * Creates a new socket consumer for dispatching async requests immediately
-     * @param string $apiKey
-     * @param array $options
-     *     number   "timeout" - the timeout for connecting
-     *     function "error_handler" - function called back on errors.
-     *     boolean  "debug" - whether to use debug output, wait for response.
+     * @param string $apiKey Project API key.
+     * @param array<string, mixed> $options Consumer options.
      */
     public function __construct($apiKey, $options = array())
     {
@@ -37,6 +39,12 @@ class Socket extends QueueConsumer
         return $this->type;
     }
 
+    /**
+     * Send a batch of queued messages.
+     *
+     * @param array<int, array<string, mixed>> $batch Batch of queued messages.
+     * @return bool Whether the request succeeded.
+     */
     public function flushBatch($batch)
     {
         $socket = $this->createSocket();

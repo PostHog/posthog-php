@@ -5,6 +5,11 @@ namespace PostHog\Consumer;
 use Exception;
 use PostHog\Consumer;
 
+/**
+ * Consumer that writes analytics messages to a local file.
+ *
+ * @internal
+ */
 class File extends Consumer
 {
     protected $type = "File";
@@ -32,6 +37,9 @@ class File extends Consumer
         }
     }
 
+    /**
+     * Close the file handle when the consumer is destroyed.
+     */
     public function __destruct()
     {
         if ($this->file_handle && "Unknown" != get_resource_type($this->file_handle)) {
@@ -52,8 +60,8 @@ class File extends Consumer
     /**
      * Captures a user action
      *
-     * @param array $message
-     * @return bool whether the capture call succeeded
+     * @param array<string, mixed> $message Event payload.
+     * @return bool Whether the capture call succeeded.
      */
     public function capture(array $message)
     {
@@ -63,8 +71,8 @@ class File extends Consumer
     /**
      * Tags properties about the user.
      *
-     * @param array $message
-     * @return bool whether the identify call succeeded
+     * @param array<string, mixed> $message Identify payload.
+     * @return bool Whether the identify call succeeded.
      */
     public function identify(array $message)
     {
@@ -74,8 +82,8 @@ class File extends Consumer
     /**
      * Aliases from one user id to another
      *
-     * @param array $message
-     * @return boolean whether the alias call succeeded
+     * @param array<string, mixed> $message Alias payload.
+     * @return bool Whether the alias call succeeded.
      */
     public function alias(array $message)
     {
@@ -84,8 +92,8 @@ class File extends Consumer
 
     /**
      * Writes the API call to a file as line-delimited json
-     * @param array $body post body content.
-     * @return bool whether the request succeeded
+     * @param array<string, mixed> $body Post body content.
+     * @return bool Whether the request succeeded.
      */
     private function write($body)
     {

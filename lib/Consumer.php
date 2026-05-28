@@ -2,6 +2,11 @@
 
 namespace PostHog;
 
+/**
+ * Base class for analytics event consumers.
+ *
+ * @internal
+ */
 abstract class Consumer
 {
     protected $type = "Consumer";
@@ -10,9 +15,10 @@ abstract class Consumer
     protected $apiKey;
 
     /**
-     * Store our apiKey and options as part of this consumer
-     * @param string $apiKey
-     * @param array $options
+     * Store our apiKey and options as part of this consumer.
+     *
+     * @param string $apiKey Project API key.
+     * @param array<string, mixed> $options Consumer options.
      */
     public function __construct($apiKey, $options = array())
     {
@@ -21,26 +27,26 @@ abstract class Consumer
     }
 
     /**
-     * Captures a user action
+     * Captures a user action.
      *
-     * @param array $message
-     * @return boolean whether the capture call succeeded
+     * @param array<string, mixed> $message Event payload.
+     * @return bool Whether the capture call succeeded.
      */
     abstract public function capture(array $message);
 
     /**
      * Tags properties about the user.
      *
-     * @param array $message
-     * @return boolean whether the identify call succeeded
+     * @param array<string, mixed> $message Identify payload.
+     * @return bool Whether the identify call succeeded.
      */
     abstract public function identify(array $message);
 
     /**
      * Aliases from one user id to another
      *
-     * @param array $message
-     * @return boolean whether the alias call succeeded
+     * @param array<string, mixed> $message Alias payload.
+     * @return bool Whether the alias call succeeded.
      */
     abstract public function alias(array $message);
 

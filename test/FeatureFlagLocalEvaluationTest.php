@@ -1153,6 +1153,83 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->assertEquals(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', ["company" => "amazon"], [], ["company" => []]), 'decide-fallback-value');
     }
 
+    /**
+     * @dataProvider mixedTargetingProvider
+     */
+    public function testMixedTargetingLocalEvaluation(string $flagKey, array $opts, $expected, array $localFlags)
+    {
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: $localFlags);
+        $this->client = new Client(self::FAKE_API_KEY, ["debug" => true], $this->http_client, "test");
+        PostHog::init(null, null, $this->client);
+
+        $result = PostHog::getFeatureFlag(
+            $flagKey,
+            'test-distinct-id',
+            $opts['groups'] ?? [],
+            $opts['person_properties'] ?? [],
+            $opts['group_properties'] ?? []
+        );
+        $this->assertSame($expected, $result);
+    }
+
+    public static function mixedTargetingProvider(): array
+    {
+        return [
+            'person condition matches when no groups passed' => [
+                'mixed-flag',
+                ['person_properties' => ['email' => 'test@example.com']],
+                true,
+                MockedResponses::LOCAL_EVALUATION_MIXED_TARGETING_REQUEST,
+            ],
+            'group condition matches when group props match' => [
+                'mixed-flag',
+                [
+                    'groups' => ['company' => 'acme'],
+                    'group_properties' => ['company' => ['plan' => 'enterprise']],
+                    'person_properties' => ['email' => 'nope@example.com'],
+                ],
+                true,
+                MockedResponses::LOCAL_EVALUATION_MIXED_TARGETING_REQUEST,
+            ],
+            'no match when both person and group fail' => [
+                'mixed-flag',
+                [
+                    'groups' => ['company' => 'acme'],
+                    'group_properties' => ['company' => ['plan' => 'free']],
+                    'person_properties' => ['email' => 'nope@example.com'],
+                ],
+                false,
+                MockedResponses::LOCAL_EVALUATION_MIXED_TARGETING_REQUEST,
+            ],
+            'only group condition, no groups passed: returns false without server fallback' => [
+                'only-group-flag',
+                [],
+                false,
+                MockedResponses::LOCAL_EVALUATION_ONLY_GROUP_CONDITION_REQUEST,
+            ],
+        ];
+    }
+
+    public function testMixedTargetingRolloutBucketing()
+    {
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_GROUP_ROLLOUT_REQUEST
+        );
+        $this->client = new Client(self::FAKE_API_KEY, ["debug" => true], $this->http_client, "test");
+        PostHog::init(null, null, $this->client);
+
+        // With rollout 100% and a group passed, the group condition resolves locally —
+        // the matcher must hash on the group key, not the distinct_id.
+        $this->assertTrue(PostHog::getFeatureFlag(
+            'rollout-flag',
+            'any-distinct-id',
+            ["company" => "acme"],
+            [],
+            ["company" => []]
+        ));
+    }
+
     public function testFlagComplexDefinition()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_COMPLEX_FLAG_REQUEST);
@@ -3997,11 +4074,22 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("1.2.3.4.5"));
     }
 
-    public function testParseSemverLeadingZeros(): void
+    public function testParseSemverRejectsLeadingZeros(): void
     {
-        // Leading zeros are parsed correctly
-        self::assertEquals([1, 2, 3], FeatureFlag::parseSemver("01.02.03"));
-        self::assertEquals([0, 0, 1], FeatureFlag::parseSemver("00.00.01"));
+        // Semver 2.0.0 §2: numeric identifiers MUST NOT include leading zeros.
+        foreach (["01.2.3", "1.02.3", "1.2.03", "01.02.03", "1.07.3", "001.2.3", "00.00.01"] as $bad) {
+            try {
+                FeatureFlag::parseSemver($bad);
+                self::fail("Expected InconclusiveMatchException for value: {$bad}");
+            } catch (InconclusiveMatchException $e) {
+                // expected
+            }
+        }
+
+        // Literal "0" components remain valid.
+        self::assertEquals([0, 1, 0], FeatureFlag::parseSemver("0.1.0"));
+        self::assertEquals([1, 0, 0], FeatureFlag::parseSemver("1.0.0"));
+        self::assertEquals([0, 0, 0], FeatureFlag::parseSemver("0.0.0"));
     }
 
     public function testParseSemverInvalidEmpty(): void
@@ -4295,14 +4383,59 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.2.3-alpha+build"]));
     }
 
-    public function testMatchPropertySemverLeadingZeros(): void
+    public function testMatchPropertySemverRejectsLeadingZeros(): void
     {
-        // Leading zeros are parsed correctly
+        // Semver 2.0.0 §2: numeric identifiers MUST NOT include leading zeros.
         $prop = ["key" => "version", "value" => "1.2.3", "operator" => "semver_eq"];
-        self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "01.02.03"]));
 
-        $prop2 = ["key" => "version", "value" => "01.02.03", "operator" => "semver_eq"];
-        self::assertTrue(FeatureFlag::matchProperty($prop2, ["version" => "1.2.3"]));
+        foreach (["01.2.3", "1.02.3", "1.2.03", "01.02.03", "1.07.3", "001.2.3"] as $bad) {
+            try {
+                FeatureFlag::matchProperty($prop, ["version" => $bad]);
+                self::fail("Expected InconclusiveMatchException for override value: {$bad}");
+            } catch (InconclusiveMatchException $e) {
+                // expected
+            }
+        }
+
+        // Literal "0" components still match.
+        $propZeroMinor = ["key" => "version", "value" => "0.1.0", "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($propZeroMinor, ["version" => "0.1.0"]));
+
+        $propZeroPatch = ["key" => "version", "value" => "1.0.0", "operator" => "semver_eq"];
+        self::assertTrue(FeatureFlag::matchProperty($propZeroPatch, ["version" => "1.0.0"]));
+
+        // Flag values with leading zeros are also rejected across range operators.
+        $propGt = ["key" => "version", "value" => "01.2.3", "operator" => "semver_gt"];
+        try {
+            FeatureFlag::matchProperty($propGt, ["version" => "2.0.0"]);
+            self::fail("Expected InconclusiveMatchException for semver_gt flag value");
+        } catch (InconclusiveMatchException $e) {
+            // expected
+        }
+
+        $propCaret = ["key" => "version", "value" => "1.07.0", "operator" => "semver_caret"];
+        try {
+            FeatureFlag::matchProperty($propCaret, ["version" => "1.2.0"]);
+            self::fail("Expected InconclusiveMatchException for semver_caret flag value");
+        } catch (InconclusiveMatchException $e) {
+            // expected
+        }
+
+        $propTilde = ["key" => "version", "value" => "1.07.0", "operator" => "semver_tilde"];
+        try {
+            FeatureFlag::matchProperty($propTilde, ["version" => "1.2.0"]);
+            self::fail("Expected InconclusiveMatchException for semver_tilde flag value");
+        } catch (InconclusiveMatchException $e) {
+            // expected
+        }
+
+        $propWild = ["key" => "version", "value" => "01.*", "operator" => "semver_wildcard"];
+        try {
+            FeatureFlag::matchProperty($propWild, ["version" => "1.2.0"]);
+            self::fail("Expected InconclusiveMatchException for semver_wildcard flag value");
+        } catch (InconclusiveMatchException $e) {
+            // expected
+        }
     }
 
     public function testMatchPropertySemverPartialVersions(): void
