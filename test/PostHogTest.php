@@ -223,7 +223,7 @@ class PostHogTest extends TestCase
             $client = PostHog::getClient();
 
             $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
-            $this->assertTrue(PostHog::capture([
+            $this->assertFalse(PostHog::capture([
                 "distinctId" => "john",
                 "event" => "Module PHP Event",
             ]));
@@ -242,7 +242,7 @@ class PostHogTest extends TestCase
         $client = PostHog::getClient();
 
         $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
-        $this->assertTrue(PostHog::capture([
+        $this->assertFalse(PostHog::capture([
             "distinctId" => "john",
             "event" => "Module PHP Event",
         ]));
@@ -254,7 +254,7 @@ class PostHogTest extends TestCase
         $client = PostHog::getClient();
 
         $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
-        $this->assertTrue(PostHog::capture([
+        $this->assertFalse(PostHog::capture([
             "distinctId" => "john",
             "event" => "Module PHP Event",
         ]));
@@ -266,7 +266,7 @@ class PostHogTest extends TestCase
         $client = new Client(null, ["debug" => true, "batch_size" => 1], $httpClient);
 
         $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
-        $this->assertTrue($client->capture([
+        $this->assertFalse($client->capture([
             "distinctId" => "john",
             "event" => "Module PHP Event",
         ]));
@@ -280,7 +280,7 @@ class PostHogTest extends TestCase
         $client = new Client(" \n\t ", ["debug" => true, "batch_size" => 1], $httpClient);
 
         $this->assertInstanceOf(NoOp::class, $this->getConsumer($client));
-        $this->assertTrue($client->capture([
+        $this->assertFalse($client->capture([
             "distinctId" => "john",
             "event" => "Module PHP Event",
         ]));

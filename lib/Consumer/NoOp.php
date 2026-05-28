@@ -27,53 +27,53 @@ class NoOp extends Consumer
      * Captures a user action
      *
      * @param array $message
-     * @return boolean whether the capture call succeeded
+     * @return boolean false because the SDK is disabled and the event was not captured
      */
     public function capture(array $message)
     {
-        return true;
+        return false;
     }
 
     /**
      * Tags properties about the user.
      *
      * @param array $message
-     * @return boolean whether the identify call succeeded
+     * @return boolean false because the SDK is disabled and the identify was not captured
      */
     public function identify(array $message)
     {
-        return true;
+        return false;
     }
 
     /**
      * Aliases from one user id to another
      *
      * @param array $message
-     * @return boolean whether the alias call succeeded
+     * @return boolean false because the SDK is disabled and the alias was not captured
      */
     public function alias(array $message)
     {
-        return true;
+        return false;
     }
 
     /**
      * Queue a raw message.
      *
      * @param mixed $item
-     * @return boolean whether call has succeeded
+     * @return boolean false because the SDK is disabled and the message was not queued
      */
     public function enqueue($item)
     {
-        return true;
+        return false;
     }
 
     /**
      * Flush queued messages.
      *
-     * @return boolean true if flushed successfully
+     * @return boolean false because the SDK is disabled and nothing was flushed
      */
     public function flush()
     {
-        return true;
+        return false;
     }
 }
