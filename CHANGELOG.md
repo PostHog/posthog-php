@@ -1,3 +1,9 @@
+## 4.4.2
+
+### Patch Changes
+
+- 806dd0b: Initialize a disabled no-op client instead of throwing or sending requests when the API key is missing or blank.
+
 ## 4.4.1
 
 ### Patch Changes
