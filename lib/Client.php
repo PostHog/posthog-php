@@ -106,7 +106,8 @@ class Client implements FeatureFlagEvaluationsHost
     /**
      * Create a new PostHog client with your project's API key.
      *
-     * @param string|null $apiKey Your project API key. When omitted or empty, the client is disabled and uses the noop consumer.
+     * @param string|null $apiKey Your project API key. When omitted or empty, the client is disabled
+     *     and uses the noop consumer.
      * @param array{
      *     host?: string,
      *     ssl?: bool,
@@ -169,7 +170,9 @@ class Client implements FeatureFlagEvaluationsHost
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
         $this->flagsEtag = null;
 
-        ExceptionCapture::configure($this, $options['error_tracking'] ?? []);
+        if ($this->enabled) {
+            ExceptionCapture::configure($this, $options['error_tracking'] ?? []);
+        }
 
         // Populate featureflags and grouptypemapping if possible
         if (

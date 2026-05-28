@@ -29,7 +29,7 @@ class PostHog
      *     verify_batch_events_request?: bool,
      *     feature_flag_request_timeout_ms?: int,
      *     maximum_backoff_duration?: int,
-     *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl',
+     *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl'|'noop',
      *     debug?: bool,
      *     max_queue_size?: int,
      *     batch_size?: int,
@@ -48,7 +48,6 @@ class PostHog
      *     and $personalAPIKey are ignored.
      * @param string|null $personalAPIKey Personal API key used to load local feature flag definitions.
      * @return void
-     * @throws Exception When no API key can be resolved.
      */
     public static function init(
         ?string $apiKey = null,

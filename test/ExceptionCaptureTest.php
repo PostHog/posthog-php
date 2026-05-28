@@ -55,6 +55,36 @@ class ExceptionCaptureTest extends TestCase
         }
     }
 
+    public function testBlankApiKeyDoesNotRegisterErrorTrackingHandlers(): void
+    {
+        $previousExceptionHandler = static function (\Throwable $exception): void {
+        };
+        $previousErrorHandler = static function (int $errno, string $message, string $file, int $line): bool {
+            return true;
+        };
+
+        set_exception_handler($previousExceptionHandler);
+        set_error_handler($previousErrorHandler);
+
+        try {
+            new Client(
+                " \n\t ",
+                ['debug' => true, 'error_tracking' => ['enabled' => true]],
+                new MockedHttpClient("app.posthog.com"),
+                null,
+                false
+            );
+
+            $this->assertFalse($this->getFlag('exceptionHandlerInstalled'));
+            $this->assertFalse($this->getFlag('errorHandlerInstalled'));
+            $this->assertSame($previousExceptionHandler, $this->getCurrentExceptionHandler());
+            $this->assertSame($previousErrorHandler, $this->getCurrentErrorHandler());
+        } finally {
+            restore_exception_handler();
+            restore_error_handler();
+        }
+    }
+
     public function testEnabledErrorTrackingRegistersHandlersOnce(): void
     {
         $previousExceptionHandler = static function (\Throwable $exception): void {

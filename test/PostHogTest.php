@@ -288,6 +288,20 @@ class PostHogTest extends TestCase
         $this->assertSame([], $httpClient->calls ?? []);
     }
 
+    public function testClientWithTrimEmptyApiKeyReturnsDefaultFlagEvaluations(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(" \n\t ", ["debug" => true], $httpClient);
+
+        $flags = $client->evaluateFlags("john");
+
+        $this->assertSame([], $flags->getKeys());
+        $this->assertFalse($flags->isEnabled("missing-flag"));
+        $this->assertNull($flags->getFlag("missing-flag"));
+        $this->assertNull($flags->getFlagPayload("missing-flag"));
+        $this->assertSame([], $httpClient->calls ?? []);
+    }
+
     public function testCapture(): void
     {
         self::assertTrue(
