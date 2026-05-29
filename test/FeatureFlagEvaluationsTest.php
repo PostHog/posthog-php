@@ -563,6 +563,89 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertCount(1, $batches[0]['batch']);
     }
 
+    public function testFeatureFlagCalledFiresPerGroupContext(): void
+    {
+        $this->makeClient();
+
+        // Same user, same flag, two different group contexts must produce two events.
+        $snapA = PostHog::evaluateFlags('user-1', groups: ['organization' => 'org-a']);
+        $snapA->isEnabled('simple-test');
+
+        $snapB = PostHog::evaluateFlags('user-1', groups: ['organization' => 'org-b']);
+        $snapB->isEnabled('simple-test');
+
+        PostHog::flush();
+
+        $events = [];
+        foreach ($this->batchRequests() as $batch) {
+            foreach ($batch['batch'] as $event) {
+                if ($event['event'] === '$feature_flag_called'
+                    && ($event['properties']['$feature_flag'] ?? null) === 'simple-test') {
+                    $events[] = $event;
+                }
+            }
+        }
+
+        $this->assertCount(2, $events, 'expected one $feature_flag_called event per group context');
+        $seen = array_map(
+            fn($e) => $e['properties']['$groups']['organization'] ?? null,
+            $events
+        );
+        $this->assertContains('org-a', $seen);
+        $this->assertContains('org-b', $seen);
+    }
+
+    /**
+     * @return array<string, array{list<array<string,string>>, int}>
+     */
+    public static function dedupCallsProvider(): array
+    {
+        return [
+            'repeated calls under same group' => [
+                [
+                    ['organization' => 'org-a'],
+                    ['organization' => 'org-a'],
+                    ['organization' => 'org-a'],
+                ],
+                1,
+            ],
+            'same groups different key insertion order' => [
+                [
+                    ['organization' => 'org-a', 'team' => 'red'],
+                    ['team' => 'red', 'organization' => 'org-a'],
+                ],
+                1,
+            ],
+        ];
+    }
+
+    /**
+     * @dataProvider dedupCallsProvider
+     * @param list<array<string,string>> $groupsPerCall
+     */
+    public function testFeatureFlagCalledDedupes(array $groupsPerCall, int $expectedCount): void
+    {
+        $this->makeClient();
+
+        foreach ($groupsPerCall as $groups) {
+            $snap = PostHog::evaluateFlags('user-1', groups: $groups);
+            $snap->isEnabled('simple-test');
+        }
+
+        PostHog::flush();
+
+        $count = 0;
+        foreach ($this->batchRequests() as $batch) {
+            foreach ($batch['batch'] as $event) {
+                if ($event['event'] === '$feature_flag_called'
+                    && ($event['properties']['$feature_flag'] ?? null) === 'simple-test') {
+                    $count++;
+                }
+            }
+        }
+        $this->assertSame($expectedCount, $count, 'unexpected $feature_flag_called event count');
+    }
+
     /**
      * @return list<string> the deprecation messages emitted while running $callable
      */

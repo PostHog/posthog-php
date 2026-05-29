@@ -1,3 +1,15 @@
+## 4.4.2
+
+### Patch Changes
+
+- 806dd0b: Initialize a disabled no-op client instead of throwing or sending requests when the API key is missing or blank.
+
+## 4.4.1
+
+### Patch Changes
+
+- 83afee8: Include group context in the `$feature_flag_called` dedupe element so group-scoped flags fire a separate event for each group a user is evaluated under, instead of being dedup-ed against the first group context the same `(distinct_id, flag)` was seen under.
+
 ## 4.4.0
 
 ### Minor Changes
