@@ -10,13 +10,12 @@ use PostHog\Consumer\NoOp;
 use PostHog\Consumer\Socket;
 use Symfony\Component\Clock\Clock;
 
-const SIZE_LIMIT = 50_000;
-
 /**
  * PostHog PHP SDK client for event capture, user identification, feature flags, and error tracking.
  */
 class Client implements FeatureFlagEvaluationsHost
 {
+    private const SIZE_LIMIT = 50_000;
     private const CONSUMERS = [
         "socket" => Socket::class,
         "file" => File::class,
@@ -167,7 +166,7 @@ class Client implements FeatureFlagEvaluationsHost
         $this->groupTypeMapping = [];
         $this->cohorts = [];
         $this->featureFlagsByKey = [];
-        $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(SIZE_LIMIT);
+        $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(self::SIZE_LIMIT);
         $this->flagsEtag = null;
 
         if ($this->enabled) {
