@@ -1,3 +1,9 @@
+## 4.4.3
+
+### Patch Changes
+
+- e26230c: Move const inside class to prevent memory leaks in worker mode
+
 ## 4.4.2
 
 ### Patch Changes
