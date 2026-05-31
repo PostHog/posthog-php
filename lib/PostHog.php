@@ -13,7 +13,7 @@ class PostHog
     public const ENV_API_KEY = "POSTHOG_API_KEY";
     public const ENV_HOST = "POSTHOG_HOST";
 
-    private static Client $client;
+    private static ?Client $client = null;
 
     /**
      * Initializes the default client to use. Uses the libcurl consumer by default.
@@ -330,6 +330,8 @@ class PostHog
         array $personProperties = array(),
         array $groupProperties = array(),
     ): mixed {
+        self::checkClient();
+
         return self::$client->getFeatureFlagPayload(
             $key,
             $distinctId,
@@ -498,6 +500,8 @@ class PostHog
      */
     public static function raw(array $message)
     {
+        self::checkClient();
+
         return self::$client->raw($message);
     }
 
@@ -564,9 +568,8 @@ class PostHog
     }
 
     /**
-     * Check the client.
-     *
-     * @throws Exception
+     * Ensure the default client exists. If init() was never called, install a disabled no-op client
+     * so public SDK methods do not throw into the host application.
      */
     private static function checkClient()
     {
@@ -574,7 +577,7 @@ class PostHog
             return;
         }
 
-        throw new Exception("PostHog::init() must be called before any other capturing method.");
+        self::$client = new Client(null, array('consumer' => 'noop'), null, null, false);
     }
 
     /**

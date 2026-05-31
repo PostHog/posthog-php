@@ -76,6 +76,15 @@ class PostHogTest extends TestCase
         }
     }
 
+    private function unsetFacadeClient(): void
+    {
+        $resetClient = \Closure::bind(function (): void {
+            self::$client = null;
+        }, null, PostHog::class);
+
+        $resetClient();
+    }
+
     public static function initNoOpApiKeyCases(): array
     {
         return [
@@ -310,6 +319,41 @@ class PostHogTest extends TestCase
         ]));
         $this->assertSame([], $client->{$flagsMethod}("john"));
         $this->assertSame([], $httpClient->calls ?? []);
+    }
+
+    public function testFacadeMethodsNoOpBeforeInit(): void
+    {
+        $this->unsetFacadeClient();
+
+        try {
+            $this->assertFalse(PostHog::capture([
+                "distinctId" => "john",
+                "event" => "Module PHP Event",
+            ]));
+            $this->assertFalse(PostHog::identify(["distinctId" => "john"]));
+            $this->assertFalse(PostHog::alias(["distinctId" => "john", "alias" => "anonymous"]));
+            $this->assertFalse(PostHog::groupIdentify(["groupType" => "organization", "groupKey" => "id:5"]));
+            $this->assertFalse(PostHog::raw(["type" => "capture"]));
+            $this->assertFalse(PostHog::flush());
+            $this->assertNull(PostHog::getFeatureFlagPayload("flag", "john"));
+            $this->assertSame([], PostHog::fetchFeatureVariants("john"));
+            $this->assertInstanceOf(NoOp::class, $this->getConsumer(PostHog::getClient()));
+        } finally {
+            PostHog::init(null, null, $this->client);
+        }
+    }
+
+    public function testDirectFlagsApisReturnDefaultsOnApiError(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com", flagsEndpointResponseCode: 401);
+        $client = new Client(self::FAKE_API_KEY, ["debug" => true], $httpClient, null, false);
+
+        $this->assertSame([
+            'featureFlags' => [],
+            'featureFlagPayloads' => [],
+            'flags' => [],
+        ], $client->flags("john"));
+        $this->assertSame([], $client->fetchFeatureVariants("john"));
     }
 
     public function testDisabledClientLoadFlagsDoesNotMutateCachedFlags(): void

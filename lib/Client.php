@@ -872,7 +872,7 @@ class Client implements FeatureFlagEvaluationsHost
 
         if ($shouldHitRemote) {
             try {
-                $response = $this->flags(
+                $response = $this->requestFlags(
                     $distinctId,
                     $groups,
                     $personProperties,
@@ -1279,7 +1279,6 @@ class Client implements FeatureFlagEvaluationsHost
      * @param bool $disableGeoip Whether to disable GeoIP enrichment during remote evaluation.
      * @param list<string>|null $flagKeys Optional list of flag keys to evaluate.
      * @return array<string, mixed> The normalized feature flags response.
-     * @throws HttpException On network errors, API errors, or quota limits.
      */
     public function flags(
         string $distinctId,
@@ -1289,12 +1288,28 @@ class Client implements FeatureFlagEvaluationsHost
         bool $disableGeoip = false,
         ?array $flagKeys = null
     ): array {
+        try {
+            return $this->requestFlags($distinctId, $groups, $personProperties, $groupProperties, $disableGeoip, $flagKeys);
+        } catch (HttpException $e) {
+            error_log('[PostHog][Client] Unable to fetch feature flags: ' . $e->getMessage());
+            return $this->emptyFlagsResponse();
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     * @throws HttpException On network errors, API errors, or quota limits.
+     */
+    private function requestFlags(
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = [],
+        array $groupProperties = [],
+        bool $disableGeoip = false,
+        ?array $flagKeys = null
+    ): array {
         if (!$this->enabled) {
-            return [
-                'featureFlags' => [],
-                'featureFlagPayloads' => [],
-                'flags' => [],
-            ];
+            return $this->emptyFlagsResponse();
         }
 
         $payload = array(
@@ -1369,6 +1384,16 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         return $this->normalizeFeatureFlags($httpResponse->getResponse());
+    }
+
+    /** @return array{featureFlags: array<string, mixed>, featureFlagPayloads: array<string, mixed>, flags: array<string, mixed>} */
+    private function emptyFlagsResponse(): array
+    {
+        return [
+            'featureFlags' => [],
+            'featureFlagPayloads' => [],
+            'flags' => [],
+        ];
     }
 
     /**
