@@ -76,6 +76,15 @@ class PostHogTest extends TestCase
         }
     }
 
+    private function unsetFacadeClient(): void
+    {
+        $resetClient = \Closure::bind(function (): void {
+            self::$client = null;
+        }, null, PostHog::class);
+
+        $resetClient();
+    }
+
     public static function initNoOpApiKeyCases(): array
     {
         return [
@@ -89,6 +98,53 @@ class PostHogTest extends TestCase
         return [
             'null api key with getAllFlags' => [null, 'getAllFlags'],
             'whitespace api key with fetchFeatureVariants' => [" \n\t ", 'fetchFeatureVariants'],
+        ];
+    }
+
+    public static function facadeNoOpBeforeInitCases(): array
+    {
+        return [
+            'capture' => [
+                static fn() => PostHog::capture([
+                    "distinctId" => "john",
+                    "event" => "Module PHP Event",
+                ]),
+                false,
+            ],
+            'identify' => [
+                static fn() => PostHog::identify(["distinctId" => "john"]),
+                false,
+            ],
+            'alias' => [
+                static fn() => PostHog::alias([
+                    "distinctId" => "john",
+                    "alias" => "anonymous",
+                ]),
+                false,
+            ],
+            'groupIdentify' => [
+                static fn() => PostHog::groupIdentify([
+                    "groupType" => "organization",
+                    "groupKey" => "id:5",
+                ]),
+                false,
+            ],
+            'raw' => [
+                static fn() => PostHog::raw(["type" => "capture"]),
+                false,
+            ],
+            'flush' => [
+                static fn() => PostHog::flush(),
+                false,
+            ],
+            'getFeatureFlagPayload' => [
+                static fn() => PostHog::getFeatureFlagPayload("flag", "john"),
+                null,
+            ],
+            'fetchFeatureVariants' => [
+                static fn() => PostHog::fetchFeatureVariants("john"),
+                [],
+            ],
         ];
     }
 
@@ -310,6 +366,44 @@ class PostHogTest extends TestCase
         ]));
         $this->assertSame([], $client->{$flagsMethod}("john"));
         $this->assertSame([], $httpClient->calls ?? []);
+    }
+
+    /**
+     * @dataProvider facadeNoOpBeforeInitCases
+     */
+    public function testFacadeMethodsNoOpBeforeInit(callable $call, mixed $expectedValue): void
+    {
+        $this->unsetFacadeClient();
+
+        try {
+            $this->assertSame($expectedValue, $call());
+            $this->assertInstanceOf(NoOp::class, $this->getConsumer(PostHog::getClient()));
+
+            global $errorMessages;
+            $this->assertContains(
+                '[PostHog] PostHog::init() was not called; SDK will no-op.',
+                $errorMessages
+            );
+            $this->assertNotContains(
+                '[PostHog][Client] apiKey is empty after trimming whitespace; check your project API key',
+                $errorMessages
+            );
+        } finally {
+            PostHog::init(null, null, $this->client);
+        }
+    }
+
+    public function testDirectFlagsApisReturnDefaultsOnApiError(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com", flagsEndpointResponseCode: 401);
+        $client = new Client(self::FAKE_API_KEY, ["debug" => true], $httpClient, null, false);
+
+        $this->assertSame([
+            'featureFlags' => [],
+            'featureFlagPayloads' => [],
+            'flags' => [],
+        ], $client->flags("john"));
+        $this->assertSame([], $client->fetchFeatureVariants("john"));
     }
 
     public function testDisabledClientLoadFlagsDoesNotMutateCachedFlags(): void

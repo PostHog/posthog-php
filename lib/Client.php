@@ -147,7 +147,9 @@ class Client implements FeatureFlagEvaluationsHost
         $this->debug = $options["debug"] ?? false;
         $this->options['host'] = StringNormalizer::normalizeHost($options['host'] ?? null);
         if (!$this->enabled) {
-            error_log('[PostHog][Client] apiKey is empty after trimming whitespace; check your project API key');
+            if (($this->options['consumer'] ?? null) !== 'noop') {
+                error_log('[PostHog][Client] apiKey is empty after trimming whitespace; check your project API key');
+            }
             $this->options['consumer'] = 'noop';
         }
         $Consumer = self::CONSUMERS[$this->options["consumer"] ?? "lib_curl"];
@@ -542,7 +544,7 @@ class Client implements FeatureFlagEvaluationsHost
 
         if (!$flagWasEvaluatedLocally && !$onlyEvaluateLocally) {
             try {
-                $response = $this->fetchFlagsResponse($distinctId, $groups, $personProperties, $groupProperties);
+                $response = $this->requestFlags($distinctId, $groups, $personProperties, $groupProperties);
                 $errors = [];
 
                 if (isset($response['errorsWhileComputingFlags']) && $response['errorsWhileComputingFlags']) {
@@ -872,7 +874,7 @@ class Client implements FeatureFlagEvaluationsHost
 
         if ($shouldHitRemote) {
             try {
-                $response = $this->flags(
+                $response = $this->requestFlags(
                     $distinctId,
                     $groups,
                     $personProperties,
@@ -1076,7 +1078,6 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
      * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
      * @return array<string, bool|string> Feature flag values by key.
-     * @throws Exception
      */
     public function fetchFeatureVariants(
         string $distinctId,
@@ -1090,16 +1091,17 @@ class Client implements FeatureFlagEvaluationsHost
 
     /**
      * @param string $distinctId
-     * @param array $groups
-     * @return array of feature flags
-     * @throws Exception
+     * @param array<string, mixed> $groups
+     * @param array<string, mixed> $personProperties
+     * @param array<string, array<string, mixed>> $groupProperties
+     * @return array<string, mixed> Feature flags response.
      */
     private function fetchFlagsResponse(
         string $distinctId,
         array $groups = [],
         array $personProperties = [],
         array $groupProperties = []
-    ): ?array {
+    ): array {
         return $this->flags($distinctId, $groups, $personProperties, $groupProperties);
     }
 
@@ -1279,7 +1281,6 @@ class Client implements FeatureFlagEvaluationsHost
      * @param bool $disableGeoip Whether to disable GeoIP enrichment during remote evaluation.
      * @param list<string>|null $flagKeys Optional list of flag keys to evaluate.
      * @return array<string, mixed> The normalized feature flags response.
-     * @throws HttpException On network errors, API errors, or quota limits.
      */
     public function flags(
         string $distinctId,
@@ -1289,12 +1290,35 @@ class Client implements FeatureFlagEvaluationsHost
         bool $disableGeoip = false,
         ?array $flagKeys = null
     ): array {
+        try {
+            return $this->requestFlags(
+                $distinctId,
+                $groups,
+                $personProperties,
+                $groupProperties,
+                $disableGeoip,
+                $flagKeys
+            );
+        } catch (HttpException $e) {
+            error_log('[PostHog][Client] Unable to fetch feature flags: ' . $e->getMessage());
+            return $this->emptyFlagsResponse();
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     * @throws HttpException On network errors, API errors, or quota limits.
+     */
+    private function requestFlags(
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = [],
+        array $groupProperties = [],
+        bool $disableGeoip = false,
+        ?array $flagKeys = null
+    ): array {
         if (!$this->enabled) {
-            return [
-                'featureFlags' => [],
-                'featureFlagPayloads' => [],
-                'flags' => [],
-            ];
+            return $this->emptyFlagsResponse();
         }
 
         $payload = array(
@@ -1369,6 +1393,16 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         return $this->normalizeFeatureFlags($httpResponse->getResponse());
+    }
+
+    /** @return array{featureFlags: array<string, mixed>, featureFlagPayloads: array<string, mixed>, flags: array<string, mixed>} */
+    private function emptyFlagsResponse(): array
+    {
+        return [
+            'featureFlags' => [],
+            'featureFlagPayloads' => [],
+            'flags' => [],
+        ];
     }
 
     /**
