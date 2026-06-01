@@ -1,3 +1,9 @@
+## 4.4.4
+
+### Patch Changes
+
+- ccba73f: No-op facade and feature flag APIs when the SDK is uninitialized or non-operational.
+
 ## 4.4.3
 
 ### Patch Changes
