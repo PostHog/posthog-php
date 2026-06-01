@@ -542,7 +542,7 @@ class Client implements FeatureFlagEvaluationsHost
 
         if (!$flagWasEvaluatedLocally && !$onlyEvaluateLocally) {
             try {
-                $response = $this->fetchFlagsResponse($distinctId, $groups, $personProperties, $groupProperties);
+                $response = $this->requestFlags($distinctId, $groups, $personProperties, $groupProperties);
                 $errors = [];
 
                 if (isset($response['errorsWhileComputingFlags']) && $response['errorsWhileComputingFlags']) {
@@ -1289,7 +1289,14 @@ class Client implements FeatureFlagEvaluationsHost
         ?array $flagKeys = null
     ): array {
         try {
-            return $this->requestFlags($distinctId, $groups, $personProperties, $groupProperties, $disableGeoip, $flagKeys);
+            return $this->requestFlags(
+                $distinctId,
+                $groups,
+                $personProperties,
+                $groupProperties,
+                $disableGeoip,
+                $flagKeys
+            );
         } catch (HttpException $e) {
             error_log('[PostHog][Client] Unable to fetch feature flags: ' . $e->getMessage());
             return $this->emptyFlagsResponse();
