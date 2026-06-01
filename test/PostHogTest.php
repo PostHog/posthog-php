@@ -101,6 +101,53 @@ class PostHogTest extends TestCase
         ];
     }
 
+    public static function facadeNoOpBeforeInitCases(): array
+    {
+        return [
+            'capture' => [
+                static fn() => PostHog::capture([
+                    "distinctId" => "john",
+                    "event" => "Module PHP Event",
+                ]),
+                false,
+            ],
+            'identify' => [
+                static fn() => PostHog::identify(["distinctId" => "john"]),
+                false,
+            ],
+            'alias' => [
+                static fn() => PostHog::alias([
+                    "distinctId" => "john",
+                    "alias" => "anonymous",
+                ]),
+                false,
+            ],
+            'groupIdentify' => [
+                static fn() => PostHog::groupIdentify([
+                    "groupType" => "organization",
+                    "groupKey" => "id:5",
+                ]),
+                false,
+            ],
+            'raw' => [
+                static fn() => PostHog::raw(["type" => "capture"]),
+                false,
+            ],
+            'flush' => [
+                static fn() => PostHog::flush(),
+                false,
+            ],
+            'getFeatureFlagPayload' => [
+                static fn() => PostHog::getFeatureFlagPayload("flag", "john"),
+                null,
+            ],
+            'fetchFeatureVariants' => [
+                static fn() => PostHog::fetchFeatureVariants("john"),
+                [],
+            ],
+        ];
+    }
+
     public function testInitWithParamApiKey(): void
     {
         $this->expectNotToPerformAssertions();
@@ -321,23 +368,26 @@ class PostHogTest extends TestCase
         $this->assertSame([], $httpClient->calls ?? []);
     }
 
-    public function testFacadeMethodsNoOpBeforeInit(): void
+    /**
+     * @dataProvider facadeNoOpBeforeInitCases
+     */
+    public function testFacadeMethodsNoOpBeforeInit(callable $call, mixed $expectedValue): void
     {
         $this->unsetFacadeClient();
 
         try {
-            $this->assertFalse(PostHog::capture([
-                "distinctId" => "john",
-                "event" => "Module PHP Event",
-            ]));
-            $this->assertFalse(PostHog::identify(["distinctId" => "john"]));
-            $this->assertFalse(PostHog::alias(["distinctId" => "john", "alias" => "anonymous"]));
-            $this->assertFalse(PostHog::groupIdentify(["groupType" => "organization", "groupKey" => "id:5"]));
-            $this->assertFalse(PostHog::raw(["type" => "capture"]));
-            $this->assertFalse(PostHog::flush());
-            $this->assertNull(PostHog::getFeatureFlagPayload("flag", "john"));
-            $this->assertSame([], PostHog::fetchFeatureVariants("john"));
+            $this->assertSame($expectedValue, $call());
             $this->assertInstanceOf(NoOp::class, $this->getConsumer(PostHog::getClient()));
+
+            global $errorMessages;
+            $this->assertContains(
+                '[PostHog] PostHog::init() was not called; SDK will no-op.',
+                $errorMessages
+            );
+            $this->assertNotContains(
+                '[PostHog][Client] apiKey is empty after trimming whitespace; check your project API key',
+                $errorMessages
+            );
         } finally {
             PostHog::init(null, null, $this->client);
         }

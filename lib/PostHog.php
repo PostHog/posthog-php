@@ -417,7 +417,6 @@ class PostHog
      * @param string $distinctId The user's distinct ID.
      * @param array<string, mixed> $groups Group identifiers for group-based flags.
      * @return array<string, bool|string>
-     * @throws Exception
      */
     public static function fetchFeatureVariants(string $distinctId, array $groups = array()): array
     {
@@ -577,6 +576,7 @@ class PostHog
             return;
         }
 
+        error_log('[PostHog] PostHog::init() was not called; SDK will no-op.');
         self::$client = new Client(null, array('consumer' => 'noop'), null, null, false);
     }
 

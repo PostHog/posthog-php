@@ -147,7 +147,9 @@ class Client implements FeatureFlagEvaluationsHost
         $this->debug = $options["debug"] ?? false;
         $this->options['host'] = StringNormalizer::normalizeHost($options['host'] ?? null);
         if (!$this->enabled) {
-            error_log('[PostHog][Client] apiKey is empty after trimming whitespace; check your project API key');
+            if (($this->options['consumer'] ?? null) !== 'noop') {
+                error_log('[PostHog][Client] apiKey is empty after trimming whitespace; check your project API key');
+            }
             $this->options['consumer'] = 'noop';
         }
         $Consumer = self::CONSUMERS[$this->options["consumer"] ?? "lib_curl"];
@@ -1076,7 +1078,6 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
      * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
      * @return array<string, bool|string> Feature flag values by key.
-     * @throws Exception
      */
     public function fetchFeatureVariants(
         string $distinctId,
@@ -1090,16 +1091,17 @@ class Client implements FeatureFlagEvaluationsHost
 
     /**
      * @param string $distinctId
-     * @param array $groups
-     * @return array of feature flags
-     * @throws Exception
+     * @param array<string, mixed> $groups
+     * @param array<string, mixed> $personProperties
+     * @param array<string, array<string, mixed>> $groupProperties
+     * @return array<string, mixed> Feature flags response.
      */
     private function fetchFlagsResponse(
         string $distinctId,
         array $groups = [],
         array $personProperties = [],
         array $groupProperties = []
-    ): ?array {
+    ): array {
         return $this->flags($distinctId, $groups, $personProperties, $groupProperties);
     }
 
