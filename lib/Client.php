@@ -1657,6 +1657,7 @@ class Client implements FeatureFlagEvaluationsHost
         $msg["properties"]['$lib'] = 'posthog-php';
         $msg["properties"]['$lib_version'] = PostHog::VERSION;
         $msg["properties"]['$lib_consumer'] = $this->consumer->getConsumer();
+        $msg["properties"]['$is_server'] = true;
 
         if (isset($msg["distinctId"])) {
             $msg["distinct_id"] = $msg["distinctId"];
