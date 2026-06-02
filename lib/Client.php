@@ -121,6 +121,7 @@ class Client implements FeatureFlagEvaluationsHost
      *     compress_request?: bool|string,
      *     error_handler?: callable,
      *     filename?: string,
+     *     is_server?: bool,
      *     error_tracking?: array{
      *         enabled?: bool,
      *         capture_errors?: bool,
@@ -1657,7 +1658,14 @@ class Client implements FeatureFlagEvaluationsHost
         $msg["properties"]['$lib'] = 'posthog-php';
         $msg["properties"]['$lib_version'] = PostHog::VERSION;
         $msg["properties"]['$lib_consumer'] = $this->consumer->getConsumer();
-        $msg["properties"]['$is_server'] = true;
+
+        // When running as a server SDK (the default), tag events as server-side so
+        // PostHog does not attribute the host machine's device/OS to the event.
+        // Set the `is_server` option to false when using posthog-php as a
+        // client/CLI so the device OS is attributed normally.
+        if (($this->options['is_server'] ?? true) === true) {
+            $msg["properties"]['$is_server'] = true;
+        }
 
         if (isset($msg["distinctId"])) {
             $msg["distinct_id"] = $msg["distinctId"];

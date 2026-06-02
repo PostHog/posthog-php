@@ -476,6 +476,45 @@ class PostHogTest extends TestCase
         self::assertTrue($properties['$is_server']);
     }
 
+    public function testCaptureOmitsIsServerPropertyWhenDisabled(): void
+    {
+        $this->http_client = new MockedHttpClient("app.posthog.com");
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+                "is_server" => false,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "john",
+                    "event" => "Module PHP Event",
+                )
+            )
+        );
+        PostHog::flush();
+
+        $batchCall = null;
+        foreach ($this->http_client->calls as $call) {
+            if (($call["path"] ?? null) === "/batch/") {
+                $batchCall = $call;
+                break;
+            }
+        }
+        self::assertNotNull($batchCall, "Expected a /batch/ call to have been made");
+
+        $decoded = json_decode($batchCall["payload"], true);
+        $properties = $decoded["batch"][0]["properties"];
+
+        self::assertArrayNotHasKey('$is_server', $properties);
+    }
+
     public function testCaptureWithSendFeatureFlagsOption(): void
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
