@@ -654,6 +654,7 @@ class FeatureFlag
         $flagFilters = $flag["filters"] ?? [];
         $flagConditions = $flagFilters["groups"] ?? [];
         $flagAggregation = $flagFilters["aggregation_group_type_index"] ?? null;
+        $earlyExitEnabled = $flagFilters["early_exit"] ?? false;
         $isInconclusive = false;
 
         foreach ($flagConditions as $condition) {
@@ -686,7 +687,9 @@ class FeatureFlag
                     }
                 }
 
-                if (FeatureFlag::isConditionMatch($flag, $effectiveBucketing, $condition, $effectiveProperties, $cohorts, $flagsByKey, $evaluationCache)) {
+                $matchResult = FeatureFlag::isConditionMatch($flag, $effectiveBucketing, $condition, $effectiveProperties, $cohorts, $flagsByKey, $evaluationCache);
+
+                if ($matchResult === ConditionMatch::Match) {
                     $variantOverride = $condition["variant"] ?? null;
                     $flagVariants = ($flagFilters["multivariate"] ?? [])["variants"] ?? [];
                     $variantKeys = array_map(function ($variant) {
@@ -698,6 +701,11 @@ class FeatureFlag
                     } else {
                         return FeatureFlag::getMatchingVariant($flag, $effectiveBucketing) ?? true;
                     }
+                } elseif ($earlyExitEnabled && $matchResult === ConditionMatch::OutOfRolloutBound) {
+                    // The condition's property filters (if any) matched and only the rollout check
+                    // failed, so re-evaluating later groups can't change the outcome. Return a
+                    // definitive false immediately, mirroring the server-side (Rust) engine.
+                    return false;
                 }
             } catch (RequiresServerEvaluationException $e) {
                 // Immediately propagate - this condition requires server-side data
@@ -721,7 +729,7 @@ class FeatureFlag
         return false;
     }
 
-    private static function isConditionMatch($featureFlag, $distinctId, $condition, $properties, $cohorts, $flagsByKey = null, $evaluationCache = null)
+    private static function isConditionMatch($featureFlag, $distinctId, $condition, $properties, $cohorts, $flagsByKey = null, $evaluationCache = null): ConditionMatch
     {
         $rolloutPercentage = array_key_exists("rollout_percentage", $condition) ? $condition["rollout_percentage"] : null;
 
@@ -738,20 +746,20 @@ class FeatureFlag
                 }
 
                 if (!$matches) {
-                    return false;
+                    return ConditionMatch::NoMatch;
                 }
             }
 
             if (is_null($rolloutPercentage)) {
-                return true;
+                return ConditionMatch::Match;
             }
         }
 
         if (!is_null($rolloutPercentage) && FeatureFlag::hash($featureFlag["key"], $distinctId) > ($rolloutPercentage / 100)) { //phpcs:ignore
-            return false;
+            return ConditionMatch::OutOfRolloutBound;
         }
 
-        return true;
+        return ConditionMatch::Match;
     }
 
     private static function isRegularExpression($string)

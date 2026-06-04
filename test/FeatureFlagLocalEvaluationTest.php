@@ -4562,4 +4562,76 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.0.0"]));
         self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => 1]));
     }
+
+    // A flag whose first condition group matches on properties but excludes the user via
+    // rollout 0, and a later group that would match (properties + rollout 100). Without
+    // early_exit, evaluation falls through to the second group and returns true.
+    private static function earlyExitFlag($earlyExit): array
+    {
+        $filters = [
+            "groups" => [
+                [
+                    "properties" => [["key" => "name", "value" => "test", "operator" => "exact"]],
+                    "rollout_percentage" => 0,
+                ],
+                [
+                    "properties" => [["key" => "name", "value" => "test", "operator" => "exact"]],
+                    "rollout_percentage" => 100,
+                ],
+            ],
+        ];
+        if (!is_null($earlyExit)) {
+            $filters["early_exit"] = $earlyExit;
+        }
+        return ["key" => "early-exit-flag", "filters" => $filters];
+    }
+
+    public function testEarlyExitEnabledReturnsFalseWithoutEvaluatingLaterMatchingGroup(): void
+    {
+        $flag = self::earlyExitFlag(true);
+        // First group: properties match but rollout 0 excludes the user (OUT_OF_ROLLOUT_BOUND).
+        // early_exit short-circuits to false instead of falling through to the matching group.
+        self::assertFalse(FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["name" => "test"]));
+        $this->checkEmptyErrorLogs();
+    }
+
+    public function testEarlyExitUnsetFallsThroughToMatchingGroup(): void
+    {
+        $flag = self::earlyExitFlag(null);
+        // No early_exit key: existing behaviour, evaluation falls through to the rollout-100 group.
+        self::assertTrue(FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["name" => "test"]));
+        $this->checkEmptyErrorLogs();
+    }
+
+    public function testEarlyExitFalseFallsThroughToMatchingGroup(): void
+    {
+        $flag = self::earlyExitFlag(false);
+        // Explicit early_exit=false: same as unset, falls through to the matching group.
+        self::assertTrue(FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["name" => "test"]));
+        $this->checkEmptyErrorLogs();
+    }
+
+    public function testEarlyExitDoesNotTriggerOnPropertyMismatch(): void
+    {
+        // First group: property filter fails (NO_MATCH, not a rollout exclusion), so even with
+        // early_exit enabled evaluation must fall through to the second matching group.
+        $flag = [
+            "key" => "early-exit-flag",
+            "filters" => [
+                "early_exit" => true,
+                "groups" => [
+                    [
+                        "properties" => [["key" => "name", "value" => "other", "operator" => "exact"]],
+                        "rollout_percentage" => 0,
+                    ],
+                    [
+                        "properties" => [["key" => "name", "value" => "test", "operator" => "exact"]],
+                        "rollout_percentage" => 100,
+                    ],
+                ],
+            ],
+        ];
+        self::assertTrue(FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["name" => "test"]));
+        $this->checkEmptyErrorLogs();
+    }
 }
