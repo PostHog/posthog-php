@@ -4586,28 +4586,40 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         return ["key" => "early-exit-flag", "filters" => $filters];
     }
 
-    public function testEarlyExitEnabledReturnsFalseWithoutEvaluatingLaterMatchingGroup(): void
+    /**
+     * @dataProvider earlyExitRolloutExclusionProvider
+     */
+    public function testEarlyExitRolloutExclusion($earlyExit, bool $expected): void
     {
-        $flag = self::earlyExitFlag(true);
-        // First group: properties match but rollout 0 excludes the user (OUT_OF_ROLLOUT_BOUND).
-        // early_exit short-circuits to false instead of falling through to the matching group.
-        self::assertFalse(FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["name" => "test"]));
+        $flag = self::earlyExitFlag($earlyExit);
+        self::assertSame($expected, FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["name" => "test"]));
         $this->checkEmptyErrorLogs();
     }
 
-    public function testEarlyExitUnsetFallsThroughToMatchingGroup(): void
+    public static function earlyExitRolloutExclusionProvider(): array
     {
-        $flag = self::earlyExitFlag(null);
-        // No early_exit key: existing behaviour, evaluation falls through to the rollout-100 group.
-        self::assertTrue(FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["name" => "test"]));
-        $this->checkEmptyErrorLogs();
+        return [
+            'enabled short-circuits to false' => [true, false],
+            'unset falls through to matching group' => [null, true],
+            'explicitly false falls through' => [false, true],
+        ];
     }
 
-    public function testEarlyExitFalseFallsThroughToMatchingGroup(): void
+    public function testEarlyExitOnRolloutOnlyGroupWithNoPropertyFilters(): void
     {
-        $flag = self::earlyExitFlag(false);
-        // Explicit early_exit=false: same as unset, falls through to the matching group.
-        self::assertTrue(FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["name" => "test"]));
+        // Exercises the path where the properties block is skipped entirely and evaluation
+        // falls straight to the rollout check, returning OutOfRolloutBound.
+        $flag = [
+            "key" => "early-exit-flag",
+            "filters" => [
+                "early_exit" => true,
+                "groups" => [
+                    ["rollout_percentage" => 0],
+                    ["rollout_percentage" => 100],
+                ],
+            ],
+        ];
+        self::assertFalse(FeatureFlag::matchFeatureFlagProperties($flag, "test-user", []));
         $this->checkEmptyErrorLogs();
     }
 
