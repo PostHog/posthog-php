@@ -4649,17 +4649,18 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testEarlyExitOutOfRolloutBoundAfterInconclusiveConditionThrows(): void
     {
-        // Repro: first condition is inconclusive (property missing), second is OutOfRolloutBound.
-        // With early_exit=true, the OutOfRolloutBound branch must NOT return false — it must
-        // propagate the inconclusive state so callers fall back to server evaluation.
+        // Repro: first condition is inconclusive (property missing from person properties),
+        // second is OutOfRolloutBound. With early_exit=true, the OutOfRolloutBound branch must
+        // NOT return false — it must propagate the inconclusive state so callers fall back to
+        // server evaluation.
         $flag = [
             "key" => "early-exit-flag",
             "filters" => [
                 "early_exit" => true,
                 "groups" => [
-                    // Group 1: requires $cohort_id property; without it evaluation is inconclusive.
+                    // Group 1: requires "missing_prop" which is absent → InconclusiveMatchException.
                     [
-                        "properties" => [["key" => "name", "type" => "cohort", "value" => 1, "operator" => "exact"]],
+                        "properties" => [["key" => "missing_prop", "value" => "x", "operator" => "exact"]],
                         "rollout_percentage" => 100,
                     ],
                     // Group 2: properties match but rollout 0 → OutOfRolloutBound.
@@ -4671,6 +4672,6 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             ],
         ];
         $this->expectException(InconclusiveMatchException::class);
-        FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["region" => "us"], [], []);
+        FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["region" => "us"]);
     }
 }
