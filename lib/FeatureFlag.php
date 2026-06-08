@@ -705,6 +705,11 @@ class FeatureFlag
                     // The condition's property filters (if any) matched and only the rollout check
                     // failed, so re-evaluating later groups can't change the outcome. Return a
                     // definitive false immediately, mirroring the server-side (Rust) engine.
+                    // But if a prior condition was inconclusive, we can't be definitive — fall back
+                    // to server evaluation instead.
+                    if ($isInconclusive) {
+                        throw new InconclusiveMatchException("Can't determine if feature flag is enabled or not with given properties"); //phpcs:ignore
+                    }
                     return false;
                 }
             } catch (RequiresServerEvaluationException $e) {
