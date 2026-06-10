@@ -3,6 +3,7 @@
 namespace PostHog;
 
 use Exception;
+use Psr\SimpleCache\CacheInterface;
 
 /**
  * Static facade for the default PostHog PHP SDK client.
@@ -29,7 +30,7 @@ class PostHog
      *     timeout?: int,
      *     verify_batch_events_request?: bool,
      *     feature_flag_request_timeout_ms?: int,
-     *     feature_flags_cache?: \Psr\SimpleCache\CacheInterface,
+     *     feature_flags_cache?: CacheInterface,
      *     feature_flags_cache_ttl?: int,
      *     feature_flags_cache_stale_ttl?: int,
      *     maximum_backoff_duration?: int,

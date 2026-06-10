@@ -2,6 +2,8 @@
 
 namespace PostHog\Test;
 
+use DateInterval;
+use DateTimeImmutable;
 use Psr\SimpleCache\CacheInterface;
 use Symfony\Component\Clock\Clock;
 
@@ -51,8 +53,8 @@ class ArrayCache implements CacheInterface
         $expiresAt = null;
         if (is_int($ttl)) {
             $expiresAt = $this->now() + $ttl;
-        } elseif ($ttl instanceof \DateInterval) {
-            $expiresAt = $this->now() + ((new \DateTimeImmutable('@0'))->add($ttl)->getTimestamp());
+        } elseif ($ttl instanceof DateInterval) {
+            $expiresAt = $this->now() + ((new DateTimeImmutable('@0'))->add($ttl)->getTimestamp());
         }
         $this->store[$key] = ['value' => $value, 'expiresAt' => $expiresAt];
         return true;

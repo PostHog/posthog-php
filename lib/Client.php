@@ -9,8 +9,8 @@ use PostHog\Consumer\LibCurl;
 use PostHog\Consumer\NoOp;
 use PostHog\Consumer\Socket;
 use Psr\SimpleCache\CacheInterface;
-use Psr\SimpleCache\InvalidArgumentException as CacheInvalidArgumentException;
 use Symfony\Component\Clock\Clock;
+use Throwable;
 
 /**
  * PostHog PHP SDK client for event capture, user identification, feature flags, and error tracking.
@@ -137,7 +137,7 @@ class Client implements FeatureFlagEvaluationsHost
      *     timeout?: int,
      *     verify_batch_events_request?: bool,
      *     feature_flag_request_timeout_ms?: int,
-     *     feature_flags_cache?: \Psr\SimpleCache\CacheInterface,
+     *     feature_flags_cache?: CacheInterface,
      *     feature_flags_cache_ttl?: int,
      *     feature_flags_cache_stale_ttl?: int,
      *     maximum_backoff_duration?: int,
@@ -1164,7 +1164,7 @@ class Client implements FeatureFlagEvaluationsHost
         if ($this->featureFlagsCache !== null) {
             try {
                 $cached = $this->featureFlagsCache->get($this->featureFlagsCacheKey);
-            } catch (CacheInvalidArgumentException $e) {
+            } catch (Throwable $e) {
                 $cached = null;
             }
             if (is_array($cached)) {
@@ -1268,7 +1268,7 @@ class Client implements FeatureFlagEvaluationsHost
                 ],
                 $this->featureFlagsCacheStaleTtl
             );
-        } catch (CacheInvalidArgumentException $e) {
+        } catch (Throwable $e) {
             if ($this->debug) {
                 error_log("[PostHog][Client] Failed to cache feature flag definitions: " . $e->getMessage());
             }
@@ -1288,7 +1288,7 @@ class Client implements FeatureFlagEvaluationsHost
 
         try {
             $this->featureFlagsCache->delete($this->featureFlagsCacheKey);
-        } catch (CacheInvalidArgumentException $e) {
+        } catch (Throwable $e) {
             if ($this->debug) {
                 error_log("[PostHog][Client] Failed to clear feature flag cache: " . $e->getMessage());
             }

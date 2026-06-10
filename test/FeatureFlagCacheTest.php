@@ -5,6 +5,7 @@ namespace PostHog\Test;
 // comment out below to print all logs instead of failing tests
 require_once 'test/error_log_mock.php';
 
+use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\Test\Assets\MockedResponses;
@@ -49,7 +50,7 @@ class FeatureFlagCacheTest extends TestCase
         $cache = new ArrayCache();
         $http = $this->makeHttpClient();
 
-        $this->executeAtFrozenDateTime(new \DateTimeImmutable('2026-06-10 12:00:00'), function () use ($cache, $http) {
+        $this->executeAtFrozenDateTime(new DateTimeImmutable('2026-06-10 12:00:00'), function () use ($cache, $http) {
             $client = new Client(self::FAKE_API_KEY, ['feature_flags_cache' => $cache], $http, "test");
             $this->assertCount(1, $client->featureFlags);
             $this->assertEquals('person-flag', $client->featureFlags[0]['key']);
@@ -67,13 +68,13 @@ class FeatureFlagCacheTest extends TestCase
         $http1 = $this->makeHttpClient();
         $http2 = $this->makeHttpClient();
 
-        $this->executeAtFrozenDateTime(new \DateTimeImmutable('2026-06-10 12:00:00'), function () use ($cache, $http1) {
+        $this->executeAtFrozenDateTime(new DateTimeImmutable('2026-06-10 12:00:00'), function () use ($cache, $http1) {
             new Client(self::FAKE_API_KEY, ['feature_flags_cache' => $cache], $http1, "test");
         });
 
         // Second client a few seconds later (within the 30s freshness window): no HTTP fetch.
         $client2 = $this->executeAtFrozenDateTime(
-            new \DateTimeImmutable('2026-06-10 12:00:05'),
+            new DateTimeImmutable('2026-06-10 12:00:05'),
             fn() => new Client(self::FAKE_API_KEY, ['feature_flags_cache' => $cache], $http2, "test")
         );
 
@@ -90,13 +91,13 @@ class FeatureFlagCacheTest extends TestCase
         $http1 = $this->makeHttpClient();
         $http2 = $this->makeHttpClient();
 
-        $this->executeAtFrozenDateTime(new \DateTimeImmutable('2026-06-10 12:00:00'), function () use ($cache, $http1) {
+        $this->executeAtFrozenDateTime(new DateTimeImmutable('2026-06-10 12:00:00'), function () use ($cache, $http1) {
             new Client(self::FAKE_API_KEY, ['feature_flags_cache' => $cache], $http1, "test");
         });
 
         // 31s later — past the 30s freshness window: the client refetches.
         $this->executeAtFrozenDateTime(
-            new \DateTimeImmutable('2026-06-10 12:00:31'),
+            new DateTimeImmutable('2026-06-10 12:00:31'),
             fn() => new Client(self::FAKE_API_KEY, ['feature_flags_cache' => $cache], $http2, "test")
         );
 
@@ -110,11 +111,11 @@ class FeatureFlagCacheTest extends TestCase
         $http1 = $this->makeHttpClient();
         $http2 = $this->makeHttpClient();
 
-        $this->executeAtFrozenDateTime(new \DateTimeImmutable('2026-06-10 12:00:00'), function () use ($cache, $http1) {
+        $this->executeAtFrozenDateTime(new DateTimeImmutable('2026-06-10 12:00:00'), function () use ($cache, $http1) {
             new Client(self::FAKE_API_KEY, ['feature_flags_cache' => $cache], $http1, "test");
         });
 
-        $this->executeAtFrozenDateTime(new \DateTimeImmutable('2026-06-10 12:00:05'), function () use ($cache, $http2) {
+        $this->executeAtFrozenDateTime(new DateTimeImmutable('2026-06-10 12:00:05'), function () use ($cache, $http2) {
             // Construction serves from fresh cache (no fetch), then force refetches.
             $client2 = new Client(self::FAKE_API_KEY, ['feature_flags_cache' => $cache], $http2, "test");
             $this->assertEquals(0, $this->definitionsCallCount($http2));
@@ -131,13 +132,13 @@ class FeatureFlagCacheTest extends TestCase
         $http1 = $this->makeHttpClient();
         $httpDown = $this->makeHttpClient(500); // API returns 500
 
-        $this->executeAtFrozenDateTime(new \DateTimeImmutable('2026-06-10 12:00:00'), function () use ($cache, $http1) {
+        $this->executeAtFrozenDateTime(new DateTimeImmutable('2026-06-10 12:00:00'), function () use ($cache, $http1) {
             new Client(self::FAKE_API_KEY, ['feature_flags_cache' => $cache], $http1, "test");
         });
 
         // Past freshness window, API is down: definitions are still served from the stale cache.
         $client2 = $this->executeAtFrozenDateTime(
-            new \DateTimeImmutable('2026-06-10 12:01:00'),
+            new DateTimeImmutable('2026-06-10 12:01:00'),
             fn() => new Client(self::FAKE_API_KEY, ['feature_flags_cache' => $cache], $httpDown, "test")
         );
 
@@ -154,7 +155,7 @@ class FeatureFlagCacheTest extends TestCase
         $http = $this->makeHttpClient();
 
         $client = $this->executeAtFrozenDateTime(
-            new \DateTimeImmutable('2026-06-10 12:00:00'),
+            new DateTimeImmutable('2026-06-10 12:00:00'),
             fn() => new Client(self::FAKE_API_KEY, ['feature_flags_cache' => $cache], $http, "test")
         );
 
