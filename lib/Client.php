@@ -8,6 +8,8 @@ use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
 use PostHog\Consumer\NoOp;
 use PostHog\Consumer\Socket;
+use Psr\SimpleCache\CacheInterface;
+use Psr\SimpleCache\InvalidArgumentException as CacheInvalidArgumentException;
 use Symfony\Component\Clock\Clock;
 
 /**
@@ -83,6 +85,28 @@ class Client implements FeatureFlagEvaluationsHost
     private $flagsEtag;
 
     /**
+     * @var CacheInterface|null Optional PSR-16 cache for sharing flag definitions across requests
+     */
+    private ?CacheInterface $featureFlagsCache;
+
+    /**
+     * @var int Freshness window in seconds; within it, cached definitions are served without an
+     *          HTTP refetch. Past it, the SDK tries to refresh but keeps serving the stale entry.
+     */
+    private int $featureFlagsCacheTtl;
+
+    /**
+     * @var int How long (seconds) the cached definitions are retained as a stale fallback, used to
+     *          keep evaluating locally when PostHog is unreachable. Defaults to 7 days.
+     */
+    private int $featureFlagsCacheStaleTtl;
+
+    /**
+     * @var string Namespaced cache key for this client's feature flag definitions
+     */
+    private string $featureFlagsCacheKey;
+
+    /**
      * @var bool
      */
     private $debug;
@@ -113,6 +137,9 @@ class Client implements FeatureFlagEvaluationsHost
      *     timeout?: int,
      *     verify_batch_events_request?: bool,
      *     feature_flag_request_timeout_ms?: int,
+     *     feature_flags_cache?: \Psr\SimpleCache\CacheInterface,
+     *     feature_flags_cache_ttl?: int,
+     *     feature_flags_cache_stale_ttl?: int,
      *     maximum_backoff_duration?: int,
      *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl'|'noop',
      *     debug?: bool,
@@ -171,6 +198,12 @@ class Client implements FeatureFlagEvaluationsHost
         $this->featureFlagsByKey = [];
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(self::SIZE_LIMIT);
         $this->flagsEtag = null;
+
+        $cache = $options['feature_flags_cache'] ?? null;
+        $this->featureFlagsCache = $cache instanceof CacheInterface ? $cache : null;
+        $this->featureFlagsCacheTtl = (int) ($options['feature_flags_cache_ttl'] ?? 30);
+        $this->featureFlagsCacheStaleTtl = (int) ($options['feature_flags_cache_stale_ttl'] ?? 604800);
+        $this->featureFlagsCacheKey = 'posthog:flags:' . sha1(($this->options['host'] ?? '') . ':' . $this->apiKey);
 
         if ($this->enabled) {
             ExceptionCapture::configure($this, $options['error_tracking'] ?? []);
@@ -1109,13 +1142,44 @@ class Client implements FeatureFlagEvaluationsHost
     /**
      * Load local feature flag definitions using the configured personal API key.
      *
+     * When a PSR-16 cache is configured (via the `feature_flags_cache` option), definitions are
+     * served from the cache within the freshness window (`feature_flags_cache_ttl`), skipping the
+     * HTTP round-trip. Past that window the SDK refetches, but the entry is retained as a stale
+     * fallback for `feature_flags_cache_stale_ttl` so local evaluation keeps working when PostHog
+     * is unreachable. Pass $force to bypass the freshness window and refetch immediately.
+     *
+     * @param bool $force Bypass the freshness window and refetch definitions from the API.
      * @return void
      * @throws Exception
      */
-    public function loadFlags()
+    public function loadFlags(bool $force = false)
     {
         if (!$this->enabled) {
             return;
+        }
+
+        // Load whatever is in the shared PSR-16 cache. If the entry is still fresh we serve it and
+        // skip the HTTP round-trip; if it is stale we keep it in memory as a fallback (so we can
+        // still evaluate locally if the refetch below fails) and restore its ETag for a cheap 304.
+        if ($this->featureFlagsCache !== null) {
+            try {
+                $cached = $this->featureFlagsCache->get($this->featureFlagsCacheKey);
+            } catch (CacheInvalidArgumentException $e) {
+                $cached = null;
+            }
+            if (is_array($cached)) {
+                $this->hydrateFlags($cached);
+                $this->flagsEtag = $cached['etag'] ?? null;
+
+                $fetchedAt = (int) ($cached['fetched_at'] ?? 0);
+                $age = Clock::get()->now()->getTimestamp() - $fetchedAt;
+                if (!$force && $age < $this->featureFlagsCacheTtl) {
+                    if ($this->debug) {
+                        error_log("[PostHog][Client] Serving fresh feature flag definitions from cache");
+                    }
+                    return;
+                }
+            }
         }
 
         $response = $this->localFlags();
@@ -1131,6 +1195,8 @@ class Client implements FeatureFlagEvaluationsHost
             if ($this->debug) {
                 error_log("[PostHog][Client] Flags not modified (304), using cached data");
             }
+            // Refresh the cache TTL so the unchanged definitions remain served from cache.
+            $this->storeFlagsInCache();
             return;
         }
 
@@ -1153,6 +1219,20 @@ class Client implements FeatureFlagEvaluationsHost
         // the cached flag data. A null ETag means the server doesn't support caching.
         $this->flagsEtag = $response->getEtag();
 
+        $this->hydrateFlags($payload);
+
+        $this->storeFlagsInCache();
+    }
+
+    /**
+     * Populate in-memory flag definitions from a definitions payload (from the API or cache) and
+     * rebuild the by-key lookup used for dependency resolution.
+     *
+     * @param array<string, mixed> $payload
+     * @return void
+     */
+    private function hydrateFlags(array $payload): void
+    {
         $this->featureFlags = $payload['flags'] ?? [];
         $this->groupTypeMapping = $payload['group_type_mapping'] ?? [];
         $this->cohorts = $payload['cohorts'] ?? [];
@@ -1161,6 +1241,57 @@ class Client implements FeatureFlagEvaluationsHost
         $this->featureFlagsByKey = [];
         foreach ($this->featureFlags as $flag) {
             $this->featureFlagsByKey[$flag['key']] = $flag;
+        }
+    }
+
+    /**
+     * Persist the current flag definitions (plus ETag) to the configured PSR-16 cache, if any. A
+     * cache failure must never break evaluation, so write errors are swallowed (logged in debug).
+     *
+     * @return void
+     */
+    private function storeFlagsInCache(): void
+    {
+        if ($this->featureFlagsCache === null) {
+            return;
+        }
+
+        try {
+            $this->featureFlagsCache->set(
+                $this->featureFlagsCacheKey,
+                [
+                    'flags' => $this->featureFlags,
+                    'group_type_mapping' => $this->groupTypeMapping,
+                    'cohorts' => $this->cohorts,
+                    'etag' => $this->flagsEtag,
+                    'fetched_at' => Clock::get()->now()->getTimestamp(),
+                ],
+                $this->featureFlagsCacheStaleTtl
+            );
+        } catch (CacheInvalidArgumentException $e) {
+            if ($this->debug) {
+                error_log("[PostHog][Client] Failed to cache feature flag definitions: " . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Remove the cached feature flag definitions, forcing the next loadFlags() to refetch.
+     *
+     * @return void
+     */
+    public function clearFeatureFlagCache(): void
+    {
+        if ($this->featureFlagsCache === null) {
+            return;
+        }
+
+        try {
+            $this->featureFlagsCache->delete($this->featureFlagsCacheKey);
+        } catch (CacheInvalidArgumentException $e) {
+            if ($this->debug) {
+                error_log("[PostHog][Client] Failed to clear feature flag cache: " . $e->getMessage());
+            }
         }
     }
 
