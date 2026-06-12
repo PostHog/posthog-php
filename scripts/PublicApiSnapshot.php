@@ -185,7 +185,10 @@ final class PublicApiSnapshot
             'final' => $method->isFinal(),
             'returnType' => self::reflectionType($method->getReturnType(), $method->getDeclaringClass()),
             'parameters' => array_map(
-                static fn (ReflectionParameter $parameter): array => self::reflectParameter($parameter, $method->getDeclaringClass()),
+                static fn (ReflectionParameter $parameter): array => self::reflectParameter(
+                    $parameter,
+                    $method->getDeclaringClass()
+                ),
                 $method->getParameters()
             ),
         ];
@@ -242,14 +245,20 @@ final class PublicApiSnapshot
         if ($type instanceof ReflectionUnionType) {
             return implode(
                 '|',
-                array_map(static fn (ReflectionType $inner): string => self::reflectionType($inner, $scope), $type->getTypes())
+                array_map(
+                    static fn (ReflectionType $inner): string => self::reflectionType($inner, $scope),
+                    $type->getTypes()
+                )
             );
         }
 
         if ($type instanceof ReflectionIntersectionType) {
             return implode(
                 '&',
-                array_map(static fn (ReflectionType $inner): string => self::reflectionType($inner, $scope), $type->getTypes())
+                array_map(
+                    static fn (ReflectionType $inner): string => self::reflectionType($inner, $scope),
+                    $type->getTypes()
+                )
             );
         }
 
