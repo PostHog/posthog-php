@@ -4651,8 +4651,9 @@ class FeatureFlagLocalEvaluationTest extends TestCase
     {
         // Repro: first condition is inconclusive (property missing from person properties),
         // second is OutOfRolloutBound. With early_exit=true, the OutOfRolloutBound branch must
-        // NOT return false — it must propagate the inconclusive state so callers fall back to
-        // server evaluation.
+        // NOT return false — but it must still stop evaluation (the matching third group must
+        // not be reached) and propagate the inconclusive state so callers fall back to server
+        // evaluation.
         $flag = [
             "key" => "early-exit-flag",
             "filters" => [
@@ -4667,6 +4668,11 @@ class FeatureFlagLocalEvaluationTest extends TestCase
                     [
                         "properties" => [["key" => "region", "value" => "us", "operator" => "exact"]],
                         "rollout_percentage" => 0,
+                    ],
+                    // Group 3: would match, but early exit at group 2 must prevent reaching it.
+                    [
+                        "properties" => [["key" => "region", "value" => "us", "operator" => "exact"]],
+                        "rollout_percentage" => 100,
                     ],
                 ],
             ],
