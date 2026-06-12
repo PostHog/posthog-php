@@ -5,6 +5,8 @@ on:
     paths:
       - "**.php"
       - "bin/posthog"
+      - "composer.json"
+      - "composer.lock"
       - "phpcs.xml"
       - "phpunit.xml"
       - ".github/workflows/php.yml"
@@ -14,14 +16,35 @@ on:
     paths:
       - "**.php"
       - "bin/posthog"
+      - "composer.json"
+      - "composer.lock"
       - "phpcs.xml"
       - "phpunit.xml"
       - ".github/workflows/php.yml"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  composer-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
+        with:
+          php-version: 8.4
+          tools: composer
+
+      - name: Validate composer files
+        run: composer validate --no-check-lock --no-check-version --strict
+
   phpunit:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         php-version: [8.2, 8.3, 8.4, 8.5]
     steps:
@@ -31,13 +54,31 @@ jobs:
         uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
         with:
           php-version: ${{ matrix.php-version }}
-          extensions: xdebug
           tools: composer, phpunit
 
       - name: Install Dependencies
         run: composer install --prefer-dist --no-progress
 
       - name: Run PHPUnit Tests
+        run: ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml
+
+  coverage:
+    runs-on: ubuntu-latest
+    needs: phpunit
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up PHP 8.4
+        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
+        with:
+          php-version: 8.4
+          extensions: xdebug
+          tools: composer, phpunit
+
+      - name: Install Dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run PHPUnit Coverage
         run: XDEBUG_MODE=coverage ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml --coverage-text
 
   phpcs:
