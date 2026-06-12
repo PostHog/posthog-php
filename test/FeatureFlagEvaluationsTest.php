@@ -579,8 +579,10 @@ class FeatureFlagEvaluationsTest extends TestCase
         $events = [];
         foreach ($this->batchRequests() as $batch) {
             foreach ($batch['batch'] as $event) {
-                if ($event['event'] === '$feature_flag_called'
-                    && ($event['properties']['$feature_flag'] ?? null) === 'simple-test') {
+                if (
+                    $event['event'] === '$feature_flag_called'
+                    && ($event['properties']['$feature_flag'] ?? null) === 'simple-test'
+                ) {
                     $events[] = $event;
                 }
             }
@@ -637,8 +639,10 @@ class FeatureFlagEvaluationsTest extends TestCase
         $count = 0;
         foreach ($this->batchRequests() as $batch) {
             foreach ($batch['batch'] as $event) {
-                if ($event['event'] === '$feature_flag_called'
-                    && ($event['properties']['$feature_flag'] ?? null) === 'simple-test') {
+                if (
+                    $event['event'] === '$feature_flag_called'
+                    && ($event['properties']['$feature_flag'] ?? null) === 'simple-test'
+                ) {
                     $count++;
                 }
             }
