@@ -99,7 +99,7 @@ jobs:
 
       - name: Check PHP formatting
         run: |
-          php phpcbf.phar --standard=phpcs.xml --no-colors --report=summary || phpcbf_status=$?
+          php phpcbf.phar --standard=phpcs.xml --no-colors || phpcbf_status=$?
           if [ "${phpcbf_status:-0}" -gt 1 ]; then
             exit "$phpcbf_status"
           fi
