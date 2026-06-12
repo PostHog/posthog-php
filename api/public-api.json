@@ -1,0 +1,4325 @@
+{
+    "schemaVersion": 1,
+    "namespace": "PostHog\\",
+    "symbols": {
+        "PostHog\\Client": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [
+                "PostHog\\FeatureFlagEvaluationsHost"
+            ],
+            "constants": [],
+            "properties": {
+                "cohorts": {
+                    "static": false,
+                    "readonly": false,
+                    "type": null,
+                    "default": null,
+                    "hasDefault": true
+                },
+                "distinctIdsFeatureFlagsReported": {
+                    "static": false,
+                    "readonly": false,
+                    "type": null,
+                    "default": null,
+                    "hasDefault": true
+                },
+                "featureFlags": {
+                    "static": false,
+                    "readonly": false,
+                    "type": null,
+                    "default": null,
+                    "hasDefault": true
+                },
+                "featureFlagsByKey": {
+                    "static": false,
+                    "readonly": false,
+                    "type": null,
+                    "default": null,
+                    "hasDefault": true
+                },
+                "groupTypeMapping": {
+                    "static": false,
+                    "readonly": false,
+                    "type": null,
+                    "default": null,
+                    "hasDefault": true
+                },
+                "httpClient": {
+                    "static": false,
+                    "readonly": false,
+                    "type": null,
+                    "default": null,
+                    "hasDefault": true
+                }
+            },
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "apiKey",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "options",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "httpClient",
+                            "type": "?PostHog\\HttpClient",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personalAPIKey",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "loadFeatureFlags",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": true,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "__destruct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "alias": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "capture": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "captureException": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": [
+                        {
+                            "name": "exception",
+                            "type": "Throwable|string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "additionalProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "captureFlagCalledIfNeeded": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "distinctId",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "properties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "contextFromHeaders": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "headers",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "evaluateFlags": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\FeatureFlagEvaluations",
+                    "parameters": [
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "onlyEvaluateLocally",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "disableGeoip",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "flagKeys",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "fetchFeatureVariants": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "distinctId",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "flags": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "distinctId",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "disableGeoip",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "flagKeys",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "flush": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "getAllFlags": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "onlyEvaluateLocally",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getContext": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?array",
+                    "parameters": []
+                },
+                "getFeatureFlag": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string|bool|null",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "onlyEvaluateLocally",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "sendFeatureFlagEvents",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": true,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getFeatureFlagPayload": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "mixed",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getFeatureFlagResult": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?PostHog\\FeatureFlagResult",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "onlyEvaluateLocally",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "sendFeatureFlagEvents",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": true,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getFlagsEtag": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": []
+                },
+                "identify": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "isFeatureEnabled": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?bool",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "onlyEvaluateLocally",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "sendFeatureFlagEvents",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": true,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "loadFlags": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "localFlags": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\HttpResponse",
+                    "parameters": []
+                },
+                "logWarning": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "raw": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "withContext": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "mixed",
+                    "parameters": [
+                        {
+                            "name": "data",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "fn",
+                            "type": "callable",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "options",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\Consumer": {
+            "type": "class",
+            "abstract": true,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "apiKey",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "options",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "alias": {
+                    "static": false,
+                    "abstract": true,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "capture": {
+                    "static": false,
+                    "abstract": true,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "identify": {
+                    "static": false,
+                    "abstract": true,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\Consumer\\File": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": "PostHog\\Consumer",
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "apiKey",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "options",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "__destruct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "alias": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "capture": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "getConsumer": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "identify": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\Consumer\\ForkCurl": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": "PostHog\\QueueConsumer",
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "apiKey",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "options",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "flushBatch": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "messages",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "getConsumer": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\Consumer\\LibCurl": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": "PostHog\\QueueConsumer",
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "apiKey",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "options",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "httpClient",
+                            "type": "?PostHog\\HttpClient",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "flushBatch": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "messages",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "getConsumer": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\Consumer\\NoOp": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": "PostHog\\Consumer",
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__destruct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "alias": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "capture": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "enqueue": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "item",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "flush": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "getConsumer": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "identify": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\Consumer\\Socket": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": "PostHog\\QueueConsumer",
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "apiKey",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "options",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "flushBatch": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "batch",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "getConsumer": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\EvaluatedFlagRecord": {
+            "type": "class",
+            "abstract": false,
+            "final": true,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": {
+                "enabled": {
+                    "static": false,
+                    "readonly": true,
+                    "type": "bool",
+                    "default": null,
+                    "hasDefault": false
+                },
+                "id": {
+                    "static": false,
+                    "readonly": true,
+                    "type": "?int",
+                    "default": null,
+                    "hasDefault": false
+                },
+                "key": {
+                    "static": false,
+                    "readonly": true,
+                    "type": "string",
+                    "default": null,
+                    "hasDefault": false
+                },
+                "locallyEvaluated": {
+                    "static": false,
+                    "readonly": true,
+                    "type": "bool",
+                    "default": null,
+                    "hasDefault": false
+                },
+                "payload": {
+                    "static": false,
+                    "readonly": true,
+                    "type": "mixed",
+                    "default": null,
+                    "hasDefault": false
+                },
+                "reason": {
+                    "static": false,
+                    "readonly": true,
+                    "type": "?string",
+                    "default": null,
+                    "hasDefault": false
+                },
+                "variant": {
+                    "static": false,
+                    "readonly": true,
+                    "type": "?string",
+                    "default": null,
+                    "hasDefault": false
+                },
+                "version": {
+                    "static": false,
+                    "readonly": true,
+                    "type": "?int",
+                    "default": null,
+                    "hasDefault": false
+                }
+            },
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "enabled",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "variant",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "payload",
+                            "type": "mixed",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "id",
+                            "type": "?int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "version",
+                            "type": "?int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "reason",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "locallyEvaluated",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "getValue": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string|bool",
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\ExceptionCapture": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "configure": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "client",
+                            "type": "PostHog\\Client",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "config",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "enableThrowOnUnhandledForTests": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": []
+                },
+                "handleError": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": [
+                        {
+                            "name": "errno",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "message",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "file",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": "",
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "line",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 0,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "handleException": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "exception",
+                            "type": "Throwable",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "handleShutdown": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "lastError",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "resetForTests": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\ExceptionPayloadBuilder": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "buildExceptionList": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "exception",
+                            "type": "Throwable|string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "maxFrames",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 20,
+                            "defaultConstant": "self::DEFAULT_MAX_FRAMES",
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "buildFromLocation": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "type",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "message",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "file",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "line",
+                            "type": "?int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "maxFrames",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 20,
+                            "defaultConstant": "self::DEFAULT_MAX_FRAMES",
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "buildFromTrace": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "exception",
+                            "type": "Throwable",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "trace",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "maxFrames",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 20,
+                            "defaultConstant": "self::DEFAULT_MAX_FRAMES",
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getPrimaryHandled": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": [
+                        {
+                            "name": "exceptionList",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "overridePrimaryMechanism": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "exceptionList",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "mechanism",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\FeatureFlag": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "evaluateFlagDependency": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "property",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "flagsByKey",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "evaluationCache",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "properties",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "cohortProperties",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "matchCohort": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "property",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "propertyValues",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "cohortProperties",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "flagsByKey",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "evaluationCache",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "matchFeatureFlagProperties": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "flag",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "properties",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "cohorts",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "flagsByKey",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "evaluationCache",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groups",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupTypeMapping",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "matchProperty": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "property",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "propertyValues",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "matchPropertyGroup": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "propertyGroup",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "propertyValues",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "cohortProperties",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "flagsByKey",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "evaluationCache",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "matchesDependencyValue": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "expectedValue",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "actualValue",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "parseSemver": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "value",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "relativeDateParseForFeatureFlagMatching": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "value",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\FeatureFlagError": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": {
+                "CONNECTION_ERROR": {
+                    "type": "string",
+                    "value": "connection_error"
+                },
+                "ERRORS_WHILE_COMPUTING_FLAGS": {
+                    "type": "string",
+                    "value": "errors_while_computing_flags"
+                },
+                "FLAG_MISSING": {
+                    "type": "string",
+                    "value": "flag_missing"
+                },
+                "QUOTA_LIMITED": {
+                    "type": "string",
+                    "value": "quota_limited"
+                },
+                "TIMEOUT": {
+                    "type": "string",
+                    "value": "timeout"
+                },
+                "UNKNOWN_ERROR": {
+                    "type": "string",
+                    "value": "unknown_error"
+                }
+            },
+            "properties": [],
+            "methods": {
+                "apiError": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": [
+                        {
+                            "name": "status",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\FeatureFlagEvaluations": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "distinctId",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "flags",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "host",
+                            "type": "PostHog\\FeatureFlagEvaluationsHost",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "requestId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "evaluatedAt",
+                            "type": "?int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "accessed",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "errorsWhileComputing",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "quotaLimited",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getEventProperties": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": []
+                },
+                "getFlag": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string|bool|null",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "getFlagPayload": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "mixed",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "getKeys": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": []
+                },
+                "isEnabled": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "only": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\FeatureFlagEvaluations",
+                    "parameters": [
+                        {
+                            "name": "keys",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "onlyAccessed": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\FeatureFlagEvaluations",
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\FeatureFlagEvaluationsHost": {
+            "type": "interface",
+            "abstract": true,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "captureFlagCalledIfNeeded": {
+                    "static": false,
+                    "abstract": true,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "distinctId",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "properties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "logWarning": {
+                    "static": false,
+                    "abstract": true,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\FeatureFlagResult": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "enabled",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "variant",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "payload",
+                            "type": "mixed",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getKey": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                },
+                "getPayload": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "mixed",
+                    "parameters": []
+                },
+                "getValue": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string|bool",
+                    "parameters": []
+                },
+                "getVariant": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": []
+                },
+                "isEnabled": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\HttpClient": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "host",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "useSsl",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": true,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "maximumBackoffDuration",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 10000,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "compressRequests",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "debug",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "errorHandler",
+                            "type": "?Closure",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "curlTimeoutMilliseconds",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 10000,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "maskTokensInUrl": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": [
+                        {
+                            "name": "url",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "sendRequest": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\HttpResponse",
+                    "parameters": [
+                        {
+                            "name": "path",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "payload",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "extraHeaders",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "requestOptions",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\HttpException": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": "Exception",
+            "implements": [
+                "Throwable",
+                "Stringable"
+            ],
+            "constants": {
+                "API_ERROR": {
+                    "type": "string",
+                    "value": "api_error"
+                },
+                "CONNECTION_ERROR": {
+                    "type": "string",
+                    "value": "connection_error"
+                },
+                "QUOTA_LIMITED": {
+                    "type": "string",
+                    "value": "quota_limited"
+                },
+                "TIMEOUT": {
+                    "type": "string",
+                    "value": "timeout"
+                }
+            },
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "errorType",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "statusCode",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 0,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "message",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": "",
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getErrorType": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                },
+                "getStatusCode": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "int",
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\HttpResponse": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "response",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "responseCode",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "etag",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "curlErrno",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 0,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getCurlErrno": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "int",
+                    "parameters": []
+                },
+                "getEtag": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": []
+                },
+                "getResponse": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "getResponseCode": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "isNotModified": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\InconclusiveMatchException": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": "Exception",
+            "implements": [
+                "Throwable",
+                "Stringable"
+            ],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "errorMessage": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\PostHog": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": {
+                "ENV_API_KEY": {
+                    "type": "string",
+                    "value": "POSTHOG_API_KEY"
+                },
+                "ENV_HOST": {
+                    "type": "string",
+                    "value": "POSTHOG_HOST"
+                },
+                "VERSION": {
+                    "type": "string",
+                    "value": "4.5.0"
+                }
+            },
+            "properties": [],
+            "methods": {
+                "alias": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "capture": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "captureException": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": [
+                        {
+                            "name": "exception",
+                            "type": "Throwable|string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "additionalProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "contextFromHeaders": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "headers",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "evaluateFlags": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\FeatureFlagEvaluations",
+                    "parameters": [
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "onlyEvaluateLocally",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "disableGeoip",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "flagKeys",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "fetchFeatureVariants": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "distinctId",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "flush": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "getAllFlags": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "onlyEvaluateLocally",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getClient": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\Client",
+                    "parameters": []
+                },
+                "getContext": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?array",
+                    "parameters": []
+                },
+                "getFeatureFlag": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string|bool|null",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "onlyEvaluateLocally",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "sendFeatureFlagEvents",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": true,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getFeatureFlagPayload": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "mixed",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getFeatureFlagResult": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?PostHog\\FeatureFlagResult",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "onlyEvaluateLocally",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "sendFeatureFlagEvents",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": true,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "groupIdentify": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "identify": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "init": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "apiKey",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "options",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "client",
+                            "type": "?PostHog\\Client",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personalAPIKey",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "isFeatureEnabled": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?bool",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "distinctId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groups",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupProperties",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "onlyEvaluateLocally",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "sendFeatureFlagEvents",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": true,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "raw": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "validate": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "msg",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "type",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "withContext": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "mixed",
+                    "parameters": [
+                        {
+                            "name": "data",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "fn",
+                            "type": "callable",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "options",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\QueueConsumer": {
+            "type": "class",
+            "abstract": true,
+            "final": false,
+            "readonly": false,
+            "extends": "PostHog\\Consumer",
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "apiKey",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "options",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "__destruct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "alias": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "capture": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "enqueue": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "item",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "flush": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "identify": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\RequestContext": {
+            "type": "class",
+            "abstract": false,
+            "final": true,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "contextFromHeaders": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "headers",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "getContext": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?array",
+                    "parameters": [
+                        {
+                            "name": "contextKey",
+                            "type": "?int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getDistinctId": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": [
+                        {
+                            "name": "contextKey",
+                            "type": "?int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "reset": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": []
+                },
+                "withContext": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "mixed",
+                    "parameters": [
+                        {
+                            "name": "data",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "fn",
+                            "type": "callable",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "options",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "contextKey",
+                            "type": "?int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\RequiresServerEvaluationException": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": "Exception",
+            "implements": [
+                "Throwable",
+                "Stringable"
+            ],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "errorMessage": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\SizeLimitedHash": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "size",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "add": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "element",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "contains": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "element",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "count": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\StringNormalizer": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": {
+                "DEFAULT_HOST": {
+                    "type": "string",
+                    "value": "us.i.posthog.com"
+                }
+            },
+            "properties": [],
+            "methods": {
+                "normalizeHost": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": [
+                        {
+                            "name": "host",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "normalizeOptional": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": [
+                        {
+                            "name": "value",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\Uuid": {
+            "type": "class",
+            "abstract": false,
+            "final": true,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "v4": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                }
+            }
+        }
+    }
+}

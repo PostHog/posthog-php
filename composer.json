@@ -33,6 +33,10 @@
 			"PostHog\\Test\\Assets\\": "test/assests"
 		}
 	},
+	"scripts": {
+		"api:check": "@php scripts/check-public-api.php",
+		"api:update": "@php scripts/check-public-api.php --update"
+	},
 	"bin": [
 		"bin/posthog"
 	]
