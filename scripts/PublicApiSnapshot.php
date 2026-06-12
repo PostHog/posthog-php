@@ -144,7 +144,7 @@ final class PublicApiSnapshot
             $properties[$property->getName()] = [
                 'static' => $property->isStatic(),
                 'readonly' => method_exists($property, 'isReadOnly') && $property->isReadOnly(),
-                'type' => self::reflectionType($property->getType()),
+                'type' => self::reflectionType($property->getType(), $class),
                 'default' => $property->hasDefaultValue() ? self::normalizeValue($property->getDefaultValue()) : null,
                 'hasDefault' => $property->hasDefaultValue(),
             ];
@@ -183,9 +183,9 @@ final class PublicApiSnapshot
             'static' => $method->isStatic(),
             'abstract' => $method->isAbstract(),
             'final' => $method->isFinal(),
-            'returnType' => self::reflectionType($method->getReturnType()),
+            'returnType' => self::reflectionType($method->getReturnType(), $method->getDeclaringClass()),
             'parameters' => array_map(
-                static fn (ReflectionParameter $parameter): array => self::reflectParameter($parameter),
+                static fn (ReflectionParameter $parameter): array => self::reflectParameter($parameter, $method->getDeclaringClass()),
                 $method->getParameters()
             ),
         ];
@@ -194,14 +194,14 @@ final class PublicApiSnapshot
     /**
      * @return array<string, mixed>
      */
-    private static function reflectParameter(ReflectionParameter $parameter): array
+    private static function reflectParameter(ReflectionParameter $parameter, ReflectionClass $scope): array
     {
         $hasDefault = $parameter->isDefaultValueAvailable();
         $usesConstantDefault = $hasDefault && $parameter->isDefaultValueConstant();
 
         return [
             'name' => $parameter->getName(),
-            'type' => self::reflectionType($parameter->getType()),
+            'type' => self::reflectionType($parameter->getType(), $scope),
             'byReference' => $parameter->isPassedByReference(),
             'variadic' => $parameter->isVariadic(),
             'optional' => $parameter->isOptional(),
@@ -228,32 +228,46 @@ final class PublicApiSnapshot
         return 'class';
     }
 
-    private static function reflectionType(?ReflectionType $type): ?string
+    private static function reflectionType(?ReflectionType $type, ReflectionClass $scope): ?string
     {
         if ($type === null) {
             return null;
         }
 
         if ($type instanceof ReflectionNamedType) {
-            $name = $type->getName();
+            $name = self::normalizeTypeName($type->getName(), $scope);
             return $type->allowsNull() && $name !== 'mixed' && $name !== 'null' ? '?' . $name : $name;
         }
 
         if ($type instanceof ReflectionUnionType) {
             return implode(
                 '|',
-                array_map(static fn (ReflectionType $inner): string => self::reflectionType($inner), $type->getTypes())
+                array_map(static fn (ReflectionType $inner): string => self::reflectionType($inner, $scope), $type->getTypes())
             );
         }
 
         if ($type instanceof ReflectionIntersectionType) {
             return implode(
                 '&',
-                array_map(static fn (ReflectionType $inner): string => self::reflectionType($inner), $type->getTypes())
+                array_map(static fn (ReflectionType $inner): string => self::reflectionType($inner, $scope), $type->getTypes())
             );
         }
 
         return (string) $type;
+    }
+
+    private static function normalizeTypeName(string $name, ReflectionClass $scope): string
+    {
+        if ($name === 'self') {
+            return $scope->getName();
+        }
+
+        if ($name === 'parent') {
+            $parent = $scope->getParentClass();
+            return $parent ? $parent->getName() : $name;
+        }
+
+        return $name;
     }
 
     private static function normalizeValue(mixed $value): mixed
