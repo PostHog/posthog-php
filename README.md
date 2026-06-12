@@ -1,5 +1,8 @@
 # PostHog PHP
 
+[![PHP Version](https://img.shields.io/packagist/php-v/posthog/posthog-php?logo=php)](https://packagist.org/packages/posthog/posthog-php)
+[![CI](https://github.com/PostHog/posthog-php/actions/workflows/php.yml/badge.svg)](https://github.com/PostHog/posthog-php/actions/workflows/php.yml)
+
 Please see the main [PostHog docs](https://posthog.com/docs).
 
 SDK usage examples and code snippets live in the official documentation so they stay up to date.
@@ -7,6 +10,7 @@ SDK usage examples and code snippets live in the official documentation so they 
 ## Documentation
 
 - [PHP library docs](https://posthog.com/docs/libraries/php)
+- [Laravel integration docs](https://posthog.com/docs/libraries/laravel)
 
 ## Questions?
 
