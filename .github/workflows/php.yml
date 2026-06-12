@@ -93,7 +93,17 @@ jobs:
       - name: Install PHP_CodeSniffer
         run: |
           curl -OL https://squizlabs.github.io/PHP_CodeSniffer/phpcs.phar
+          curl -OL https://squizlabs.github.io/PHP_CodeSniffer/phpcbf.phar
           php phpcs.phar --version
+          php phpcbf.phar --version
+
+      - name: Check PHP formatting
+        run: |
+          php phpcbf.phar --standard=phpcs.xml --no-colors || phpcbf_status=$?
+          if [ "${phpcbf_status:-0}" -gt 1 ]; then
+            exit "$phpcbf_status"
+          fi
+          git diff --exit-code -- lib test
 
       - uses: tinovyatkin/action-php-codesniffer@0043b33b3629611c37e8bc7ee8a4e061dc9a7ea2 # v1
         with:
