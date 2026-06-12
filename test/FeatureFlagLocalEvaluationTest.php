@@ -4647,6 +4647,32 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->checkEmptyErrorLogs();
     }
 
+    public function testEarlyExitInconclusiveThenMatchingConditionReturnsTrue(): void
+    {
+        // An inconclusive condition must not poison later groups: a subsequent conclusive
+        // match still decides the flag locally, even with early_exit enabled.
+        $flag = [
+            "key" => "early-exit-flag",
+            "filters" => [
+                "early_exit" => true,
+                "groups" => [
+                    // Group 1: requires "missing_prop" which is absent → InconclusiveMatchException.
+                    [
+                        "properties" => [["key" => "missing_prop", "value" => "x", "operator" => "exact"]],
+                        "rollout_percentage" => 100,
+                    ],
+                    // Group 2: conclusive match.
+                    [
+                        "properties" => [["key" => "region", "value" => "us", "operator" => "exact"]],
+                        "rollout_percentage" => 100,
+                    ],
+                ],
+            ],
+        ];
+        self::assertTrue(FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["region" => "us"]));
+        $this->checkEmptyErrorLogs();
+    }
+
     public function testEarlyExitOutOfRolloutBoundAfterInconclusiveConditionThrows(): void
     {
         // Repro: first condition is inconclusive (property missing from person properties),
