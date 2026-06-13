@@ -16,11 +16,16 @@
 	"require": {
 		"ext-json": "*",
 		"php": ">=8.2",
+		"psr/simple-cache": "^1.0|^2.0|^3.0",
 		"symfony/clock": "^6.2|^7.0|^8.0"
 	},
 	"require-dev": {
 		"phpunit/phpunit": "^11.0",
-		"squizlabs/php_codesniffer": "^3.7"
+		"squizlabs/php_codesniffer": "^3.7",
+		"symfony/cache": "^6.0|^7.0|^8.0"
+	},
+	"suggest": {
+		"psr/simple-cache-implementation": "A PSR-16 cache (e.g. symfony/cache) to share local feature flag definitions across requests"
 	},
 	"autoload": {
 		"psr-4": {
