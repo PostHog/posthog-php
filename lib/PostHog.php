@@ -16,6 +16,16 @@ class PostHog
     private static ?Client $client = null;
 
     /**
+     * Return the SDK version string.
+     *
+     * @return string
+     */
+    public static function getVersion(): string
+    {
+        return self::VERSION;
+    }
+
+    /**
      * Initializes the default client to use. Uses the libcurl consumer by default.
      *
      * When $apiKey is omitted or blank, POSTHOG_API_KEY is used when present. When no

@@ -155,6 +155,11 @@ class PostHogTest extends TestCase
         PostHog::init("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", array("debug" => true));
     }
 
+    public function testGetVersionReturnsVersionConstant(): void
+    {
+        $this->assertSame(PostHog::VERSION, PostHog::getVersion());
+    }
+
     public function testInitWithEnvApiKey(): void
     {
         $this->expectNotToPerformAssertions();
