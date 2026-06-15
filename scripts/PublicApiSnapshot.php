@@ -130,7 +130,7 @@ final class PublicApiSnapshot
 
             $constants[$constant->getName()] = [
                 'type' => get_debug_type($constant->getValue()),
-                'value' => self::normalizeValue($constant->getValue()),
+                'value' => self::normalizeConstantValue($constant),
             ];
         }
         ksort($constants);
@@ -288,6 +288,15 @@ final class PublicApiSnapshot
         }
 
         return $name;
+    }
+
+    private static function normalizeConstantValue(ReflectionClassConstant $constant): mixed
+    {
+        if ($constant->getDeclaringClass()->getName() === 'PostHog\\PostHog' && $constant->getName() === 'VERSION') {
+            return '<version>';
+        }
+
+        return self::normalizeValue($constant->getValue());
     }
 
     private static function normalizeValue(mixed $value): mixed
