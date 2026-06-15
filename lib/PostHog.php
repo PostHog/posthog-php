@@ -37,6 +37,7 @@ class PostHog
      *     compress_request?: bool|string,
      *     error_handler?: callable,
      *     filename?: string,
+     *     flag_definition_cache_provider?: FlagDefinitionCacheProvider,
      *     error_tracking?: array{
      *         enabled?: bool,
      *         capture_errors?: bool,
@@ -531,6 +532,19 @@ class PostHog
         self::checkClient();
 
         return self::$client->flush();
+    }
+
+    /**
+     * Flush queued events and release resources on the underlying client.
+     *
+     * @return bool True when shutdown flushing succeeded or the consumer has no flush operation.
+     * @throws Exception
+     */
+    public static function shutdown(): bool
+    {
+        self::checkClient();
+
+        return self::$client->shutdown();
     }
 
     /**
