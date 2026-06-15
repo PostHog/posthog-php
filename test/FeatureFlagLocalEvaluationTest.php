@@ -4562,4 +4562,148 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => "1.0.0"]));
         self::assertTrue(FeatureFlag::matchProperty($prop, ["version" => 1]));
     }
+
+    // A flag whose first condition group matches on properties but excludes the user via
+    // rollout 0, and a later group that would match (properties + rollout 100). Without
+    // early_exit, evaluation falls through to the second group and returns true.
+    private static function earlyExitFlag($earlyExit): array
+    {
+        $filters = [
+            "groups" => [
+                [
+                    "properties" => [["key" => "name", "value" => "test", "operator" => "exact"]],
+                    "rollout_percentage" => 0,
+                ],
+                [
+                    "properties" => [["key" => "name", "value" => "test", "operator" => "exact"]],
+                    "rollout_percentage" => 100,
+                ],
+            ],
+        ];
+        if (!is_null($earlyExit)) {
+            $filters["early_exit"] = $earlyExit;
+        }
+        return ["key" => "early-exit-flag", "filters" => $filters];
+    }
+
+    /**
+     * @dataProvider earlyExitRolloutExclusionProvider
+     */
+    public function testEarlyExitRolloutExclusion($earlyExit, bool $expected): void
+    {
+        $flag = self::earlyExitFlag($earlyExit);
+        self::assertSame($expected, FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["name" => "test"]));
+        $this->checkEmptyErrorLogs();
+    }
+
+    public static function earlyExitRolloutExclusionProvider(): array
+    {
+        return [
+            'enabled short-circuits to false' => [true, false],
+            'unset falls through to matching group' => [null, true],
+            'explicitly false falls through' => [false, true],
+        ];
+    }
+
+    public function testEarlyExitOnRolloutOnlyGroupWithNoPropertyFilters(): void
+    {
+        // Exercises the path where the properties block is skipped entirely and evaluation
+        // falls straight to the rollout check, returning OutOfRolloutBound.
+        $flag = [
+            "key" => "early-exit-flag",
+            "filters" => [
+                "early_exit" => true,
+                "groups" => [
+                    ["rollout_percentage" => 0],
+                    ["rollout_percentage" => 100],
+                ],
+            ],
+        ];
+        self::assertFalse(FeatureFlag::matchFeatureFlagProperties($flag, "test-user", []));
+        $this->checkEmptyErrorLogs();
+    }
+
+    public function testEarlyExitDoesNotTriggerOnPropertyMismatch(): void
+    {
+        // First group: property filter fails (NO_MATCH, not a rollout exclusion), so even with
+        // early_exit enabled evaluation must fall through to the second matching group.
+        $flag = [
+            "key" => "early-exit-flag",
+            "filters" => [
+                "early_exit" => true,
+                "groups" => [
+                    [
+                        "properties" => [["key" => "name", "value" => "other", "operator" => "exact"]],
+                        "rollout_percentage" => 0,
+                    ],
+                    [
+                        "properties" => [["key" => "name", "value" => "test", "operator" => "exact"]],
+                        "rollout_percentage" => 100,
+                    ],
+                ],
+            ],
+        ];
+        self::assertTrue(FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["name" => "test"]));
+        $this->checkEmptyErrorLogs();
+    }
+
+    public function testEarlyExitInconclusiveThenMatchingConditionReturnsTrue(): void
+    {
+        // An inconclusive condition must not poison later groups: a subsequent conclusive
+        // match still decides the flag locally, even with early_exit enabled.
+        $flag = [
+            "key" => "early-exit-flag",
+            "filters" => [
+                "early_exit" => true,
+                "groups" => [
+                    // Group 1: requires "missing_prop" which is absent → InconclusiveMatchException.
+                    [
+                        "properties" => [["key" => "missing_prop", "value" => "x", "operator" => "exact"]],
+                        "rollout_percentage" => 100,
+                    ],
+                    // Group 2: conclusive match.
+                    [
+                        "properties" => [["key" => "region", "value" => "us", "operator" => "exact"]],
+                        "rollout_percentage" => 100,
+                    ],
+                ],
+            ],
+        ];
+        self::assertTrue(FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["region" => "us"]));
+        $this->checkEmptyErrorLogs();
+    }
+
+    public function testEarlyExitOutOfRolloutBoundAfterInconclusiveConditionThrows(): void
+    {
+        // Repro: first condition is inconclusive (property missing from person properties),
+        // second is OutOfRolloutBound. With early_exit=true, the OutOfRolloutBound branch must
+        // NOT return false — but it must still stop evaluation (the matching third group must
+        // not be reached) and propagate the inconclusive state so callers fall back to server
+        // evaluation.
+        $flag = [
+            "key" => "early-exit-flag",
+            "filters" => [
+                "early_exit" => true,
+                "groups" => [
+                    // Group 1: requires "missing_prop" which is absent → InconclusiveMatchException.
+                    [
+                        "properties" => [["key" => "missing_prop", "value" => "x", "operator" => "exact"]],
+                        "rollout_percentage" => 100,
+                    ],
+                    // Group 2: properties match but rollout 0 → OutOfRolloutBound.
+                    [
+                        "properties" => [["key" => "region", "value" => "us", "operator" => "exact"]],
+                        "rollout_percentage" => 0,
+                    ],
+                    // Group 3: would match, but early exit at group 2 must prevent reaching it.
+                    [
+                        "properties" => [["key" => "region", "value" => "us", "operator" => "exact"]],
+                        "rollout_percentage" => 100,
+                    ],
+                ],
+            ],
+        ];
+        $this->expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["region" => "us"]);
+    }
 }
