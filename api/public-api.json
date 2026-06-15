@@ -935,6 +935,92 @@
                 }
             }
         },
+        "PostHog\\ConditionMatch": {
+            "type": "enum",
+            "abstract": false,
+            "final": true,
+            "readonly": false,
+            "extends": null,
+            "implements": [
+                "BackedEnum",
+                "UnitEnum"
+            ],
+            "constants": {
+                "Match": {
+                    "type": "PostHog\\ConditionMatch",
+                    "value": "object(PostHog\\ConditionMatch)"
+                },
+                "NoMatch": {
+                    "type": "PostHog\\ConditionMatch",
+                    "value": "object(PostHog\\ConditionMatch)"
+                },
+                "OutOfRolloutBound": {
+                    "type": "PostHog\\ConditionMatch",
+                    "value": "object(PostHog\\ConditionMatch)"
+                }
+            },
+            "properties": {
+                "name": {
+                    "static": false,
+                    "readonly": true,
+                    "type": "string",
+                    "default": null,
+                    "hasDefault": false
+                },
+                "value": {
+                    "static": false,
+                    "readonly": true,
+                    "type": "string",
+                    "default": null,
+                    "hasDefault": false
+                }
+            },
+            "methods": {
+                "cases": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": []
+                },
+                "from": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "static",
+                    "parameters": [
+                        {
+                            "name": "value",
+                            "type": "string|int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "tryFrom": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?static",
+                    "parameters": [
+                        {
+                            "name": "value",
+                            "type": "string|int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                }
+            }
+        },
         "PostHog\\Consumer": {
             "type": "class",
             "abstract": true,
