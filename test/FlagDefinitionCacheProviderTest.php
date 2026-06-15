@@ -173,6 +173,27 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $this->assertWarningContains('Cache provider fetch-decision error: Lock acquisition failed');
     }
 
+    public function testProviderFetchDecisionFailureWithoutPersonalApiKeyDoesNotFetchDirectly(): void
+    {
+        $provider = new MockFlagDefinitionCacheProvider();
+        $provider->shouldFetchError = new \RuntimeException('Lock acquisition failed');
+        $httpClient = new MockedHttpClient(host: "app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ['flag_definition_cache_provider' => $provider],
+            $httpClient,
+            null,
+            false
+        );
+
+        $client->loadFlags();
+
+        $this->assertSame(1, $provider->shouldFetchCallCount);
+        $this->assertSame(1, $provider->getCallCount);
+        $this->assertSame([], $httpClient->calls ?? []);
+        $this->assertWarningContains('Cache provider fetch-decision error: Lock acquisition failed');
+    }
+
     public function testProviderStoreFailureKeepsFetchedDefinitionsUsable(): void
     {
         $provider = new MockFlagDefinitionCacheProvider();
@@ -221,6 +242,29 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $client->loadFlags();
 
         $this->assertSame('beta-ui', $client->featureFlags[0]['key']);
+        $this->assertCount(1, $httpClient->calls);
+        $this->assertWarningContains('Cache provider returned malformed flag definitions');
+    }
+
+    public function testIncompleteProviderCacheDataDoesNotClearExistingDefinitions(): void
+    {
+        $provider = new MockFlagDefinitionCacheProvider();
+        $provider->shouldFetch = true;
+        $httpClient = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: $this->sampleFlagDefinitionData()
+        );
+        $client = $this->createClient($provider, $httpClient);
+
+        $provider->shouldFetch = false;
+        $provider->cachedData = [
+            'flags' => [['key' => 'incomplete-flag', 'active' => true, 'filters' => []]],
+        ];
+        $client->loadFlags();
+
+        $this->assertSame('beta-ui', $client->featureFlags[0]['key']);
+        $this->assertSame(['0' => 'company'], $client->groupTypeMapping);
+        $this->assertSame(['1' => ['type' => 'AND', 'values' => []]], $client->cohorts);
         $this->assertCount(1, $httpClient->calls);
         $this->assertWarningContains('Cache provider returned malformed flag definitions');
     }

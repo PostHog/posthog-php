@@ -1244,7 +1244,7 @@ class Client implements FeatureFlagEvaluationsHost
             $this->logFlagDefinitionCacheWarning(
                 'Cache provider fetch-decision error: ' . $throwable->getMessage()
             );
-            return true;
+            return !is_null($this->personalAPIKey);
         }
     }
 
@@ -1326,24 +1326,31 @@ class Client implements FeatureFlagEvaluationsHost
      */
     private function normalizeFlagDefinitionCacheData(array $data): ?array
     {
-        if (!isset($data['flags']) || !is_array($data['flags'])) {
+        if (!array_key_exists('flags', $data) || !is_array($data['flags'])) {
             return null;
         }
 
-        $groupTypeMapping = $data['group_type_mapping'] ?? $data['groupTypeMapping'] ?? [];
+        $hasSnakeCaseGroupTypeMapping = array_key_exists('group_type_mapping', $data);
+        $hasCamelCaseGroupTypeMapping = array_key_exists('groupTypeMapping', $data);
+        if (!$hasSnakeCaseGroupTypeMapping && !$hasCamelCaseGroupTypeMapping) {
+            return null;
+        }
+
+        $groupTypeMapping = $hasSnakeCaseGroupTypeMapping
+            ? $data['group_type_mapping']
+            : $data['groupTypeMapping'];
         if (!is_array($groupTypeMapping)) {
             return null;
         }
 
-        $cohorts = $data['cohorts'] ?? [];
-        if (!is_array($cohorts)) {
+        if (!array_key_exists('cohorts', $data) || !is_array($data['cohorts'])) {
             return null;
         }
 
         return [
             'flags' => $data['flags'],
             'group_type_mapping' => $groupTypeMapping,
-            'cohorts' => $cohorts,
+            'cohorts' => $data['cohorts'],
         ];
     }
 
