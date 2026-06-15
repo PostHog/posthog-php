@@ -167,7 +167,7 @@ final class PublicApiSnapshot
             'final' => $class->isFinal(),
             'readonly' => method_exists($class, 'isReadOnly') && $class->isReadOnly(),
             'extends' => $class->getParentClass() ? $class->getParentClass()->getName() : null,
-            'implements' => array_values($class->getInterfaceNames()),
+            'implements' => self::interfaceNames($class),
             'constants' => $constants,
             'properties' => $properties,
             'methods' => $methods,
@@ -229,6 +229,17 @@ final class PublicApiSnapshot
         }
 
         return 'class';
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function interfaceNames(ReflectionClass $class): array
+    {
+        $interfaces = array_unique($class->getInterfaceNames());
+        sort($interfaces);
+
+        return array_values($interfaces);
     }
 
     private static function reflectionType(?ReflectionType $type, ReflectionClass $scope): ?string

@@ -2931,8 +2931,8 @@
             "readonly": false,
             "extends": "Exception",
             "implements": [
-                "Throwable",
-                "Stringable"
+                "Stringable",
+                "Throwable"
             ],
             "constants": {
                 "API_ERROR": {
@@ -3110,8 +3110,8 @@
             "readonly": false,
             "extends": "Exception",
             "implements": [
-                "Throwable",
-                "Stringable"
+                "Stringable",
+                "Throwable"
             ],
             "constants": [],
             "properties": [],
@@ -4141,8 +4141,8 @@
             "readonly": false,
             "extends": "Exception",
             "implements": [
-                "Throwable",
-                "Stringable"
+                "Stringable",
+                "Throwable"
             ],
             "constants": [],
             "properties": [],
