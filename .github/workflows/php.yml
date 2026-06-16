@@ -52,27 +52,21 @@ jobs:
 
   public-api:
     needs: detect-markdown-only
+    if: needs.detect-markdown-only.outputs.markdown_only != 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Complete markdown-only PR check
-        if: needs.detect-markdown-only.outputs.markdown_only == 'true'
-        run: echo "Only Markdown files changed; no additional work is required for this check."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
 
       - name: Set up PHP 8.4
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
         with:
           php-version: 8.4
           tools: composer
 
       - name: Install Dependencies
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         run: composer install --prefer-dist --no-progress
 
       - name: Check public API snapshot
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         run: composer api:check
 
   phpunit:
@@ -109,15 +103,11 @@ jobs:
     needs:
       - detect-markdown-only
       - phpunit
+    if: needs.detect-markdown-only.outputs.markdown_only != 'true'
     steps:
-      - name: Complete markdown-only PR check
-        if: needs.detect-markdown-only.outputs.markdown_only == 'true'
-        run: echo "Only Markdown files changed; no additional work is required for this check."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
 
       - name: Set up PHP 8.4
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
         with:
           php-version: 8.4
@@ -125,11 +115,9 @@ jobs:
           tools: composer, phpunit
 
       - name: Install Dependencies
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         run: composer install --prefer-dist --no-progress
 
       - name: Run PHPUnit Coverage
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         run: XDEBUG_MODE=coverage ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml --coverage-text
 
   phpcs:
