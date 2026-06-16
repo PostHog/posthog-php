@@ -2,16 +2,6 @@ name: "CI"
 
 on:
   pull_request:
-    paths:
-      - "**.php"
-      - "bin/posthog"
-      - "composer.json"
-      - "composer.lock"
-      - "phpcs.xml"
-      - "phpunit.xml"
-      - "api/public-api.json"
-      - "scripts/**"
-      - ".github/workflows/php.yml"
   push:
     branches:
       - main
