@@ -16,70 +16,136 @@ on:
       - "scripts/**"
       - ".github/workflows/php.yml"
 
+permissions:
+  contents: read
+  pull-requests: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  detect-markdown-only:
+    name: Detect markdown-only changes
+    runs-on: ubuntu-latest
+    outputs:
+      markdown_only: ${{ steps.detect.outputs.markdown_only }}
+    steps:
+      - name: Detect markdown-only PR
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "markdown_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --jq '.[].filename' > "$RUNNER_TEMP/changed-files.txt"
+
+          if [ ! -s "$RUNNER_TEMP/changed-files.txt" ]; then
+            markdown_only=false
+          elif grep -qvE '\.md$' "$RUNNER_TEMP/changed-files.txt"; then
+            markdown_only=false
+          else
+            markdown_only=true
+          fi
+
+          echo "markdown_only=$markdown_only" >> "$GITHUB_OUTPUT"
+          echo "markdown_only=$markdown_only"
+
   composer-validate:
+    needs: detect-markdown-only
     runs-on: ubuntu-latest
     steps:
+      - name: Skip expensive CI for markdown-only PR
+        if: needs.detect-markdown-only.outputs.markdown_only == 'true'
+        run: echo "Only Markdown files changed; marking this check successful without running expensive CI."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
 
       - name: Set up PHP
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
         with:
           php-version: 8.4
           tools: composer
 
       - name: Validate composer files
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         run: composer validate --no-check-lock --no-check-version --strict
 
   public-api:
+    needs: detect-markdown-only
     runs-on: ubuntu-latest
     steps:
+      - name: Skip expensive CI for markdown-only PR
+        if: needs.detect-markdown-only.outputs.markdown_only == 'true'
+        run: echo "Only Markdown files changed; marking this check successful without running expensive CI."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
 
       - name: Set up PHP 8.4
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
         with:
           php-version: 8.4
           tools: composer
 
       - name: Install Dependencies
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         run: composer install --prefer-dist --no-progress
 
       - name: Check public API snapshot
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         run: composer api:check
 
   phpunit:
+    needs: detect-markdown-only
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         php-version: [8.2, 8.3, 8.4, 8.5]
     steps:
+      - name: Skip expensive CI for markdown-only PR
+        if: needs.detect-markdown-only.outputs.markdown_only == 'true'
+        run: echo "Only Markdown files changed; marking this check successful without running expensive CI."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
 
       - name: Set up PHP ${{ matrix.php-version }}
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
         with:
           php-version: ${{ matrix.php-version }}
           tools: composer, phpunit
 
       - name: Install Dependencies
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         run: composer install --prefer-dist --no-progress
 
       - name: Run PHPUnit Tests
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         run: ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml
 
   coverage:
     runs-on: ubuntu-latest
-    needs: phpunit
+    needs:
+      - detect-markdown-only
+      - phpunit
     steps:
+      - name: Skip expensive CI for markdown-only PR
+        if: needs.detect-markdown-only.outputs.markdown_only == 'true'
+        run: echo "Only Markdown files changed; marking this check successful without running expensive CI."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
 
       - name: Set up PHP 8.4
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
         with:
           php-version: 8.4
@@ -87,21 +153,29 @@ jobs:
           tools: composer, phpunit
 
       - name: Install Dependencies
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         run: composer install --prefer-dist --no-progress
 
       - name: Run PHPUnit Coverage
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         run: XDEBUG_MODE=coverage ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml --coverage-text
 
   phpcs:
+    needs: detect-markdown-only
     runs-on: ubuntu-latest
     steps:
+      - name: Skip expensive CI for markdown-only PR
+        if: needs.detect-markdown-only.outputs.markdown_only == 'true'
+        run: echo "Only Markdown files changed; marking this check successful without running expensive CI."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         with:
           fetch-depth: 0 # important!
 
       # we may use whatever way to install phpcs, just specify the path on the next step
       # however, curl seems to be the fastest
       - name: Install PHP_CodeSniffer
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         run: |
           curl -OL https://squizlabs.github.io/PHP_CodeSniffer/phpcs.phar
           curl -OL https://squizlabs.github.io/PHP_CodeSniffer/phpcbf.phar
@@ -109,6 +183,7 @@ jobs:
           php phpcbf.phar --version
 
       - name: Check PHP formatting
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         run: |
           php phpcbf.phar --standard=phpcs.xml --no-colors || phpcbf_status=$?
           if [ "${phpcbf_status:-0}" -gt 1 ]; then
@@ -117,6 +192,7 @@ jobs:
           git diff --exit-code -- lib test
 
       - uses: tinovyatkin/action-php-codesniffer@0043b33b3629611c37e8bc7ee8a4e061dc9a7ea2 # v1
+        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         with:
           files: "**.php" # you may customize glob as needed
           phpcs_path: php phpcs.phar
