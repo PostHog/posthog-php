@@ -33,9 +33,9 @@ jobs:
     needs: detect-markdown-only
     runs-on: ubuntu-latest
     steps:
-      - name: Skip expensive CI for markdown-only PR
+      - name: Complete markdown-only PR check
         if: needs.detect-markdown-only.outputs.markdown_only == 'true'
-        run: echo "Only Markdown files changed; marking this check successful without running expensive CI."
+        run: echo "Only Markdown files changed; no additional work is required for this check."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: needs.detect-markdown-only.outputs.markdown_only != 'true'
 
@@ -54,9 +54,9 @@ jobs:
     needs: detect-markdown-only
     runs-on: ubuntu-latest
     steps:
-      - name: Skip expensive CI for markdown-only PR
+      - name: Complete markdown-only PR check
         if: needs.detect-markdown-only.outputs.markdown_only == 'true'
-        run: echo "Only Markdown files changed; marking this check successful without running expensive CI."
+        run: echo "Only Markdown files changed; no additional work is required for this check."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: needs.detect-markdown-only.outputs.markdown_only != 'true'
 
@@ -83,9 +83,9 @@ jobs:
       matrix:
         php-version: [8.2, 8.3, 8.4, 8.5]
     steps:
-      - name: Skip expensive CI for markdown-only PR
+      - name: Complete markdown-only PR check
         if: needs.detect-markdown-only.outputs.markdown_only == 'true'
-        run: echo "Only Markdown files changed; marking this check successful without running expensive CI."
+        run: echo "Only Markdown files changed; no additional work is required for this check."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: needs.detect-markdown-only.outputs.markdown_only != 'true'
 
@@ -110,9 +110,9 @@ jobs:
       - detect-markdown-only
       - phpunit
     steps:
-      - name: Skip expensive CI for markdown-only PR
+      - name: Complete markdown-only PR check
         if: needs.detect-markdown-only.outputs.markdown_only == 'true'
-        run: echo "Only Markdown files changed; marking this check successful without running expensive CI."
+        run: echo "Only Markdown files changed; no additional work is required for this check."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: needs.detect-markdown-only.outputs.markdown_only != 'true'
 
@@ -136,9 +136,9 @@ jobs:
     needs: detect-markdown-only
     runs-on: ubuntu-latest
     steps:
-      - name: Skip expensive CI for markdown-only PR
+      - name: Complete markdown-only PR check
         if: needs.detect-markdown-only.outputs.markdown_only == 'true'
-        run: echo "Only Markdown files changed; marking this check successful without running expensive CI."
+        run: echo "Only Markdown files changed; no additional work is required for this check."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         if: needs.detect-markdown-only.outputs.markdown_only != 'true'
         with:
