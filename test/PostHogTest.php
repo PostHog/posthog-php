@@ -11,6 +11,9 @@ use PostHog\Client;
 use PostHog\Consumer\NoOp;
 use PostHog\PostHog;
 use PostHog\Test\Assets\MockedResponses;
+use Symfony\Component\Clock\Clock;
+use Symfony\Component\Clock\MockClock;
+use Symfony\Component\Clock\NativeClock;
 
 
 class PostHogTest extends TestCase
@@ -446,6 +449,181 @@ class PostHogTest extends TestCase
                 )
             )
         );
+    }
+
+    public function testCaptureFlushesOnNextEnqueueAfterDefaultFlushInterval(): void
+    {
+        $mockClock = new MockClock(new \DateTimeImmutable('2022-05-01 00:00:00'));
+        Clock::set($mockClock);
+
+        try {
+            $httpClient = new MockedHttpClient("app.posthog.com");
+            $client = new Client(
+                self::FAKE_API_KEY,
+                [
+                    "debug" => true,
+                    "batch_size" => 100,
+                ],
+                $httpClient,
+                null,
+                false
+            );
+
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "one"]));
+            $this->assertSame([], $httpClient->calls ?? []);
+
+            $mockClock->sleep(4);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "two"]));
+            $this->assertSame([], $httpClient->calls ?? []);
+
+            $mockClock->sleep(1);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "three"]));
+
+            $batchCalls = array_values(array_filter(
+                $httpClient->calls ?? [],
+                static fn(array $call): bool => ($call["path"] ?? null) === "/batch/"
+            ));
+            $this->assertCount(1, $batchCalls);
+
+            $payload = json_decode($batchCalls[0]["payload"], true);
+            $this->assertSame(["one", "two", "three"], array_column($payload["batch"], "event"));
+        } finally {
+            Clock::set(new NativeClock());
+        }
+    }
+
+    public function testCaptureFlushIntervalCanBeConfiguredInSeconds(): void
+    {
+        $mockClock = new MockClock(new \DateTimeImmutable('2022-05-01 00:00:00'));
+        Clock::set($mockClock);
+
+        try {
+            $httpClient = new MockedHttpClient("app.posthog.com");
+            $client = new Client(
+                self::FAKE_API_KEY,
+                [
+                    "debug" => true,
+                    "batch_size" => 100,
+                    "flush_interval_seconds" => 1,
+                ],
+                $httpClient,
+                null,
+                false
+            );
+
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "one"]));
+            $mockClock->sleep(1);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "two"]));
+
+            $batchCalls = array_values(array_filter(
+                $httpClient->calls ?? [],
+                static fn(array $call): bool => ($call["path"] ?? null) === "/batch/"
+            ));
+            $this->assertCount(1, $batchCalls);
+        } finally {
+            Clock::set(new NativeClock());
+        }
+    }
+
+    public function testCaptureFlushIntervalZeroFlushesImmediately(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+                "batch_size" => 100,
+                "flush_interval_seconds" => 0,
+            ],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->capture(["distinctId" => "john", "event" => "one"]));
+
+        $batchCalls = array_values(array_filter(
+            $httpClient->calls ?? [],
+            static fn(array $call): bool => ($call["path"] ?? null) === "/batch/"
+        ));
+        $this->assertCount(1, $batchCalls);
+
+        $payload = json_decode($batchCalls[0]["payload"], true);
+        $this->assertSame(["one"], array_column($payload["batch"], "event"));
+    }
+
+    public function testNegativeCaptureFlushIntervalDefaultsToFiveSeconds(): void
+    {
+        $mockClock = new MockClock(new \DateTimeImmutable('2022-05-01 00:00:00'));
+        Clock::set($mockClock);
+
+        try {
+            $httpClient = new MockedHttpClient("app.posthog.com");
+            $client = new Client(
+                self::FAKE_API_KEY,
+                [
+                    "debug" => true,
+                    "batch_size" => 100,
+                    "flush_interval_seconds" => -1,
+                ],
+                $httpClient,
+                null,
+                false
+            );
+
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "one"]));
+            $mockClock->sleep(4);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "two"]));
+            $this->assertSame([], $httpClient->calls ?? []);
+
+            $mockClock->sleep(1);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "three"]));
+
+            $batchCalls = array_values(array_filter(
+                $httpClient->calls ?? [],
+                static fn(array $call): bool => ($call["path"] ?? null) === "/batch/"
+            ));
+            $this->assertCount(1, $batchCalls);
+        } finally {
+            Clock::set(new NativeClock());
+        }
+    }
+
+    public function testInvalidCaptureFlushIntervalDefaultsToFiveSeconds(): void
+    {
+        $mockClock = new MockClock(new \DateTimeImmutable('2022-05-01 00:00:00'));
+        Clock::set($mockClock);
+
+        try {
+            $httpClient = new MockedHttpClient("app.posthog.com");
+            $client = new Client(
+                self::FAKE_API_KEY,
+                [
+                    "debug" => true,
+                    "batch_size" => 100,
+                    "flush_interval_seconds" => "1",
+                ],
+                $httpClient,
+                null,
+                false
+            );
+
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "one"]));
+            $mockClock->sleep(4);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "two"]));
+            $this->assertSame([], $httpClient->calls ?? []);
+
+            $mockClock->sleep(1);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "three"]));
+
+            $batchCalls = array_values(array_filter(
+                $httpClient->calls ?? [],
+                static fn(array $call): bool => ($call["path"] ?? null) === "/batch/"
+            ));
+            $this->assertCount(1, $batchCalls);
+        } finally {
+            Clock::set(new NativeClock());
+        }
     }
 
     public function testCaptureIncludesIsServerProperty(): void

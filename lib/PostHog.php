@@ -34,6 +34,7 @@ class PostHog
      *     debug?: bool,
      *     max_queue_size?: int,
      *     batch_size?: int,
+     *     flush_interval_seconds?: int|float,
      *     compress_request?: bool|string,
      *     error_handler?: callable,
      *     filename?: string,
