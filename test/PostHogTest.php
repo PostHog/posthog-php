@@ -101,11 +101,12 @@ class PostHogTest extends TestCase
         ];
     }
 
-    public static function invalidBatchSizeCases(): array
+    public static function queuedBatchSizeCases(): array
     {
         return [
-            'zero' => [0],
-            'negative' => [-1],
+            'default' => [["debug" => true]],
+            'zero' => [["debug" => true, "batch_size" => 0]],
+            'negative' => [["debug" => true, "batch_size" => -1]],
         ];
     }
 
@@ -376,10 +377,13 @@ class PostHogTest extends TestCase
         $this->assertSame([], $httpClient->calls ?? []);
     }
 
-    public function testLowVolumeCapturesStayQueuedUntilFlush(): void
+    /**
+     * @dataProvider queuedBatchSizeCases
+     */
+    public function testCapturesStayQueuedUntilFlush(array $options): void
     {
         $httpClient = new MockedHttpClient("app.posthog.com");
-        $client = new Client(self::FAKE_API_KEY, ["debug" => true], $httpClient, null, false);
+        $client = new Client(self::FAKE_API_KEY, $options, $httpClient, null, false);
 
         $this->assertTrue($client->capture([
             "distinctId" => "john",
@@ -411,30 +415,6 @@ class PostHogTest extends TestCase
         $this->assertSame('/batch/', $httpClient->calls[0]['path']);
     }
 
-    /**
-     * @dataProvider invalidBatchSizeCases
-     */
-    public function testInvalidBatchSizeUsesDefault(int $batchSize): void
-    {
-        $httpClient = new MockedHttpClient("app.posthog.com");
-        $client = new Client(
-            self::FAKE_API_KEY,
-            ["debug" => true, "batch_size" => $batchSize],
-            $httpClient,
-            null,
-            false
-        );
-
-        $this->assertTrue($client->capture([
-            "distinctId" => "john",
-            "event" => "Module PHP Event",
-        ]));
-        $this->assertSame(0, count($httpClient->calls ?? []));
-
-        $this->assertTrue($client->flush());
-        $this->assertSame(1, count($httpClient->calls ?? []));
-        $this->assertSame('/batch/', $httpClient->calls[0]['path']);
-    }
 
     /**
      * @dataProvider facadeNoOpBeforeInitCases
