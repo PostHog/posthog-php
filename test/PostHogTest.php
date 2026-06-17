@@ -55,6 +55,18 @@ class PostHogTest extends TestCase
         return $consumerProp->getValue($client);
     }
 
+    private function firstBatchEvent(): array
+    {
+        foreach ($this->http_client->calls as $call) {
+            if (($call["path"] ?? null) === "/batch/") {
+                $decoded = json_decode($call["payload"], true);
+                return $decoded["batch"][0];
+            }
+        }
+
+        self::fail("Expected a /batch/ call to have been made");
+    }
+
     private function withEnvApiKey(?string $apiKey, callable $callback): void
     {
         $previousApiKey = getenv(PostHog::ENV_API_KEY);
@@ -446,6 +458,43 @@ class PostHogTest extends TestCase
                 )
             )
         );
+    }
+
+    public function testCaptureCopiesGroupsKeyToDollarGroupsProperty(): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "john",
+                    "event" => "grouped event",
+                    "groups" => array("team" => 1),
+                )
+            )
+        );
+        PostHog::flush();
+
+        $event = $this->firstBatchEvent();
+
+        self::assertSame(array("team" => 1), $event["properties"]['$groups']);
+        self::assertSame(array("team" => 1), $event["groups"]);
+    }
+
+    public function testCaptureKeepsDollarGroupsCompatibility(): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "john",
+                    "event" => "grouped event",
+                    '$groups' => array("team" => 1),
+                )
+            )
+        );
+        PostHog::flush();
+
+        $event = $this->firstBatchEvent();
+
+        self::assertSame(array("team" => 1), $event["properties"]['$groups']);
     }
 
     public function testCaptureIncludesIsServerProperty(): void
