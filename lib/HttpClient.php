@@ -159,14 +159,10 @@ class HttpClient
                     // Retry uploading in these cases.
                     usleep($backoff * 1000);
                     $backoff *= 2;
-                } elseif ($responseCode >= 400) {
-                    // Do not retry every non-2xx/3xx response (notably 413 Payload Too Large).
-                    // PHP sends synchronously in the hosting app's request path, so broad retries
-                    // would slow down the host application.
-                    break;
-                } elseif ($responseCode == 0) {
-                    break;
                 } else {
+                    // Do not retry non-5xx/non-429 responses (e.g. 4xx, 413 Payload Too Large,
+                    // or responseCode 0 for network errors). PHP sends synchronously in the hosting
+                    // app's request path, so broad retries would slow down the host application.
                     break;
                 }
             } else {

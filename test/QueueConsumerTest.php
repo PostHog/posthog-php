@@ -2,6 +2,7 @@
 
 namespace PostHog\Test;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Consumer\LibCurl;
 use PostHog\QueueConsumer;
@@ -70,50 +71,35 @@ class QueueConsumerTest extends TestCase
         $this->assertSame([], $consumer->queuedItems());
     }
 
-    public function testLibCurlNetworkFailureKeepsBatchQueued(): void
-    {
-        $message = $this->message('network-failure');
+    #[DataProvider('libCurlFailureQueueBehaviorCases')]
+    public function testLibCurlFailureQueueBehavior(
+        string $event,
+        $batchEndpointResponse,
+        int $batchEndpointResponseCode,
+        int $batchEndpointCurlErrno,
+        bool $shouldKeepQueued
+    ): void {
+        $message = $this->message($event);
         $httpClient = new MockedHttpClient(
             'app.posthog.com',
-            batchEndpointResponse: false,
-            batchEndpointResponseCode: 0,
-            batchEndpointCurlErrno: 28
+            batchEndpointResponse: $batchEndpointResponse,
+            batchEndpointResponseCode: $batchEndpointResponseCode,
+            batchEndpointCurlErrno: $batchEndpointCurlErrno
         );
         $consumer = new LibCurl('test-key', ['batch_size' => 1], $httpClient);
 
         $this->assertFalse($consumer->capture($message));
 
-        $this->assertSame([$message], $this->queuedItems($consumer));
+        $this->assertSame($shouldKeepQueued ? [$message] : [], $this->queuedItems($consumer));
     }
 
-    public function testLibCurlHttpFailureDropsBatch(): void
+    public static function libCurlFailureQueueBehaviorCases(): array
     {
-        $message = $this->message('http-failure');
-        $httpClient = new MockedHttpClient(
-            'app.posthog.com',
-            batchEndpointResponse: '{"status":0}',
-            batchEndpointResponseCode: 500
-        );
-        $consumer = new LibCurl('test-key', ['batch_size' => 1], $httpClient);
-
-        $this->assertFalse($consumer->capture($message));
-
-        $this->assertSame([], $this->queuedItems($consumer));
-    }
-
-    public function testLibCurlPayloadTooLargeDropsBatch(): void
-    {
-        $message = $this->message('payload-too-large');
-        $httpClient = new MockedHttpClient(
-            'app.posthog.com',
-            batchEndpointResponse: '{"status":0}',
-            batchEndpointResponseCode: 413
-        );
-        $consumer = new LibCurl('test-key', ['batch_size' => 1], $httpClient);
-
-        $this->assertFalse($consumer->capture($message));
-
-        $this->assertSame([], $this->queuedItems($consumer));
+        return [
+            'network failure keeps batch queued' => ['network-failure', false, 0, 28, true],
+            'http failure drops batch' => ['http-failure', '{"status":0}', 500, 0, false],
+            'payload too large drops batch' => ['payload-too-large', '{"status":0}', 413, 0, false],
+        ];
     }
 
     private function message(string $event): array
