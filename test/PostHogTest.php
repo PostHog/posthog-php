@@ -101,6 +101,14 @@ class PostHogTest extends TestCase
         ];
     }
 
+    public static function invalidBatchSizeCases(): array
+    {
+        return [
+            'zero' => [0],
+            'negative' => [-1],
+        ];
+    }
+
     public static function facadeNoOpBeforeInitCases(): array
     {
         return [
@@ -366,6 +374,66 @@ class PostHogTest extends TestCase
         ]));
         $this->assertSame([], $client->{$flagsMethod}("john"));
         $this->assertSame([], $httpClient->calls ?? []);
+    }
+
+    public function testLowVolumeCapturesStayQueuedUntilFlush(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(self::FAKE_API_KEY, ["debug" => true], $httpClient, null, false);
+
+        $this->assertTrue($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+        $this->assertSame(0, count($httpClient->calls ?? []));
+
+        $this->assertTrue($client->flush());
+        $this->assertSame(1, count($httpClient->calls ?? []));
+        $this->assertSame('/batch/', $httpClient->calls[0]['path']);
+    }
+
+    public function testBatchSizeOneFlushesImmediately(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ["debug" => true, "batch_size" => 1],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+        $this->assertSame(1, count($httpClient->calls ?? []));
+        $this->assertSame('/batch/', $httpClient->calls[0]['path']);
+    }
+
+    /**
+     * @dataProvider invalidBatchSizeCases
+     */
+    public function testInvalidBatchSizeUsesDefault(int $batchSize): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ["debug" => true, "batch_size" => $batchSize],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+        $this->assertSame(0, count($httpClient->calls ?? []));
+
+        $this->assertTrue($client->flush());
+        $this->assertSame(1, count($httpClient->calls ?? []));
+        $this->assertSame('/batch/', $httpClient->calls[0]['path']);
     }
 
     /**
