@@ -38,7 +38,7 @@ class ForkCurl extends QueueConsumer
      * Make an async request to our API. Fork a curl process, immediately send
      * to the API. If debug is enabled, we wait for the response.
      * @param array<int, array<string, mixed>> $messages Array of messages to send.
-     * @return bool Whether the request succeeded.
+     * @return bool|string Whether the request succeeded or a queue failure classification.
      */
     public function flushBatch($messages)
     {
@@ -64,7 +64,7 @@ class ForkCurl extends QueueConsumer
 
             if (0 != $exit) {
                 $this->handleError($exit, $output);
-                return false;
+                return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
             }
 
             $cmd .= " -H 'Content-Encoding: gzip'";
@@ -82,7 +82,7 @@ class ForkCurl extends QueueConsumer
                 error_log("[PostHog][" . $this->type . "] " . $msg);
             }
 
-            return false;
+            return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
         }
 
         // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
@@ -104,6 +104,17 @@ class ForkCurl extends QueueConsumer
             unlink($tmpfname);
         }
 
-        return 0 == $exit;
+        if (0 == $exit) {
+            return true;
+        }
+
+        return $this->isNetworkCurlExit($exit)
+            ? self::FLUSH_BATCH_RETRYABLE_FAILURE
+            : self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+    }
+
+    private function isNetworkCurlExit($exit)
+    {
+        return in_array((int) $exit, [6, 7, 28, 35, 52, 56], true);
     }
 }

@@ -43,14 +43,14 @@ class Socket extends QueueConsumer
      * Send a batch of queued messages.
      *
      * @param array<int, array<string, mixed>> $batch Batch of queued messages.
-     * @return bool Whether the request succeeded.
+     * @return bool|string Whether the request succeeded or a queue failure classification.
      */
     public function flushBatch($batch)
     {
         $socket = $this->createSocket();
 
         if (!$socket) {
-            return false;
+            return self::FLUSH_BATCH_RETRYABLE_FAILURE;
         }
 
         $payload = $this->payload($batch);
@@ -58,10 +58,12 @@ class Socket extends QueueConsumer
 
         $body = $this->createBody($this->host, $payload);
         if (false === $body) {
-            return false;
+            return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
         }
 
-        return $this->makeRequest($socket, $body);
+        return $this->makeRequest($socket, $body)
+            ? true
+            : self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
     }
 
     private function createSocket()
@@ -200,6 +202,10 @@ class Socket extends QueueConsumer
         // Compress content if compress_request is true
         if ($this->compress_request) {
             $content = gzencode($content);
+
+            if (false === $content) {
+                return false;
+            }
 
             $req .= "Content-Encoding: gzip\r\n";
         }
