@@ -105,6 +105,14 @@ class PostHogTest extends TestCase
         ];
     }
 
+    public static function captureGroupsCases(): array
+    {
+        return [
+            'groups key' => ["groups"],
+            '$groups key' => ['$groups'],
+        ];
+    }
+
     public static function disabledClientNoRequestCases(): array
     {
         return [
@@ -460,33 +468,17 @@ class PostHogTest extends TestCase
         );
     }
 
-    public function testCaptureCopiesGroupsKeyToDollarGroupsProperty(): void
+    /**
+     * @dataProvider captureGroupsCases
+     */
+    public function testCaptureAddsGroupsProperty(string $groupsKey): void
     {
         self::assertTrue(
             PostHog::capture(
                 array(
                     "distinctId" => "john",
                     "event" => "grouped event",
-                    "groups" => array("team" => 1),
-                )
-            )
-        );
-        PostHog::flush();
-
-        $event = $this->firstBatchEvent();
-
-        self::assertSame(array("team" => 1), $event["properties"]['$groups']);
-        self::assertSame(array("team" => 1), $event["groups"]);
-    }
-
-    public function testCaptureKeepsDollarGroupsCompatibility(): void
-    {
-        self::assertTrue(
-            PostHog::capture(
-                array(
-                    "distinctId" => "john",
-                    "event" => "grouped event",
-                    '$groups' => array("team" => 1),
+                    $groupsKey => array("team" => 1),
                 )
             )
         );
