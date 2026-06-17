@@ -50,7 +50,7 @@ abstract class QueueConsumer extends Consumer
             $flushInterval = $options["flush_interval_seconds"];
             if (is_int($flushInterval) || is_float($flushInterval)) {
                 $flushInterval = (float) $flushInterval;
-                if ($flushInterval >= 0) {
+                if (is_finite($flushInterval) && $flushInterval >= 0) {
                     $this->flush_interval = $flushInterval;
                 }
             }

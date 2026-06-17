@@ -626,6 +626,43 @@ class PostHogTest extends TestCase
         }
     }
 
+    public function testNonFiniteCaptureFlushIntervalDefaultsToFiveSeconds(): void
+    {
+        $mockClock = new MockClock(new \DateTimeImmutable('2022-05-01 00:00:00'));
+        Clock::set($mockClock);
+
+        try {
+            $httpClient = new MockedHttpClient("app.posthog.com");
+            $client = new Client(
+                self::FAKE_API_KEY,
+                [
+                    "debug" => true,
+                    "batch_size" => 100,
+                    "flush_interval_seconds" => INF,
+                ],
+                $httpClient,
+                null,
+                false
+            );
+
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "one"]));
+            $mockClock->sleep(4);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "two"]));
+            $this->assertSame([], $httpClient->calls ?? []);
+
+            $mockClock->sleep(1);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "three"]));
+
+            $batchCalls = array_values(array_filter(
+                $httpClient->calls ?? [],
+                static fn(array $call): bool => ($call["path"] ?? null) === "/batch/"
+            ));
+            $this->assertCount(1, $batchCalls);
+        } finally {
+            Clock::set(new NativeClock());
+        }
+    }
+
     public function testCaptureIncludesIsServerProperty(): void
     {
         self::assertTrue(
