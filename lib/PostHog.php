@@ -9,6 +9,7 @@ use Exception;
  */
 class PostHog
 {
+    public const LIBRARY = 'posthog-php';
     public const VERSION = '4.6.0';
     public const ENV_API_KEY = "POSTHOG_API_KEY";
     public const ENV_HOST = "POSTHOG_HOST";
@@ -125,7 +126,11 @@ class PostHog
      *     send_feature_flags?: bool,
      *     sendFeatureFlags?: bool
      * } $message Event payload. `send_feature_flags` and `sendFeatureFlags` are deprecated; pass
-     *     a `flags` snapshot from evaluateFlags() instead.
+     *     a `flags` snapshot from evaluateFlags() instead. Deprecated top-level batch metadata is
+     *     stripped before sending: use `event` instead of `type`, `properties['$lib']` instead of
+     *     `library`, `properties['$lib_version']` instead of `library_version`, and
+     *     `properties['$lib_consumer']` instead of `library_consumer`. Legacy top-level SDK metadata
+     *     values are still used as fallbacks when the canonical property is absent; `type` is ignored.
      * @return bool Whether the capture call succeeded.
      * @throws Exception
      */
@@ -148,7 +153,6 @@ class PostHog
     public static function identify(array $message)
     {
         self::checkClient();
-        $message["type"] = "identify";
         self::validate($message, "identify");
 
         return self::$client->identify($message);

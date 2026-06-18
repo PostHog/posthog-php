@@ -71,7 +71,6 @@ $successful = 0;
 foreach ($lines as $line) {
   if (!trim($line)) continue;
   $payload = json_decode($line, true);
-  $type = $payload["type"];
   $ret = call_user_func_array(array("PostHog\\PostHog", "raw"), array($payload));
   if ($ret) $successful++;
   $total++;

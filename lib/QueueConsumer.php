@@ -42,8 +42,8 @@ abstract class QueueConsumer extends Consumer
             $this->max_queue_size = $options["max_queue_size"];
         }
 
-        if (isset($options["batch_size"])) {
-            $this->batch_size = $options["batch_size"];
+        if (isset($options["batch_size"]) && (int) $options["batch_size"] > 0) {
+            $this->batch_size = (int) $options["batch_size"];
         }
 
         if (isset($options["flush_interval_seconds"])) {
@@ -197,5 +197,15 @@ abstract class QueueConsumer extends Consumer
             "batch" => $batch,
             "api_key" => $this->apiKey,
         );
+    }
+
+    /**
+     * Get the SDK user agent.
+     *
+     * @return string User agent in the form of {library_name}/{library_version}.
+     */
+    protected function userAgent(): string
+    {
+        return PostHog::LIBRARY . "/" . PostHog::VERSION;
     }
 }
