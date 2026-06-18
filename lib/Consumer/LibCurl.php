@@ -78,7 +78,7 @@ class LibCurl extends QueueConsumer
             $payload,
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
-                "User-Agent: {$messages[0]['library']}/{$messages[0]['library_version']}",
+                "User-Agent: {$this->userAgent()}",
             ],
             [
                 'shouldVerify' => $shouldVerify,

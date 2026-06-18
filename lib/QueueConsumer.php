@@ -156,4 +156,14 @@ abstract class QueueConsumer extends Consumer
             "api_key" => $this->apiKey,
         );
     }
+
+    /**
+     * Get the SDK user agent.
+     *
+     * @return string User agent in the form of {library_name}/{library_version}.
+     */
+    protected function userAgent(): string
+    {
+        return PostHog::LIBRARY . "/" . PostHog::VERSION;
+    }
 }

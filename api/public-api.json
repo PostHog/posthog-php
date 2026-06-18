@@ -3227,6 +3227,10 @@
                     "type": "string",
                     "value": "POSTHOG_HOST"
                 },
+                "LIBRARY": {
+                    "type": "string",
+                    "value": "posthog-php"
+                },
                 "VERSION": {
                     "type": "string",
                     "value": "<version>"
