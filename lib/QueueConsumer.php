@@ -2,8 +2,14 @@
 
 namespace PostHog;
 
+use Symfony\Component\Clock\Clock;
+
 /**
  * Base class for consumers that batch messages before delivery.
+ *
+ * PHP has no portable in-process background timer, so flush_interval_seconds is enforced
+ * opportunistically when another message is enqueued. Explicit flushes and
+ * destruction still drain pending messages immediately.
  *
  * @internal
  */
@@ -17,6 +23,8 @@ abstract class QueueConsumer extends Consumer
     protected $queue;
     protected $max_queue_size = 1000;
     protected $batch_size = 100;
+    protected $flush_interval = 5.0;
+    protected $flush_after = null;
     protected $maximum_backoff_duration = 10000;    // Set maximum waiting limit to 10s
     protected $host = "us.i.posthog.com";
     protected $compress_request = false;
@@ -24,7 +32,7 @@ abstract class QueueConsumer extends Consumer
     /**
      * Store our api key and options as part of this consumer
      * @param string $apiKey
-     * @param array $options
+     * @param array $options Consumer options.
      */
     public function __construct($apiKey, $options = array())
     {
@@ -34,8 +42,18 @@ abstract class QueueConsumer extends Consumer
             $this->max_queue_size = $options["max_queue_size"];
         }
 
-        if (isset($options["batch_size"])) {
-            $this->batch_size = $options["batch_size"];
+        if (isset($options["batch_size"]) && (int) $options["batch_size"] > 0) {
+            $this->batch_size = (int) $options["batch_size"];
+        }
+
+        if (isset($options["flush_interval_seconds"])) {
+            $flushInterval = $options["flush_interval_seconds"];
+            if (is_int($flushInterval) || is_float($flushInterval)) {
+                $flushInterval = (float) $flushInterval;
+                if (is_finite($flushInterval) && $flushInterval >= 0) {
+                    $this->flush_interval = $flushInterval;
+                }
+            }
         }
 
         if (isset($options["maximum_backoff_duration"])) {
@@ -117,6 +135,8 @@ abstract class QueueConsumer extends Consumer
             $count = count($this->queue);
         }
 
+        $this->resetFlushTimer();
+
         return $success;
     }
 
@@ -133,13 +153,35 @@ abstract class QueueConsumer extends Consumer
             return false;
         }
 
+        $wasEmpty = $count === 0;
         $count = array_push($this->queue, $item);
 
-        if ($count >= $this->batch_size) {
+        if ($wasEmpty) {
+            $this->resetFlushTimer();
+        }
+
+        if ($this->flush_interval === 0.0 || $count >= $this->batch_size || $this->flushIntervalElapsed()) {
             return $this->flush(); // return ->flush() result: true on success
         }
 
         return true;
+    }
+
+    private function resetFlushTimer(): void
+    {
+        $this->flush_after = count($this->queue) > 0 && $this->flush_interval > 0
+            ? $this->now() + $this->flush_interval
+            : null;
+    }
+
+    private function flushIntervalElapsed(): bool
+    {
+        return $this->flush_after !== null && $this->now() >= $this->flush_after;
+    }
+
+    private function now(): float
+    {
+        return (float) Clock::get()->now()->format('U.u');
     }
 
     /**
@@ -155,5 +197,15 @@ abstract class QueueConsumer extends Consumer
             "batch" => $batch,
             "api_key" => $this->apiKey,
         );
+    }
+
+    /**
+     * Get the SDK user agent.
+     *
+     * @return string User agent in the form of {library_name}/{library_version}.
+     */
+    protected function userAgent(): string
+    {
+        return PostHog::LIBRARY . "/" . PostHog::VERSION;
     }
 }
