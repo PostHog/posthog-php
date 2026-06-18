@@ -107,10 +107,15 @@ class Client implements FeatureFlagEvaluationsHost
      *
      * @param string|null $apiKey Your project API key. When omitted or empty, the client is disabled
      *     and uses the noop consumer.
+     * Time-based options use milliseconds unless the option name says otherwise:
+     * `timeout` and `maximum_backoff_duration` are in milliseconds for libcurl/HTTP requests,
+     * while `flush_interval_seconds` is in seconds. For the socket consumer, `timeout` is passed
+     * to pfsockopen() and is in seconds.
+     *
      * @param array{
      *     host?: string,
      *     ssl?: bool,
-     *     timeout?: int,
+     *     timeout?: int|float,
      *     verify_batch_events_request?: bool,
      *     feature_flag_request_timeout_ms?: int,
      *     maximum_backoff_duration?: int,
