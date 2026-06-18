@@ -1,3 +1,9 @@
+## 4.8.0
+
+### Minor Changes
+
+- fac3a93: Add an external flag definition cache provider for sharing local-evaluation definitions across PHP SDK instances.
+
 ## 4.7.0
 
 ### Minor Changes
