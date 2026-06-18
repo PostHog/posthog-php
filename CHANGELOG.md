@@ -1,3 +1,10 @@
+## 4.6.1
+
+### Patch Changes
+
+- 0de18c8: Keep the default batch size when invalid non-positive values are configured.
+- b7b6cf0: Stop sending deprecated, backend-ignored top-level batch event fields. SDK metadata now uses canonical event properties (`$lib`, `$lib_version`, `$lib_consumer`), while legacy top-level SDK metadata values remain supported as fallbacks when canonical values are absent. `type` is ignored, and `send_feature_flags` remains a deprecated capture option but is stripped from the outgoing `/batch/` payload.
+
 ## 4.6.0
 
 ### Minor Changes
