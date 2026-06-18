@@ -209,7 +209,11 @@ class Client implements FeatureFlagEvaluationsHost
      *     send_feature_flags?: bool,
      *     sendFeatureFlags?: bool
      * } $message Event payload. `send_feature_flags` and `sendFeatureFlags` are deprecated; pass
-     *     a `flags` snapshot from evaluateFlags() instead.
+     *     a `flags` snapshot from evaluateFlags() instead. Deprecated top-level batch metadata is
+     *     stripped before sending: use `event` instead of `type`, `properties['$lib']` instead of
+     *     `library`, `properties['$lib_version']` instead of `library_version`, and
+     *     `properties['$lib_consumer']` instead of `library_consumer`. Legacy top-level SDK metadata
+     *     values are still used as fallbacks when the canonical property is absent; `type` is ignored.
      * @return bool Whether the capture call succeeded.
      */
     public function capture(array $message)
@@ -222,7 +226,6 @@ class Client implements FeatureFlagEvaluationsHost
             $message = $this->applyCaptureContext($message, $usedGeneratedPersonlessDistinctId);
         }
         $message = $this->message($message);
-        $message["type"] = "capture";
 
         if (array_key_exists('$groups', $message)) {
             $message["properties"]['$groups'] = $message['$groups'];
@@ -277,6 +280,7 @@ class Client implements FeatureFlagEvaluationsHost
             }
         }
 
+        unset($message["send_feature_flags"]);
 
         return $this->consumer->capture($message);
     }
@@ -335,8 +339,8 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         $message = $this->message($message);
-        $message["type"] = "identify";
         $message["event"] = '$identify';
+        unset($message["send_feature_flags"]);
 
         return $this->consumer->identify($message);
     }
@@ -1185,7 +1189,7 @@ class Client implements FeatureFlagEvaluationsHost
 
         $headers = [
             // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
-            "User-Agent: posthog-php/" . PostHog::VERSION,
+            "User-Agent: " . PostHog::LIBRARY . "/" . PostHog::VERSION,
             "Authorization: Bearer " . $this->personalAPIKey
         ];
 
@@ -1352,7 +1356,7 @@ class Client implements FeatureFlagEvaluationsHost
             json_encode($payload),
             [
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
-                "User-Agent: posthog-php/" . PostHog::VERSION,
+                "User-Agent: " . PostHog::LIBRARY . "/" . PostHog::VERSION,
             ],
             [
                 "shouldRetry" => false,
@@ -1420,8 +1424,8 @@ class Client implements FeatureFlagEvaluationsHost
     public function alias(array $message)
     {
         $message = $this->message($message);
-        $message["type"] = "alias";
         $message["event"] = '$create_alias';
+        unset($message["send_feature_flags"]);
 
         $message['properties']['distinct_id'] = $message['distinct_id'];
         $message['properties']['alias'] = $message['alias'];
@@ -1651,13 +1655,29 @@ class Client implements FeatureFlagEvaluationsHost
             $msg["properties"] = array();
         }
 
-        $msg["library"] = 'posthog-php';
-        $msg["library_version"] = PostHog::VERSION;
-        $msg["library_consumer"] = $this->consumer->getConsumer();
+        $legacyLibrary = $msg["library"] ?? null;
+        $legacyLibraryVersion = $msg["library_version"] ?? null;
+        $legacyLibraryConsumer = $msg["library_consumer"] ?? null;
 
-        $msg["properties"]['$lib'] = 'posthog-php';
-        $msg["properties"]['$lib_version'] = PostHog::VERSION;
-        $msg["properties"]['$lib_consumer'] = $this->consumer->getConsumer();
+        unset($msg["type"], $msg["library"], $msg["library_version"], $msg["library_consumer"]);
+
+        if (!array_key_exists('$lib', $msg["properties"])) {
+            $msg["properties"]['$lib'] = is_scalar($legacyLibrary) && (string) $legacyLibrary !== ''
+                ? (string) $legacyLibrary
+                : PostHog::LIBRARY;
+        }
+
+        if (!array_key_exists('$lib_version', $msg["properties"])) {
+            $msg["properties"]['$lib_version'] = is_scalar($legacyLibraryVersion) && (string) $legacyLibraryVersion !== ''
+                ? (string) $legacyLibraryVersion
+                : PostHog::VERSION;
+        }
+
+        if (!array_key_exists('$lib_consumer', $msg["properties"])) {
+            $msg["properties"]['$lib_consumer'] = is_scalar($legacyLibraryConsumer) && (string) $legacyLibraryConsumer !== ''
+                ? (string) $legacyLibraryConsumer
+                : $this->consumer->getConsumer();
+        }
 
         // When running as a server SDK (the default), tag events as server-side so
         // PostHog does not attribute the host machine's device/OS to the event.

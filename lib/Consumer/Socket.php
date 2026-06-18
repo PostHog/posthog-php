@@ -192,10 +192,7 @@ class Socket extends QueueConsumer
         $req .= "Accept: application/json\r\n";
 
         // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
-        $content_json = json_decode($content, true);
-        $libName = $content_json['batch'][0]['library'];
-        $libVersion = $content_json['batch'][0]['library_version'];
-        $req .= "User-Agent: $libName/$libVersion\r\n";
+        $req .= "User-Agent: " . $this->userAgent() . "\r\n";
 
         // Compress content if compress_request is true
         if ($this->compress_request) {

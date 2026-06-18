@@ -513,14 +513,14 @@ PHP;
             $payload = json_encode([
                 'batch' => [[
                     'event' => '$exception',
-                    'properties' => ['$exception_list' => $exceptionList],
+                    'properties' => [
+                        '$exception_list' => $exceptionList,
+                        '$lib' => 'posthog-php',
+                        '$lib_version' => PostHog::VERSION,
+                        '$lib_consumer' => 'LibCurl',
+                    ],
                     'distinct_id' => 'user-123',
-                    'library' => 'posthog-php',
-                    'library_version' => PostHog::VERSION,
-                    'library_consumer' => 'LibCurl',
-                    'groups' => [],
                     'timestamp' => date('c'),
-                    'type' => 'capture',
                 ]],
                 'api_key' => self::FAKE_API_KEY,
             ]);

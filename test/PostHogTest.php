@@ -476,6 +476,88 @@ class PostHogTest extends TestCase
         self::assertTrue($properties['$is_server']);
     }
 
+    public function testCaptureStripsDeprecatedTopLevelBatchFields(): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "john",
+                    "event" => "Module PHP Event",
+                    "type" => "capture",
+                    "library" => "custom-lib",
+                    "library_version" => "0.0.1",
+                    "library_consumer" => "CustomConsumer",
+                    "send_feature_flags" => false,
+                )
+            )
+        );
+        PostHog::flush();
+
+        $batchCall = null;
+        foreach ($this->http_client->calls as $call) {
+            if (($call["path"] ?? null) === "/batch/") {
+                $batchCall = $call;
+                break;
+            }
+        }
+        self::assertNotNull($batchCall, "Expected a /batch/ call to have been made");
+
+        $decoded = json_decode($batchCall["payload"], true);
+        $event = $decoded["batch"][0];
+
+        self::assertArrayNotHasKey('type', $event);
+        self::assertSame('Module PHP Event', $event['event']);
+        self::assertArrayNotHasKey('library', $event);
+        self::assertArrayNotHasKey('library_version', $event);
+        self::assertArrayNotHasKey('library_consumer', $event);
+        self::assertArrayNotHasKey('send_feature_flags', $event);
+        self::assertSame(array('User-Agent: posthog-php/' . PostHog::VERSION), $batchCall['extraHeaders']);
+        self::assertSame('custom-lib', $event['properties']['$lib']);
+        self::assertSame('0.0.1', $event['properties']['$lib_version']);
+        self::assertSame('CustomConsumer', $event['properties']['$lib_consumer']);
+    }
+
+    public function testCaptureCanonicalSdkPropertiesOverrideDeprecatedTopLevelFields(): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "john",
+                    "event" => "Module PHP Event",
+                    "library" => "custom-lib",
+                    "library_version" => "0.0.1",
+                    "library_consumer" => "CustomConsumer",
+                    "properties" => array(
+                        '$lib' => 'canonical-lib',
+                        '$lib_version' => '1.2.3',
+                        '$lib_consumer' => 'CanonicalConsumer',
+                    ),
+                )
+            )
+        );
+        PostHog::flush();
+
+        $batchCall = null;
+        foreach ($this->http_client->calls as $call) {
+            if (($call["path"] ?? null) === "/batch/") {
+                $batchCall = $call;
+                break;
+            }
+        }
+        self::assertNotNull($batchCall, "Expected a /batch/ call to have been made");
+
+        $decoded = json_decode($batchCall["payload"], true);
+        $event = $decoded["batch"][0];
+
+        self::assertArrayNotHasKey('library', $event);
+        self::assertArrayNotHasKey('library_version', $event);
+        self::assertArrayNotHasKey('library_consumer', $event);
+        self::assertSame(array('User-Agent: posthog-php/' . PostHog::VERSION), $batchCall['extraHeaders']);
+        self::assertSame('canonical-lib', $event['properties']['$lib']);
+        self::assertSame('1.2.3', $event['properties']['$lib_version']);
+        self::assertSame('CanonicalConsumer', $event['properties']['$lib_consumer']);
+    }
+
     public function testCaptureOmitsIsServerPropertyWhenDisabled(): void
     {
         $this->http_client = new MockedHttpClient("app.posthog.com");
@@ -552,7 +634,7 @@ class PostHogTest extends TestCase
                     ),
                     1 => array (
                         "path" => "/batch/",
-                        "payload" => '{"batch":[{"event":"Module PHP Event","send_feature_flags":true,"properties":{"$feature\/true-flag":true,"$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"library":"posthog-php","library_version":"' . PostHog::VERSION . '","library_consumer":"LibCurl","distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$feature\/true-flag":true,"$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),
@@ -608,7 +690,7 @@ class PostHogTest extends TestCase
                     ),
                     1 => array (
                         "path" => "/batch/",
-                        "payload" => '{"batch":[{"event":"Module PHP Event","send_feature_flags":true,"properties":{"$feature\/true-flag":true,"$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"library":"posthog-php","library_version":"' . PostHog::VERSION . '","library_consumer":"LibCurl","distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$feature\/true-flag":true,"$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),
@@ -658,7 +740,7 @@ class PostHogTest extends TestCase
                     ),
                     1 => array (
                         "path" => "/batch/",
-                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$feature\/true-flag":"random-override","$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"send_feature_flags":true,"library":"posthog-php","library_version":"' . PostHog::VERSION . '","library_consumer":"LibCurl","distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$feature\/true-flag":"random-override","$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),
@@ -960,7 +1042,7 @@ class PostHogTest extends TestCase
                     ),
                     1 => array (
                         "path" => "/batch/",
-                        "payload" => '{"batch":[{"event":"Module PHP Event","send_feature_flags":false,"properties":{"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"library":"posthog-php","library_version":"' . PostHog::VERSION . '","library_consumer":"LibCurl","distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),

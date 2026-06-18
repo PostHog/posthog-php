@@ -44,7 +44,7 @@ class ConsumerFileTest extends TestCase
                 )
             )
         );
-        $this->checkWritten("capture");
+        $this->checkWritten("File PHP Event - Microtime");
     }
 
     public function testIdentify(): void
@@ -61,7 +61,7 @@ class ConsumerFileTest extends TestCase
                 )
             )
         );
-        $this->checkWritten("identify");
+        $this->checkWritten('$identify');
     }
 
     public function testAlias(): void
@@ -75,7 +75,7 @@ class ConsumerFileTest extends TestCase
             )
         );
 
-        $this->checkWritten("alias");
+        $this->checkWritten('$create_alias');
     }
 
     public function testSend(): void
@@ -108,14 +108,15 @@ class ConsumerFileTest extends TestCase
         self::assertFalse($captured);
     }
 
-    private function checkWritten($type): void
+    private function checkWritten($event): void
     {
         exec("wc -l " . $this->filename, $output);
         $out = trim($output[0]);
         self::assertSame($out, "1 " . $this->filename);
         $str = file_get_contents($this->filename);
         $json = json_decode(trim($str));
-        self::assertSame($type, $json->type);
+        self::assertObjectNotHasProperty('type', $json);
+        self::assertSame($event, $json->event);
         unlink($this->filename);
     }
 
