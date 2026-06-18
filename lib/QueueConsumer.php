@@ -34,8 +34,8 @@ abstract class QueueConsumer extends Consumer
             $this->max_queue_size = $options["max_queue_size"];
         }
 
-        if (isset($options["batch_size"])) {
-            $this->batch_size = $options["batch_size"];
+        if (isset($options["batch_size"]) && (int) $options["batch_size"] > 0) {
+            $this->batch_size = (int) $options["batch_size"];
         }
 
         if (isset($options["maximum_backoff_duration"])) {

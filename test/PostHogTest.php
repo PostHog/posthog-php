@@ -101,6 +101,15 @@ class PostHogTest extends TestCase
         ];
     }
 
+    public static function queuedBatchSizeCases(): array
+    {
+        return [
+            'default' => [["debug" => true]],
+            'zero' => [["debug" => true, "batch_size" => 0]],
+            'negative' => [["debug" => true, "batch_size" => -1]],
+        ];
+    }
+
     public static function facadeNoOpBeforeInitCases(): array
     {
         return [
@@ -367,6 +376,45 @@ class PostHogTest extends TestCase
         $this->assertSame([], $client->{$flagsMethod}("john"));
         $this->assertSame([], $httpClient->calls ?? []);
     }
+
+    /**
+     * @dataProvider queuedBatchSizeCases
+     */
+    public function testCapturesStayQueuedUntilFlush(array $options): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(self::FAKE_API_KEY, $options, $httpClient, null, false);
+
+        $this->assertTrue($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+        $this->assertSame(0, count($httpClient->calls ?? []));
+
+        $this->assertTrue($client->flush());
+        $this->assertSame(1, count($httpClient->calls ?? []));
+        $this->assertSame('/batch/', $httpClient->calls[0]['path']);
+    }
+
+    public function testBatchSizeOneFlushesImmediately(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ["debug" => true, "batch_size" => 1],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+        $this->assertSame(1, count($httpClient->calls ?? []));
+        $this->assertSame('/batch/', $httpClient->calls[0]['path']);
+    }
+
 
     /**
      * @dataProvider facadeNoOpBeforeInitCases
