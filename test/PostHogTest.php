@@ -11,6 +11,9 @@ use PostHog\Client;
 use PostHog\Consumer\NoOp;
 use PostHog\PostHog;
 use PostHog\Test\Assets\MockedResponses;
+use Symfony\Component\Clock\Clock;
+use Symfony\Component\Clock\MockClock;
+use Symfony\Component\Clock\NativeClock;
 
 
 class PostHogTest extends TestCase
@@ -98,6 +101,15 @@ class PostHogTest extends TestCase
         return [
             'null api key with getAllFlags' => [null, 'getAllFlags'],
             'whitespace api key with fetchFeatureVariants' => [" \n\t ", 'fetchFeatureVariants'],
+        ];
+    }
+
+    public static function queuedBatchSizeCases(): array
+    {
+        return [
+            'default' => [["debug" => true]],
+            'zero' => [["debug" => true, "batch_size" => 0]],
+            'negative' => [["debug" => true, "batch_size" => -1]],
         ];
     }
 
@@ -369,6 +381,45 @@ class PostHogTest extends TestCase
     }
 
     /**
+     * @dataProvider queuedBatchSizeCases
+     */
+    public function testCapturesStayQueuedUntilFlush(array $options): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(self::FAKE_API_KEY, $options, $httpClient, null, false);
+
+        $this->assertTrue($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+        $this->assertSame(0, count($httpClient->calls ?? []));
+
+        $this->assertTrue($client->flush());
+        $this->assertSame(1, count($httpClient->calls ?? []));
+        $this->assertSame('/batch/', $httpClient->calls[0]['path']);
+    }
+
+    public function testBatchSizeOneFlushesImmediately(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ["debug" => true, "batch_size" => 1],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+        $this->assertSame(1, count($httpClient->calls ?? []));
+        $this->assertSame('/batch/', $httpClient->calls[0]['path']);
+    }
+
+
+    /**
      * @dataProvider facadeNoOpBeforeInitCases
      */
     public function testFacadeMethodsNoOpBeforeInit(callable $call, mixed $expectedValue): void
@@ -448,6 +499,156 @@ class PostHogTest extends TestCase
         );
     }
 
+    public function testCaptureFlushesOnNextEnqueueAfterDefaultFlushInterval(): void
+    {
+        $mockClock = new MockClock(new \DateTimeImmutable('2022-05-01 00:00:00'));
+        Clock::set($mockClock);
+
+        try {
+            $httpClient = new MockedHttpClient("app.posthog.com");
+            $client = new Client(
+                self::FAKE_API_KEY,
+                [
+                    "debug" => true,
+                    "batch_size" => 100,
+                ],
+                $httpClient,
+                null,
+                false
+            );
+
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "one"]));
+            $this->assertSame([], $httpClient->calls ?? []);
+
+            $mockClock->sleep(4);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "two"]));
+            $this->assertSame([], $httpClient->calls ?? []);
+
+            $mockClock->sleep(1);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "three"]));
+
+            $batchCalls = array_values(array_filter(
+                $httpClient->calls ?? [],
+                static fn(array $call): bool => ($call["path"] ?? null) === "/batch/"
+            ));
+            $this->assertCount(1, $batchCalls);
+
+            $payload = json_decode($batchCalls[0]["payload"], true);
+            $this->assertSame(["one", "two", "three"], array_column($payload["batch"], "event"));
+        } finally {
+            Clock::set(new NativeClock());
+        }
+    }
+
+    public function testCaptureFlushIntervalCanBeConfiguredInSeconds(): void
+    {
+        $mockClock = new MockClock(new \DateTimeImmutable('2022-05-01 00:00:00'));
+        Clock::set($mockClock);
+
+        try {
+            $httpClient = new MockedHttpClient("app.posthog.com");
+            $client = new Client(
+                self::FAKE_API_KEY,
+                [
+                    "debug" => true,
+                    "batch_size" => 100,
+                    "flush_interval_seconds" => 1,
+                ],
+                $httpClient,
+                null,
+                false
+            );
+
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "one"]));
+            $mockClock->sleep(1);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "two"]));
+
+            $batchCalls = array_values(array_filter(
+                $httpClient->calls ?? [],
+                static fn(array $call): bool => ($call["path"] ?? null) === "/batch/"
+            ));
+            $this->assertCount(1, $batchCalls);
+        } finally {
+            Clock::set(new NativeClock());
+        }
+    }
+
+    public function testCaptureFlushIntervalZeroFlushesImmediately(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+                "batch_size" => 100,
+                "flush_interval_seconds" => 0,
+            ],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->capture(["distinctId" => "john", "event" => "one"]));
+
+        $batchCalls = array_values(array_filter(
+            $httpClient->calls ?? [],
+            static fn(array $call): bool => ($call["path"] ?? null) === "/batch/"
+        ));
+        $this->assertCount(1, $batchCalls);
+
+        $payload = json_decode($batchCalls[0]["payload"], true);
+        $this->assertSame(["one"], array_column($payload["batch"], "event"));
+    }
+
+    public static function invalidCaptureFlushIntervalCases(): array
+    {
+        return [
+            'negative interval' => [-1],
+            'numeric string interval' => ['1'],
+            'non-finite interval' => [INF],
+        ];
+    }
+
+    /**
+     * @dataProvider invalidCaptureFlushIntervalCases
+     */
+    public function testInvalidCaptureFlushIntervalDefaultsToFiveSeconds(mixed $flushInterval): void
+    {
+        $mockClock = new MockClock(new \DateTimeImmutable('2022-05-01 00:00:00'));
+        Clock::set($mockClock);
+
+        try {
+            $httpClient = new MockedHttpClient("app.posthog.com");
+            $client = new Client(
+                self::FAKE_API_KEY,
+                [
+                    "debug" => true,
+                    "batch_size" => 100,
+                    "flush_interval_seconds" => $flushInterval,
+                ],
+                $httpClient,
+                null,
+                false
+            );
+
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "one"]));
+            $mockClock->sleep(4);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "two"]));
+            $this->assertSame([], $httpClient->calls ?? []);
+
+            $mockClock->sleep(1);
+            $this->assertTrue($client->capture(["distinctId" => "john", "event" => "three"]));
+
+            $batchCalls = array_values(array_filter(
+                $httpClient->calls ?? [],
+                static fn(array $call): bool => ($call["path"] ?? null) === "/batch/"
+            ));
+            $this->assertCount(1, $batchCalls);
+        } finally {
+            Clock::set(new NativeClock());
+        }
+    }
+
     public function testCaptureIncludesIsServerProperty(): void
     {
         self::assertTrue(
@@ -474,6 +675,88 @@ class PostHogTest extends TestCase
 
         self::assertArrayHasKey('$is_server', $properties);
         self::assertTrue($properties['$is_server']);
+    }
+
+    public function testCaptureStripsDeprecatedTopLevelBatchFields(): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "john",
+                    "event" => "Module PHP Event",
+                    "type" => "capture",
+                    "library" => "custom-lib",
+                    "library_version" => "0.0.1",
+                    "library_consumer" => "CustomConsumer",
+                    "send_feature_flags" => false,
+                )
+            )
+        );
+        PostHog::flush();
+
+        $batchCall = null;
+        foreach ($this->http_client->calls as $call) {
+            if (($call["path"] ?? null) === "/batch/") {
+                $batchCall = $call;
+                break;
+            }
+        }
+        self::assertNotNull($batchCall, "Expected a /batch/ call to have been made");
+
+        $decoded = json_decode($batchCall["payload"], true);
+        $event = $decoded["batch"][0];
+
+        self::assertArrayNotHasKey('type', $event);
+        self::assertSame('Module PHP Event', $event['event']);
+        self::assertArrayNotHasKey('library', $event);
+        self::assertArrayNotHasKey('library_version', $event);
+        self::assertArrayNotHasKey('library_consumer', $event);
+        self::assertArrayNotHasKey('send_feature_flags', $event);
+        self::assertSame(array('User-Agent: posthog-php/' . PostHog::VERSION), $batchCall['extraHeaders']);
+        self::assertSame('custom-lib', $event['properties']['$lib']);
+        self::assertSame('0.0.1', $event['properties']['$lib_version']);
+        self::assertSame('CustomConsumer', $event['properties']['$lib_consumer']);
+    }
+
+    public function testCaptureCanonicalSdkPropertiesOverrideDeprecatedTopLevelFields(): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "john",
+                    "event" => "Module PHP Event",
+                    "library" => "custom-lib",
+                    "library_version" => "0.0.1",
+                    "library_consumer" => "CustomConsumer",
+                    "properties" => array(
+                        '$lib' => 'canonical-lib',
+                        '$lib_version' => '1.2.3',
+                        '$lib_consumer' => 'CanonicalConsumer',
+                    ),
+                )
+            )
+        );
+        PostHog::flush();
+
+        $batchCall = null;
+        foreach ($this->http_client->calls as $call) {
+            if (($call["path"] ?? null) === "/batch/") {
+                $batchCall = $call;
+                break;
+            }
+        }
+        self::assertNotNull($batchCall, "Expected a /batch/ call to have been made");
+
+        $decoded = json_decode($batchCall["payload"], true);
+        $event = $decoded["batch"][0];
+
+        self::assertArrayNotHasKey('library', $event);
+        self::assertArrayNotHasKey('library_version', $event);
+        self::assertArrayNotHasKey('library_consumer', $event);
+        self::assertSame(array('User-Agent: posthog-php/' . PostHog::VERSION), $batchCall['extraHeaders']);
+        self::assertSame('canonical-lib', $event['properties']['$lib']);
+        self::assertSame('1.2.3', $event['properties']['$lib_version']);
+        self::assertSame('CanonicalConsumer', $event['properties']['$lib_consumer']);
     }
 
     public function testCaptureOmitsIsServerPropertyWhenDisabled(): void
@@ -552,7 +835,7 @@ class PostHogTest extends TestCase
                     ),
                     1 => array (
                         "path" => "/batch/",
-                        "payload" => '{"batch":[{"event":"Module PHP Event","send_feature_flags":true,"properties":{"$feature\/true-flag":true,"$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"library":"posthog-php","library_version":"' . PostHog::VERSION . '","library_consumer":"LibCurl","distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$feature\/true-flag":true,"$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),
@@ -608,7 +891,7 @@ class PostHogTest extends TestCase
                     ),
                     1 => array (
                         "path" => "/batch/",
-                        "payload" => '{"batch":[{"event":"Module PHP Event","send_feature_flags":true,"properties":{"$feature\/true-flag":true,"$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"library":"posthog-php","library_version":"' . PostHog::VERSION . '","library_consumer":"LibCurl","distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$feature\/true-flag":true,"$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),
@@ -658,7 +941,7 @@ class PostHogTest extends TestCase
                     ),
                     1 => array (
                         "path" => "/batch/",
-                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$feature\/true-flag":"random-override","$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"send_feature_flags":true,"library":"posthog-php","library_version":"' . PostHog::VERSION . '","library_consumer":"LibCurl","distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$feature\/true-flag":"random-override","$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),
@@ -960,7 +1243,7 @@ class PostHogTest extends TestCase
                     ),
                     1 => array (
                         "path" => "/batch/",
-                        "payload" => '{"batch":[{"event":"Module PHP Event","send_feature_flags":false,"properties":{"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"library":"posthog-php","library_version":"' . PostHog::VERSION . '","library_consumer":"LibCurl","distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00","type":"capture"}],"api_key":"random_key"}',
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),
