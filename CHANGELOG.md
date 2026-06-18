@@ -1,3 +1,9 @@
+## 4.8.1
+
+### Patch Changes
+
+- 6e8b141: Copy capture `groups` input to the `$groups` event property so grouped events are associated correctly.
+
 ## 4.8.0
 
 ### Minor Changes
