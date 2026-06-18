@@ -50,7 +50,7 @@ class Socket extends QueueConsumer
         $socket = $this->createSocket();
 
         if (!$socket) {
-            return self::FLUSH_BATCH_RETRYABLE_FAILURE;
+            return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
         }
 
         $payload = $this->payload($batch);

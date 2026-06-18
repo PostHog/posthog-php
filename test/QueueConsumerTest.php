@@ -5,6 +5,7 @@ namespace PostHog\Test;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Consumer\LibCurl;
+use PostHog\Consumer\Socket;
 use PostHog\QueueConsumer;
 
 class QueueConsumerTest extends TestCase
@@ -51,6 +52,24 @@ class QueueConsumerTest extends TestCase
         $this->assertFalse($consumer->enqueue($second));
 
         $this->assertSame([], $consumer->queuedItems());
+    }
+
+    public function testSocketConnectionFailureDropsBatch(): void
+    {
+        $message = $this->message('socket-connection-failure');
+        $consumer = new Socket(
+            'test-key',
+            [
+                'batch_size' => 1,
+                'host' => 'invalid.invalid',
+                'ssl' => false,
+                'timeout' => 0.01,
+            ]
+        );
+
+        $this->assertFalse($consumer->capture($message));
+
+        $this->assertSame([], $this->queuedItems($consumer));
     }
 
     public function testRetainedFailedBatchIsRetriedBeforeNewerEvents(): void
