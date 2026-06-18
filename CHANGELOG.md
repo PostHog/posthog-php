@@ -1,3 +1,9 @@
+## 4.7.0
+
+### Minor Changes
+
+- 3ff0479: Add configurable flush interval support for queued event batching.
+
 ## 4.6.1
 
 ### Patch Changes
