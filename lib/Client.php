@@ -295,12 +295,17 @@ class Client implements FeatureFlagEvaluationsHost
     {
         $flagsSnapshot = $message["flags"] ?? null;
         unset($message["flags"]);
+        $hasGroups = array_key_exists("groups", $message);
 
         $usedGeneratedPersonlessDistinctId = false;
         if ($this->shouldApplyCaptureContext($message)) {
             $message = $this->applyCaptureContext($message, $usedGeneratedPersonlessDistinctId);
         }
         $message = $this->message($message);
+
+        if (!array_key_exists('$groups', $message) && $hasGroups) {
+            $message['$groups'] = $message['groups'];
+        }
 
         if (array_key_exists('$groups', $message)) {
             $message["properties"]['$groups'] = $message['$groups'];
