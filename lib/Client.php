@@ -3,12 +3,14 @@
 namespace PostHog;
 
 use Exception;
+use InvalidArgumentException;
 use PostHog\Consumer\File;
 use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
 use PostHog\Consumer\NoOp;
 use PostHog\Consumer\Socket;
 use Symfony\Component\Clock\Clock;
+use Throwable;
 
 /**
  * PostHog PHP SDK client for event capture, user identification, feature flags, and error tracking.
@@ -83,6 +85,26 @@ class Client implements FeatureFlagEvaluationsHost
     private $flagsEtag;
 
     /**
+     * @var bool Whether flag definitions have been loaded successfully at least once.
+     */
+    private $flagDefinitionsLoaded;
+
+    /**
+     * @var FlagDefinitionCacheProvider|null External shared cache provider for flag definitions.
+     */
+    private $flagDefinitionCacheProvider;
+
+    /**
+     * @var bool Whether the external flag definition cache provider has been shut down.
+     */
+    private $flagDefinitionCacheProviderShutdown;
+
+    /**
+     * @var bool Whether client shutdown has already run.
+     */
+    private $shutdownComplete;
+
+    /**
      * @var bool
      */
     private $debug;
@@ -128,6 +150,7 @@ class Client implements FeatureFlagEvaluationsHost
      *     error_handler?: callable,
      *     filename?: string,
      *     is_server?: bool,
+     *     flag_definition_cache_provider?: FlagDefinitionCacheProvider,
      *     error_tracking?: array{
      *         enabled?: bool,
      *         capture_errors?: bool,
@@ -152,6 +175,11 @@ class Client implements FeatureFlagEvaluationsHost
         $this->personalAPIKey = StringNormalizer::normalizeOptional($personalAPIKey);
         $this->options = $options;
         $this->debug = $options["debug"] ?? false;
+        $this->flagDefinitionCacheProvider = self::normalizeFlagDefinitionCacheProvider(
+            $options['flag_definition_cache_provider'] ?? null
+        );
+        $this->flagDefinitionCacheProviderShutdown = false;
+        $this->shutdownComplete = false;
         $this->options['host'] = StringNormalizer::normalizeHost($options['host'] ?? null);
         if (!$this->enabled) {
             if (($this->options['consumer'] ?? null) !== 'noop') {
@@ -177,6 +205,7 @@ class Client implements FeatureFlagEvaluationsHost
         $this->featureFlagsByKey = [];
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(self::SIZE_LIMIT);
         $this->flagsEtag = null;
+        $this->flagDefinitionsLoaded = false;
 
         if ($this->enabled) {
             ExceptionCapture::configure($this, $options['error_tracking'] ?? []);
@@ -194,11 +223,51 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
+     * Validate and normalize an optional external flag definition cache provider.
+     *
+     * @param mixed $provider
+     * @return FlagDefinitionCacheProvider|null
+     */
+    private static function normalizeFlagDefinitionCacheProvider(mixed $provider): ?FlagDefinitionCacheProvider
+    {
+        if ($provider === null) {
+            return null;
+        }
+
+        if (!$provider instanceof FlagDefinitionCacheProvider) {
+            throw new InvalidArgumentException(
+                'flag_definition_cache_provider must implement PostHog\\FlagDefinitionCacheProvider'
+            );
+        }
+
+        return $provider;
+    }
+
+    /**
      * Flush and clean up the underlying consumer when the client is destroyed.
      */
     public function __destruct()
     {
+        $this->shutdown();
+    }
+
+    /**
+     * Flush queued events and release resources held by the client.
+     *
+     * @return bool True if flushing succeeded or the consumer has no flush operation.
+     */
+    public function shutdown(): bool
+    {
+        if ($this->shutdownComplete) {
+            return true;
+        }
+
+        $flushed = $this->flush();
+        $this->shutdownFlagDefinitionCacheProvider();
         $this->consumer->__destruct();
+        $this->shutdownComplete = true;
+
+        return $flushed;
     }
 
     /**
@@ -1128,6 +1197,75 @@ class Client implements FeatureFlagEvaluationsHost
             return;
         }
 
+        $shouldFetch = $this->shouldFetchFlagDefinitionsFromApi();
+
+        if (!$shouldFetch && $this->flagDefinitionCacheProvider !== null) {
+            try {
+                $cachedData = $this->flagDefinitionCacheProvider->getFlagDefinitions();
+                if ($cachedData !== null) {
+                    $normalizedData = $this->normalizeFlagDefinitionCacheData($cachedData);
+                    if ($normalizedData !== null) {
+                        $this->applyFlagDefinitions($normalizedData);
+                        if ($this->debug) {
+                            error_log("[PostHog][Client] Using cached flag definitions from external cache");
+                        }
+                        return;
+                    }
+
+                    $this->logFlagDefinitionCacheWarning('Cache provider returned malformed flag definitions');
+                    if ($this->hasFlagDefinitionsLoaded()) {
+                        return;
+                    }
+                } elseif ($this->hasFlagDefinitionsLoaded()) {
+                    return;
+                }
+
+                $shouldFetch = !is_null($this->personalAPIKey);
+            } catch (Throwable $throwable) {
+                $this->logFlagDefinitionCacheWarning(
+                    'Cache provider read error: ' . $throwable->getMessage()
+                );
+                if ($this->hasFlagDefinitionsLoaded()) {
+                    return;
+                }
+                $shouldFetch = !is_null($this->personalAPIKey);
+            }
+        }
+
+        if ($shouldFetch) {
+            $this->fetchAndApplyFlagDefinitionsFromApi();
+        }
+    }
+
+    /**
+     * Decide whether to fetch flag definitions directly from PostHog.
+     *
+     * @return bool
+     */
+    private function shouldFetchFlagDefinitionsFromApi(): bool
+    {
+        if ($this->flagDefinitionCacheProvider === null) {
+            return true;
+        }
+
+        try {
+            return $this->flagDefinitionCacheProvider->shouldFetchFlagDefinitions();
+        } catch (Throwable $throwable) {
+            $this->logFlagDefinitionCacheWarning(
+                'Cache provider fetch-decision error: ' . $throwable->getMessage()
+            );
+            return !is_null($this->personalAPIKey);
+        }
+    }
+
+    /**
+     * Fetch, apply, and optionally store flag definitions from PostHog.
+     *
+     * @return void
+     * @throws Exception
+     */
+    private function fetchAndApplyFlagDefinitionsFromApi(): void
+    {
         $response = $this->localFlags();
 
         // Handle 304 Not Modified - flags haven't changed, skip processing.
@@ -1159,21 +1297,159 @@ class Client implements FeatureFlagEvaluationsHost
             throw new Exception($payload["detail"]);
         }
 
+        if (!is_array($payload)) {
+            error_log("[PostHog][Client] Failed to load feature flags: invalid JSON response");
+            return;
+        }
+
         // On 200 responses, always update ETag (even if null) since we're replacing
         // the cached flag data. A null ETag means the server doesn't support caching.
         $this->flagsEtag = $response->getEtag();
 
-        $this->featureFlags = $payload['flags'] ?? [];
-        $this->groupTypeMapping = $payload['group_type_mapping'] ?? [];
-        $this->cohorts = $payload['cohorts'] ?? [];
+        $data = $this->normalizeFlagDefinitionData($payload);
+        $this->applyFlagDefinitions($data);
+        $this->storeFlagDefinitionsInCacheProvider($data);
+    }
+
+    /**
+     * Normalize API flag definition data using SDK defaults for optional fields.
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function normalizeFlagDefinitionData(array $data): array
+    {
+        return [
+            'flags' => isset($data['flags']) && is_array($data['flags']) ? $data['flags'] : [],
+            'group_type_mapping' => isset($data['group_type_mapping']) && is_array($data['group_type_mapping'])
+                ? $data['group_type_mapping']
+                : [],
+            'cohorts' => isset($data['cohorts']) && is_array($data['cohorts']) ? $data['cohorts'] : [],
+        ];
+    }
+
+    /**
+     * Validate cached flag definition data from an external cache provider.
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>|null
+     */
+    private function normalizeFlagDefinitionCacheData(array $data): ?array
+    {
+        if (!array_key_exists('flags', $data) || !is_array($data['flags'])) {
+            return null;
+        }
+
+        $hasSnakeCaseGroupTypeMapping = array_key_exists('group_type_mapping', $data);
+        $hasCamelCaseGroupTypeMapping = array_key_exists('groupTypeMapping', $data);
+        if (!$hasSnakeCaseGroupTypeMapping && !$hasCamelCaseGroupTypeMapping) {
+            return null;
+        }
+
+        $groupTypeMapping = $hasSnakeCaseGroupTypeMapping
+            ? $data['group_type_mapping']
+            : $data['groupTypeMapping'];
+        if (!is_array($groupTypeMapping)) {
+            return null;
+        }
+
+        if (!array_key_exists('cohorts', $data) || !is_array($data['cohorts'])) {
+            return null;
+        }
+
+        return [
+            'flags' => $data['flags'],
+            'group_type_mapping' => $groupTypeMapping,
+            'cohorts' => $data['cohorts'],
+        ];
+    }
+
+    /**
+     * Apply flag definitions to in-memory state.
+     *
+     * @param array<string, mixed> $data
+     * @return void
+     */
+    private function applyFlagDefinitions(array $data): void
+    {
+        $this->featureFlags = $data['flags'];
+        $this->groupTypeMapping = $data['group_type_mapping'];
+        $this->cohorts = $data['cohorts'];
 
         // Build flags by key dictionary for dependency resolution
         $this->featureFlagsByKey = [];
         foreach ($this->featureFlags as $flag) {
-            $this->featureFlagsByKey[$flag['key']] = $flag;
+            if (is_array($flag) && array_key_exists('key', $flag)) {
+                $this->featureFlagsByKey[$flag['key']] = $flag;
+            }
+        }
+
+        $this->flagDefinitionsLoaded = true;
+    }
+
+    /**
+     * Store fetched flag definitions in the configured external cache provider.
+     *
+     * @param array<string, mixed> $data
+     * @return void
+     */
+    private function storeFlagDefinitionsInCacheProvider(array $data): void
+    {
+        if ($this->flagDefinitionCacheProvider === null) {
+            return;
+        }
+
+        try {
+            $this->flagDefinitionCacheProvider->onFlagDefinitionsReceived($data);
+        } catch (Throwable $throwable) {
+            $this->logFlagDefinitionCacheWarning(
+                'Cache provider store error: ' . $throwable->getMessage()
+            );
         }
     }
 
+    /**
+     * Whether this client has successfully loaded a complete flag definition set.
+     *
+     * @return bool
+     */
+    private function hasFlagDefinitionsLoaded(): bool
+    {
+        return $this->flagDefinitionsLoaded;
+    }
+
+    /**
+     * Release resources held by the configured external cache provider.
+     *
+     * @return void
+     */
+    private function shutdownFlagDefinitionCacheProvider(): void
+    {
+        if ($this->flagDefinitionCacheProvider === null || $this->flagDefinitionCacheProviderShutdown) {
+            return;
+        }
+
+        try {
+            $this->flagDefinitionCacheProvider->shutdown();
+        } catch (Throwable $throwable) {
+            $this->logFlagDefinitionCacheWarning(
+                'Cache provider shutdown error: ' . $throwable->getMessage()
+            );
+        } finally {
+            $this->flagDefinitionCacheProviderShutdown = true;
+        }
+    }
+
+    /**
+     * Emit a non-fatal warning for flag definition cache provider failures.
+     *
+     * @param string $message Warning message without the SDK prefix.
+     * @return void
+     */
+    private function logFlagDefinitionCacheWarning(string $message): void
+    {
+        $this->logWarning('Flag definition cache warning: ' . $message);
+    }
 
     /**
      * Fetch local feature flag definitions from the PostHog API.

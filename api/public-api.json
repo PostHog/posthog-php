@@ -895,6 +895,13 @@
                         }
                     ]
                 },
+                "shutdown": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": []
+                },
                 "withContext": {
                     "static": false,
                     "abstract": false,
@@ -2854,6 +2861,57 @@
                 }
             }
         },
+        "PostHog\\FlagDefinitionCacheProvider": {
+            "type": "interface",
+            "abstract": true,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "getFlagDefinitions": {
+                    "static": false,
+                    "abstract": true,
+                    "final": false,
+                    "returnType": "?array",
+                    "parameters": []
+                },
+                "onFlagDefinitionsReceived": {
+                    "static": false,
+                    "abstract": true,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "data",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "shouldFetchFlagDefinitions": {
+                    "static": false,
+                    "abstract": true,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": []
+                },
+                "shutdown": {
+                    "static": false,
+                    "abstract": true,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": []
+                }
+            }
+        },
         "PostHog\\HttpClient": {
             "type": "class",
             "abstract": false,
@@ -3908,6 +3966,13 @@
                             "hasDefault": false
                         }
                     ]
+                },
+                "shutdown": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": []
                 },
                 "validate": {
                     "static": true,
