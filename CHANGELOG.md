@@ -1,3 +1,9 @@
+## 4.8.3
+
+### Patch Changes
+
+- 5ed7184: Validate top-level event UUIDs and replace invalid values with generated UUIDs.
+
 ## 4.8.2
 
 ### Patch Changes
