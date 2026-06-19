@@ -80,9 +80,15 @@ class HttpClient
      * @param string $path Request path, including leading slash.
      * @param string|null $payload JSON request body, or null for no body.
      * @param array<int, string> $extraHeaders Additional cURL header strings.
-     * @param array{shouldRetry?: bool, shouldVerify?: bool, includeEtag?: bool, timeout?: int} $requestOptions
+     * @param array{
+     *     shouldRetry?: bool,
+     *     shouldVerify?: bool,
+     *     includeEtag?: bool,
+     *     timeout?: int
+     * } $requestOptions
      * @return HttpResponse
      */
+    // phpcs:ignore Generic.Files.LineLength.TooLong
     public function sendRequest(string $path, ?string $payload, array $extraHeaders = [], array $requestOptions = []): HttpResponse
     {
         $protocol = $this->useSsl ? "https://" : "http://";
@@ -153,9 +159,10 @@ class HttpClient
                     // Retry uploading in these cases.
                     usleep($backoff * 1000);
                     $backoff *= 2;
-                } elseif ($responseCode >= 400) {
-                    break;
-                } elseif ($responseCode == 0) {
+                } else {
+                    // Do not retry non-5xx/non-429 responses (e.g. 4xx, 413 Payload Too Large,
+                    // or responseCode 0 for network errors). PHP sends synchronously in the hosting
+                    // app's request path, so broad retries would slow down the host application.
                     break;
                 }
             } else {

@@ -24,6 +24,10 @@ class MockedHttpClient extends \PostHog\HttpClient
     /** @var int Curl error number for /flags/ endpoint (for error simulation) */
     private $flagsEndpointCurlErrno;
 
+    private $batchEndpointResponse;
+    private $batchEndpointResponseCode;
+    private $batchEndpointCurlErrno;
+
     public function __construct(
         string $host,
         bool $useSsl = true,
@@ -37,7 +41,10 @@ class MockedHttpClient extends \PostHog\HttpClient
         ?string $flagEndpointEtag = null,
         int $flagEndpointResponseCode = 200,
         int $flagsEndpointResponseCode = 200,
-        int $flagsEndpointCurlErrno = 0
+        int $flagsEndpointCurlErrno = 0,
+        $batchEndpointResponse = '{"status":1}',
+        int $batchEndpointResponseCode = 200,
+        int $batchEndpointCurlErrno = 0
     ) {
         parent::__construct(
             $host,
@@ -49,12 +56,17 @@ class MockedHttpClient extends \PostHog\HttpClient
             $curlTimeoutMilliseconds
         );
         $this->flagEndpointResponse = $flagEndpointResponse;
-        $this->flagsEndpointResponse = !empty($flagsEndpointResponse) ? $flagsEndpointResponse : MockedResponses::FLAGS_REQUEST;
+        $this->flagsEndpointResponse = !empty($flagsEndpointResponse)
+            ? $flagsEndpointResponse
+            : MockedResponses::FLAGS_REQUEST;
         $this->flagEndpointEtag = $flagEndpointEtag;
         $this->flagEndpointResponseCode = $flagEndpointResponseCode;
         $this->flagEndpointResponseQueue = null;
         $this->flagsEndpointResponseCode = $flagsEndpointResponseCode;
         $this->flagsEndpointCurlErrno = $flagsEndpointCurlErrno;
+        $this->batchEndpointResponse = $batchEndpointResponse;
+        $this->batchEndpointResponseCode = $batchEndpointResponseCode;
+        $this->batchEndpointCurlErrno = $batchEndpointCurlErrno;
     }
 
     /**
@@ -68,12 +80,18 @@ class MockedHttpClient extends \PostHog\HttpClient
         $this->flagEndpointResponseQueue = $responses;
     }
 
+    // phpcs:ignore Generic.Files.LineLength.TooLong
     public function sendRequest(string $path, ?string $payload, array $extraHeaders = [], array $requestOptions = []): HttpResponse
     {
         if (!isset($this->calls)) {
             $this->calls = [];
         }
-        array_push($this->calls, array("path" => $path, "payload" => $payload, "extraHeaders" => $extraHeaders, "requestOptions" => $requestOptions));
+        array_push($this->calls, array(
+            "path" => $path,
+            "payload" => $payload,
+            "extraHeaders" => $extraHeaders,
+            "requestOptions" => $requestOptions,
+        ));
 
         // Local evaluation endpoint: /flags/definitions?...
         if (str_starts_with($path, "/flags/definitions")) {
@@ -115,7 +133,12 @@ class MockedHttpClient extends \PostHog\HttpClient
         }
 
         if ($path === "/batch/") {
-            return new HttpResponse('{"status":1}', 200);
+            return new HttpResponse(
+                $this->batchEndpointResponse,
+                $this->batchEndpointResponseCode,
+                null,
+                $this->batchEndpointCurlErrno
+            );
         }
 
         return parent::sendRequest($path, $payload, $extraHeaders, $requestOptions);

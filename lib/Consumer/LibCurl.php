@@ -52,7 +52,7 @@ class LibCurl extends QueueConsumer
      * enabled, we wait for the response
      * and retry once to diminish impact on performance.
      * @param array<int, array<string, mixed>> $messages Array of messages to send.
-     * @return bool Whether the request succeeded.
+     * @return bool|string Whether the request succeeded or a queue failure classification.
      */
     public function flushBatch($messages)
     {
@@ -65,11 +65,15 @@ class LibCurl extends QueueConsumer
                 error_log("[PostHog][" . $this->type . "] " . $msg);
             }
 
-            return false;
+            return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
         }
 
         if ($this->compress_request) {
             $payload = gzencode($payload);
+
+            if (false === $payload) {
+                return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+            }
         }
 
         $shouldVerify = $this->options['verify_batch_events_request'] ?? true;
@@ -86,10 +90,27 @@ class LibCurl extends QueueConsumer
         );
 
         if (!$shouldVerify) {
-            return $response->getResponse() !== false;
+            if ($response->getResponse() !== false) {
+                return true;
+            }
+
+            return $this->isNetworkFailure($response)
+                ? self::FLUSH_BATCH_RETRYABLE_FAILURE
+                : self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
         }
 
         // Keep batch success semantics aligned with HttpClient retry handling and the Socket consumer.
-        return $response->getResponseCode() === 200;
+        if ($response->getResponseCode() === 200) {
+            return true;
+        }
+
+        return $this->isNetworkFailure($response)
+            ? self::FLUSH_BATCH_RETRYABLE_FAILURE
+            : self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+    }
+
+    private function isNetworkFailure($response)
+    {
+        return $response->getResponseCode() === 0 && $response->getCurlErrno() !== 0;
     }
 }

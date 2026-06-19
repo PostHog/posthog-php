@@ -18,6 +18,12 @@ abstract class QueueConsumer extends Consumer
     protected const MAX_BATCH_PAYLOAD_SIZE = 1024 * 1024; // 1MB
     protected const MAX_BATCH_PAYLOAD_SIZE_HUMAN = (self::MAX_BATCH_PAYLOAD_SIZE / 1024) . 'KB';
 
+    // flushBatch() returns this when the batch may succeed later and should remain queued.
+    protected const FLUSH_BATCH_RETRYABLE_FAILURE = 'retryable_failure';
+
+    // flushBatch() returns this when retrying the same batch would block the queue.
+    protected const FLUSH_BATCH_NON_RETRYABLE_FAILURE = 'non_retryable_failure';
+
     protected $type = "QueueConsumer";
 
     protected $queue;
@@ -129,8 +135,14 @@ abstract class QueueConsumer extends Consumer
         $success = true;
 
         while ($count > 0 && $success) {
-            $batch = array_splice($this->queue, 0, min($this->batch_size, $count));
-            $success = $this->flushBatch($batch);
+            $batchSize = min($this->batch_size, $count);
+            $batch = array_slice($this->queue, 0, $batchSize);
+            $result = $this->flushBatch($batch);
+            $success = true === $result;
+
+            if ($success || self::FLUSH_BATCH_RETRYABLE_FAILURE !== $result) {
+                array_splice($this->queue, 0, $batchSize);
+            }
 
             $count = count($this->queue);
         }
