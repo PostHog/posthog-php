@@ -433,7 +433,7 @@ class ExceptionCapture
 
             $distinctId = $providerContext['distinctId'];
             if ($distinctId === null) {
-                $distinctId = Uuid::v7();
+                $distinctId = uuidV7();
                 $properties['$process_person_profile'] = false;
             }
 
