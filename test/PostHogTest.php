@@ -70,6 +70,14 @@ class PostHogTest extends TestCase
         self::fail("Expected a /batch/ call to have been made");
     }
 
+    private function assertValidUuidV4(string $uuid): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
+            $uuid
+        );
+    }
+
     private function withEnvApiKey(?string $apiKey, callable $callback): void
     {
         $previousApiKey = getenv(PostHog::ENV_API_KEY);
@@ -688,6 +696,61 @@ class PostHogTest extends TestCase
         } finally {
             Clock::set(new NativeClock());
         }
+    }
+
+    public function testCaptureKeepsValidTopLevelUuid(): void
+    {
+        $uuid = '01890f87-d7e7-7c75-8d35-8a1e16b6b0bf';
+
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "john",
+                    "event" => "Module PHP Event",
+                    "uuid" => $uuid,
+                )
+            )
+        );
+        PostHog::flush();
+
+        $event = $this->firstBatchEvent();
+
+        self::assertSame($uuid, $event['uuid']);
+    }
+
+    public function testCaptureReplacesInvalidTopLevelUuid(): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "john",
+                    "event" => "Module PHP Event",
+                    "uuid" => "not-a-uuid",
+                )
+            )
+        );
+        PostHog::flush();
+
+        $event = $this->firstBatchEvent();
+
+        self::assertNotSame('not-a-uuid', $event['uuid']);
+        $this->assertValidUuidV4($event['uuid']);
+    }
+
+    public function testRawReplacesInvalidTopLevelUuid(): void
+    {
+        $this->client->raw(
+            array(
+                "event" => "Raw Event",
+                "uuid" => false,
+            )
+        );
+        PostHog::flush();
+
+        $event = $this->firstBatchEvent();
+
+        self::assertNotSame(false, $event['uuid']);
+        $this->assertValidUuidV4($event['uuid']);
     }
 
     public function testCaptureIncludesIsServerProperty(): void
