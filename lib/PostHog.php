@@ -128,10 +128,13 @@ class PostHog
      *     properties?: array<string, mixed>,
      *     groups?: array<string, mixed>,
      *     timestamp?: mixed,
+     *     uuid?: string,
      *     flags?: FeatureFlagEvaluations,
      *     send_feature_flags?: bool,
      *     sendFeatureFlags?: bool
-     * } $message Event payload. `send_feature_flags` and `sendFeatureFlags` are deprecated; pass
+     * } $message Event payload. If a top-level `uuid` is supplied it must be a valid UUID;
+     *     invalid values are replaced with a generated UUID v4. `send_feature_flags` and
+     *     `sendFeatureFlags` are deprecated; pass
      *     a `flags` snapshot from evaluateFlags() instead. Deprecated top-level batch metadata is
      *     stripped before sending: use `event` instead of `type`, `properties['$lib']` instead of
      *     `library`, `properties['$lib_version']` instead of `library_version`, and
@@ -505,7 +508,8 @@ class PostHog
     /**
      * Send a raw, already-prepared message to the underlying consumer queue.
      *
-     * @param array<string, mixed> $message Prepared message payload.
+     * @param array<string, mixed> $message Prepared message payload. If a top-level `uuid` is supplied
+     *     it must be a valid UUID; invalid values are replaced with a generated UUID v4.
      * @return mixed Whether the underlying consumer accepted the message.
      */
     public static function raw(array $message)

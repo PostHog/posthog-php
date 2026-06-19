@@ -70,6 +70,14 @@ class PostHogTest extends TestCase
         self::fail("Expected a /batch/ call to have been made");
     }
 
+    private function assertValidUuidV4(string $uuid): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
+            $uuid
+        );
+    }
+
     private function withEnvApiKey(?string $apiKey, callable $callback): void
     {
         $previousApiKey = getenv(PostHog::ENV_API_KEY);
@@ -130,6 +138,32 @@ class PostHogTest extends TestCase
             'default' => [["debug" => true]],
             'zero' => [["debug" => true, "batch_size" => 0]],
             'negative' => [["debug" => true, "batch_size" => -1]],
+        ];
+    }
+
+    public static function validTopLevelUuidCases(): array
+    {
+        return [
+            'v1 UUID' => ['01890f87-d7e7-1c75-8d35-8a1e16b6b0bf'],
+            'v2 UUID' => ['01890f87-d7e7-2c75-8d35-8a1e16b6b0bf'],
+            'v3 UUID' => ['01890f87-d7e7-3c75-8d35-8a1e16b6b0bf'],
+            'v4 UUID' => ['01890f87-d7e7-4c75-8d35-8a1e16b6b0bf'],
+            'v5 UUID' => ['01890f87-d7e7-5c75-8d35-8a1e16b6b0bf'],
+            'v6 UUID' => ['01890f87-d7e7-6c75-8d35-8a1e16b6b0bf'],
+            'v7 UUID' => ['01890f87-d7e7-7c75-8d35-8a1e16b6b0bf'],
+            'v8 UUID' => ['01890f87-d7e7-8c75-8d35-8a1e16b6b0bf'],
+        ];
+    }
+
+    public static function invalidTopLevelUuidCases(): array
+    {
+        return [
+            'null' => [null],
+            'empty string' => [''],
+            'zero' => [0],
+            'false' => [false],
+            'non-UUID string' => ['not-a-uuid'],
+            'nil UUID' => ['00000000-0000-0000-0000-000000000000'],
         ];
     }
 
@@ -688,6 +722,68 @@ class PostHogTest extends TestCase
         } finally {
             Clock::set(new NativeClock());
         }
+    }
+
+    /**
+     * @dataProvider validTopLevelUuidCases
+     */
+    public function testCaptureKeepsValidTopLevelUuid(string $uuid): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "john",
+                    "event" => "Module PHP Event",
+                    "uuid" => $uuid,
+                )
+            )
+        );
+        PostHog::flush();
+
+        $event = $this->firstBatchEvent();
+
+        self::assertSame($uuid, $event['uuid']);
+    }
+
+    /**
+     * @dataProvider invalidTopLevelUuidCases
+     */
+    public function testCaptureReplacesInvalidTopLevelUuid(mixed $uuid): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "john",
+                    "event" => "Module PHP Event",
+                    "uuid" => $uuid,
+                )
+            )
+        );
+        PostHog::flush();
+
+        $event = $this->firstBatchEvent();
+
+        self::assertNotSame($uuid, $event['uuid']);
+        $this->assertValidUuidV4($event['uuid']);
+    }
+
+    /**
+     * @dataProvider invalidTopLevelUuidCases
+     */
+    public function testRawReplacesInvalidTopLevelUuid(mixed $uuid): void
+    {
+        $this->client->raw(
+            array(
+                "event" => "Raw Event",
+                "uuid" => $uuid,
+            )
+        );
+        PostHog::flush();
+
+        $event = $this->firstBatchEvent();
+
+        self::assertNotSame($uuid, $event['uuid']);
+        $this->assertValidUuidV4($event['uuid']);
     }
 
     public function testCaptureIncludesIsServerProperty(): void
