@@ -1,3 +1,9 @@
+## 4.8.2
+
+### Patch Changes
+
+- 21514df: Retain queued batches after network or timeout flush failures.
+
 ## 4.8.1
 
 ### Patch Changes
