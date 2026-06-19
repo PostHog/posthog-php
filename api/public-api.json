@@ -4473,6 +4473,13 @@
                     "final": false,
                     "returnType": "string",
                     "parameters": []
+                },
+                "v7": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
                 }
             }
         }
