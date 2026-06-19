@@ -141,6 +141,32 @@ class PostHogTest extends TestCase
         ];
     }
 
+    public static function validTopLevelUuidCases(): array
+    {
+        return [
+            'v1 UUID' => ['01890f87-d7e7-1c75-8d35-8a1e16b6b0bf'],
+            'v2 UUID' => ['01890f87-d7e7-2c75-8d35-8a1e16b6b0bf'],
+            'v3 UUID' => ['01890f87-d7e7-3c75-8d35-8a1e16b6b0bf'],
+            'v4 UUID' => ['01890f87-d7e7-4c75-8d35-8a1e16b6b0bf'],
+            'v5 UUID' => ['01890f87-d7e7-5c75-8d35-8a1e16b6b0bf'],
+            'v6 UUID' => ['01890f87-d7e7-6c75-8d35-8a1e16b6b0bf'],
+            'v7 UUID' => ['01890f87-d7e7-7c75-8d35-8a1e16b6b0bf'],
+            'v8 UUID' => ['01890f87-d7e7-8c75-8d35-8a1e16b6b0bf'],
+        ];
+    }
+
+    public static function invalidTopLevelUuidCases(): array
+    {
+        return [
+            'null' => [null],
+            'empty string' => [''],
+            'zero' => [0],
+            'false' => [false],
+            'non-UUID string' => ['not-a-uuid'],
+            'nil UUID' => ['00000000-0000-0000-0000-000000000000'],
+        ];
+    }
+
     public static function facadeNoOpBeforeInitCases(): array
     {
         return [
@@ -698,10 +724,11 @@ class PostHogTest extends TestCase
         }
     }
 
-    public function testCaptureKeepsValidTopLevelUuid(): void
+    /**
+     * @dataProvider validTopLevelUuidCases
+     */
+    public function testCaptureKeepsValidTopLevelUuid(string $uuid): void
     {
-        $uuid = '01890f87-d7e7-7c75-8d35-8a1e16b6b0bf';
-
         self::assertTrue(
             PostHog::capture(
                 array(
@@ -718,14 +745,17 @@ class PostHogTest extends TestCase
         self::assertSame($uuid, $event['uuid']);
     }
 
-    public function testCaptureReplacesInvalidTopLevelUuid(): void
+    /**
+     * @dataProvider invalidTopLevelUuidCases
+     */
+    public function testCaptureReplacesInvalidTopLevelUuid(mixed $uuid): void
     {
         self::assertTrue(
             PostHog::capture(
                 array(
                     "distinctId" => "john",
                     "event" => "Module PHP Event",
-                    "uuid" => "not-a-uuid",
+                    "uuid" => $uuid,
                 )
             )
         );
@@ -733,23 +763,26 @@ class PostHogTest extends TestCase
 
         $event = $this->firstBatchEvent();
 
-        self::assertNotSame('not-a-uuid', $event['uuid']);
+        self::assertNotSame($uuid, $event['uuid']);
         $this->assertValidUuidV4($event['uuid']);
     }
 
-    public function testRawReplacesInvalidTopLevelUuid(): void
+    /**
+     * @dataProvider invalidTopLevelUuidCases
+     */
+    public function testRawReplacesInvalidTopLevelUuid(mixed $uuid): void
     {
         $this->client->raw(
             array(
                 "event" => "Raw Event",
-                "uuid" => false,
+                "uuid" => $uuid,
             )
         );
         PostHog::flush();
 
         $event = $this->firstBatchEvent();
 
-        self::assertNotSame(false, $event['uuid']);
+        self::assertNotSame($uuid, $event['uuid']);
         $this->assertValidUuidV4($event['uuid']);
     }
 
