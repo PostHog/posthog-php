@@ -2,6 +2,8 @@
 
 namespace PostHog;
 
+use Closure;
+
 /**
  * Snapshot of feature flag evaluations for a single distinct id.
  *
@@ -13,6 +15,7 @@ class FeatureFlagEvaluations
 {
     /** @var array<string, bool> */
     private array $accessed;
+    private readonly Closure $captureFlagCalled;
 
     /**
      * Create a feature flag evaluation snapshot.
@@ -26,6 +29,7 @@ class FeatureFlagEvaluations
      * @param array<string, bool>|null $accessed Flags already accessed on this snapshot.
      * @param bool $errorsWhileComputing Whether the remote response reported computation errors.
      * @param bool $quotaLimited Whether the remote response was quota limited.
+     * @param Closure|null $captureFlagCalled Emits deduped $feature_flag_called events.
      */
     public function __construct(
         private readonly string $distinctId,
@@ -37,8 +41,11 @@ class FeatureFlagEvaluations
         ?array $accessed = null,
         private readonly bool $errorsWhileComputing = false,
         private readonly bool $quotaLimited = false,
+        ?Closure $captureFlagCalled = null,
     ) {
         $this->accessed = $accessed ?? [];
+        $this->captureFlagCalled = $captureFlagCalled ?? static function (...$_): void {
+        };
     }
 
     /**
@@ -220,7 +227,7 @@ class FeatureFlagEvaluations
             $properties['$feature_flag_error'] = implode(',', $errors);
         }
 
-        $this->host->captureFlagCalledIfNeeded(
+        ($this->captureFlagCalled)(
             $this->distinctId,
             $key,
             $response,

@@ -196,64 +196,6 @@
                         }
                     ]
                 },
-                "captureFlagCalledIfNeeded": {
-                    "static": false,
-                    "abstract": false,
-                    "final": false,
-                    "returnType": "void",
-                    "parameters": [
-                        {
-                            "name": "distinctId",
-                            "type": "string",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": false,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": false
-                        },
-                        {
-                            "name": "key",
-                            "type": "string",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": false,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": false
-                        },
-                        {
-                            "name": "response",
-                            "type": null,
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": false,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": false
-                        },
-                        {
-                            "name": "properties",
-                            "type": "array",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": false,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": false
-                        },
-                        {
-                            "name": "groups",
-                            "type": "array",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": true,
-                            "default": [],
-                            "defaultConstant": null,
-                            "hasDefault": true
-                        }
-                    ]
-                },
                 "contextFromHeaders": {
                     "static": false,
                     "abstract": false,
@@ -2600,6 +2542,16 @@
                             "default": false,
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "captureFlagCalled",
+                            "type": "?Closure",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -2708,64 +2660,6 @@
             "constants": [],
             "properties": [],
             "methods": {
-                "captureFlagCalledIfNeeded": {
-                    "static": false,
-                    "abstract": true,
-                    "final": false,
-                    "returnType": "void",
-                    "parameters": [
-                        {
-                            "name": "distinctId",
-                            "type": "string",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": false,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": false
-                        },
-                        {
-                            "name": "key",
-                            "type": "string",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": false,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": false
-                        },
-                        {
-                            "name": "response",
-                            "type": null,
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": false,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": false
-                        },
-                        {
-                            "name": "properties",
-                            "type": "array",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": false,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": false
-                        },
-                        {
-                            "name": "groups",
-                            "type": "array",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": false,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": false
-                        }
-                    ]
-                },
                 "logWarning": {
                     "static": false,
                     "abstract": true,

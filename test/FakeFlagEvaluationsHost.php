@@ -10,36 +10,8 @@ use PostHog\FeatureFlagEvaluationsHost;
  */
 class FakeFlagEvaluationsHost implements FeatureFlagEvaluationsHost
 {
-    /** @var array<int, array<string, mixed>> */
-    public array $captures = [];
     /** @var list<string> */
     public array $warnings = [];
-    /** @var array<string, true> */
-    private array $seen = [];
-
-    public function captureFlagCalledIfNeeded(
-        string $distinctId,
-        string $key,
-        $response,
-        array $properties,
-        array $groups
-    ): void {
-        $cacheKey = $distinctId
-            . "\0" . $key
-            . "\0" . json_encode($response, JSON_THROW_ON_ERROR)
-            . "\0" . json_encode($groups, JSON_THROW_ON_ERROR);
-        if (isset($this->seen[$cacheKey])) {
-            return;
-        }
-        $this->seen[$cacheKey] = true;
-        $this->captures[] = [
-            'distinct_id' => $distinctId,
-            'key' => $key,
-            'response' => $response,
-            'properties' => $properties,
-            'groups' => $groups,
-        ];
-    }
 
     public function logWarning(string $message): void
     {

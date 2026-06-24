@@ -1037,6 +1037,7 @@ class Client implements FeatureFlagEvaluationsHost
             null,
             $errorsWhileComputing,
             $quotaLimited,
+            $this->featureFlagCalledCallback(),
         );
     }
 
@@ -1054,7 +1055,7 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, mixed> $groups Group identifiers for group-based flags.
      * @return void
      */
-    public function captureFlagCalledIfNeeded(
+    private function captureFlagCalledIfNeeded(
         string $distinctId,
         string $key,
         $response,
@@ -1073,6 +1074,19 @@ class Client implements FeatureFlagEvaluationsHost
             '$groups' => $groups,
         ]);
         $this->distinctIdsFeatureFlagsReported->add($key, $dedupElement);
+    }
+
+    private function featureFlagCalledCallback(): \Closure
+    {
+        return function (
+            string $distinctId,
+            string $key,
+            $response,
+            array $properties,
+            array $groups
+        ): void {
+            $this->captureFlagCalledIfNeeded($distinctId, $key, $response, $properties, $groups);
+        };
     }
 
     /**

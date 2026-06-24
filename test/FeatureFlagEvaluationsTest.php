@@ -94,6 +94,34 @@ class FeatureFlagEvaluationsTest extends TestCase
         );
     }
 
+    private function flagsResponseForChangingFlag(mixed $response): array
+    {
+        $flagsResponse = MockedResponses::FLAGS_V2_RESPONSE;
+        unset($flagsResponse['flags']['changing-flag']);
+
+        if ($response === null) {
+            return $flagsResponse;
+        }
+
+        $flagsResponse['flags']['changing-flag'] = [
+            'key' => 'changing-flag',
+            'enabled' => is_bool($response) ? $response : true,
+            'variant' => is_string($response) ? $response : null,
+            'reason' => [
+                'code' => 'condition_match',
+                'description' => 'Matched condition set 1',
+                'condition_index' => 0,
+            ],
+            'metadata' => [
+                'id' => 999,
+                'payload' => null,
+                'version' => 1,
+            ],
+        ];
+
+        return $flagsResponse;
+    }
+
     public function testEvaluateFlagsReturnsSnapshotAndMakesOneFlagsRequest(): void
     {
         $this->makeClient();
@@ -585,14 +613,12 @@ class FeatureFlagEvaluationsTest extends TestCase
     public function testFeatureFlagCalledDedupesByResponseValue(array $responses, array $expectedResponses): void
     {
         $this->makeClient();
+        $this->http_client->setFlagsEndpointResponseQueue(
+            array_map(fn($response) => $this->flagsResponseForChangingFlag($response), $responses)
+        );
 
-        foreach ($responses as $response) {
-            $this->client->captureFlagCalledIfNeeded(
-                'user-1',
-                'changing-flag',
-                $response,
-                ['$feature_flag' => 'changing-flag', '$feature_flag_response' => $response]
-            );
+        foreach ($responses as $_) {
+            PostHog::evaluateFlags('user-1')->getFlag('changing-flag');
         }
 
         PostHog::flush();
