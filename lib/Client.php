@@ -265,6 +265,7 @@ class Client implements FeatureFlagEvaluationsHost
         $flushed = $this->flush();
         $this->shutdownFlagDefinitionCacheProvider();
         $this->consumer->__destruct();
+        $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(self::SIZE_LIMIT);
         $this->shutdownComplete = true;
 
         return $flushed;
@@ -1039,8 +1040,8 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * Fire a $feature_flag_called event the first time a (flag key, distinct id, groups) tuple is
-     * seen by this Client, deduped via the per-distinct_id cache shared with every other
+     * Fire a $feature_flag_called event the first time a (flag key, distinct id, response, groups)
+     * tuple is seen by this Client, deduped via the per-distinct_id cache shared with every other
      * flag-reading code path. Group context is included so that group-scoped flags fire a separate
      * event for each group a user is evaluated under. Properties are built by the caller so each
      * call site can shape the payload to match its available metadata.
@@ -1057,7 +1058,10 @@ class Client implements FeatureFlagEvaluationsHost
         array $properties,
         array $groups = []
     ): void {
-        $dedupElement = $distinctId . self::canonicalGroupsRepr($groups);
+        $response = array_key_exists('$feature_flag_response', $properties)
+            ? $properties['$feature_flag_response']
+            : null;
+        $dedupElement = $distinctId . self::featureFlagResponseCacheKey($response) . self::canonicalGroupsRepr($groups);
         if ($this->distinctIdsFeatureFlagsReported->contains($key, $dedupElement)) {
             return;
         }
@@ -1069,6 +1073,18 @@ class Client implements FeatureFlagEvaluationsHost
             '$groups' => $groups,
         ]);
         $this->distinctIdsFeatureFlagsReported->add($key, $dedupElement);
+    }
+
+    /**
+     * Build a stable cache fragment for the evaluated response so true, false, null, and variants
+     * dedupe independently for the same distinct id and flag key.
+     *
+     * @param mixed $response
+     * @return string
+     */
+    private static function featureFlagResponseCacheKey($response): string
+    {
+        return '|' . gettype($response) . ':' . json_encode($response);
     }
 
     /**

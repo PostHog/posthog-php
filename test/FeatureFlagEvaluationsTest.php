@@ -563,6 +563,50 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertCount(1, $batches[0]['batch']);
     }
 
+    public function testFeatureFlagCalledDedupesByResponseValue(): void
+    {
+        $this->makeClient();
+
+        $this->client->captureFlagCalledIfNeeded(
+            'user-1',
+            'changing-flag',
+            ['$feature_flag' => 'changing-flag', '$feature_flag_response' => true]
+        );
+        $this->client->captureFlagCalledIfNeeded(
+            'user-1',
+            'changing-flag',
+            ['$feature_flag' => 'changing-flag', '$feature_flag_response' => false]
+        );
+        $this->client->captureFlagCalledIfNeeded(
+            'user-1',
+            'changing-flag',
+            ['$feature_flag' => 'changing-flag', '$feature_flag_response' => true]
+        );
+        $this->client->captureFlagCalledIfNeeded(
+            'user-1',
+            'changing-flag',
+            ['$feature_flag' => 'changing-flag', '$feature_flag_response' => false]
+        );
+
+        PostHog::flush();
+
+        $events = [];
+        foreach ($this->batchRequests() as $batch) {
+            foreach ($batch['batch'] as $event) {
+                if (
+                    $event['event'] === '$feature_flag_called'
+                    && ($event['properties']['$feature_flag'] ?? null) === 'changing-flag'
+                ) {
+                    $events[] = $event;
+                }
+            }
+        }
+
+        $this->assertCount(2, $events, 'expected one event for true and one event for false');
+        $this->assertSame(true, $events[0]['properties']['$feature_flag_response']);
+        $this->assertSame(false, $events[1]['properties']['$feature_flag_response']);
+    }
+
     public function testFeatureFlagCalledFiresPerGroupContext(): void
     {
         $this->makeClient();
