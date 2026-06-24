@@ -223,6 +223,16 @@
                             "hasDefault": false
                         },
                         {
+                            "name": "response",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
                             "name": "properties",
                             "type": "array",
                             "byReference": false,
@@ -2717,6 +2727,16 @@
                         {
                             "name": "key",
                             "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "response",
+                            "type": null,
                             "byReference": false,
                             "variadic": false,
                             "optional": false,

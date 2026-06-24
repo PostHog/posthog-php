@@ -715,7 +715,7 @@ class Client implements FeatureFlagEvaluationsHost
                 $properties['$feature_flag_error'] = $featureFlagError;
             }
 
-            $this->captureFlagCalledIfNeeded($distinctId, $key, $properties, $groups);
+            $this->captureFlagCalledIfNeeded($distinctId, $key, $result, $properties, $groups);
         }
 
         if (is_null($result)) {
@@ -1049,6 +1049,7 @@ class Client implements FeatureFlagEvaluationsHost
      *
      * @param string $distinctId The distinct ID that accessed the flag.
      * @param string $key Feature flag key.
+     * @param mixed $response Evaluated feature flag response for deduping.
      * @param array<string, mixed> $properties Event properties for the $feature_flag_called event.
      * @param array<string, mixed> $groups Group identifiers for group-based flags.
      * @return void
@@ -1056,12 +1057,10 @@ class Client implements FeatureFlagEvaluationsHost
     public function captureFlagCalledIfNeeded(
         string $distinctId,
         string $key,
+        $response,
         array $properties,
         array $groups = []
     ): void {
-        $response = array_key_exists('$feature_flag_response', $properties)
-            ? $properties['$feature_flag_response']
-            : null;
         $dedupElement = $distinctId . self::featureFlagResponseCacheKey($response) . self::canonicalGroupsRepr($groups);
         if ($this->distinctIdsFeatureFlagsReported->contains($key, $dedupElement)) {
             return;

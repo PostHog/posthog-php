@@ -590,6 +590,7 @@ class FeatureFlagEvaluationsTest extends TestCase
             $this->client->captureFlagCalledIfNeeded(
                 'user-1',
                 'changing-flag',
+                $response,
                 ['$feature_flag' => 'changing-flag', '$feature_flag_response' => $response]
             );
         }
