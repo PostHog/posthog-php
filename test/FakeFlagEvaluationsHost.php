@@ -20,10 +20,14 @@ class FakeFlagEvaluationsHost implements FeatureFlagEvaluationsHost
     public function captureFlagCalledIfNeeded(
         string $distinctId,
         string $key,
+        $response,
         array $properties,
         array $groups
     ): void {
-        $cacheKey = $distinctId . "\0" . $key;
+        $cacheKey = $distinctId
+            . "\0" . $key
+            . "\0" . json_encode($response, JSON_THROW_ON_ERROR)
+            . "\0" . json_encode($groups, JSON_THROW_ON_ERROR);
         if (isset($this->seen[$cacheKey])) {
             return;
         }
@@ -31,6 +35,7 @@ class FakeFlagEvaluationsHost implements FeatureFlagEvaluationsHost
         $this->captures[] = [
             'distinct_id' => $distinctId,
             'key' => $key,
+            'response' => $response,
             'properties' => $properties,
             'groups' => $groups,
         ];

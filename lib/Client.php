@@ -265,6 +265,8 @@ class Client implements FeatureFlagEvaluationsHost
         $flushed = $this->flush();
         $this->shutdownFlagDefinitionCacheProvider();
         $this->consumer->__destruct();
+        // Release the per-client feature-flag-called dedupe cache once the client is shut down.
+        $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(self::SIZE_LIMIT);
         $this->shutdownComplete = true;
 
         return $flushed;
@@ -713,7 +715,7 @@ class Client implements FeatureFlagEvaluationsHost
                 $properties['$feature_flag_error'] = $featureFlagError;
             }
 
-            $this->captureFlagCalledIfNeeded($distinctId, $key, $properties, $groups);
+            $this->captureFlagCalledIfNeeded($distinctId, $key, $result, $properties, $groups);
         }
 
         if (is_null($result)) {
@@ -1039,14 +1041,15 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * Fire a $feature_flag_called event the first time a (flag key, distinct id, groups) tuple is
-     * seen by this Client, deduped via the per-distinct_id cache shared with every other
+     * Fire a $feature_flag_called event the first time a (flag key, distinct id, response, groups)
+     * tuple is seen by this Client, deduped via the per-distinct_id cache shared with every other
      * flag-reading code path. Group context is included so that group-scoped flags fire a separate
      * event for each group a user is evaluated under. Properties are built by the caller so each
      * call site can shape the payload to match its available metadata.
      *
      * @param string $distinctId The distinct ID that accessed the flag.
      * @param string $key Feature flag key.
+     * @param mixed $response Evaluated feature flag response for deduping.
      * @param array<string, mixed> $properties Event properties for the $feature_flag_called event.
      * @param array<string, mixed> $groups Group identifiers for group-based flags.
      * @return void
@@ -1054,10 +1057,11 @@ class Client implements FeatureFlagEvaluationsHost
     public function captureFlagCalledIfNeeded(
         string $distinctId,
         string $key,
+        $response,
         array $properties,
         array $groups = []
     ): void {
-        $dedupElement = $distinctId . self::canonicalGroupsRepr($groups);
+        $dedupElement = $distinctId . self::featureFlagResponseCacheKey($response) . self::canonicalGroupsRepr($groups);
         if ($this->distinctIdsFeatureFlagsReported->contains($key, $dedupElement)) {
             return;
         }
@@ -1069,6 +1073,18 @@ class Client implements FeatureFlagEvaluationsHost
             '$groups' => $groups,
         ]);
         $this->distinctIdsFeatureFlagsReported->add($key, $dedupElement);
+    }
+
+    /**
+     * Build a stable cache fragment for the evaluated response so true, false, null, and variants
+     * dedupe independently for the same distinct id and flag key.
+     *
+     * @param mixed $response
+     * @return string
+     */
+    private static function featureFlagResponseCacheKey($response): string
+    {
+        return '|' . json_encode($response, JSON_THROW_ON_ERROR);
     }
 
     /**

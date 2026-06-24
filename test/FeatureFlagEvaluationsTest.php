@@ -6,6 +6,7 @@ namespace PostHog\Test;
 // comment out below to print all logs instead of failing tests
 require_once 'test/error_log_mock.php';
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\EvaluatedFlagRecord;
@@ -561,6 +562,58 @@ class FeatureFlagEvaluationsTest extends TestCase
         $batches = $this->batchRequests();
         $this->assertCount(1, $batches);
         $this->assertCount(1, $batches[0]['batch']);
+    }
+
+    /**
+     * @return array<string, array{list<mixed>, list<mixed>}>
+     */
+    public static function featureFlagCalledResponseDedupCases(): array
+    {
+        return [
+            'true and false' => [[true, false, true, false], [true, false]],
+            'false and true' => [[false, true, false, true], [false, true]],
+            'null and variant' => [[null, 'variant-a', null, 'variant-a'], [null, 'variant-a']],
+            'boolean and matching string' => [[true, 'true', true, 'true'], [true, 'true']],
+        ];
+    }
+
+    /**
+     * @param list<mixed> $responses
+     * @param list<mixed> $expectedResponses
+     */
+    #[DataProvider('featureFlagCalledResponseDedupCases')]
+    public function testFeatureFlagCalledDedupesByResponseValue(array $responses, array $expectedResponses): void
+    {
+        $this->makeClient();
+
+        foreach ($responses as $response) {
+            $this->client->captureFlagCalledIfNeeded(
+                'user-1',
+                'changing-flag',
+                $response,
+                ['$feature_flag' => 'changing-flag', '$feature_flag_response' => $response]
+            );
+        }
+
+        PostHog::flush();
+
+        $events = [];
+        foreach ($this->batchRequests() as $batch) {
+            foreach ($batch['batch'] as $event) {
+                if (
+                    $event['event'] === '$feature_flag_called'
+                    && ($event['properties']['$feature_flag'] ?? null) === 'changing-flag'
+                ) {
+                    $events[] = $event;
+                }
+            }
+        }
+
+        $this->assertCount(count($expectedResponses), $events, 'unexpected $feature_flag_called event count');
+        $this->assertSame(
+            $expectedResponses,
+            array_map(fn($event) => $event['properties']['$feature_flag_response'], $events)
+        );
     }
 
     public function testFeatureFlagCalledFiresPerGroupContext(): void

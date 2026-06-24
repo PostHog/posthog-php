@@ -172,11 +172,12 @@ class FeatureFlagEvaluations
             return;
         }
 
+        $response = $record?->getValue();
         $properties = [
             '$feature_flag' => $key,
             // Missing flags get a null response (not false), matching the legacy single-flag path
             // so consumers can distinguish "flag exists and is disabled" from "flag not found".
-            '$feature_flag_response' => $record?->getValue(),
+            '$feature_flag_response' => $response,
             // Always set explicitly so consumers don't have to infer "missing key means remote".
             'locally_evaluated' => $record?->locallyEvaluated ?? false,
         ];
@@ -222,6 +223,7 @@ class FeatureFlagEvaluations
         $this->host->captureFlagCalledIfNeeded(
             $this->distinctId,
             $key,
+            $response,
             $properties,
             $this->groups
         );
