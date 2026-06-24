@@ -1,3 +1,9 @@
+## 4.8.4
+
+### Patch Changes
+
+- a6f28af: Dedupe feature flag called events by response value.
+
 ## 4.8.3
 
 ### Patch Changes
