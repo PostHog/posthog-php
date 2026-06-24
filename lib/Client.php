@@ -265,6 +265,7 @@ class Client implements FeatureFlagEvaluationsHost
         $flushed = $this->flush();
         $this->shutdownFlagDefinitionCacheProvider();
         $this->consumer->__destruct();
+        // Release the per-client feature-flag-called dedupe cache once the client is shut down.
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(self::SIZE_LIMIT);
         $this->shutdownComplete = true;
 
@@ -1084,7 +1085,7 @@ class Client implements FeatureFlagEvaluationsHost
      */
     private static function featureFlagResponseCacheKey($response): string
     {
-        return '|' . gettype($response) . ':' . json_encode($response);
+        return '|' . json_encode($response, JSON_THROW_ON_ERROR);
     }
 
     /**

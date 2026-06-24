@@ -6,6 +6,7 @@ namespace PostHog\Test;
 // comment out below to print all logs instead of failing tests
 require_once 'test/error_log_mock.php';
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\EvaluatedFlagRecord;
@@ -563,30 +564,35 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertCount(1, $batches[0]['batch']);
     }
 
-    public function testFeatureFlagCalledDedupesByResponseValue(): void
+    /**
+     * @return array<string, array{list<mixed>, list<mixed>}>
+     */
+    public static function featureFlagCalledResponseDedupCases(): array
+    {
+        return [
+            'true and false' => [[true, false, true, false], [true, false]],
+            'false and true' => [[false, true, false, true], [false, true]],
+            'null and variant' => [[null, 'variant-a', null, 'variant-a'], [null, 'variant-a']],
+            'boolean and matching string' => [[true, 'true', true, 'true'], [true, 'true']],
+        ];
+    }
+
+    /**
+     * @param list<mixed> $responses
+     * @param list<mixed> $expectedResponses
+     */
+    #[DataProvider('featureFlagCalledResponseDedupCases')]
+    public function testFeatureFlagCalledDedupesByResponseValue(array $responses, array $expectedResponses): void
     {
         $this->makeClient();
 
-        $this->client->captureFlagCalledIfNeeded(
-            'user-1',
-            'changing-flag',
-            ['$feature_flag' => 'changing-flag', '$feature_flag_response' => true]
-        );
-        $this->client->captureFlagCalledIfNeeded(
-            'user-1',
-            'changing-flag',
-            ['$feature_flag' => 'changing-flag', '$feature_flag_response' => false]
-        );
-        $this->client->captureFlagCalledIfNeeded(
-            'user-1',
-            'changing-flag',
-            ['$feature_flag' => 'changing-flag', '$feature_flag_response' => true]
-        );
-        $this->client->captureFlagCalledIfNeeded(
-            'user-1',
-            'changing-flag',
-            ['$feature_flag' => 'changing-flag', '$feature_flag_response' => false]
-        );
+        foreach ($responses as $response) {
+            $this->client->captureFlagCalledIfNeeded(
+                'user-1',
+                'changing-flag',
+                ['$feature_flag' => 'changing-flag', '$feature_flag_response' => $response]
+            );
+        }
 
         PostHog::flush();
 
@@ -602,9 +608,11 @@ class FeatureFlagEvaluationsTest extends TestCase
             }
         }
 
-        $this->assertCount(2, $events, 'expected one event for true and one event for false');
-        $this->assertSame(true, $events[0]['properties']['$feature_flag_response']);
-        $this->assertSame(false, $events[1]['properties']['$feature_flag_response']);
+        $this->assertCount(count($expectedResponses), $events, 'unexpected $feature_flag_called event count');
+        $this->assertSame(
+            $expectedResponses,
+            array_map(fn($event) => $event['properties']['$feature_flag_response'], $events)
+        );
     }
 
     public function testFeatureFlagCalledFiresPerGroupContext(): void
