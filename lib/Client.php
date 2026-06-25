@@ -1709,6 +1709,8 @@ class Client implements FeatureFlagEvaluationsHost
     {
         $backoff = 100; // Set initial waiting time to 100ms
         $requestPayload = json_encode($payload);
+        $retries = 0;
+        $maxRetries = 1;
 
         while (true) {
             $httpResponse = $this->httpClient->sendRequest(
@@ -1724,13 +1726,25 @@ class Client implements FeatureFlagEvaluationsHost
                 ]
             );
 
-            if ($httpResponse->getResponseCode() !== 0 || $backoff >= $this->maximumBackoffDuration) {
+            if (
+                $httpResponse->getResponseCode() !== 0
+                || $retries >= $maxRetries
+                || !$this->isRetryableFlagsCurlError($httpResponse->getCurlErrno())
+            ) {
                 return $httpResponse;
             }
 
+            $retries++;
             usleep($backoff * 1000);
             $backoff *= 2;
         }
+    }
+
+    private function isRetryableFlagsCurlError(int $curlErrno): bool
+    {
+        // Match Ruby's transient subset: timeouts, connection resets/receive failures,
+        // and empty replies/EOF. Do not retry refused connections or DNS failures.
+        return in_array($curlErrno, [28, 52, 56], true);
     }
 
     /** @return array{featureFlags: array<string, mixed>, featureFlagPayloads: array<string, mixed>, flags: array<string, mixed>} */
