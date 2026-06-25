@@ -25,10 +25,7 @@
 	"autoload": {
 		"psr-4": {
 			"PostHog\\": "lib/"
-		},
-		"files": [
-			"lib/Uuid.php"
-		]
+		}
 	},
 	"autoload-dev": {
 		"psr-4": {

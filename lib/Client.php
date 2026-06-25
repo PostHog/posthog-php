@@ -1899,7 +1899,7 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         if (!$explicitDistinctId) {
-            $msg["distinct_id"] = uuidV7();
+            $msg["distinct_id"] = Uuid::v7();
             $usedGeneratedPersonlessDistinctId = true;
             if (!array_key_exists('$process_person_profile', $msg["properties"])) {
                 $msg["properties"]['$process_person_profile'] = false;
