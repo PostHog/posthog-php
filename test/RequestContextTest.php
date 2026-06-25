@@ -113,7 +113,10 @@ class RequestContextTest extends TestCase
         $event = $this->flushAndGetEvents()[0];
 
         $this->assertIsString($event['distinct_id']);
-        $this->assertNotSame('', $event['distinct_id']);
+        $this->assertMatchesRegularExpression(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
+            $event['distinct_id']
+        );
         $this->assertFalse($event['properties']['$process_person_profile']);
         $this->assertSame('free', $event['properties']['plan']);
     }
