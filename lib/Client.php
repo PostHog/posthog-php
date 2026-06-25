@@ -43,6 +43,11 @@ class Client implements FeatureFlagEvaluationsHost
     private $featureFlagsRequestTimeout;
 
     /**
+     * @var integer
+     */
+    private $maximumBackoffDuration;
+
+    /**
      * Consumer object handles queueing and bundling requests to PostHog.
      *
      * @var Consumer
@@ -189,10 +194,11 @@ class Client implements FeatureFlagEvaluationsHost
         }
         $Consumer = self::CONSUMERS[$this->options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($this->apiKey, $this->options, $httpClient);
+        $this->maximumBackoffDuration = (int) ($options['maximum_backoff_duration'] ?? 10000);
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $this->options['host'],
             $options['ssl'] ?? true,
-            (int) ($options['maximum_backoff_duration'] ?? 10000),
+            $this->maximumBackoffDuration,
             false,
             $options["debug"] ?? false,
             null,
@@ -1658,18 +1664,7 @@ class Client implements FeatureFlagEvaluationsHost
             $payload["flag_keys_to_evaluate"] = array_values($flagKeys);
         }
 
-        $httpResponse = $this->httpClient->sendRequest(
-            '/flags/?v=2',
-            json_encode($payload),
-            [
-                // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
-                "User-Agent: " . PostHog::LIBRARY . "/" . PostHog::VERSION,
-            ],
-            [
-                "shouldRetry" => false,
-                "timeout" => $this->featureFlagsRequestTimeout
-            ]
-        );
+        $httpResponse = $this->sendFeatureFlagsRequest($payload);
 
         $responseCode = $httpResponse->getResponseCode();
         $curlErrno = $httpResponse->getCurlErrno();
@@ -1705,6 +1700,37 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         return $this->normalizeFeatureFlags($httpResponse->getResponse());
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function sendFeatureFlagsRequest(array $payload): HttpResponse
+    {
+        $backoff = 100; // Set initial waiting time to 100ms
+        $requestPayload = json_encode($payload);
+
+        while (true) {
+            $httpResponse = $this->httpClient->sendRequest(
+                '/flags/?v=2',
+                $requestPayload,
+                [
+                    // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
+                    "User-Agent: " . PostHog::LIBRARY . "/" . PostHog::VERSION,
+                ],
+                [
+                    "shouldRetry" => false,
+                    "timeout" => $this->featureFlagsRequestTimeout
+                ]
+            );
+
+            if ($httpResponse->getResponseCode() !== 0 || $backoff >= $this->maximumBackoffDuration) {
+                return $httpResponse;
+            }
+
+            usleep($backoff * 1000);
+            $backoff *= 2;
+        }
     }
 
     /** @return array{featureFlags: array<string, mixed>, featureFlagPayloads: array<string, mixed>, flags: array<string, mixed>} */
