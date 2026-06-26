@@ -38,19 +38,27 @@ class Client implements FeatureFlagEvaluationsHost
     private $personalAPIKey;
 
     /**
+     * Feature flag request timeout in milliseconds. Defaults to 3000ms.
+     *
      * @var integer
      */
     private $featureFlagsRequestTimeout;
 
     /**
+     * Maximum number of retries for /flags/?v=2 transient network errors.
+     * Defaults to 1. Set to 0 to disable feature flag request retries.
+     *
      * @var integer
      */
     private $featureFlagRequestMaxRetries;
 
     /**
+     * Maximum retry backoff duration in milliseconds. Defaults to 10000ms.
+     * Retry backoff starts at 100ms and doubles until capped by this value.
+     *
      * @var integer
      */
-    private $maximumBackoffDuration;
+    private $maximumBackoffDurationMs;
 
     /**
      * Consumer object handles queueing and bundling requests to PostHog.
@@ -140,9 +148,14 @@ class Client implements FeatureFlagEvaluationsHost
      * @param string|null $apiKey Your project API key. When omitted or empty, the client is disabled
      *     and uses the noop consumer.
      * Time-based options use milliseconds unless the option name says otherwise:
-     * `timeout` and `maximum_backoff_duration` are in milliseconds for libcurl/HTTP requests,
-     * while `flush_interval_seconds` is in seconds. For the socket consumer, `timeout` is passed
-     * to pfsockopen() and is in seconds.
+     * `timeout` defaults to 10000ms, `feature_flag_request_timeout_ms` defaults to 3000ms,
+     * and `maximum_backoff_duration` defaults to 10000ms for retry backoff. Retry backoff starts
+     * at 100ms and doubles until capped by `maximum_backoff_duration`. `flush_interval_seconds`
+     * defaults to 5 seconds. For the socket consumer, `timeout` is passed to pfsockopen() and is
+     * in seconds.
+     *
+     * Feature flag requests to `/flags/?v=2` retry transient curl/network errors only.
+     * `feature_flag_request_max_retries` defaults to 1; set it to 0 to disable these retries.
      *
      * @param array{
      *     host?: string,
@@ -200,11 +213,11 @@ class Client implements FeatureFlagEvaluationsHost
         }
         $Consumer = self::CONSUMERS[$this->options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($this->apiKey, $this->options, $httpClient);
-        $this->maximumBackoffDuration = (int) ($options['maximum_backoff_duration'] ?? 10000);
+        $this->maximumBackoffDurationMs = (int) ($options['maximum_backoff_duration'] ?? 10000);
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $this->options['host'],
             $options['ssl'] ?? true,
-            $this->maximumBackoffDuration,
+            $this->maximumBackoffDurationMs,
             false,
             $options["debug"] ?? false,
             null,
@@ -1741,8 +1754,8 @@ class Client implements FeatureFlagEvaluationsHost
             }
 
             $retries++;
-            usleep($backoff * 1000);
-            $backoff *= 2;
+            usleep(min($backoff, $this->maximumBackoffDurationMs) * 1000);
+            $backoff = min($backoff * 2, $this->maximumBackoffDurationMs);
         }
     }
 
