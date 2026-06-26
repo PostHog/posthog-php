@@ -45,6 +45,11 @@ class Client implements FeatureFlagEvaluationsHost
     /**
      * @var integer
      */
+    private $featureFlagRequestMaxRetries;
+
+    /**
+     * @var integer
+     */
     private $maximumBackoffDuration;
 
     /**
@@ -145,6 +150,7 @@ class Client implements FeatureFlagEvaluationsHost
      *     timeout?: int|float,
      *     verify_batch_events_request?: bool,
      *     feature_flag_request_timeout_ms?: int,
+     *     feature_flag_request_max_retries?: int,
      *     maximum_backoff_duration?: int,
      *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl'|'noop',
      *     debug?: bool,
@@ -205,6 +211,7 @@ class Client implements FeatureFlagEvaluationsHost
             (int) ($options['timeout'] ?? 10000)
         );
         $this->featureFlagsRequestTimeout = (int) ($options['feature_flag_request_timeout_ms'] ?? 3000);
+        $this->featureFlagRequestMaxRetries = max(0, (int) ($options['feature_flag_request_max_retries'] ?? 1));
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
         $this->cohorts = [];
@@ -1710,7 +1717,6 @@ class Client implements FeatureFlagEvaluationsHost
         $backoff = 100; // Set initial waiting time to 100ms
         $requestPayload = json_encode($payload);
         $retries = 0;
-        $maxRetries = 1;
 
         while (true) {
             $httpResponse = $this->httpClient->sendRequest(
@@ -1728,7 +1734,7 @@ class Client implements FeatureFlagEvaluationsHost
 
             if (
                 $httpResponse->getResponseCode() !== 0
-                || $retries >= $maxRetries
+                || $retries >= $this->featureFlagRequestMaxRetries
                 || !$this->isRetryableFlagsCurlError($httpResponse->getCurlErrno())
             ) {
                 return $httpResponse;

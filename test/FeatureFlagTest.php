@@ -90,6 +90,32 @@ class FeatureFlagTest extends TestCase
         }
     }
 
+    public function testFlagsRequestDoesNotRetryWhenConfiguredMaxRetriesIsZero(): void
+    {
+        $this->http_client = new MockedHttpClient("app.posthog.com");
+        $this->http_client->setFlagsEndpointResponseQueue([
+            ['response' => [], 'responseCode' => 0, 'curlErrno' => 28],
+            ['response' => MockedResponses::FLAGS_RESPONSE, 'responseCode' => 200, 'curlErrno' => 0],
+        ]);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+                "feature_flag_request_max_retries" => 0,
+                "maximum_backoff_duration" => 101,
+            ],
+            $this->http_client,
+            null
+        );
+
+        $this->assertSame([
+            'featureFlags' => [],
+            'featureFlagPayloads' => [],
+            'flags' => [],
+        ], $this->client->flags('user-id'));
+        $this->assertCount(1, $this->http_client->calls);
+    }
+
     public function testFlagsRequestDoesNotRetryConnectionRefused(): void
     {
         $this->http_client = new MockedHttpClient("app.posthog.com");
