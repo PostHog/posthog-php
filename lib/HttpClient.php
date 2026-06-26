@@ -22,9 +22,9 @@ class HttpClient
     private $useSsl;
 
     /**
-     * @var int
+     * @var int Maximum retry backoff duration in milliseconds.
      */
-    private $maximumBackoffDuration;
+    private $maximumBackoffDurationMs;
 
     /**
      * @var bool
@@ -67,7 +67,7 @@ class HttpClient
     ) {
         $this->host = $host;
         $this->useSsl = $useSsl;
-        $this->maximumBackoffDuration = $maximumBackoffDuration;
+        $this->maximumBackoffDurationMs = $maximumBackoffDuration;
         $this->compressRequests = $compressRequests;
         $this->debug = $debug;
         $this->errorHandler = $errorHandler;
@@ -168,7 +168,7 @@ class HttpClient
             } else {
                 break;  // no error
             }
-        } while ($shouldRetry && $backoff < $this->maximumBackoffDuration);
+        } while ($shouldRetry && $backoff < $this->maximumBackoffDurationMs);
 
         return $httpResponse;
     }

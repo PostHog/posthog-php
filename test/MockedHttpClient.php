@@ -24,6 +24,9 @@ class MockedHttpClient extends \PostHog\HttpClient
     /** @var int Curl error number for /flags/ endpoint (for error simulation) */
     private $flagsEndpointCurlErrno;
 
+    /** @var array|null Queue of responses for sequential /flags/ calls */
+    private $flagsEndpointResponseQueue;
+
     private $batchEndpointResponse;
     private $batchEndpointResponseCode;
     private $batchEndpointCurlErrno;
@@ -64,6 +67,7 @@ class MockedHttpClient extends \PostHog\HttpClient
         $this->flagEndpointResponseQueue = null;
         $this->flagsEndpointResponseCode = $flagsEndpointResponseCode;
         $this->flagsEndpointCurlErrno = $flagsEndpointCurlErrno;
+        $this->flagsEndpointResponseQueue = null;
         $this->batchEndpointResponse = $batchEndpointResponse;
         $this->batchEndpointResponseCode = $batchEndpointResponseCode;
         $this->batchEndpointCurlErrno = $batchEndpointCurlErrno;
@@ -78,6 +82,17 @@ class MockedHttpClient extends \PostHog\HttpClient
     public function setFlagEndpointResponseQueue(array $responses): void
     {
         $this->flagEndpointResponseQueue = $responses;
+    }
+
+    /**
+     * Set a queue of responses for the /flags/ endpoint.
+     * Each call will consume the next response in the queue.
+     *
+     * @param array $responses Array of ['response' => array, 'responseCode' => int, 'curlErrno' => int]
+     */
+    public function setFlagsEndpointResponseQueue(array $responses): void
+    {
+        $this->flagsEndpointResponseQueue = $responses;
     }
 
     // phpcs:ignore Generic.Files.LineLength.TooLong
@@ -124,6 +139,15 @@ class MockedHttpClient extends \PostHog\HttpClient
 
         // Decide endpoint: /flags/?v=2
         if (str_starts_with($path, "/flags/?")) {
+            if ($this->flagsEndpointResponseQueue !== null && !empty($this->flagsEndpointResponseQueue)) {
+                $nextResponse = array_shift($this->flagsEndpointResponseQueue);
+                $response = $nextResponse['response'] ?? [];
+                $responseCode = $nextResponse['responseCode'] ?? 200;
+                $curlErrno = $nextResponse['curlErrno'] ?? 0;
+
+                return new HttpResponse(json_encode($response), $responseCode, null, $curlErrno);
+            }
+
             return new HttpResponse(
                 json_encode($this->flagsEndpointResponse),
                 $this->flagsEndpointResponseCode,
