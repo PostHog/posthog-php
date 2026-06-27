@@ -635,7 +635,7 @@ class Client implements FeatureFlagEvaluationsHost
 
         if (!$flagWasEvaluatedLocally && !$onlyEvaluateLocally) {
             try {
-                $response = $this->requestFlags($distinctId, $groups, $personProperties, $groupProperties);
+                $response = $this->requestFlags($distinctId, $groups, $personProperties, $groupProperties, false, [$key]);
                 $errors = [];
 
                 if (isset($response['errorsWhileComputingFlags']) && $response['errorsWhileComputingFlags']) {
@@ -1634,25 +1634,13 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         $payload = array(
-            'api_key' => $this->apiKey,
+            'token' => $this->apiKey,
             'distinct_id' => $distinctId,
+            'groups' => empty($groups) ? (object) [] : $groups,
+            'person_properties' => empty($personProperties) ? (object) [] : $personProperties,
+            'group_properties' => empty($groupProperties) ? (object) [] : $groupProperties,
+            'geoip_disable' => $disableGeoip,
         );
-
-        if (!empty($groups)) {
-            $payload["groups"] = $groups;
-        }
-
-        if (!empty($personProperties)) {
-            $payload["person_properties"] = $personProperties;
-        }
-
-        if (!empty($groupProperties)) {
-            $payload["group_properties"] = $groupProperties;
-        }
-
-        if ($disableGeoip) {
-            $payload["geoip_disable"] = true;
-        }
 
         if ($flagKeys !== null) {
             $payload["flag_keys_to_evaluate"] = array_values($flagKeys);
@@ -1953,7 +1941,7 @@ class Client implements FeatureFlagEvaluationsHost
 
     private function normalizeMessageUuid(array $msg): array
     {
-        if (array_key_exists('uuid', $msg) && !$this->isValidUuid($msg['uuid'])) {
+        if (!array_key_exists('uuid', $msg) || !$this->isValidUuid($msg['uuid'])) {
             $msg['uuid'] = Uuid::v4();
         }
 
