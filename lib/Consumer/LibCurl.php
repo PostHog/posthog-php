@@ -68,11 +68,13 @@ class LibCurl extends QueueConsumer
             return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
         }
 
+        $isCompressed = false;
         if ($this->compress_request) {
-            $payload = gzencode($payload);
+            $compressedPayload = gzencode($payload);
 
-            if (false === $payload) {
-                return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+            if (false !== $compressedPayload) {
+                $payload = $compressedPayload;
+                $isCompressed = true;
             }
         }
 
@@ -86,6 +88,7 @@ class LibCurl extends QueueConsumer
             ],
             [
                 'shouldVerify' => $shouldVerify,
+                'compressRequest' => $isCompressed,
             ]
         );
 

@@ -196,15 +196,15 @@ class Socket extends QueueConsumer
         // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
         $req .= "User-Agent: " . $this->userAgent() . "\r\n";
 
-        // Compress content if compress_request is true
+        // Compress content if compress_request is true. If local compression fails,
+        // keep sending the original uncompressed payload.
         if ($this->compress_request) {
-            $content = gzencode($content);
+            $compressedContent = gzencode($content);
 
-            if (false === $content) {
-                return false;
+            if (false !== $compressedContent) {
+                $content = $compressedContent;
+                $req .= "Content-Encoding: gzip\r\n";
             }
-
-            $req .= "Content-Encoding: gzip\r\n";
         }
 
         $req .= "Content-length: " . strlen($content) . "\r\n";

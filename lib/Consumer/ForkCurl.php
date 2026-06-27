@@ -62,14 +62,17 @@ class ForkCurl extends QueueConsumer
             $cmd2 = "echo " . $payload . " | gzip > " . $tmpfname;
             exec($cmd2, $output, $exit);
 
-            if (0 != $exit) {
+            if (0 == $exit) {
+                $cmd .= " -H 'Content-Encoding: gzip'";
+                $cmd .= " --data-binary '@" . $tmpfname . "'";
+            } else {
                 $this->handleError($exit, $output);
-                return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+                if (is_file($tmpfname)) {
+                    unlink($tmpfname);
+                }
+                $tmpfname = "";
+                $cmd .= " -d " . $payload;
             }
-
-            $cmd .= " -H 'Content-Encoding: gzip'";
-
-            $cmd .= " --data-binary '@" . $tmpfname . "'";
         } else {
             $cmd .= " -d " . $payload;
         }
