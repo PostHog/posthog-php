@@ -26,8 +26,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check for changesets
         id: check
@@ -41,55 +42,24 @@ jobs:
             echo "No changesets to release"
           fi
 
-  notify-approval-needed:
-    name: Notify Slack - Approval Needed
+  prepare-release-candidate:
+    name: Prepare release candidate
     needs: check-changesets
-    if: needs.check-changesets.outputs.has-changesets == 'true'
-    uses: posthog/.github/.github/workflows/notify-approval-needed.yml@5fc4680761e8ac29a61b212756230eba0e276d8c
-    with:
-      slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-      slack_user_group_id: ${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}
-    secrets:
-      slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-      posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
-
-  release:
-    name: Bump version and release
-    needs: [check-changesets, notify-approval-needed]
     runs-on: ubuntu-latest
-    if: always() && needs.check-changesets.outputs.has-changesets == 'true'
-    environment: "Release"
+    if: needs.check-changesets.outputs.has-changesets == 'true'
     permissions:
-      contents: write
-      actions: write
+      contents: read
+    outputs:
+      new-version: ${{ steps.candidate.outputs.new-version }}
+      patch-sha256: ${{ steps.candidate.outputs.patch-sha256 }}
+      source-sha: ${{ steps.candidate.outputs.source-sha }}
     steps:
-      - name: Notify Slack - Approved
-        if: needs.notify-approval-needed.outputs.slack_ts != ''
-        uses: posthog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
-        with:
-          slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-          slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-          thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-          message: "✅ Release approved! Version bump in progress..."
-          emoji_reaction: "white_check_mark"
-      - name: Get GitHub App token
-        id: releaser
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_APP_ID }}
-          private-key: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_PRIVATE_KEY }}
-
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
-          token: ${{ steps.releaser.outputs.token }}
-
-      - name: Configure Git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          persist-credentials: false
 
       - name: Setup pnpm and Node.js
         uses: pnpm/setup@f7d0e5f4b1b3089d2799ef9722859e7ba314c4c8 # v1
@@ -100,70 +70,279 @@ jobs:
           cache: true
           install: false
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Install release tooling dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Apply changesets and update version
-        id: apply-changesets
+        id: candidate
         run: |
-          pnpm changeset version
-          NEW_VERSION=$(node -p "require('./package.json').version")
-          ./scripts/bump-version.sh "$NEW_VERSION"
-          echo "new-version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          echo "New version: $NEW_VERSION"
+          set -euo pipefail
 
-      - name: Check for version bump changes
-        id: check-changes
-        run: |
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "No changes to commit"
-            echo "committed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "committed=true" >> "$GITHUB_OUTPUT"
+          source_sha=$(git rev-parse HEAD)
+          pnpm exec changeset version
+          new_version=$(node -p "require('./package.json').version")
+
+          expected_bump_script_sha256="fb70c4da11c73df4da1b5b8d3cbd7e483cd19525dc9d8045f6c53a1bd1546809"
+          actual_bump_script_sha256=$(sha256sum scripts/bump-version.sh | awk '{print $1}')
+          if [ "$actual_bump_script_sha256" != "$expected_bump_script_sha256" ]; then
+            echo "scripts/bump-version.sh sha256 mismatch: expected $expected_bump_script_sha256, got $actual_bump_script_sha256" >&2
+            exit 1
           fi
+
+          ./scripts/bump-version.sh "$new_version"
+
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "No release candidate changes were generated" >&2
+            exit 1
+          fi
+
+          changed_files=$(git diff --name-only)
+          while IFS= read -r file; do
+            case "$file" in
+              CHANGELOG.md|composer.json|package.json|lib/PostHog.php|.changeset/*.md) ;;
+              *)
+                echo "Unexpected release candidate change: $file" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          composer_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' composer.json)
+          php_version=$(perl -0ne "print \$1 if /public const VERSION = '([^']+)'/" lib/PostHog.php)
+          if [ "$new_version" != "$composer_version" ] || [ "$new_version" != "$php_version" ]; then
+            echo "Version mismatch: package.json=$new_version composer.json=$composer_version lib/PostHog.php=$php_version" >&2
+            exit 1
+          fi
+
+          git diff --binary > release.patch
+          patch_sha256=$(sha256sum release.patch | awk '{print $1}')
+
+          echo "source-sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
+          echo "patch-sha256=$patch_sha256" >> "$GITHUB_OUTPUT"
+          echo "Release candidate $new_version prepared from $source_sha with patch sha256 $patch_sha256"
+
+      - name: Upload release candidate patch
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-candidate
+          path: release.patch
+          if-no-files-found: error
+          retention-days: 1
+
+  verify-release-candidate:
+    name: Verify release candidate
+    needs: [check-changesets, prepare-release-candidate]
+    runs-on: ubuntu-latest
+    if: needs.check-changesets.outputs.has-changesets == 'true'
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.prepare-release-candidate.outputs.source-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download release candidate patch
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-candidate
+          path: release-candidate
+
+      - name: Apply and validate release candidate patch
+        env:
+          EXPECTED_PATCH_SHA256: ${{ needs.prepare-release-candidate.outputs.patch-sha256 }}
+          EXPECTED_VERSION: ${{ needs.prepare-release-candidate.outputs.new-version }}
+        run: |
+          set -euo pipefail
+
+          actual_patch_sha256=$(sha256sum release-candidate/release.patch | awk '{print $1}')
+          if [ "$actual_patch_sha256" != "$EXPECTED_PATCH_SHA256" ]; then
+            echo "Release candidate patch sha256 mismatch: expected $EXPECTED_PATCH_SHA256, got $actual_patch_sha256" >&2
+            exit 1
+          fi
+
+          git apply --index release-candidate/release.patch
+
+          changed_files=$(git diff --cached --name-only)
+          while IFS= read -r file; do
+            case "$file" in
+              CHANGELOG.md|composer.json|package.json|lib/PostHog.php|.changeset/*.md) ;;
+              *)
+                echo "Unexpected release candidate change: $file" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          package_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' package.json)
+          composer_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' composer.json)
+          php_version=$(perl -0ne "print \$1 if /public const VERSION = '([^']+)'/" lib/PostHog.php)
+          if [ "$EXPECTED_VERSION" != "$package_version" ] || [ "$EXPECTED_VERSION" != "$composer_version" ] || [ "$EXPECTED_VERSION" != "$php_version" ]; then
+            echo "Version mismatch: expected=$EXPECTED_VERSION package.json=$package_version composer.json=$composer_version lib/PostHog.php=$php_version" >&2
+            exit 1
+          fi
+
+      - name: Check tag and release do not already exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_VERSION: ${{ needs.prepare-release-candidate.outputs.new-version }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          check_missing() {
+            local description="$1"
+            shift
+            local output
+            local status
+
+            if output=$("$@" 2>&1); then
+              echo "$description already exists for $EXPECTED_VERSION" >&2
+              exit 1
+            else
+              status=$?
+            fi
+
+            if grep -q "HTTP 404" <<< "$output" || grep -q "Not Found" <<< "$output"; then
+              return 0
+            fi
+
+            echo "Could not check whether $description exists: $output" >&2
+            exit "$status"
+          }
+
+          check_missing "GitHub release" gh api "repos/$REPOSITORY/releases/tags/$EXPECTED_VERSION"
+          check_missing "git tag" gh api "repos/$REPOSITORY/git/ref/tags/$EXPECTED_VERSION"
+
+      - name: Set up PHP 8.4
+        uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
+        with:
+          php-version: 8.4
+          extensions: xdebug
+          tools: composer
+
+      - name: Validate composer files
+        run: composer validate --no-check-lock --no-check-version --strict
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction --no-scripts --no-plugins
+
+      - name: Check public API snapshot
+        run: composer api:check
+
+      - name: Run PHPUnit tests
+        run: XDEBUG_MODE=coverage ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml
+
+  notify-approval-needed:
+    name: Notify Slack - Approval Needed
+    needs: [check-changesets, prepare-release-candidate, verify-release-candidate]
+    if: needs.check-changesets.outputs.has-changesets == 'true' && needs.prepare-release-candidate.result == 'success' && needs.verify-release-candidate.result == 'success'
+    uses: posthog/.github/.github/workflows/notify-approval-needed.yml@5fc4680761e8ac29a61b212756230eba0e276d8c
+    with:
+      slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+      slack_user_group_id: ${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}
+    secrets:
+      slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+      posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
+
+  release:
+    name: Publish release
+    needs: [check-changesets, prepare-release-candidate, verify-release-candidate, notify-approval-needed]
+    runs-on: ubuntu-latest
+    if: always() && needs.check-changesets.outputs.has-changesets == 'true' && needs.verify-release-candidate.result == 'success' && needs.notify-approval-needed.result == 'success'
+    environment: "Release"
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout approved source revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.prepare-release-candidate.outputs.source-sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download verified release candidate patch
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-candidate
+          path: release-candidate
+
+      - name: Apply verified release candidate patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_PATCH_SHA256: ${{ needs.prepare-release-candidate.outputs.patch-sha256 }}
+          EXPECTED_SOURCE_SHA: ${{ needs.prepare-release-candidate.outputs.source-sha }}
+          EXPECTED_VERSION: ${{ needs.prepare-release-candidate.outputs.new-version }}
+        run: |
+          set -euo pipefail
+
+          current_main_sha=$(gh api "repos/${{ github.repository }}/git/ref/heads/main" --jq '.object.sha')
+          if [ "$current_main_sha" != "$EXPECTED_SOURCE_SHA" ]; then
+            echo "main moved since the release candidate was prepared: expected $EXPECTED_SOURCE_SHA, got $current_main_sha" >&2
+            exit 1
+          fi
+
+          actual_patch_sha256=$(sha256sum release-candidate/release.patch | awk '{print $1}')
+          if [ "$actual_patch_sha256" != "$EXPECTED_PATCH_SHA256" ]; then
+            echo "Release candidate patch sha256 mismatch: expected $EXPECTED_PATCH_SHA256, got $actual_patch_sha256" >&2
+            exit 1
+          fi
+
+          git apply --index release-candidate/release.patch
+
+          changed_files=$(git diff --cached --name-only)
+          while IFS= read -r file; do
+            case "$file" in
+              CHANGELOG.md|composer.json|package.json|lib/PostHog.php|.changeset/*.md) ;;
+              *)
+                echo "Unexpected release candidate change: $file" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          package_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' package.json)
+          composer_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' composer.json)
+          php_version=$(perl -0ne "print \$1 if /public const VERSION = '([^']+)'/" lib/PostHog.php)
+          if [ "$EXPECTED_VERSION" != "$package_version" ] || [ "$EXPECTED_VERSION" != "$composer_version" ] || [ "$EXPECTED_VERSION" != "$php_version" ]; then
+            echo "Version mismatch: expected=$EXPECTED_VERSION package.json=$package_version composer.json=$composer_version lib/PostHog.php=$php_version" >&2
+            exit 1
+          fi
+
+          rm -rf release-candidate
+
+      - name: Get GitHub App token
+        id: releaser
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_APP_ID }}
+          private-key: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_PRIVATE_KEY }}
 
       - name: Commit version bump
         id: commit-version-bump
-        if: steps.check-changes.outputs.committed == 'true'
         uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
         with:
-          commit_message: "chore: release ${{ steps.apply-changesets.outputs.new-version }} [version bump] [skip ci]"
+          commit_message: "chore: release ${{ needs.prepare-release-candidate.outputs.new-version }} [version bump] [skip ci]"
           repo: ${{ github.repository }}
           branch: main
+          file_pattern: "CHANGELOG.md composer.json package.json lib/PostHog.php .changeset"
         env:
           GITHUB_TOKEN: ${{ steps.releaser.outputs.token }}
+
       - name: Create GitHub release
         if: steps.commit-version-bump.outputs.commit-hash != ''
         env:
           GH_TOKEN: ${{ steps.releaser.outputs.token }}
-          NEW_VERSION: ${{ steps.apply-changesets.outputs.new-version }}
+          NEW_VERSION: ${{ needs.prepare-release-candidate.outputs.new-version }}
+          COMMIT_SHA: ${{ steps.commit-version-bump.outputs.commit-hash }}
         run: |
           CHANGELOG_ENTRY=$(awk -v defText="see CHANGELOG.md" '/^## /{if (flag) exit; flag=1} flag && /^##$/{exit} flag; END{if (!flag) print defText}' CHANGELOG.md)
-          gh release create "$NEW_VERSION" --target main --title "$NEW_VERSION" --notes "$CHANGELOG_ENTRY"
-
-      - name: Send failure event to PostHog
-        if: failure()
-        uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
-        with:
-          posthog-token: "${{ secrets.POSTHOG_PROJECT_API_KEY }}"
-          event: "posthog-php-github-release-workflow-failure"
-          properties: >-
-            {
-              "commitSha": "${{ github.sha }}",
-              "jobStatus": "${{ job.status }}",
-              "ref": "${{ github.ref }}",
-              "version": "${{ steps.apply-changesets.outputs.new-version }}"
-            }
-
-      - name: Notify Slack - Failed
-        if: failure() && needs.notify-approval-needed.outputs.slack_ts != ''
-        uses: posthog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
-        with:
-          slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-          slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-          thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-          message: "❌ Failed to release `posthog-php@${{ steps.apply-changesets.outputs.new-version }}`! <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>"
-          emoji_reaction: "x"
+          gh release create "$NEW_VERSION" --target "$COMMIT_SHA" --title "$NEW_VERSION" --notes "$CHANGELOG_ENTRY"
 
   notify-released:
     name: Notify Slack - Released
@@ -171,9 +350,6 @@ jobs:
     runs-on: ubuntu-latest
     if: always() && needs.release.result == 'success' && needs.notify-approval-needed.outputs.slack_ts != ''
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
       - name: Notify Slack - Released
         uses: posthog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
         with:
@@ -183,14 +359,17 @@ jobs:
           message: "🚀 posthog-php released successfully!"
           emoji_reaction: "rocket"
 
-  notify-rejected:
-    name: Notify Slack - Rejected
-    needs: [release, notify-approval-needed]
+  notify-release-failed:
+    name: Notify Slack/PostHog - Release Failed
+    needs: [prepare-release-candidate, notify-approval-needed, release]
     runs-on: ubuntu-latest
     if: always() && needs.release.result == 'failure' && needs.notify-approval-needed.outputs.slack_ts != ''
+    permissions:
+      actions: read
+      contents: read
     steps:
-      - name: Check for rejection
-        id: check-rejection
+      - name: Check whether release was rejected
+        id: check-failure
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -212,13 +391,38 @@ jobs:
             echo "was_rejected=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Send failure event to PostHog
+        if: steps.check-failure.outputs.was_rejected != 'true'
+        continue-on-error: true
+        uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+        with:
+          posthog-token: "${{ secrets.POSTHOG_PROJECT_API_KEY }}"
+          event: "posthog-php-github-release-workflow-failure"
+          properties: >-
+            {
+              "commitSha": "${{ github.sha }}",
+              "jobStatus": "${{ needs.release.result }}",
+              "ref": "${{ github.ref }}",
+              "version": "${{ needs.prepare-release-candidate.outputs.new-version }}"
+            }
+
+      - name: Notify Slack - Failed
+        if: steps.check-failure.outputs.was_rejected != 'true'
+        uses: posthog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
+        with:
+          slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+          slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+          thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+          message: "❌ Failed to release `posthog-php@${{ needs.prepare-release-candidate.outputs.new-version }}`! <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>"
+          emoji_reaction: "x"
+
       - name: Notify Slack - Rejected
-        if: steps.check-rejection.outputs.was_rejected == 'true'
+        if: steps.check-failure.outputs.was_rejected == 'true'
         continue-on-error: true
         uses: PostHog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
         with:
           slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
           slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
           thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-          message: '${{ steps.check-rejection.outputs.message }}'
+          message: '${{ steps.check-failure.outputs.message }}'
           emoji_reaction: 'no_entry_sign'
