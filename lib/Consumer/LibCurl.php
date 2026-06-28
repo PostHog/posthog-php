@@ -81,6 +81,13 @@ class LibCurl extends QueueConsumer
         }
 
         $shouldVerify = $this->options['verify_batch_events_request'] ?? true;
+        $requestOptions = [
+            'shouldVerify' => $shouldVerify,
+        ];
+        if ($this->compress_request) {
+            $requestOptions['compressRequest'] = $isCompressed;
+        }
+
         $response = $this->httpClient->sendRequest(
             '/batch/',
             $payload,
@@ -88,10 +95,7 @@ class LibCurl extends QueueConsumer
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
                 "User-Agent: {$this->userAgent()}",
             ],
-            [
-                'shouldVerify' => $shouldVerify,
-                'compressRequest' => $isCompressed,
-            ]
+            $requestOptions
         );
 
         if (!$shouldVerify) {
