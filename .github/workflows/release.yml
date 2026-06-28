@@ -128,7 +128,7 @@ jobs:
           name: release-candidate
           path: release.patch
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 5
 
   verify-release-candidate:
     name: Verify release candidate
