@@ -46,6 +46,14 @@ Changesets determines the next version from the committed changeset files:
 
 If the release workflow reports that no changesets were found, make sure your PR includes at least one releasable `.changeset/*.md` file.
 
+### Updating the release bump script
+
+The release workflow validates `scripts/bump-version.sh` with a hardcoded SHA256 before executing it. If you modify `scripts/bump-version.sh`, recompute its hash and update `expected_bump_script_sha256` in `.github/workflows/release.yml` in the same PR:
+
+```bash
+sha256sum scripts/bump-version.sh
+```
+
 ### Manual recovery after a failed release
 
 Most failures happen before anything is published. If the workflow fails before the `Commit version bump` step, no commit, tag, or GitHub Release should exist.

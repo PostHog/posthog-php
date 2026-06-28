@@ -82,6 +82,9 @@ jobs:
           pnpm exec changeset version
           new_version=$(node -p "require('./package.json').version")
 
+          # If scripts/bump-version.sh changes, recompute this with:
+          # sha256sum scripts/bump-version.sh
+          # Then update expected_bump_script_sha256 in this workflow in the same PR.
           expected_bump_script_sha256="fb70c4da11c73df4da1b5b8d3cbd7e483cd19525dc9d8045f6c53a1bd1546809"
           actual_bump_script_sha256=$(sha256sum scripts/bump-version.sh | awk '{print $1}')
           if [ "$actual_bump_script_sha256" != "$expected_bump_script_sha256" ]; then
@@ -324,7 +327,7 @@ jobs:
     name: Notify Slack/PostHog - Release Failed
     needs: [prepare-release-candidate, notify-approval-needed, release]
     runs-on: ubuntu-latest
-    if: always() && needs.release.result == 'failure' && needs.notify-approval-needed.outputs.slack_ts != ''
+    if: always() && (needs.release.result == 'failure' || needs.release.result == 'cancelled') && needs.notify-approval-needed.outputs.slack_ts != ''
     permissions:
       actions: read
       contents: read
@@ -374,7 +377,7 @@ jobs:
           slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
           slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
           thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-          message: "❌ Failed to release `posthog-php@${{ needs.prepare-release-candidate.outputs.new-version }}`! <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>"
+          message: "❌ Release `posthog-php@${{ needs.prepare-release-candidate.outputs.new-version }}` failed or was cancelled! <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>"
           emoji_reaction: "x"
 
       - name: Notify Slack - Rejected
