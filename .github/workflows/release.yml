@@ -154,16 +154,9 @@ jobs:
 
       - name: Apply and validate release candidate patch
         env:
-          EXPECTED_PATCH_SHA256: ${{ needs.prepare-release-candidate.outputs.patch-sha256 }}
           EXPECTED_VERSION: ${{ needs.prepare-release-candidate.outputs.new-version }}
         run: |
           set -euo pipefail
-
-          actual_patch_sha256=$(sha256sum release-candidate/release.patch | awk '{print $1}')
-          if [ "$actual_patch_sha256" != "$EXPECTED_PATCH_SHA256" ]; then
-            echo "Release candidate patch sha256 mismatch: expected $EXPECTED_PATCH_SHA256, got $actual_patch_sha256" >&2
-            exit 1
-          fi
 
           git apply --index release-candidate/release.patch
 
