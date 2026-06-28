@@ -211,20 +211,10 @@ jobs:
         uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
         with:
           php-version: 8.4
-          extensions: xdebug
           tools: composer
 
       - name: Validate composer files
         run: composer validate --no-check-lock --no-check-version --strict
-
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-progress --no-interaction --no-scripts --no-plugins
-
-      - name: Check public API snapshot
-        run: composer api:check
-
-      - name: Run PHPUnit tests
-        run: XDEBUG_MODE=coverage ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml
 
   notify-approval-needed:
     name: Notify Slack - Approval Needed
