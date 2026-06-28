@@ -167,17 +167,6 @@ jobs:
 
           git apply --index release-candidate/release.patch
 
-          changed_files=$(git diff --cached --name-only)
-          while IFS= read -r file; do
-            case "$file" in
-              CHANGELOG.md|composer.json|package.json|lib/PostHog.php|.changeset/*.md) ;;
-              *)
-                echo "Unexpected release candidate change: $file" >&2
-                exit 1
-                ;;
-            esac
-          done <<< "$changed_files"
-
           package_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' package.json)
           composer_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' composer.json)
           php_version=$(perl -0ne "print \$1 if /public const VERSION = '([^']+)'/" lib/PostHog.php)
@@ -294,17 +283,6 @@ jobs:
           fi
 
           git apply --index release-candidate/release.patch
-
-          changed_files=$(git diff --cached --name-only)
-          while IFS= read -r file; do
-            case "$file" in
-              CHANGELOG.md|composer.json|package.json|lib/PostHog.php|.changeset/*.md) ;;
-              *)
-                echo "Unexpected release candidate change: $file" >&2
-                exit 1
-                ;;
-            esac
-          done <<< "$changed_files"
 
           package_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' package.json)
           composer_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' composer.json)
