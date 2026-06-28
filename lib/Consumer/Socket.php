@@ -204,6 +204,8 @@ class Socket extends QueueConsumer
             if (false !== $compressedContent) {
                 $content = $compressedContent;
                 $req .= "Content-Encoding: gzip\r\n";
+            } else {
+                $this->handleError(0, "Failed to gzip batch payload; sending uncompressed.");
             }
         }
 

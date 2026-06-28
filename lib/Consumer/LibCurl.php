@@ -75,6 +75,8 @@ class LibCurl extends QueueConsumer
             if (false !== $compressedPayload) {
                 $payload = $compressedPayload;
                 $isCompressed = true;
+            } else {
+                $this->handleError(0, "Failed to gzip batch payload; sending uncompressed.");
             }
         }
 

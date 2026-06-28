@@ -84,7 +84,8 @@ class HttpClient
      *     shouldRetry?: bool,
      *     shouldVerify?: bool,
      *     includeEtag?: bool,
-     *     timeout?: int
+     *     timeout?: int,
+     *     compressRequest?: bool
      * } $requestOptions
      * @return HttpResponse
      */
