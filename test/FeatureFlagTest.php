@@ -54,6 +54,167 @@ class FeatureFlagTest extends TestCase
         ];
     }
 
+    public static function nonRetryableFlagsStatusCodes(): array
+    {
+        return [
+            'request timeout' => [408],
+            'rate limited' => [429],
+            'server error' => [500],
+        ];
+    }
+
+    public static function retryableFlagsCurlErrors(): array
+    {
+        return [
+            'operation timed out' => [28],
+            'got nothing' => [52],
+            'receive error' => [56],
+        ];
+    }
+
+    /**
+     * @dataProvider retryableFlagsCurlErrors
+     */
+    public function testFlagsRequestRetriesTransientCurlErrors(int $curlErrno): void
+    {
+        $this->http_client = new MockedHttpClient("app.posthog.com");
+        $this->http_client->setFlagsEndpointResponseQueue([
+            ['response' => [], 'responseCode' => 0, 'curlErrno' => $curlErrno],
+            ['response' => [], 'responseCode' => 0, 'curlErrno' => $curlErrno],
+            ['response' => MockedResponses::FLAGS_RESPONSE, 'responseCode' => 200, 'curlErrno' => 0],
+        ]);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+                "feature_flag_request_max_retries" => 2,
+                "maximum_backoff_duration" => 101,
+            ],
+            $this->http_client,
+            null
+        );
+
+        $response = $this->client->flags('user-id');
+
+        $this->assertTrue($response['featureFlags']['simpleFlag']);
+        $this->assertCount(3, $this->http_client->calls);
+        foreach ($this->http_client->calls as $call) {
+            $this->assertSame('/flags/?v=2', $call['path']);
+            $this->assertEquals(["timeout" => 3000, "shouldRetry" => false], $call['requestOptions']);
+        }
+    }
+
+    /**
+     * @dataProvider retryableFlagsCurlErrors
+     */
+    public function testFlagsRequestStopsAfterExhaustingTransientCurlErrorRetries(int $curlErrno): void
+    {
+        $this->http_client = new MockedHttpClient("app.posthog.com");
+        $this->http_client->setFlagsEndpointResponseQueue([
+            ['response' => [], 'responseCode' => 0, 'curlErrno' => $curlErrno],
+            ['response' => [], 'responseCode' => 0, 'curlErrno' => $curlErrno],
+            ['response' => [], 'responseCode' => 0, 'curlErrno' => $curlErrno],
+            ['response' => MockedResponses::FLAGS_RESPONSE, 'responseCode' => 200, 'curlErrno' => 0],
+        ]);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+                "feature_flag_request_max_retries" => 2,
+                "maximum_backoff_duration" => 101,
+            ],
+            $this->http_client,
+            null
+        );
+
+        $this->assertSame([
+            'featureFlags' => [],
+            'featureFlagPayloads' => [],
+            'flags' => [],
+        ], $this->client->flags('user-id'));
+        $this->assertCount(3, $this->http_client->calls);
+    }
+
+    public function testFlagsRequestDoesNotRetryWhenConfiguredMaxRetriesIsZero(): void
+    {
+        $this->http_client = new MockedHttpClient("app.posthog.com");
+        $this->http_client->setFlagsEndpointResponseQueue([
+            ['response' => [], 'responseCode' => 0, 'curlErrno' => 28],
+            ['response' => MockedResponses::FLAGS_RESPONSE, 'responseCode' => 200, 'curlErrno' => 0],
+        ]);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+                "feature_flag_request_max_retries" => 0,
+                "maximum_backoff_duration" => 101,
+            ],
+            $this->http_client,
+            null
+        );
+
+        $this->assertSame([
+            'featureFlags' => [],
+            'featureFlagPayloads' => [],
+            'flags' => [],
+        ], $this->client->flags('user-id'));
+        $this->assertCount(1, $this->http_client->calls);
+    }
+
+    public function testFlagsRequestDoesNotRetryConnectionRefused(): void
+    {
+        $this->http_client = new MockedHttpClient("app.posthog.com");
+        $this->http_client->setFlagsEndpointResponseQueue([
+            ['response' => [], 'responseCode' => 0, 'curlErrno' => 7],
+            ['response' => MockedResponses::FLAGS_RESPONSE, 'responseCode' => 200, 'curlErrno' => 0],
+        ]);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+                "maximum_backoff_duration" => 101,
+            ],
+            $this->http_client,
+            null
+        );
+
+        $this->assertSame([
+            'featureFlags' => [],
+            'featureFlagPayloads' => [],
+            'flags' => [],
+        ], $this->client->flags('user-id'));
+        $this->assertCount(1, $this->http_client->calls);
+    }
+
+    /**
+     * @dataProvider nonRetryableFlagsStatusCodes
+     */
+    public function testFlagsRequestDoesNotRetryHttpStatusErrors(int $statusCode): void
+    {
+        $this->http_client = new MockedHttpClient("app.posthog.com");
+        $this->http_client->setFlagsEndpointResponseQueue([
+            ['response' => [], 'responseCode' => $statusCode, 'curlErrno' => 0],
+            ['response' => MockedResponses::FLAGS_RESPONSE, 'responseCode' => 200, 'curlErrno' => 0],
+        ]);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+                "maximum_backoff_duration" => 101,
+            ],
+            $this->http_client,
+            null
+        );
+
+        $this->assertSame([
+            'featureFlags' => [],
+            'featureFlagPayloads' => [],
+            'flags' => [],
+        ], $this->client->flags('user-id'));
+        $this->assertCount(1, $this->http_client->calls);
+        $this->assertSame('/flags/?v=2', $this->http_client->calls[0]['path']);
+    }
+
     /**
      * @dataProvider decideResponseCases
      */
