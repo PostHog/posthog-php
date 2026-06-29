@@ -1,3 +1,9 @@
+## 4.8.6
+
+### Patch Changes
+
+- 8974819: Fall back to uncompressed batch uploads when local gzip compression fails.
+
 ## 4.8.5
 
 ### Patch Changes

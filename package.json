@@ -1,6 +1,6 @@
 {
   "name": "posthog-php",
-  "version": "4.8.5",
+  "version": "4.8.6",
   "private": true,
   "description": "Release metadata and changesets for the PostHog PHP SDK",
   "packageManager": "pnpm@11.7.0",
