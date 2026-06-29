@@ -205,7 +205,7 @@ class HttpClient
         return new HttpResponse($response, $responseCode, null, $curlErrno);
     }
 
-    private function isRetryableStatus(int $responseCode): bool
+    protected function isRetryableStatus(int $responseCode): bool
     {
         return $responseCode === 408
             || $responseCode === 429
@@ -215,7 +215,7 @@ class HttpClient
     /**
      * @param array<int, string> $headers
      */
-    private function retryAfterMilliseconds(array $headers): ?int
+    protected function retryAfterMilliseconds(array $headers): ?int
     {
         foreach ($headers as $header) {
             if (stripos($header, 'Retry-After:') !== 0) {

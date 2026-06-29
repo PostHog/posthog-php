@@ -78,6 +78,21 @@ class PostHogTest extends TestCase
         );
     }
 
+    private function assertAndStripBatchUuid(int $callIndex): void
+    {
+        $payload = json_decode($this->http_client->calls[$callIndex]['payload'], true);
+        $this->assertIsArray($payload);
+        $this->assertArrayHasKey('batch', $payload);
+
+        foreach ($payload['batch'] as $index => $event) {
+            $this->assertArrayHasKey('uuid', $event);
+            $this->assertValidUuidV4($event['uuid']);
+            unset($payload['batch'][$index]['uuid']);
+        }
+
+        $this->http_client->calls[$callIndex]['payload'] = json_encode($payload);
+    }
+
     private function withEnvApiKey(?string $apiKey, callable $callback): void
     {
         $previousApiKey = getenv(PostHog::ENV_API_KEY);
@@ -961,6 +976,7 @@ class PostHogTest extends TestCase
             );
             PostHog::flush();
 
+            $this->assertAndStripBatchUuid(1);
             $this->assertEquals(
                 $this->http_client->calls,
                 array (
@@ -1017,6 +1033,7 @@ class PostHogTest extends TestCase
 
             PostHog::flush();
 
+            $this->assertAndStripBatchUuid(1);
             $this->assertEquals(
                 $this->http_client->calls,
                 array (
@@ -1066,6 +1083,7 @@ class PostHogTest extends TestCase
 
             PostHog::flush();
 
+            $this->assertAndStripBatchUuid(1);
             $this->assertEquals(
                 $this->http_client->calls,
                 array (
@@ -1280,7 +1298,7 @@ class PostHogTest extends TestCase
                 ),
                 1 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"some_id","x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}}}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"token":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"some_id","x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -1302,7 +1320,7 @@ class PostHogTest extends TestCase
             array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"override"},"group_properties":{"company":{"$group_key":"group_override"},"instance":{"$group_key":"app.posthog.com"}}}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"token":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"override"},"group_properties":{"company":{"$group_key":"group_override"},"instance":{"$group_key":"app.posthog.com"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -1318,7 +1336,7 @@ class PostHogTest extends TestCase
             array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5"},"person_properties":{"distinct_id":"some_id"},"group_properties":{"company":{"$group_key":"id:5"}}}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"token":"%s","distinct_id":"some_id","groups":{"company":"id:5"},"person_properties":{"distinct_id":"some_id"},"group_properties":{"company":{"$group_key":"id:5"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -1334,7 +1352,7 @@ class PostHogTest extends TestCase
             array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"some_id","x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}}}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"token":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"some_id","x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -1368,6 +1386,7 @@ class PostHogTest extends TestCase
 
             PostHog::flush();
 
+            $this->assertAndStripBatchUuid(1);
             // When send_feature_flags is explicitly false, NO feature flags should be added
             $this->assertEquals(
                 $this->http_client->calls,

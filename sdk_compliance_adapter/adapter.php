@@ -9,6 +9,7 @@ use PostHog\Client;
 use PostHog\HttpClient;
 use PostHog\HttpResponse;
 use PostHog\PostHog;
+use PostHog\Uuid;
 
 final class RequestInfo
 {
@@ -250,41 +251,6 @@ final class TrackedHttpClient extends HttpClient
         return $httpResponse;
     }
 
-    private function isRetryableStatus(int $responseCode): bool
-    {
-        return $responseCode === 408
-            || $responseCode === 429
-            || ($responseCode >= 500 && $responseCode <= 600);
-    }
-
-    /**
-     * @param array<int, string> $headers
-     */
-    private function retryAfterMilliseconds(array $headers): ?int
-    {
-        foreach ($headers as $header) {
-            if (stripos($header, 'Retry-After:') !== 0) {
-                continue;
-            }
-
-            $value = trim(substr($header, strlen('Retry-After:')));
-            if ($value === '') {
-                return null;
-            }
-
-            if (ctype_digit($value)) {
-                return max(0, (int) $value * 1000);
-            }
-
-            $timestamp = strtotime($value);
-            if ($timestamp !== false) {
-                return max(0, (int) (($timestamp - time()) * 1000));
-            }
-        }
-
-        return null;
-    }
-
     /** @return array{0:int,1:list<string>} */
     private function extractBatchInfo(?string $payload): array
     {
@@ -314,6 +280,15 @@ final class TrackedHttpClient extends HttpClient
 
         return [count($decoded['batch']), $uuidList];
     }
+}
+
+function isValidUuid(mixed $uuid): bool
+{
+    return is_string($uuid)
+        && preg_match(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
+            $uuid
+        ) === 1;
 }
 
 function jsonResponse($client, int $status, array $payload): void
@@ -491,10 +466,14 @@ function handleRequest(array $request, AdapterState $state): array
                 $message['timestamp'] = $data['timestamp'];
             }
 
+            if (!isset($message['uuid']) || !isValidUuid($message['uuid'])) {
+                $message['uuid'] = Uuid::v4();
+            }
+
             $state->client->capture($message);
 
             $state->recordCaptured();
-            return [200, ['success' => true, 'uuid' => $message['uuid'] ?? null]];
+            return [200, ['success' => true, 'uuid' => $message['uuid']]];
         }
 
         if ($request['method'] === 'POST' && $request['path'] === '/get_feature_flag') {
