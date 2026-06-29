@@ -1660,7 +1660,7 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         $payload = array(
-            'token' => $this->apiKey,
+            'api_key' => $this->apiKey,
             'distinct_id' => $distinctId,
             'groups' => empty($groups) ? (object) [] : $groups,
             'person_properties' => empty($personProperties) ? (object) [] : $personProperties,

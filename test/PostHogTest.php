@@ -1298,7 +1298,7 @@ class PostHogTest extends TestCase
                 ),
                 1 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"token":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"some_id","x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"some_id","x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -1320,7 +1320,7 @@ class PostHogTest extends TestCase
             array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"token":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"override"},"group_properties":{"company":{"$group_key":"group_override"},"instance":{"$group_key":"app.posthog.com"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"override"},"group_properties":{"company":{"$group_key":"group_override"},"instance":{"$group_key":"app.posthog.com"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -1336,7 +1336,7 @@ class PostHogTest extends TestCase
             array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"token":"%s","distinct_id":"some_id","groups":{"company":"id:5"},"person_properties":{"distinct_id":"some_id"},"group_properties":{"company":{"$group_key":"id:5"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5"},"person_properties":{"distinct_id":"some_id"},"group_properties":{"company":{"$group_key":"id:5"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -1352,7 +1352,7 @@ class PostHogTest extends TestCase
             array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"token":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"some_id","x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"some_id","x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),

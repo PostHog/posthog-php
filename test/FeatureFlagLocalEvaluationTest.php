@@ -1713,7 +1713,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    'payload' => '{"token":"random_key","distinct_id":"some-distinct-id","groups":{},"person_properties":{"distinct_id":"some-distinct-id","region":"USA","other":"thing"},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["beta-feature"]}',
+                    'payload' => '{"api_key":"random_key","distinct_id":"some-distinct-id","groups":{},"person_properties":{"distinct_id":"some-distinct-id","region":"USA","other":"thing"},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["beta-feature"]}',
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
