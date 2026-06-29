@@ -396,9 +396,9 @@ PHP;
         $payload   = json_decode($batchCall['payload'], true);
         $event     = $payload['batch'][0];
 
-        // distinct_id should look like a UUID
+        // distinct_id should look like a UUID v7
         $this->assertMatchesRegularExpression(
-            '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',
             $event['distinct_id']
         );
         $this->assertFalse($event['properties']['$process_person_profile']);
