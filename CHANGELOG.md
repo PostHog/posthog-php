@@ -1,3 +1,15 @@
+## 4.8.6
+
+### Patch Changes
+
+- 8974819: Fall back to uncompressed batch uploads when local gzip compression fails.
+
+## 4.8.5
+
+### Patch Changes
+
+- 2f594df: Retry feature flag requests after transient network errors only. The feature flag request retry count defaults to 1 and can be set to 0 to disable retries.
+
 ## 4.8.4
 
 ### Patch Changes

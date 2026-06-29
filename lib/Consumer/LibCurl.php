@@ -68,15 +68,26 @@ class LibCurl extends QueueConsumer
             return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
         }
 
+        $isCompressed = false;
         if ($this->compress_request) {
-            $payload = gzencode($payload);
+            $compressedPayload = gzencode($payload);
 
-            if (false === $payload) {
-                return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+            if (false !== $compressedPayload) {
+                $payload = $compressedPayload;
+                $isCompressed = true;
+            } else {
+                $this->handleError(0, "Failed to gzip batch payload; sending uncompressed.");
             }
         }
 
         $shouldVerify = $this->options['verify_batch_events_request'] ?? true;
+        $requestOptions = [
+            'shouldVerify' => $shouldVerify,
+        ];
+        if ($this->compress_request) {
+            $requestOptions['compressRequest'] = $isCompressed;
+        }
+
         $response = $this->httpClient->sendRequest(
             '/batch/',
             $payload,
@@ -84,9 +95,7 @@ class LibCurl extends QueueConsumer
                 // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
                 "User-Agent: {$this->userAgent()}",
             ],
-            [
-                'shouldVerify' => $shouldVerify,
-            ]
+            $requestOptions
         );
 
         if (!$shouldVerify) {

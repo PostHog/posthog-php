@@ -38,9 +38,27 @@ class Client implements FeatureFlagEvaluationsHost
     private $personalAPIKey;
 
     /**
+     * Feature flag request timeout in milliseconds. Defaults to 3000ms.
+     *
      * @var integer
      */
     private $featureFlagsRequestTimeout;
+
+    /**
+     * Maximum number of retries for /flags/?v=2 transient network errors.
+     * Defaults to 1. Set to 0 to disable feature flag request retries.
+     *
+     * @var integer
+     */
+    private $featureFlagRequestMaxRetries;
+
+    /**
+     * Maximum retry backoff duration in milliseconds. Defaults to 10000ms.
+     * Retry backoff starts at 100ms and doubles until capped by this value.
+     *
+     * @var integer
+     */
+    private $maximumBackoffDurationMs;
 
     /**
      * Consumer object handles queueing and bundling requests to PostHog.
@@ -130,9 +148,14 @@ class Client implements FeatureFlagEvaluationsHost
      * @param string|null $apiKey Your project API key. When omitted or empty, the client is disabled
      *     and uses the noop consumer.
      * Time-based options use milliseconds unless the option name says otherwise:
-     * `timeout` and `maximum_backoff_duration` are in milliseconds for libcurl/HTTP requests,
-     * while `flush_interval_seconds` is in seconds. For the socket consumer, `timeout` is passed
-     * to pfsockopen() and is in seconds.
+     * `timeout` defaults to 10000ms, `feature_flag_request_timeout_ms` defaults to 3000ms,
+     * and `maximum_backoff_duration` defaults to 10000ms for retry backoff. Retry backoff starts
+     * at 100ms and doubles until capped by `maximum_backoff_duration`. `flush_interval_seconds`
+     * defaults to 5 seconds. For the socket consumer, `timeout` is passed to pfsockopen() and is
+     * in seconds.
+     *
+     * Feature flag requests to `/flags/?v=2` retry transient curl/network errors only.
+     * `feature_flag_request_max_retries` defaults to 1; set it to 0 to disable these retries.
      *
      * @param array{
      *     host?: string,
@@ -140,6 +163,7 @@ class Client implements FeatureFlagEvaluationsHost
      *     timeout?: int|float,
      *     verify_batch_events_request?: bool,
      *     feature_flag_request_timeout_ms?: int,
+     *     feature_flag_request_max_retries?: int,
      *     maximum_backoff_duration?: int,
      *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl'|'noop',
      *     debug?: bool,
@@ -189,16 +213,18 @@ class Client implements FeatureFlagEvaluationsHost
         }
         $Consumer = self::CONSUMERS[$this->options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($this->apiKey, $this->options, $httpClient);
+        $this->maximumBackoffDurationMs = (int) ($options['maximum_backoff_duration'] ?? 10000);
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $this->options['host'],
             $options['ssl'] ?? true,
-            (int) ($options['maximum_backoff_duration'] ?? 10000),
+            $this->maximumBackoffDurationMs,
             false,
             $options["debug"] ?? false,
             null,
             (int) ($options['timeout'] ?? 10000)
         );
         $this->featureFlagsRequestTimeout = (int) ($options['feature_flag_request_timeout_ms'] ?? 3000);
+        $this->featureFlagRequestMaxRetries = max(0, (int) ($options['feature_flag_request_max_retries'] ?? 1));
         $this->featureFlags = [];
         $this->groupTypeMapping = [];
         $this->cohorts = [];
@@ -1658,18 +1684,7 @@ class Client implements FeatureFlagEvaluationsHost
             $payload["flag_keys_to_evaluate"] = array_values($flagKeys);
         }
 
-        $httpResponse = $this->httpClient->sendRequest(
-            '/flags/?v=2',
-            json_encode($payload),
-            [
-                // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
-                "User-Agent: " . PostHog::LIBRARY . "/" . PostHog::VERSION,
-            ],
-            [
-                "shouldRetry" => false,
-                "timeout" => $this->featureFlagsRequestTimeout
-            ]
-        );
+        $httpResponse = $this->sendFeatureFlagsRequest($payload);
 
         $responseCode = $httpResponse->getResponseCode();
         $curlErrno = $httpResponse->getCurlErrno();
@@ -1705,6 +1720,50 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         return $this->normalizeFeatureFlags($httpResponse->getResponse());
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function sendFeatureFlagsRequest(array $payload): HttpResponse
+    {
+        $backoff = 100; // Set initial waiting time to 100ms
+        $requestPayload = json_encode($payload);
+        $retries = 0;
+
+        while (true) {
+            $httpResponse = $this->httpClient->sendRequest(
+                '/flags/?v=2',
+                $requestPayload,
+                [
+                    // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
+                    "User-Agent: " . PostHog::LIBRARY . "/" . PostHog::VERSION,
+                ],
+                [
+                    "shouldRetry" => false,
+                    "timeout" => $this->featureFlagsRequestTimeout
+                ]
+            );
+
+            if (
+                $httpResponse->getResponseCode() !== 0
+                || $retries >= $this->featureFlagRequestMaxRetries
+                || !$this->isRetryableFlagsCurlError($httpResponse->getCurlErrno())
+            ) {
+                return $httpResponse;
+            }
+
+            $retries++;
+            usleep(min($backoff, $this->maximumBackoffDurationMs) * 1000);
+            $backoff = min($backoff * 2, $this->maximumBackoffDurationMs);
+        }
+    }
+
+    private function isRetryableFlagsCurlError(int $curlErrno): bool
+    {
+        // Match Ruby's transient subset: timeouts, connection resets/receive failures,
+        // and empty replies/EOF. Do not retry refused connections or DNS failures.
+        return in_array($curlErrno, [28, 52, 56], true);
     }
 
     /** @return array{featureFlags: array<string, mixed>, featureFlagPayloads: array<string, mixed>, flags: array<string, mixed>} */

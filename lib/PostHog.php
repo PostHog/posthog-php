@@ -10,7 +10,7 @@ use Exception;
 class PostHog
 {
     public const LIBRARY = 'posthog-php';
-    public const VERSION = '4.8.4';
+    public const VERSION = '4.8.6';
     public const ENV_API_KEY = "POSTHOG_API_KEY";
     public const ENV_HOST = "POSTHOG_HOST";
 
@@ -25,9 +25,14 @@ class PostHog
      *
      * @param string|null $apiKey Your project API key.
      * Time-based options use milliseconds unless the option name says otherwise:
-     * `timeout` and `maximum_backoff_duration` are in milliseconds for libcurl/HTTP requests,
-     * while `flush_interval_seconds` is in seconds. For the socket consumer, `timeout` is passed
-     * to pfsockopen() and is in seconds.
+     * `timeout` defaults to 10000ms, `feature_flag_request_timeout_ms` defaults to 3000ms,
+     * and `maximum_backoff_duration` defaults to 10000ms for retry backoff. Retry backoff starts
+     * at 100ms and doubles until capped by `maximum_backoff_duration`. `flush_interval_seconds`
+     * defaults to 5 seconds. For the socket consumer, `timeout` is passed to pfsockopen() and is
+     * in seconds.
+     *
+     * Feature flag requests to `/flags/?v=2` retry transient curl/network errors only.
+     * `feature_flag_request_max_retries` defaults to 1; set it to 0 to disable these retries.
      *
      * @param array{
      *     host?: string,
@@ -35,6 +40,7 @@ class PostHog
      *     timeout?: int|float,
      *     verify_batch_events_request?: bool,
      *     feature_flag_request_timeout_ms?: int,
+     *     feature_flag_request_max_retries?: int,
      *     maximum_backoff_duration?: int,
      *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl'|'noop',
      *     debug?: bool,

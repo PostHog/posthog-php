@@ -22,9 +22,9 @@ class HttpClient
     private $useSsl;
 
     /**
-     * @var int
+     * @var int Maximum retry backoff duration in milliseconds.
      */
-    private $maximumBackoffDuration;
+    private $maximumBackoffDurationMs;
 
     /**
      * @var bool
@@ -67,7 +67,7 @@ class HttpClient
     ) {
         $this->host = $host;
         $this->useSsl = $useSsl;
-        $this->maximumBackoffDuration = $maximumBackoffDuration;
+        $this->maximumBackoffDurationMs = $maximumBackoffDuration;
         $this->compressRequests = $compressRequests;
         $this->debug = $debug;
         $this->errorHandler = $errorHandler;
@@ -84,7 +84,8 @@ class HttpClient
      *     shouldRetry?: bool,
      *     shouldVerify?: bool,
      *     includeEtag?: bool,
-     *     timeout?: int
+     *     timeout?: int,
+     *     compressRequest?: bool
      * } $requestOptions
      * @return HttpResponse
      */
@@ -98,6 +99,7 @@ class HttpClient
         $shouldRetry = $requestOptions['shouldRetry'] ?? true;
         $shouldVerify = $requestOptions['shouldVerify'] ?? true;
         $includeEtag = $requestOptions['includeEtag'] ?? false;
+        $compressRequest = $requestOptions['compressRequest'] ?? $this->compressRequests;
 
         do {
             // open connection
@@ -109,7 +111,7 @@ class HttpClient
 
             $headers = [];
             $headers[] = 'Content-Type: application/json';
-            if ($this->compressRequests) {
+            if ($compressRequest) {
                 $headers[] = 'Content-Encoding: gzip';
             }
 
@@ -168,7 +170,7 @@ class HttpClient
             } else {
                 break;  // no error
             }
-        } while ($shouldRetry && $backoff < $this->maximumBackoffDuration);
+        } while ($shouldRetry && $backoff < $this->maximumBackoffDurationMs);
 
         return $httpResponse;
     }
