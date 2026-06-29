@@ -84,7 +84,8 @@ class HttpClient
      *     shouldRetry?: bool,
      *     shouldVerify?: bool,
      *     includeEtag?: bool,
-     *     timeout?: int
+     *     timeout?: int,
+     *     compressRequest?: bool
      * } $requestOptions
      * @return HttpResponse
      */
@@ -98,6 +99,7 @@ class HttpClient
         $shouldRetry = $requestOptions['shouldRetry'] ?? true;
         $shouldVerify = $requestOptions['shouldVerify'] ?? true;
         $includeEtag = $requestOptions['includeEtag'] ?? false;
+        $compressRequest = $requestOptions['compressRequest'] ?? $this->compressRequests;
 
         do {
             // open connection
@@ -109,7 +111,7 @@ class HttpClient
 
             $headers = [];
             $headers[] = 'Content-Type: application/json';
-            if ($this->compressRequests) {
+            if ($compressRequest) {
                 $headers[] = 'Content-Encoding: gzip';
             }
 
