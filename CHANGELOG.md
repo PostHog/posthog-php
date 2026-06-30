@@ -1,3 +1,10 @@
+## 4.8.7
+
+### Patch Changes
+
+- b1a5645: Retry capture delivery on transient HTTP errors and respect Retry-After responses.
+- a6da214: Harden the automated release workflow.
+
 ## 4.8.6
 
 ### Patch Changes
