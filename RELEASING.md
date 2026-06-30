@@ -21,10 +21,12 @@ After review, merge the PR to `main`. No GitHub release label is required.
 A push to `main` that includes `.changeset/*.md` changes automatically starts the release workflow. The workflow then:
 
 1. Checks for pending changesets
-2. Notifies the client libraries team in Slack for approval
-3. Waits for approval from a maintainer via the GitHub `Release` environment
-4. The workflow applies Changesets, syncs `lib/PostHog.php` and `composer.json`, tags the release, and creates a GitHub Release.
-5. Notifies Slack when the release completes or fails
+2. Prepares a release candidate patch for the triggering commit in a read-only job without release secrets, after verifying the release bump script hash
+3. Verifies the release candidate in a separate read-only job and fails if the tag or GitHub Release already exists
+4. Notifies the client libraries team in Slack for approval only after candidate preparation and verification both succeed
+5. Waits for one approval from a maintainer via the GitHub `Release` environment
+6. Applies the verified release candidate patch, creates a signed release commit, tags the release, and creates a GitHub Release
+7. Notifies Slack and records PostHog failure events from separate follow-up jobs, outside the approved publishing job
 
 ### Manual Trigger
 
@@ -43,3 +45,46 @@ Changesets determines the next version from the committed changeset files:
 ### No changesets found
 
 If the release workflow reports that no changesets were found, make sure your PR includes at least one releasable `.changeset/*.md` file.
+
+### Updating the release bump script
+
+The release workflow validates `scripts/bump-version.sh` with a hardcoded SHA256 before executing it. If you modify `scripts/bump-version.sh`, recompute its hash and update `EXPECTED_BUMP_SCRIPT_SHA256` in `.github/workflows/release.yml` in the same PR:
+
+```bash
+sha256sum scripts/bump-version.sh
+```
+
+### Manual recovery after a failed release
+
+Most failures happen before anything is published. If the workflow fails before the `Commit version bump` step, no commit, tag, or GitHub Release should exist.
+
+If the signed release commit was created but `Create GitHub release` failed, prefer completing the release manually instead of rolling back:
+
+```bash
+VERSION=<version>
+COMMIT_SHA=<signed-release-commit-sha>
+
+CHANGELOG_ENTRY=$(awk -v defText="see CHANGELOG.md" '/^## /{if (flag) exit; flag=1} flag && /^##$/{exit} flag; END{if (!flag) print defText}' CHANGELOG.md)
+gh release create "$VERSION" --target "$COMMIT_SHA" --title "$VERSION" --notes "$CHANGELOG_ENTRY"
+```
+
+If the wrong GitHub Release or tag was created, delete both before retrying:
+
+```bash
+VERSION=<version>
+
+gh release delete "$VERSION" --yes --cleanup-tag || true
+git push origin ":refs/tags/$VERSION" || true
+```
+
+If the signed version bump commit itself is wrong and must be undone, revert it with a new commit rather than force-pushing `main`:
+
+```bash
+git switch main
+git pull --ff-only
+RELEASE_COMMIT=<signed-release-commit-sha>
+git revert "$RELEASE_COMMIT"
+git push origin main
+```
+
+After rollback, add or restore the needed changeset and let the release workflow prepare a new release candidate.
