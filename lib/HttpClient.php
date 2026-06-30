@@ -104,6 +104,7 @@ class HttpClient
         do {
             // open connection
             $ch = curl_init();
+            $responseHeaders = [];
 
             if (null !== $payload) {
                 curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
@@ -131,9 +132,14 @@ class HttpClient
                 curl_setopt($ch, CURLOPT_FRESH_CONNECT, true);
             }
 
-            // Capture response headers if we need to extract ETag
+            // Capture response headers if we need to extract ETag or honor Retry-After.
             if ($includeEtag) {
                 curl_setopt($ch, CURLOPT_HEADER, true);
+            } else {
+                curl_setopt($ch, CURLOPT_HEADERFUNCTION, static function ($ch, string $header) use (&$responseHeaders): int {
+                    $responseHeaders[] = trim($header);
+                    return strlen($header);
+                });
             }
 
             // retry failed requests just once to diminish impact on performance
@@ -155,14 +161,14 @@ class HttpClient
 
                 if ($shouldRetry === false) {
                     break;
-                } elseif (($responseCode >= 500 && $responseCode <= 600) || 429 == $responseCode) {
-                    // If status code is greater than 500 and less than 600, it indicates server error
-                    // Error code 429 indicates rate limited.
-                    // Retry uploading in these cases.
-                    usleep($backoff * 1000);
+                } elseif ($this->isRetryableStatus($responseCode)) {
+                    // Retry transient failures. Honor Retry-After when provided, otherwise use
+                    // exponential backoff starting at 100ms.
+                    $retryAfterMs = $this->retryAfterMilliseconds($responseHeaders);
+                    usleep(($retryAfterMs ?? $backoff) * 1000);
                     $backoff *= 2;
                 } else {
-                    // Do not retry non-5xx/non-429 responses (e.g. 4xx, 413 Payload Too Large,
+                    // Do not retry non-transient responses (e.g. 400, 401, 403, 413,
                     // or responseCode 0 for network errors). PHP sends synchronously in the hosting
                     // app's request path, so broad retries would slow down the host application.
                     break;
@@ -197,6 +203,41 @@ class HttpClient
         }
 
         return new HttpResponse($response, $responseCode, null, $curlErrno);
+    }
+
+    protected function isRetryableStatus(int $responseCode): bool
+    {
+        return $responseCode === 408
+            || $responseCode === 429
+            || ($responseCode >= 500 && $responseCode <= 600);
+    }
+
+    /**
+     * @param array<int, string> $headers
+     */
+    protected function retryAfterMilliseconds(array $headers): ?int
+    {
+        foreach ($headers as $header) {
+            if (stripos($header, 'Retry-After:') !== 0) {
+                continue;
+            }
+
+            $value = trim(substr($header, strlen('Retry-After:')));
+            if ($value === '') {
+                return null;
+            }
+
+            if (ctype_digit($value)) {
+                return max(0, (int) $value * 1000);
+            }
+
+            $timestamp = strtotime($value);
+            if ($timestamp !== false) {
+                return max(0, (int) (($timestamp - time()) * 1000));
+            }
+        }
+
+        return null;
     }
 
     private function handleError($code, $message)

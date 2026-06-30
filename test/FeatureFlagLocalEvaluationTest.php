@@ -38,6 +38,24 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->assertTrue(empty($errorMessages), "Error logs are not empty: " . implode("\n", $errorMessages));
     }
 
+    private function assertAndStripBatchUuid(int $callIndex): void
+    {
+        $payload = json_decode($this->http_client->calls[$callIndex]['payload'], true);
+        $this->assertIsArray($payload);
+        $this->assertArrayHasKey('batch', $payload);
+
+        foreach ($payload['batch'] as $index => $event) {
+            $this->assertArrayHasKey('uuid', $event);
+            $this->assertMatchesRegularExpression(
+                '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
+                $event['uuid']
+            );
+            unset($payload['batch'][$index]['uuid']);
+        }
+
+        $this->http_client->calls[$callIndex]['payload'] = json_encode($payload);
+    }
+
     public function testMatchPropertyEquals(): void
     {
         $prop = [
@@ -1442,6 +1460,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
             PostHog::flush();
 
+            $this->assertAndStripBatchUuid(1);
             $this->assertEquals(
                 $this->http_client->calls,
                 array(
@@ -1694,7 +1713,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    'payload' => '{"api_key":"random_key","distinct_id":"some-distinct-id","person_properties":{"distinct_id":"some-distinct-id","region":"USA","other":"thing"}}',
+                    'payload' => '{"api_key":"random_key","distinct_id":"some-distinct-id","groups":{},"person_properties":{"distinct_id":"some-distinct-id","region":"USA","other":"thing"},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["beta-feature"]}',
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
