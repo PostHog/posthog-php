@@ -76,7 +76,9 @@ abstract class QueueConsumer extends Consumer
         }
 
         if (isset($options["compress_request"])) {
-            $this->compress_request = json_decode($options["compress_request"]);
+            $this->compress_request = is_bool($options["compress_request"])
+                ? $options["compress_request"]
+                : (bool) json_decode($options["compress_request"]);
         }
 
         $this->queue = array();
