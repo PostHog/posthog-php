@@ -48,7 +48,7 @@ If the release workflow reports that no changesets were found, make sure your PR
 
 ### Updating the release bump script
 
-The release workflow validates `scripts/bump-version.sh` with a hardcoded SHA256 before executing it. If you modify `scripts/bump-version.sh`, recompute its hash and update `expected_bump_script_sha256` in `.github/workflows/release.yml` in the same PR:
+The release workflow validates `scripts/bump-version.sh` with a hardcoded SHA256 before executing it. If you modify `scripts/bump-version.sh`, recompute its hash and update `EXPECTED_BUMP_SCRIPT_SHA256` in `.github/workflows/release.yml` in the same PR:
 
 ```bash
 sha256sum scripts/bump-version.sh

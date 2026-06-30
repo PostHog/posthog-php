@@ -75,6 +75,11 @@ jobs:
 
       - name: Apply changesets and update version
         id: candidate
+        env:
+          # If scripts/bump-version.sh changes, recompute this with:
+          # sha256sum scripts/bump-version.sh
+          # Then update EXPECTED_BUMP_SCRIPT_SHA256 in this workflow in the same PR.
+          EXPECTED_BUMP_SCRIPT_SHA256: fb70c4da11c73df4da1b5b8d3cbd7e483cd19525dc9d8045f6c53a1bd1546809
         run: |
           set -euo pipefail
 
@@ -82,13 +87,9 @@ jobs:
           pnpm exec changeset version
           new_version=$(node -p "require('./package.json').version")
 
-          # If scripts/bump-version.sh changes, recompute this with:
-          # sha256sum scripts/bump-version.sh
-          # Then update expected_bump_script_sha256 in this workflow in the same PR.
-          expected_bump_script_sha256="fb70c4da11c73df4da1b5b8d3cbd7e483cd19525dc9d8045f6c53a1bd1546809"
           actual_bump_script_sha256=$(sha256sum scripts/bump-version.sh | awk '{print $1}')
-          if [ "$actual_bump_script_sha256" != "$expected_bump_script_sha256" ]; then
-            echo "scripts/bump-version.sh sha256 mismatch: expected $expected_bump_script_sha256, got $actual_bump_script_sha256" >&2
+          if [ "$actual_bump_script_sha256" != "$EXPECTED_BUMP_SCRIPT_SHA256" ]; then
+            echo "scripts/bump-version.sh sha256 mismatch: expected $EXPECTED_BUMP_SCRIPT_SHA256, got $actual_bump_script_sha256" >&2
             exit 1
           fi
 
@@ -128,7 +129,7 @@ jobs:
       - name: Upload release candidate patch
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: release-candidate
+          name: release-candidate-${{ steps.candidate.outputs.source-sha }}
           path: release.patch
           if-no-files-found: error
           retention-days: 5
@@ -152,7 +153,7 @@ jobs:
       - name: Download release candidate patch
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: release-candidate
+          name: release-candidate-${{ needs.prepare-release-candidate.outputs.source-sha }}
           path: release-candidate
 
       - name: Apply and validate release candidate patch
@@ -244,7 +245,7 @@ jobs:
       - name: Download verified release candidate patch
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: release-candidate
+          name: release-candidate-${{ needs.prepare-release-candidate.outputs.source-sha }}
           path: release-candidate
 
       - name: Apply verified release candidate patch
