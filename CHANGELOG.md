@@ -1,3 +1,9 @@
+## 4.8.8
+
+### Patch Changes
+
+- afa2dde: Harden the automated release workflow.
+
 ## 4.8.7
 
 ### Patch Changes
