@@ -27,9 +27,38 @@ class FeatureFlagLocalEvaluationTest extends TestCase
     {
         date_default_timezone_set("UTC");
 
+        // This class verifies legacy single-flag local evaluation behavior. Deprecation
+        // messages for those methods are asserted in FeatureFlagEvaluationsTest.
+        $previous = set_error_handler(
+            function (int $errno, string $errstr) use (&$previous) {
+                if ($errno === E_USER_DEPRECATED && $this->isLegacyFeatureFlagDeprecation($errstr)) {
+                    return true;
+                }
+
+                if ($previous !== null) {
+                    return $previous($errno, $errstr);
+                }
+
+                return false;
+            },
+            E_USER_DEPRECATED
+        );
+
         // Reset the errorMessages array before each test
         global $errorMessages;
         $errorMessages = [];
+    }
+
+    public function tearDown(): void
+    {
+        restore_error_handler();
+    }
+
+    private function isLegacyFeatureFlagDeprecation(string $message): bool
+    {
+        return str_contains($message, 'Client::getFeatureFlag() is deprecated')
+            || str_contains($message, 'Client::isFeatureEnabled() is deprecated')
+            || str_contains($message, 'Client::getFeatureFlagPayload() is deprecated');
     }
 
     public function checkEmptyErrorLogs(): void
@@ -38,22 +67,51 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->assertTrue(empty($errorMessages), "Error logs are not empty: " . implode("\n", $errorMessages));
     }
 
-    private function assertAndStripBatchUuid(int $callIndex): void
+    private function assertHttpCallsEqual(array $expectedCalls): void
     {
-        $payload = json_decode($this->http_client->calls[$callIndex]['payload'], true);
-        $this->assertIsArray($payload);
-        $this->assertArrayHasKey('batch', $payload);
+        $this->assertEquals(
+            $this->normalizeHttpCalls($expectedCalls, false),
+            $this->normalizeHttpCalls($this->http_client->calls ?? [], true)
+        );
+    }
 
-        foreach ($payload['batch'] as $index => $event) {
-            $this->assertArrayHasKey('uuid', $event);
-            $this->assertMatchesRegularExpression(
-                '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
-                $event['uuid']
-            );
-            unset($payload['batch'][$index]['uuid']);
+    private function normalizeHttpCalls(array $calls, bool $assertBatchUuids): array
+    {
+        foreach ($calls as $callIndex => $call) {
+            if (!isset($call['payload']) || !is_string($call['payload'])) {
+                continue;
+            }
+
+            $payload = json_decode($call['payload'], true);
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                continue;
+            }
+
+            if (isset($payload['batch']) && is_array($payload['batch'])) {
+                foreach ($payload['batch'] as $eventIndex => $event) {
+                    if (!is_array($event)) {
+                        continue;
+                    }
+
+                    if (!array_key_exists('uuid', $event)) {
+                        if ($assertBatchUuids) {
+                            $this->fail('Expected batch event to include a UUID');
+                        }
+                        continue;
+                    }
+
+                    $this->assertMatchesRegularExpression(
+                        '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
+                        $event['uuid']
+                    );
+                    unset($payload['batch'][$eventIndex]['uuid']);
+                }
+            }
+
+            $calls[$callIndex]['payload'] = $payload;
         }
 
-        $this->http_client->calls[$callIndex]['payload'] = json_encode($payload);
+        return $calls;
     }
 
     public function testMatchPropertyEquals(): void
@@ -1460,9 +1518,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
             PostHog::flush();
 
-            $this->assertAndStripBatchUuid(1);
-            $this->assertEquals(
-                $this->http_client->calls,
+            $this->assertHttpCallsEqual(
                 array(
                     0 => array(
                         "path" => "/flags/definitions?send_cohorts&token=random_key",
@@ -1708,8 +1764,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         );
         # since 'other' is negated, we return False. Since 'nation' is not present, we can't tell whether the flag should be true or false, so go to decide
         $this->assertEquals($feature_flag_match, 'decide-fallback-value');
-        $this->assertEquals(
-            $this->http_client->calls,
+        $this->assertHttpCallsEqual(
             array(
                 0 => array(
                     "path" => "/flags/?v=2",
