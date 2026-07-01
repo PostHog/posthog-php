@@ -12,8 +12,129 @@ on:
       - main
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      skip_heavy: ${{ steps.classify.outputs.skip_heavy }}
+    steps:
+      - name: Classify changed files
+        id: classify
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          skip_heavy=false
+
+          write_outputs() {
+            echo "skip_heavy=${skip_heavy}" >> "$GITHUB_OUTPUT"
+          }
+
+          summarize() {
+            {
+              echo "### SDK compliance changed-file classification"
+              echo ""
+              echo "skip_heavy: \`${skip_heavy}\`"
+              echo ""
+              echo "$1"
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            write_outputs
+            summarize "Non-pull-request event; running full SDK compliance CI."
+            exit 0
+          fi
+
+          if ! changed_file_records=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[] | [.filename, (.previous_filename // "")] | @tsv'); then
+            write_outputs
+            summarize "Could not read pull request files; running full SDK compliance CI."
+            exit 0
+          fi
+
+          if [[ -z "${changed_file_records}" ]]; then
+            write_outputs
+            summarize "No changed files were reported; running full SDK compliance CI."
+            exit 0
+          fi
+
+          is_safe_file() {
+            case "$1" in
+              *.md|docs/*|.github/ISSUE_TEMPLATE/*|.github/PULL_REQUEST_TEMPLATE/*|.github/pull_request_template.md|.github/CODEOWNERS|CODEOWNERS|.github/dependabot.yml|.github/workflows/release.yml|.github/workflows/release.yaml|.github/workflows/publish.yml|.github/workflows/publish.yaml|.github/workflows/stale.yml|.github/workflows/stale.yaml|.github/workflows/lint-pr.yml|.github/workflows/lint-pr.yaml|.github/workflows/call-flags-project-board.yml|.github/workflows/call-flags-project-board.yaml|.github/workflows/changeset-hygiene.yml|.github/workflows/changeset-hygiene.yaml|.github/workflows/dependabot-changeset.yml|.github/workflows/dependabot-changeset.yaml|.github/workflows/validate-versioning.yml|.github/workflows/validate-versioning.yaml|.github/workflows/new-pr.yml|.github/workflows/new-pr.yaml|.github/workflows/generated-files-notice.yml|.github/workflows/generated-files-notice.yaml|.github/workflows/posthog-upgrade.yml|.github/workflows/posthog-upgrade.yaml|.github/workflows/posthog-watcher-*.yml|.github/workflows/posthog-watcher-*.yaml)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          skip_heavy=true
+          changed_file_list=()
+          heavy_files=()
+          mapfile -t changed_file_record_list <<< "${changed_file_records}"
+
+          for record in "${changed_file_record_list[@]}"; do
+            filename=${record%%$'\t'*}
+            previous_filename=""
+            if [[ "${record}" == *$'\t'* ]]; then
+              previous_filename=${record#*$'\t'}
+            fi
+
+            if [[ -z "${filename}" ]]; then
+              skip_heavy=false
+              heavy_files+=("<empty filename from pull request files API>")
+              continue
+            fi
+
+            changed_file_list+=("${filename}")
+
+            if ! is_safe_file "${filename}"; then
+              skip_heavy=false
+              heavy_files+=("${filename}")
+            fi
+
+            if [[ -n "${previous_filename}" ]]; then
+              changed_file_list+=("${previous_filename} (previous filename)")
+
+              if ! is_safe_file "${previous_filename}"; then
+                skip_heavy=false
+                heavy_files+=("${previous_filename} (previous filename)")
+              fi
+            fi
+          done
+
+          if [[ ${#changed_file_list[@]} -eq 0 ]]; then
+            skip_heavy=false
+            heavy_files+=("<no changed filenames from pull request files API>")
+          fi
+
+          write_outputs
+
+          {
+            echo "### SDK compliance changed-file classification"
+            echo ""
+            echo "skip_heavy: \`${skip_heavy}\`"
+            echo ""
+            echo "Changed filenames considered:"
+            printf -- '- `%s`\n' "${changed_file_list[@]}"
+            echo ""
+            if [[ ${#heavy_files[@]} -gt 0 ]]; then
+              echo "Files requiring full SDK compliance CI:"
+              printf -- '- `%s`\n' "${heavy_files[@]}"
+            else
+              echo "Every changed filename and previous_filename matches the generic safe set, so heavy SDK compliance CI can be skipped."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
   compliance:
     name: PostHog SDK compliance tests
+    needs: detect-changes
+    if: needs.detect-changes.outputs.skip_heavy != 'true'
     uses: PostHog/posthog-sdk-test-harness/.github/workflows/test-sdk-action.yml@68498bcf3ae95ac941476e6ca3d42d6086e1c7fd
     with:
       adapter-dockerfile: "sdk_compliance_adapter/Dockerfile"

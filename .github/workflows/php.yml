@@ -5,16 +5,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - "**.php"
-      - "bin/posthog"
-      - "composer.json"
-      - "composer.lock"
-      - "phpcs.xml"
-      - "phpunit.xml"
-      - "api/public-api.json"
-      - "scripts/**"
-      - ".github/workflows/php.yml"
 
 permissions:
   contents: read
@@ -24,35 +14,149 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  detect-markdown-only:
-    uses: PostHog/.github/.github/workflows/detect-markdown-only.yml@ec25337d9fae0100622cbfea1bd5bd88284ac10b
+  detect-changes:
+    runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: read
+    outputs:
+      skip_heavy: ${{ steps.classify.outputs.skip_heavy }}
+    steps:
+      - name: Classify changed files
+        id: classify
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          skip_heavy=false
+
+          write_outputs() {
+            echo "skip_heavy=${skip_heavy}" >> "$GITHUB_OUTPUT"
+          }
+
+          summarize() {
+            {
+              echo "### CI changed-file classification"
+              echo ""
+              echo "skip_heavy: \`${skip_heavy}\`"
+              echo ""
+              echo "$1"
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            write_outputs
+            summarize "Non-pull-request event; running full CI."
+            exit 0
+          fi
+
+          if ! changed_file_records=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[] | [.filename, (.previous_filename // "")] | @tsv'); then
+            write_outputs
+            summarize "Could not read pull request files; running full CI."
+            exit 0
+          fi
+
+          if [[ -z "${changed_file_records}" ]]; then
+            write_outputs
+            summarize "No changed files were reported; running full CI."
+            exit 0
+          fi
+
+          is_safe_file() {
+            case "$1" in
+              *.md|docs/*|.github/ISSUE_TEMPLATE/*|.github/PULL_REQUEST_TEMPLATE/*|.github/pull_request_template.md|.github/CODEOWNERS|CODEOWNERS|.github/dependabot.yml|.github/workflows/release.yml|.github/workflows/release.yaml|.github/workflows/publish.yml|.github/workflows/publish.yaml|.github/workflows/stale.yml|.github/workflows/stale.yaml|.github/workflows/lint-pr.yml|.github/workflows/lint-pr.yaml|.github/workflows/call-flags-project-board.yml|.github/workflows/call-flags-project-board.yaml|.github/workflows/changeset-hygiene.yml|.github/workflows/changeset-hygiene.yaml|.github/workflows/dependabot-changeset.yml|.github/workflows/dependabot-changeset.yaml|.github/workflows/validate-versioning.yml|.github/workflows/validate-versioning.yaml|.github/workflows/new-pr.yml|.github/workflows/new-pr.yaml|.github/workflows/generated-files-notice.yml|.github/workflows/generated-files-notice.yaml|.github/workflows/posthog-upgrade.yml|.github/workflows/posthog-upgrade.yaml|.github/workflows/posthog-watcher-*.yml|.github/workflows/posthog-watcher-*.yaml)
+                return 0
+                ;;
+              *)
+                return 1
+                ;;
+            esac
+          }
+
+          skip_heavy=true
+          changed_file_list=()
+          heavy_files=()
+          mapfile -t changed_file_record_list <<< "${changed_file_records}"
+
+          for record in "${changed_file_record_list[@]}"; do
+            filename=${record%%$'	'*}
+            previous_filename=""
+            if [[ "${record}" == *$'	'* ]]; then
+              previous_filename=${record#*$'	'}
+            fi
+
+            if [[ -z "${filename}" ]]; then
+              skip_heavy=false
+              heavy_files+=("<empty filename from pull request files API>")
+              continue
+            fi
+
+            changed_file_list+=("${filename}")
+
+            if ! is_safe_file "${filename}"; then
+              skip_heavy=false
+              heavy_files+=("${filename}")
+            fi
+
+            if [[ -n "${previous_filename}" ]]; then
+              changed_file_list+=("${previous_filename} (previous filename)")
+
+              if ! is_safe_file "${previous_filename}"; then
+                skip_heavy=false
+                heavy_files+=("${previous_filename} (previous filename)")
+              fi
+            fi
+          done
+
+          if [[ ${#changed_file_list[@]} -eq 0 ]]; then
+            skip_heavy=false
+            heavy_files+=("<no changed filenames from pull request files API>")
+          fi
+
+          write_outputs
+
+          {
+            echo "### CI changed-file classification"
+            echo ""
+            echo "skip_heavy: \`${skip_heavy}\`"
+            echo ""
+            echo "Changed filenames considered:"
+            printf -- '- `%s`\n' "${changed_file_list[@]}"
+            echo ""
+            if [[ ${#heavy_files[@]} -gt 0 ]]; then
+              echo "Files requiring full CI:"
+              printf -- '- `%s`\n' "${heavy_files[@]}"
+            else
+              echo "Every changed filename and previous_filename matches the generic safe set, so heavy CI can be skipped."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   composer-validate:
-    needs: detect-markdown-only
+    needs: detect-changes
     runs-on: ubuntu-latest
     steps:
-      - name: Complete markdown-only PR check
-        if: needs.detect-markdown-only.outputs.markdown_only == 'true'
-        run: echo "Only Markdown files changed; no additional work is required for this check."
+      - name: Complete non-impacting PR check
+        if: needs.detect-changes.outputs.skip_heavy == 'true'
+        run: echo "Changed files are non-impacting for PHP CI; no additional work is required for this check."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
+        if: needs.detect-changes.outputs.skip_heavy != 'true'
 
       - name: Set up PHP
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
+        if: needs.detect-changes.outputs.skip_heavy != 'true'
         uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
         with:
           php-version: 8.4
           tools: composer
 
       - name: Validate composer files
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
+        if: needs.detect-changes.outputs.skip_heavy != 'true'
         run: composer validate --no-check-lock --no-check-version --strict
 
   public-api:
-    needs: detect-markdown-only
-    if: needs.detect-markdown-only.outputs.markdown_only != 'true'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.skip_heavy != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -70,40 +174,40 @@ jobs:
         run: composer api:check
 
   phpunit:
-    needs: detect-markdown-only
+    needs: detect-changes
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         php-version: [8.2, 8.3, 8.4, 8.5]
     steps:
-      - name: Complete markdown-only PR check
-        if: needs.detect-markdown-only.outputs.markdown_only == 'true'
-        run: echo "Only Markdown files changed; no additional work is required for this check."
+      - name: Complete non-impacting PR check
+        if: needs.detect-changes.outputs.skip_heavy == 'true'
+        run: echo "Changed files are non-impacting for PHP CI; no additional work is required for this check."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
+        if: needs.detect-changes.outputs.skip_heavy != 'true'
 
       - name: Set up PHP ${{ matrix.php-version }}
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
+        if: needs.detect-changes.outputs.skip_heavy != 'true'
         uses: shivammathur/setup-php@accd6127cb78bee3e8082180cb391013d204ef9f # v2.37.0
         with:
           php-version: ${{ matrix.php-version }}
           tools: composer, phpunit
 
       - name: Install Dependencies
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
+        if: needs.detect-changes.outputs.skip_heavy != 'true'
         run: composer install --prefer-dist --no-progress
 
       - name: Run PHPUnit Tests
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
+        if: needs.detect-changes.outputs.skip_heavy != 'true'
         run: ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml
 
   coverage:
     runs-on: ubuntu-latest
     needs:
-      - detect-markdown-only
+      - detect-changes
       - phpunit
-    if: needs.detect-markdown-only.outputs.markdown_only != 'true'
+    if: needs.detect-changes.outputs.skip_heavy != 'true'
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -121,21 +225,21 @@ jobs:
         run: XDEBUG_MODE=coverage ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml --coverage-text
 
   phpcs:
-    needs: detect-markdown-only
+    needs: detect-changes
     runs-on: ubuntu-latest
     steps:
-      - name: Complete markdown-only PR check
-        if: needs.detect-markdown-only.outputs.markdown_only == 'true'
-        run: echo "Only Markdown files changed; no additional work is required for this check."
+      - name: Complete non-impacting PR check
+        if: needs.detect-changes.outputs.skip_heavy == 'true'
+        run: echo "Changed files are non-impacting for PHP CI; no additional work is required for this check."
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
+        if: needs.detect-changes.outputs.skip_heavy != 'true'
         with:
           fetch-depth: 0 # important!
 
       # we may use whatever way to install phpcs, just specify the path on the next step
       # however, curl seems to be the fastest
       - name: Install PHP_CodeSniffer
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
+        if: needs.detect-changes.outputs.skip_heavy != 'true'
         run: |
           curl -OL https://squizlabs.github.io/PHP_CodeSniffer/phpcs.phar
           curl -OL https://squizlabs.github.io/PHP_CodeSniffer/phpcbf.phar
@@ -143,7 +247,7 @@ jobs:
           php phpcbf.phar --version
 
       - name: Check PHP formatting
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
+        if: needs.detect-changes.outputs.skip_heavy != 'true'
         run: |
           php phpcbf.phar --standard=phpcs.xml --no-colors || phpcbf_status=$?
           if [ "${phpcbf_status:-0}" -gt 1 ]; then
@@ -152,7 +256,7 @@ jobs:
           git diff --exit-code -- lib test
 
       - uses: tinovyatkin/action-php-codesniffer@0043b33b3629611c37e8bc7ee8a4e061dc9a7ea2 # v1
-        if: needs.detect-markdown-only.outputs.markdown_only != 'true'
+        if: needs.detect-changes.outputs.skip_heavy != 'true'
         with:
           files: "**.php" # you may customize glob as needed
           phpcs_path: php phpcs.phar
