@@ -624,7 +624,6 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
-            $distinctId,
             $groups,
             $personProperties,
             $groupProperties
@@ -822,7 +821,6 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
-            $distinctId,
             $groups,
             $personProperties,
             $groupProperties
@@ -906,7 +904,6 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
-            $distinctId,
             $groups,
             $personProperties,
             $groupProperties
@@ -2086,13 +2083,10 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     private function addLocalPersonAndGroupProperties(
-        string $distinctId,
         array $groups,
         array $personProperties,
         array $groupProperties
     ): array {
-        $allPersonProperties = $personProperties;
-
         $allGroupProperties = [];
         if (count($groups) > 0) {
             foreach ($groups as $groupName => $groupValue) {
@@ -2103,6 +2097,6 @@ class Client implements FeatureFlagEvaluationsHost
             }
         }
 
-        return [$allPersonProperties, $allGroupProperties];
+        return [$personProperties, $allGroupProperties];
     }
 }
