@@ -2091,10 +2091,7 @@ class Client implements FeatureFlagEvaluationsHost
         array $personProperties,
         array $groupProperties
     ): array {
-        $allPersonProperties = array_merge(
-            ["distinct_id" => $distinctId],
-            $personProperties
-        );
+        $allPersonProperties = $personProperties;
 
         $allGroupProperties = [];
         if (count($groups) > 0) {

@@ -251,7 +251,7 @@ class FeatureFlagTest extends TestCase
                 ),
                 1 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{},"person_properties":{"distinct_id":"user-id"},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["having_fun"]}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{},"person_properties":{},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["having_fun"]}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -271,7 +271,7 @@ class FeatureFlagTest extends TestCase
                 array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{},"person_properties":{"distinct_id":"user-id"},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["simple-test"]}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{},"person_properties":{},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["simple-test"]}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                     ),
@@ -294,7 +294,7 @@ class FeatureFlagTest extends TestCase
             [
                 [
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{},"person_properties":{"distinct_id":"user-id"},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["simple-test"]}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{},"person_properties":{},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["simple-test"]}', self::FAKE_API_KEY),
                     "extraHeaders" => [0 => 'User-Agent: posthog-php/' . PostHog::VERSION],
                     "requestOptions" => ["timeout" => 3000, "shouldRetry" => false],
                 ],
@@ -323,7 +323,7 @@ class FeatureFlagTest extends TestCase
                 1 => array(
                     "path" => "/flags/?v=2",
                     "payload" => sprintf(
-                        '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"},"person_properties":{"distinct_id":"user-id"},"group_properties":{"company":{"$group_key":"id:5"}},"geoip_disable":false,"flag_keys_to_evaluate":["having_fun"]}',
+                        '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"},"person_properties":{},"group_properties":{"company":{"$group_key":"id:5"}},"geoip_disable":false,"flag_keys_to_evaluate":["having_fun"]}',
                         self::FAKE_API_KEY
                     ),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
@@ -351,7 +351,7 @@ class FeatureFlagTest extends TestCase
                 ),
                 1 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{},"person_properties":{"distinct_id":"user-id"},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["multivariate-test"]}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{},"person_properties":{},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["multivariate-test"]}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -371,7 +371,7 @@ class FeatureFlagTest extends TestCase
                 array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{},"person_properties":{"distinct_id":"user-id"},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["multivariate-test"]}', self::FAKE_API_KEY),
+                    "payload" => sprintf('{"api_key":"%s","distinct_id":"user-id","groups":{},"person_properties":{},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["multivariate-test"]}', self::FAKE_API_KEY),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -420,7 +420,7 @@ class FeatureFlagTest extends TestCase
                 1 => array(
                     "path" => "/flags/?v=2",
                     "payload" => sprintf(
-                        '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"},"person_properties":{"distinct_id":"user-id"},"group_properties":{"company":{"$group_key":"id:5"}},"geoip_disable":false,"flag_keys_to_evaluate":["multivariate-test"]}',
+                        '{"api_key":"%s","distinct_id":"user-id","groups":{"company":"id:5"},"person_properties":{},"group_properties":{"company":{"$group_key":"id:5"}},"geoip_disable":false,"flag_keys_to_evaluate":["multivariate-test"]}',
                         self::FAKE_API_KEY
                     ),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
