@@ -29,7 +29,6 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
         // This class verifies legacy single-flag local evaluation behavior. Deprecation
         // messages for those methods are asserted in FeatureFlagEvaluationsTest.
-        $previous = null;
         $previous = set_error_handler(
             function (int $errno, string $errstr) use (&$previous) {
                 if ($errno === E_USER_DEPRECATED && $this->isLegacyFeatureFlagDeprecation($errstr)) {
