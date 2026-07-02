@@ -60,15 +60,20 @@ class PostHog
      *     }
      * }|null $options Client and consumer configuration options.
      * @param Client|null $client Preconfigured client instance. When provided, $apiKey, $options,
-     *     and $personalAPIKey are ignored.
-     * @param string|null $personalAPIKey Personal API key used to load local feature flag definitions.
+     *     $personalAPIKey, and $secretKey are ignored.
+     * @param string|null $personalAPIKey Deprecated: use $secretKey instead. Kept as a
+     *     backwards-compatible alias for $secretKey.
+     * @param string|null $secretKey Credential for local feature flag evaluation and remote config.
+     *     Accepts either a Personal API Key (`phx_...`) or a Project Secret API Key (`phs_...`).
+     *     Defaults to null. When both $secretKey and $personalAPIKey are provided, $secretKey wins.
      * @return void
      */
     public static function init(
         ?string $apiKey = null,
         ?array $options = [],
         ?Client $client = null,
-        ?string $personalAPIKey = null
+        ?string $personalAPIKey = null,
+        ?string $secretKey = null
     ): void {
         if (null === $client) {
             $options = $options ?? [];
@@ -100,7 +105,7 @@ class PostHog
                 }
             }
 
-            self::$client = new Client($apiKey, $options, null, $personalAPIKey);
+            self::$client = new Client($apiKey, $options, null, $personalAPIKey, secretKey: $secretKey);
         } else {
             self::$client = $client;
         }

@@ -267,6 +267,38 @@ class PostHogTest extends TestCase
         $this->assertEquals('https://app.posthog.com/', $optionsProp->getValue($client)['host']);
     }
 
+    public function testSecretKeySetsCredential(): void
+    {
+        $client = new Client(self::FAKE_API_KEY, [], $this->http_client, loadFeatureFlags: false, secretKey: "phs_secret");
+
+        $this->assertEquals("phs_secret", $this->readPrivate($client, 'secretKey'));
+        $this->assertEquals("phs_secret", $this->readPrivate($client, 'personalAPIKey'));
+    }
+
+    public function testPersonalApiKeyStillWorksAsAlias(): void
+    {
+        $client = new Client(self::FAKE_API_KEY, [], $this->http_client, "phx_personal", false);
+
+        $this->assertEquals("phx_personal", $this->readPrivate($client, 'secretKey'));
+        $this->assertEquals("phx_personal", $this->readPrivate($client, 'personalAPIKey'));
+    }
+
+    public function testSecretKeyWinsWhenBothProvided(): void
+    {
+        $client = new Client(self::FAKE_API_KEY, [], $this->http_client, "phx_personal", false, secretKey: "phs_secret");
+
+        $this->assertEquals("phs_secret", $this->readPrivate($client, 'secretKey'));
+        $this->assertEquals("phs_secret", $this->readPrivate($client, 'personalAPIKey'));
+    }
+
+    private function readPrivate(Client $client, string $property): mixed
+    {
+        $prop = (new \ReflectionClass($client))->getProperty($property);
+        $prop->setAccessible(true);
+
+        return $prop->getValue($client);
+    }
+
     public function testClientLogsWhenApiKeyIsEmptyAfterTrimmingWhitespace(): void
     {
         new Client(" \n\t ", ["debug" => true], $this->http_client);

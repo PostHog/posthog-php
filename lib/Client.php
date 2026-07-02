@@ -33,7 +33,21 @@ class Client implements FeatureFlagEvaluationsHost
     private $apiKey;
 
     /**
-     * @var string
+     * Credential for local feature flag evaluation and remote config.
+     *
+     * Holds the resolved credential from the $secretKey constructor argument, falling back to the
+     * deprecated $personalAPIKey argument. Accepts a Personal API Key (`phx_...`) or a Project
+     * Secret API Key (`phs_...`). Null when neither is provided.
+     *
+     * @var string|null
+     */
+    private $secretKey;
+
+    /**
+     * @deprecated Use {@see $secretKey} instead. Kept as a mirror of the resolved credential so
+     * existing reads keep working.
+     *
+     * @var string|null
      */
     private $personalAPIKey;
 
@@ -184,8 +198,12 @@ class Client implements FeatureFlagEvaluationsHost
      *     }
      * } $options Client and consumer configuration options.
      * @param HttpClient|null $httpClient Custom HTTP client, primarily for tests and advanced integrations.
-     * @param string|null $personalAPIKey Personal API key used to load local feature flag definitions.
+     * @param string|null $personalAPIKey Deprecated: use $secretKey instead. Kept as a
+     *     backwards-compatible alias for $secretKey.
      * @param bool $loadFeatureFlags Whether to load local feature flag definitions during construction.
+     * @param string|null $secretKey Credential for local feature flag evaluation and remote config.
+     *     Accepts either a Personal API Key (`phx_...`) or a Project Secret API Key (`phs_...`).
+     *     Defaults to null. When both $secretKey and $personalAPIKey are provided, $secretKey wins.
      */
     public function __construct(
         ?string $apiKey = null,
@@ -193,10 +211,12 @@ class Client implements FeatureFlagEvaluationsHost
         ?HttpClient $httpClient = null,
         ?string $personalAPIKey = null,
         bool $loadFeatureFlags = true,
+        ?string $secretKey = null,
     ) {
         $this->apiKey = StringNormalizer::normalizeOptional($apiKey) ?? '';
         $this->enabled = $this->apiKey !== '';
-        $this->personalAPIKey = StringNormalizer::normalizeOptional($personalAPIKey);
+        $this->secretKey = StringNormalizer::normalizeOptional($secretKey ?? $personalAPIKey);
+        $this->personalAPIKey = $this->secretKey;
         $this->options = $options;
         $this->debug = $options["debug"] ?? false;
         $this->flagDefinitionCacheProvider = self::normalizeFlagDefinitionCacheProvider(
@@ -241,7 +261,7 @@ class Client implements FeatureFlagEvaluationsHost
         if (
             $this->enabled
             && count($this->featureFlags) == 0
-            && !is_null($this->personalAPIKey)
+            && !is_null($this->secretKey)
             && $loadFeatureFlags
         ) {
             $this->loadFlags();
@@ -1239,7 +1259,7 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * Load local feature flag definitions using the configured personal API key.
+     * Load local feature flag definitions using the configured secret key.
      *
      * @return void
      * @throws Exception
@@ -1273,7 +1293,7 @@ class Client implements FeatureFlagEvaluationsHost
                     return;
                 }
 
-                $shouldFetch = !is_null($this->personalAPIKey);
+                $shouldFetch = !is_null($this->secretKey);
             } catch (Throwable $throwable) {
                 $this->logFlagDefinitionCacheWarning(
                     'Cache provider read error: ' . $throwable->getMessage()
@@ -1281,7 +1301,7 @@ class Client implements FeatureFlagEvaluationsHost
                 if ($this->hasFlagDefinitionsLoaded()) {
                     return;
                 }
-                $shouldFetch = !is_null($this->personalAPIKey);
+                $shouldFetch = !is_null($this->secretKey);
             }
         }
 
@@ -1307,7 +1327,7 @@ class Client implements FeatureFlagEvaluationsHost
             $this->logFlagDefinitionCacheWarning(
                 'Cache provider fetch-decision error: ' . $throwable->getMessage()
             );
-            return !is_null($this->personalAPIKey);
+            return !is_null($this->secretKey);
         }
     }
 
@@ -1525,7 +1545,7 @@ class Client implements FeatureFlagEvaluationsHost
         $headers = [
             // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
             "User-Agent: " . PostHog::LIBRARY . "/" . PostHog::VERSION,
-            "Authorization: Bearer " . $this->personalAPIKey
+            "Authorization: Bearer " . $this->secretKey
         ];
 
         // Add If-None-Match header if we have a cached ETag
