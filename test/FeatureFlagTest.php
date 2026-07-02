@@ -274,6 +274,41 @@ class FeatureFlagTest extends TestCase
     /**
      * @dataProvider retryableFlagsStatusCodes
      */
+    public function testFlagsRequestStopsAfterExhaustingHttp502And504Retries(int $statusCode): void
+    {
+        $this->http_client = new MockedHttpClient("app.posthog.com");
+        $this->http_client->setFlagsEndpointResponseQueue([
+            ['response' => [], 'responseCode' => $statusCode, 'curlErrno' => 0],
+            ['response' => [], 'responseCode' => $statusCode, 'curlErrno' => 0],
+            ['response' => [], 'responseCode' => $statusCode, 'curlErrno' => 0],
+            ['response' => MockedResponses::FLAGS_RESPONSE, 'responseCode' => 200, 'curlErrno' => 0],
+        ]);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+                "feature_flag_request_max_retries" => 2,
+                "maximum_backoff_duration" => 101,
+            ],
+            $this->http_client,
+            null
+        );
+
+        $this->assertSame([
+            'featureFlags' => [],
+            'featureFlagPayloads' => [],
+            'flags' => [],
+        ], $this->client->flags('user-id'));
+        $this->assertCount(3, $this->http_client->calls);
+        foreach ($this->http_client->calls as $call) {
+            $this->assertSame('/flags/?v=2', $call['path']);
+            $this->assertEquals(["timeout" => 3000, "shouldRetry" => false], $call['requestOptions']);
+        }
+    }
+
+    /**
+     * @dataProvider retryableFlagsStatusCodes
+     */
     public function testFlagsRequestDoesNotRetryHttp502And504WhenConfiguredMaxRetriesIsZero(int $statusCode): void
     {
         $this->http_client = new MockedHttpClient("app.posthog.com");
