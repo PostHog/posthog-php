@@ -10,7 +10,7 @@ use Exception;
 class PostHog
 {
     public const LIBRARY = 'posthog-php';
-    public const VERSION = '4.8.9';
+    public const VERSION = '4.8.10';
     public const ENV_API_KEY = "POSTHOG_API_KEY";
     public const ENV_HOST = "POSTHOG_HOST";
 
