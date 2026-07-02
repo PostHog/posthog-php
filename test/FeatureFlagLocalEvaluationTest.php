@@ -1135,6 +1135,47 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->checkEmptyErrorLogs();
     }
 
+    public function testFlagDistinctIdPropertyIsAvailableForLocalEvaluationOnly()
+    {
+        $localEvaluationResponse = MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST;
+        $localEvaluationResponse['flags'][0]['key'] = 'distinct-id-flag';
+        $localEvaluationResponse['flags'][0]['filters']['groups'][0]['properties'] = [
+            [
+                'key' => 'distinct_id',
+                'operator' => 'exact',
+                'value' => 'some-distinct-id',
+                'type' => 'person',
+            ],
+        ];
+
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: $localEvaluationResponse);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+        $this->http_client->calls = array();
+
+        $personProperties = ['region' => 'USA'];
+        $this->assertTrue(PostHog::getFeatureFlag(
+            'distinct-id-flag',
+            'some-distinct-id',
+            [],
+            $personProperties,
+            [],
+            true,
+            false
+        ));
+        $this->assertEquals(['region' => 'USA'], $personProperties);
+        $this->assertEquals(array(), $this->http_client->calls);
+
+        $this->checkEmptyErrorLogs();
+    }
+
     public function testFlagPersonBooleanProperties()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_BOOLEAN_REQUEST);

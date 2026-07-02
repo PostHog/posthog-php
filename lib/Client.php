@@ -1183,10 +1183,15 @@ class Client implements FeatureFlagEvaluationsHost
                 $this->groupTypeMapping
             );
         } else {
+            $localPersonProperties = $personProperties;
+            if (!array_key_exists('distinct_id', $localPersonProperties)) {
+                $localPersonProperties['distinct_id'] = $distinctId;
+            }
+
             return FeatureFlag::matchFeatureFlagProperties(
                 $featureFlag,
                 $distinctId,
-                $personProperties,
+                $localPersonProperties,
                 $this->cohorts,
                 $this->featureFlagsByKey,
                 $evaluationCache,
