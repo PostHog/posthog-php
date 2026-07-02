@@ -624,7 +624,6 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
-            $distinctId,
             $groups,
             $personProperties,
             $groupProperties
@@ -822,7 +821,6 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
-            $distinctId,
             $groups,
             $personProperties,
             $groupProperties
@@ -906,7 +904,6 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
-            $distinctId,
             $groups,
             $personProperties,
             $groupProperties
@@ -1186,10 +1183,15 @@ class Client implements FeatureFlagEvaluationsHost
                 $this->groupTypeMapping
             );
         } else {
+            $localPersonProperties = $personProperties;
+            if (!array_key_exists('distinct_id', $localPersonProperties)) {
+                $localPersonProperties['distinct_id'] = $distinctId;
+            }
+
             return FeatureFlag::matchFeatureFlagProperties(
                 $featureFlag,
                 $distinctId,
-                $personProperties,
+                $localPersonProperties,
                 $this->cohorts,
                 $this->featureFlagsByKey,
                 $evaluationCache,
@@ -2101,16 +2103,10 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     private function addLocalPersonAndGroupProperties(
-        string $distinctId,
         array $groups,
         array $personProperties,
         array $groupProperties
     ): array {
-        $allPersonProperties = array_merge(
-            ["distinct_id" => $distinctId],
-            $personProperties
-        );
-
         $allGroupProperties = [];
         if (count($groups) > 0) {
             foreach ($groups as $groupName => $groupValue) {
@@ -2121,6 +2117,6 @@ class Client implements FeatureFlagEvaluationsHost
             }
         }
 
-        return [$allPersonProperties, $allGroupProperties];
+        return [$personProperties, $allGroupProperties];
     }
 }

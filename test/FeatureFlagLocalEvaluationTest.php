@@ -1135,6 +1135,47 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->checkEmptyErrorLogs();
     }
 
+    public function testFlagDistinctIdPropertyIsAvailableForLocalEvaluationOnly()
+    {
+        $localEvaluationResponse = MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST;
+        $localEvaluationResponse['flags'][0]['key'] = 'distinct-id-flag';
+        $localEvaluationResponse['flags'][0]['filters']['groups'][0]['properties'] = [
+            [
+                'key' => 'distinct_id',
+                'operator' => 'exact',
+                'value' => 'some-distinct-id',
+                'type' => 'person',
+            ],
+        ];
+
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: $localEvaluationResponse);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+        $this->http_client->calls = array();
+
+        $personProperties = ['region' => 'USA'];
+        $this->assertTrue(PostHog::getFeatureFlag(
+            'distinct-id-flag',
+            'some-distinct-id',
+            [],
+            $personProperties,
+            [],
+            true,
+            false
+        ));
+        $this->assertEquals(['region' => 'USA'], $personProperties);
+        $this->assertEquals(array(), $this->http_client->calls);
+
+        $this->checkEmptyErrorLogs();
+    }
+
     public function testFlagPersonBooleanProperties()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_BOOLEAN_REQUEST);
@@ -1768,7 +1809,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    'payload' => '{"api_key":"random_key","distinct_id":"some-distinct-id","groups":{},"person_properties":{"distinct_id":"some-distinct-id","region":"USA","other":"thing"},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["beta-feature"]}',
+                    'payload' => '{"api_key":"random_key","distinct_id":"some-distinct-id","groups":{},"person_properties":{"region":"USA","other":"thing"},"group_properties":{},"geoip_disable":false,"flag_keys_to_evaluate":["beta-feature"]}',
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
