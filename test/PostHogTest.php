@@ -267,28 +267,24 @@ class PostHogTest extends TestCase
         $this->assertEquals('https://app.posthog.com/', $optionsProp->getValue($client)['host']);
     }
 
-    public function testSecretKeySetsCredential(): void
+    public static function secretKeyCredentialCases(): array
     {
-        $client = new Client(self::FAKE_API_KEY, [], $this->http_client, loadFeatureFlags: false, secretKey: "phs_secret");
-
-        $this->assertEquals("phs_secret", $this->readPrivate($client, 'secretKey'));
-        $this->assertEquals("phs_secret", $this->readPrivate($client, 'personalAPIKey'));
+        return [
+            'secret key only' => ['phs_secret', null, 'phs_secret'],
+            'personal api key alias' => [null, 'phx_personal', 'phx_personal'],
+            'secret key wins over personal api key' => ['phs_secret', 'phx_personal', 'phs_secret'],
+        ];
     }
 
-    public function testPersonalApiKeyStillWorksAsAlias(): void
+    /**
+     * @dataProvider secretKeyCredentialCases
+     */
+    public function testSecretKeyResolution(?string $secretKey, ?string $personalApiKey, string $expected): void
     {
-        $client = new Client(self::FAKE_API_KEY, [], $this->http_client, "phx_personal", false);
+        $client = new Client(self::FAKE_API_KEY, [], $this->http_client, $personalApiKey, false, secretKey: $secretKey);
 
-        $this->assertEquals("phx_personal", $this->readPrivate($client, 'secretKey'));
-        $this->assertEquals("phx_personal", $this->readPrivate($client, 'personalAPIKey'));
-    }
-
-    public function testSecretKeyWinsWhenBothProvided(): void
-    {
-        $client = new Client(self::FAKE_API_KEY, [], $this->http_client, "phx_personal", false, secretKey: "phs_secret");
-
-        $this->assertEquals("phs_secret", $this->readPrivate($client, 'secretKey'));
-        $this->assertEquals("phs_secret", $this->readPrivate($client, 'personalAPIKey'));
+        $this->assertEquals($expected, $this->readPrivate($client, 'secretKey'));
+        $this->assertEquals($expected, $this->readPrivate($client, 'personalAPIKey'));
     }
 
     private function readPrivate(Client $client, string $property): mixed
