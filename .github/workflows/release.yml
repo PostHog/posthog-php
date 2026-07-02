@@ -134,6 +134,29 @@ jobs:
           if-no-files-found: error
           retention-days: 5
 
+      - name: Send failure event to PostHog
+        if: ${{ failure() }}
+        continue-on-error: true
+        uses: PostHog/posthog-github-action@9a6a19d360820ab4d95ecc4a5a7564062c895f84 # v1.3.0
+        with:
+          posthog-token: "${{ secrets.POSTHOG_PROJECT_API_KEY }}"
+          event: "posthog-sdk-github-release-workflow-failure"
+          properties: >-
+            {
+              "commitSha": "${{ github.sha }}",
+              "jobStatus": "${{ job.status }}",
+              "ref": "${{ github.ref }}",
+              "repository": "${{ github.repository }}",
+              "sdk": "posthog-php",
+              "jobName": "prepare-release-candidate",
+              "packageName": "posthog-php",
+              "packageVersion": "${{ steps.candidate.outputs.new-version || 'unknown' }}",
+              "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "alertText": ":rotating_light: Failed to prepare release candidate posthog-php@${{ steps.candidate.outputs.new-version }} :rotating_light:",
+              "alertContext": "The release candidate preparation step failed before approval or publish."
+            }
+
+
   verify-release-candidate:
     name: Verify release candidate
     needs: [check-changesets, prepare-release-candidate]
@@ -212,6 +235,29 @@ jobs:
 
       - name: Validate composer files
         run: composer validate --no-check-lock --no-check-version --strict
+
+      - name: Send failure event to PostHog
+        if: ${{ failure() }}
+        continue-on-error: true
+        uses: PostHog/posthog-github-action@9a6a19d360820ab4d95ecc4a5a7564062c895f84 # v1.3.0
+        with:
+          posthog-token: "${{ secrets.POSTHOG_PROJECT_API_KEY }}"
+          event: "posthog-sdk-github-release-workflow-failure"
+          properties: >-
+            {
+              "commitSha": "${{ github.sha }}",
+              "jobStatus": "${{ job.status }}",
+              "ref": "${{ github.ref }}",
+              "repository": "${{ github.repository }}",
+              "sdk": "posthog-php",
+              "jobName": "verify-release-candidate",
+              "packageName": "posthog-php",
+              "packageVersion": "${{ needs.prepare-release-candidate.outputs.new-version || 'unknown' }}",
+              "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "alertText": ":rotating_light: Failed to verify release candidate posthog-php@${{ needs.prepare-release-candidate.outputs.new-version }} :rotating_light:",
+              "alertContext": "The release candidate verification step failed before approval or publish."
+            }
+
 
   notify-approval-needed:
     name: Notify Slack - Approval Needed
@@ -362,13 +408,20 @@ jobs:
         uses: PostHog/posthog-github-action@9a6a19d360820ab4d95ecc4a5a7564062c895f84 # v1.3.0
         with:
           posthog-token: "${{ secrets.POSTHOG_PROJECT_API_KEY }}"
-          event: "posthog-php-github-release-workflow-failure"
+          event: "posthog-sdk-github-release-workflow-failure"
           properties: >-
             {
               "commitSha": "${{ github.sha }}",
               "jobStatus": "${{ needs.release.result }}",
               "ref": "${{ github.ref }}",
-              "version": "${{ needs.prepare-release-candidate.outputs.new-version }}"
+              "repository": "${{ github.repository }}",
+              "sdk": "posthog-php",
+              "jobName": "release",
+              "packageName": "posthog-php",
+              "packageVersion": "${{ needs.prepare-release-candidate.outputs.new-version || 'unknown' }}",
+              "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "alertText": ":rotating_light: Failed to release posthog-php@${{ needs.prepare-release-candidate.outputs.new-version }} :rotating_light:",
+              "alertContext": "The release workflow failed before completion."
             }
 
       - name: Notify Slack - Failed
