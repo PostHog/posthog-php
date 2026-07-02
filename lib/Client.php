@@ -154,7 +154,7 @@ class Client implements FeatureFlagEvaluationsHost
      * defaults to 5 seconds. For the socket consumer, `timeout` is passed to pfsockopen() and is
      * in seconds.
      *
-     * Feature flag requests to `/flags/?v=2` retry transient curl/network errors only.
+     * Feature flag requests to `/flags/?v=2` retry transient curl/network errors and HTTP 502/504.
      * `feature_flag_request_max_retries` defaults to 1; set it to 0 to disable these retries.
      *
      * @param array{
@@ -1734,9 +1734,8 @@ class Client implements FeatureFlagEvaluationsHost
             );
 
             if (
-                $httpResponse->getResponseCode() !== 0
-                || $retries >= $this->featureFlagRequestMaxRetries
-                || !$this->isRetryableFlagsCurlError($httpResponse->getCurlErrno())
+                $retries >= $this->featureFlagRequestMaxRetries
+                || !$this->shouldRetryFeatureFlagsRequest($httpResponse)
             ) {
                 return $httpResponse;
             }
@@ -1747,11 +1746,27 @@ class Client implements FeatureFlagEvaluationsHost
         }
     }
 
+    private function shouldRetryFeatureFlagsRequest(HttpResponse $httpResponse): bool
+    {
+        $responseCode = $httpResponse->getResponseCode();
+
+        if ($responseCode === 0) {
+            return $this->isRetryableFlagsCurlError($httpResponse->getCurlErrno());
+        }
+
+        return $this->isRetryableFlagsStatusCode($responseCode);
+    }
+
     private function isRetryableFlagsCurlError(int $curlErrno): bool
     {
         // Match Ruby's transient subset: timeouts, connection resets/receive failures,
         // and empty replies/EOF. Do not retry refused connections or DNS failures.
         return in_array($curlErrno, [28, 52, 56], true);
+    }
+
+    private function isRetryableFlagsStatusCode(int $statusCode): bool
+    {
+        return in_array($statusCode, [502, 504], true);
     }
 
     /** @return array{featureFlags: array<string, mixed>, featureFlagPayloads: array<string, mixed>, flags: array<string, mixed>} */

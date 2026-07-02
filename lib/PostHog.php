@@ -31,7 +31,7 @@ class PostHog
      * defaults to 5 seconds. For the socket consumer, `timeout` is passed to pfsockopen() and is
      * in seconds.
      *
-     * Feature flag requests to `/flags/?v=2` retry transient curl/network errors only.
+     * Feature flag requests to `/flags/?v=2` retry transient curl/network errors and HTTP 502/504.
      * `feature_flag_request_max_retries` defaults to 1; set it to 0 to disable these retries.
      *
      * @param array{
