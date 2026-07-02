@@ -1,3 +1,9 @@
+## 4.8.9
+
+### Patch Changes
+
+- 6db62ec: Retry remote feature flag requests after transient 502 and 504 responses.
+
 ## 4.8.8
 
 ### Patch Changes
