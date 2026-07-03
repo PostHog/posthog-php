@@ -153,8 +153,9 @@ class ExceptionPayloadBuilder
             && !self::isDeclarationLineForFirstFrame($exception, $trace[0])
         ) {
             // Many PHP exceptions report the throw site in getFile()/getLine() but omit it
-            // from getTrace()[0]. Prepending a synthetic top frame keeps the first frame aligned
-            // with the highlighted source location in PostHog.
+            // from getTrace()[0]. Prepending a synthetic frame at the innermost end keeps the
+            // crash site aligned with the highlighted source location in PostHog (it becomes the
+            // last frame once buildStacktrace reverses the trace into canonical bottom-up order).
             array_unshift($trace, array_filter([
                 'file'     => $exception->getFile(),
                 'line'     => $exception->getLine(),
@@ -231,6 +232,11 @@ class ExceptionPayloadBuilder
         }
 
         $frames = array_values(array_filter($frames));
+
+        // PHP traces are innermost-first (crash site at index 0). PostHog's canonical wire order is
+        // bottom-up: frames[0] is the outermost/entry-point call and the last frame is the crash
+        // site. Slicing before reversing keeps the maxFrames most-relevant (crash-site) frames.
+        $frames = array_reverse($frames);
 
         return [
             'type'   => 'raw',

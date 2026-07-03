@@ -153,8 +153,9 @@ class ExceptionPayloadBuilderTest extends TestCase
         [$exception, $throwLine] = $this->throwHelperWithKnownLine();
         $result = ExceptionPayloadBuilder::buildExceptionList($exception);
 
+        // Canonical bottom-up order: the crash site (most recent frame) is the last frame.
         $frames = $result[0]['stacktrace']['frames'];
-        $frame = $frames[0];
+        $frame = $frames[count($frames) - 1];
 
         $this->assertEquals(__FILE__, $frame['abs_path']);
         $this->assertEquals($throwLine, $frame['lineno']);
@@ -165,9 +166,10 @@ class ExceptionPayloadBuilderTest extends TestCase
         [$exception, $throwLine, $callerLine] = $this->nestedThrowHelperWithKnownLines();
         $result = ExceptionPayloadBuilder::buildExceptionList($exception);
 
+        // Canonical bottom-up order: the innermost (crash) frame is last, its caller sits just before it.
         $frames = array_values($result[0]['stacktrace']['frames']);
-        $innermostFrame = $frames[0];
-        $callerFrame = $frames[1];
+        $innermostFrame = $frames[count($frames) - 1];
+        $callerFrame = $frames[count($frames) - 2];
 
         $this->assertEquals(__FILE__, $innermostFrame['abs_path']);
         $this->assertEquals($throwLine, $innermostFrame['lineno']);
@@ -181,15 +183,18 @@ class ExceptionPayloadBuilderTest extends TestCase
         [$exception, $arraySumLine, $callerLine] = $this->internalErrorHelperWithKnownLines();
         $result = ExceptionPayloadBuilder::buildExceptionList($exception);
 
+        // Canonical bottom-up order: the internal function (crash site) is last, its caller before it.
         $frames = array_values($result[0]['stacktrace']['frames']);
+        $crashFrame = $frames[count($frames) - 1];
+        $callerFrame = $frames[count($frames) - 2];
 
-        $this->assertEquals('array_sum', $frames[0]['function']);
-        $this->assertEquals(__FILE__, $frames[0]['abs_path']);
-        $this->assertEquals($arraySumLine, $frames[0]['lineno']);
-        $this->assertEquals(__CLASS__ . '->internalErrorLeaf', $frames[1]['function']);
-        $this->assertEquals(__FILE__, $frames[1]['abs_path']);
-        $this->assertEquals($callerLine, $frames[1]['lineno']);
-        $this->assertNotEquals($frames[0], $frames[1]);
+        $this->assertEquals('array_sum', $crashFrame['function']);
+        $this->assertEquals(__FILE__, $crashFrame['abs_path']);
+        $this->assertEquals($arraySumLine, $crashFrame['lineno']);
+        $this->assertEquals(__CLASS__ . '->internalErrorLeaf', $callerFrame['function']);
+        $this->assertEquals(__FILE__, $callerFrame['abs_path']);
+        $this->assertEquals($callerLine, $callerFrame['lineno']);
+        $this->assertNotEquals($crashFrame, $callerFrame);
     }
 
     public function testStrictTypeErrorUsesCallsiteBeforeDeclaration(): void
@@ -226,12 +231,14 @@ PHP;
             $this->assertInstanceOf(\Throwable::class, $exception);
 
             $result = ExceptionPayloadBuilder::buildExceptionList($exception);
+            // Canonical bottom-up order: the real callsite (crash site) is the last frame.
             $frames = array_values($result[0]['stacktrace']['frames']);
+            $crashFrame = $frames[count($frames) - 1];
 
-            $this->assertSame($scriptPath, $frames[0]['abs_path']);
-            $this->assertSame('requiresIntForTrace', $frames[0]['function']);
-            $this->assertSame($callLine, $frames[0]['lineno']);
-            $this->assertNotSame($declarationLine, $frames[0]['lineno']);
+            $this->assertSame($scriptPath, $crashFrame['abs_path']);
+            $this->assertSame('requiresIntForTrace', $crashFrame['function']);
+            $this->assertSame($callLine, $crashFrame['lineno']);
+            $this->assertNotSame($declarationLine, $crashFrame['lineno']);
         } finally {
             unlink($scriptPath);
         }
@@ -249,6 +256,59 @@ PHP;
         $this->assertCount(2, $frames);
         $this->assertArrayHasKey('context_line', $frames[0]);
         $this->assertArrayHasKey('context_line', $frames[1]);
+    }
+
+    public function testStacktraceFramesUseCanonicalBottomUpOrder(): void
+    {
+        // Regression guard for the canonical wire order. PHP's getTrace() is innermost-first
+        // (crash site at index 0); PostHog expects bottom-up frames where frames[0] is the
+        // outermost/entry-point call and the last frame is the crash site.
+        $exception = $this->orderedNestedThrowHelper();
+        $result = ExceptionPayloadBuilder::buildExceptionList($exception);
+
+        $frames = array_values($result[0]['stacktrace']['frames']);
+        $this->assertGreaterThanOrEqual(3, count($frames), 'nested throw should yield multiple frames');
+
+        $functions = array_map(static fn(array $frame) => $frame['function'] ?? null, $frames);
+
+        // The three helpers unwind inward: leaf (crash) is called by middle, called by the entry
+        // point. Canonical order therefore reads entry -> middle -> leaf from first to last.
+        $entryIndex  = array_search(__CLASS__ . '->orderedNestedThrowHelper', $functions, true);
+        $middleIndex = array_search(__CLASS__ . '->orderedThrowMiddle', $functions, true);
+        $leafIndex   = array_search(__CLASS__ . '->orderedThrowLeaf', $functions, true);
+
+        $this->assertNotFalse($entryIndex);
+        $this->assertNotFalse($middleIndex);
+        $this->assertNotFalse($leafIndex);
+        $this->assertTrue(
+            $entryIndex < $middleIndex && $middleIndex < $leafIndex,
+            'frames must read bottom-up: entry point first, crash site last'
+        );
+
+        // The very last frame is the crash site: it carries the throw location (file + line) and
+        // is the synthetic throw-site frame appended for the leaf.
+        $crashFrame = $frames[count($frames) - 1];
+        $this->assertSame(__FILE__, $crashFrame['abs_path']);
+        $this->assertSame($exception->getLine(), $crashFrame['lineno']);
+    }
+
+    private function orderedNestedThrowHelper(): \RuntimeException
+    {
+        try {
+            $this->orderedThrowMiddle();
+        } catch (\RuntimeException $e) {
+            return $e;
+        }
+    }
+
+    private function orderedThrowMiddle(): void
+    {
+        $this->orderedThrowLeaf();
+    }
+
+    private function orderedThrowLeaf(): never
+    {
+        throw new \RuntimeException('canonical order leaf');
     }
 
     private function throwHelper(): \RuntimeException
