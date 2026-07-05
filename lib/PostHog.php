@@ -49,6 +49,7 @@ class PostHog
      *     flush_interval_seconds?: int|float,
      *     compress_request?: bool|string,
      *     error_handler?: callable,
+     *     before_send?: callable(array<string, mixed>): (array<string, mixed>|null),
      *     filename?: string,
      *     flag_definition_cache_provider?: FlagDefinitionCacheProvider,
      *     error_tracking?: array{

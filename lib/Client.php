@@ -172,6 +172,7 @@ class Client implements FeatureFlagEvaluationsHost
      *     flush_interval_seconds?: int|float,
      *     compress_request?: bool|string,
      *     error_handler?: callable,
+     *     before_send?: callable(array<string, mixed>): (array<string, mixed>|null),
      *     filename?: string,
      *     is_server?: bool,
      *     flag_definition_cache_provider?: FlagDefinitionCacheProvider,
@@ -394,7 +395,49 @@ class Client implements FeatureFlagEvaluationsHost
 
         unset($message["send_feature_flags"]);
 
+        $message = $this->applyBeforeSend($message);
+        if ($message === null) {
+            return false;
+        }
+
         return $this->consumer->capture($message);
+    }
+
+    /**
+     * Run the configured before_send callback for a fully enriched capture event.
+     *
+     * @param array<string, mixed> $message
+     * @return array<string, mixed>|null
+     */
+    private function applyBeforeSend(array $message): ?array
+    {
+        $beforeSend = $this->options['before_send'] ?? null;
+        if ($beforeSend === null) {
+            return $message;
+        }
+
+        if (!is_callable($beforeSend)) {
+            error_log('[PostHog][Client] before_send is not callable; dropping event');
+            return null;
+        }
+
+        try {
+            $result = $beforeSend($message);
+        } catch (Throwable $e) {
+            error_log('[PostHog][Client] before_send callback threw; dropping event: ' . $e->getMessage());
+            return null;
+        }
+
+        if ($result === null) {
+            return null;
+        }
+
+        if (!is_array($result)) {
+            error_log('[PostHog][Client] before_send must return an array or null; dropping event');
+            return null;
+        }
+
+        return $result;
     }
 
     /**
