@@ -487,6 +487,63 @@ class PostHogTest extends TestCase
         $this->assertSame('/batch/', $httpClient->calls[0]['path']);
     }
 
+    public function testBeforeSendCanModifyFullyEnrichedEvent(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $sawFullyEnrichedEvent = false;
+        $client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "batch_size" => 1,
+                "before_send" => function (array $event) use (&$sawFullyEnrichedEvent): array {
+                    $sawFullyEnrichedEvent = isset(
+                        $event['properties']['$lib'],
+                        $event['properties']['$lib_version'],
+                        $event['properties']['$lib_consumer'],
+                        $event['properties']['$is_server']
+                    );
+                    unset($event['properties']['secret']);
+                    $event['properties']['before_send'] = true;
+
+                    return $event;
+                },
+            ],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+            "properties" => ["secret" => "remove"],
+        ]));
+
+        $this->assertTrue($sawFullyEnrichedEvent);
+        $payload = json_decode($httpClient->calls[0]['payload'], true);
+        $properties = $payload['batch'][0]['properties'];
+        $this->assertTrue($properties['before_send']);
+        $this->assertArrayNotHasKey('secret', $properties);
+    }
+
+    public function testBeforeSendCanDropEvent(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ["batch_size" => 1, "before_send" => static fn(array $event): ?array => null],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertFalse($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+        $this->assertSame([], $httpClient->calls ?? []);
+    }
+
 
     /**
      * @dataProvider facadeNoOpBeforeInitCases
