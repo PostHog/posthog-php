@@ -7,6 +7,7 @@ require_once 'test/error_log_mock.php';
 
 use Exception;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 use PostHog\Client;
 use PostHog\Consumer\NoOp;
 use PostHog\PostHog;
@@ -542,6 +543,34 @@ class PostHogTest extends TestCase
             "event" => "Module PHP Event",
         ]));
         $this->assertSame([], $httpClient->calls ?? []);
+    }
+
+    /**
+     * @dataProvider invalidBeforeSendCases
+     */
+    public function testBeforeSendInvalidCallbackPathsDropEvent(mixed $beforeSend): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ["batch_size" => 1, "before_send" => $beforeSend],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertFalse($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+        $this->assertSame([], $httpClient->calls ?? []);
+    }
+
+    public static function invalidBeforeSendCases(): iterable
+    {
+        yield 'throws' => [static fn(array $event): array => throw new RuntimeException('before_send failed')];
+        yield 'returns non-array' => [static fn(array $event): string => 'invalid'];
+        yield 'not callable' => ['not-callable'];
     }
 
 
