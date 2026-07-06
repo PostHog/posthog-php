@@ -7,6 +7,7 @@ require_once 'test/error_log_mock.php';
 
 use Exception;
 use PHPUnit\Framework\TestCase;
+use RuntimeException;
 use PostHog\Client;
 use PostHog\Consumer\NoOp;
 use PostHog\PostHog;
@@ -485,6 +486,175 @@ class PostHogTest extends TestCase
         ]));
         $this->assertSame(1, count($httpClient->calls ?? []));
         $this->assertSame('/batch/', $httpClient->calls[0]['path']);
+    }
+
+    public function testBeforeSendCanModifyFullyEnrichedEvent(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $sawFullyEnrichedEvent = false;
+        $client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "batch_size" => 1,
+                "before_send" => function (array $event) use (&$sawFullyEnrichedEvent): array {
+                    $sawFullyEnrichedEvent = isset(
+                        $event['properties']['$lib'],
+                        $event['properties']['$lib_version'],
+                        $event['properties']['$lib_consumer'],
+                        $event['properties']['$is_server']
+                    );
+                    unset($event['properties']['secret']);
+                    $event['properties']['before_send'] = true;
+
+                    return $event;
+                },
+            ],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+            "properties" => ["secret" => "remove"],
+        ]));
+
+        $this->assertTrue($sawFullyEnrichedEvent);
+        $payload = json_decode($httpClient->calls[0]['payload'], true);
+        $properties = $payload['batch'][0]['properties'];
+        $this->assertTrue($properties['before_send']);
+        $this->assertArrayNotHasKey('secret', $properties);
+    }
+
+    public function testBeforeSendCanDropEvent(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ["batch_size" => 1, "before_send" => static fn(array $event): ?array => null],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertFalse($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+        $this->assertSame([], $httpClient->calls ?? []);
+    }
+
+    public function testBeforeSendRunsForIdentify(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "batch_size" => 1,
+                "before_send" => static function (array $event): array {
+                    $event['properties']['before_send'] = true;
+                    unset($event['properties']['secret']);
+                    return $event;
+                },
+            ],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->identify([
+            "distinctId" => "john",
+            "properties" => ["secret" => "remove"],
+        ]));
+
+        $payload = json_decode($httpClient->calls[0]['payload'], true);
+        $event = $payload['batch'][0];
+        $this->assertSame('$identify', $event['event']);
+        $this->assertTrue($event['properties']['before_send']);
+        $this->assertArrayNotHasKey('secret', $event['properties']);
+    }
+
+    public function testBeforeSendRunsForAlias(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "batch_size" => 1,
+                "before_send" => static function (array $event): array {
+                    $event['properties']['before_send'] = true;
+                    unset($event['properties']['secret']);
+                    return $event;
+                },
+            ],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->alias([
+            "distinctId" => "john",
+            "alias" => "anonymous-id",
+            "properties" => ["secret" => "remove"],
+        ]));
+
+        $payload = json_decode($httpClient->calls[0]['payload'], true);
+        $event = $payload['batch'][0];
+        $this->assertSame('$create_alias', $event['event']);
+        $this->assertTrue($event['properties']['before_send']);
+        $this->assertArrayNotHasKey('secret', $event['properties']);
+    }
+
+    public function testBeforeSendThrowingCallbackDropsEvent(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "batch_size" => 1,
+                "before_send" => static fn(array $event): array => throw new RuntimeException('before_send failed'),
+            ],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertFalse($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+        ]));
+        $this->assertSame([], $httpClient->calls ?? []);
+    }
+
+    /**
+     * @dataProvider invalidBeforeSendCases
+     */
+    public function testBeforeSendInvalidCallbackPathsCaptureOriginalEvent(mixed $beforeSend): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ["batch_size" => 1, "before_send" => $beforeSend],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+            "properties" => ["original" => true],
+        ]));
+
+        $payload = json_decode($httpClient->calls[0]['payload'], true);
+        $this->assertTrue($payload['batch'][0]['properties']['original']);
+    }
+
+    public static function invalidBeforeSendCases(): iterable
+    {
+        yield 'returns non-array' => [static fn(array $event): string => 'invalid'];
+        yield 'not callable' => ['not-callable'];
     }
 
 
