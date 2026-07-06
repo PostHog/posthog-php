@@ -545,15 +545,15 @@ class PostHogTest extends TestCase
         $this->assertSame([], $httpClient->calls ?? []);
     }
 
-    /**
-     * @dataProvider invalidBeforeSendCases
-     */
-    public function testBeforeSendInvalidCallbackPathsDropEvent(mixed $beforeSend): void
+    public function testBeforeSendThrowingCallbackDropsEvent(): void
     {
         $httpClient = new MockedHttpClient("app.posthog.com");
         $client = new Client(
             self::FAKE_API_KEY,
-            ["batch_size" => 1, "before_send" => $beforeSend],
+            [
+                "batch_size" => 1,
+                "before_send" => static fn(array $event): array => throw new RuntimeException('before_send failed'),
+            ],
             $httpClient,
             null,
             false
@@ -566,9 +566,32 @@ class PostHogTest extends TestCase
         $this->assertSame([], $httpClient->calls ?? []);
     }
 
+    /**
+     * @dataProvider invalidBeforeSendCases
+     */
+    public function testBeforeSendInvalidCallbackPathsCaptureOriginalEvent(mixed $beforeSend): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ["batch_size" => 1, "before_send" => $beforeSend],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->capture([
+            "distinctId" => "john",
+            "event" => "Module PHP Event",
+            "properties" => ["original" => true],
+        ]));
+
+        $payload = json_decode($httpClient->calls[0]['payload'], true);
+        $this->assertTrue($payload['batch'][0]['properties']['original']);
+    }
+
     public static function invalidBeforeSendCases(): iterable
     {
-        yield 'throws' => [static fn(array $event): array => throw new RuntimeException('before_send failed')];
         yield 'returns non-array' => [static fn(array $event): string => 'invalid'];
         yield 'not callable' => ['not-callable'];
     }

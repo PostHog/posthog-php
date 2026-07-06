@@ -417,8 +417,8 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         if (!is_callable($beforeSend)) {
-            error_log('[PostHog][Client] before_send is not callable; dropping event');
-            return null;
+            error_log('[PostHog][Client] before_send is not callable; sending original event');
+            return $message;
         }
 
         try {
@@ -433,8 +433,8 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         if (!is_array($result)) {
-            error_log('[PostHog][Client] before_send must return an array or null; dropping event');
-            return null;
+            error_log('[PostHog][Client] before_send must return an array or null; sending original event');
+            return $message;
         }
 
         return $result;
