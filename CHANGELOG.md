@@ -1,3 +1,9 @@
+## 4.9.0
+
+### Minor Changes
+
+- fa53311: Add a before_send callback for modifying or dropping fully enriched events.
+
 ## 4.8.10
 
 ### Patch Changes
