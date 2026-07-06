@@ -545,6 +545,67 @@ class PostHogTest extends TestCase
         $this->assertSame([], $httpClient->calls ?? []);
     }
 
+    public function testBeforeSendRunsForIdentify(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "batch_size" => 1,
+                "before_send" => static function (array $event): array {
+                    $event['properties']['before_send'] = true;
+                    unset($event['properties']['secret']);
+                    return $event;
+                },
+            ],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->identify([
+            "distinctId" => "john",
+            "properties" => ["secret" => "remove"],
+        ]));
+
+        $payload = json_decode($httpClient->calls[0]['payload'], true);
+        $event = $payload['batch'][0];
+        $this->assertSame('$identify', $event['event']);
+        $this->assertTrue($event['properties']['before_send']);
+        $this->assertArrayNotHasKey('secret', $event['properties']);
+    }
+
+    public function testBeforeSendRunsForAlias(): void
+    {
+        $httpClient = new MockedHttpClient("app.posthog.com");
+        $client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "batch_size" => 1,
+                "before_send" => static function (array $event): array {
+                    $event['properties']['before_send'] = true;
+                    unset($event['properties']['secret']);
+                    return $event;
+                },
+            ],
+            $httpClient,
+            null,
+            false
+        );
+
+        $this->assertTrue($client->alias([
+            "distinctId" => "john",
+            "alias" => "anonymous-id",
+            "properties" => ["secret" => "remove"],
+        ]));
+
+        $payload = json_decode($httpClient->calls[0]['payload'], true);
+        $event = $payload['batch'][0];
+        $this->assertSame('$create_alias', $event['event']);
+        $this->assertTrue($event['properties']['before_send']);
+        $this->assertArrayNotHasKey('secret', $event['properties']);
+    }
+
     public function testBeforeSendThrowingCallbackDropsEvent(): void
     {
         $httpClient = new MockedHttpClient("app.posthog.com");

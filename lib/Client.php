@@ -497,6 +497,11 @@ class Client implements FeatureFlagEvaluationsHost
         $message["event"] = '$identify';
         unset($message["send_feature_flags"]);
 
+        $message = $this->applyBeforeSend($message);
+        if ($message === null) {
+            return false;
+        }
+
         return $this->consumer->identify($message);
     }
 
@@ -1846,6 +1851,11 @@ class Client implements FeatureFlagEvaluationsHost
 
         $message['distinct_id'] = null;
         unset($message['alias']);
+
+        $message = $this->applyBeforeSend($message);
+        if ($message === null) {
+            return false;
+        }
 
         return $this->consumer->alias($message);
     }
