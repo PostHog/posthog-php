@@ -268,6 +268,34 @@ class PostHogTest extends TestCase
         $this->assertEquals('https://app.posthog.com/', $optionsProp->getValue($client)['host']);
     }
 
+    public static function secretKeyCredentialCases(): array
+    {
+        return [
+            'secret key only' => ['phs_secret', null, 'phs_secret'],
+            'personal api key alias' => [null, 'phx_personal', 'phx_personal'],
+            'secret key wins over personal api key' => ['phs_secret', 'phx_personal', 'phs_secret'],
+        ];
+    }
+
+    /**
+     * @dataProvider secretKeyCredentialCases
+     */
+    public function testSecretKeyResolution(?string $secretKey, ?string $personalApiKey, string $expected): void
+    {
+        $client = new Client(self::FAKE_API_KEY, [], $this->http_client, $personalApiKey, false, secretKey: $secretKey);
+
+        $this->assertEquals($expected, $this->readPrivate($client, 'secretKey'));
+        $this->assertEquals($expected, $this->readPrivate($client, 'personalAPIKey'));
+    }
+
+    private function readPrivate(Client $client, string $property): mixed
+    {
+        $prop = (new \ReflectionClass($client))->getProperty($property);
+        $prop->setAccessible(true);
+
+        return $prop->getValue($client);
+    }
+
     public function testClientLogsWhenApiKeyIsEmptyAfterTrimmingWhitespace(): void
     {
         new Client(" \n\t ", ["debug" => true], $this->http_client);

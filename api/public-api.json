@@ -112,6 +112,16 @@
                             "default": true,
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "secretKey",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -3881,6 +3891,16 @@
                         },
                         {
                             "name": "personalAPIKey",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "secretKey",
                             "type": "?string",
                             "byReference": false,
                             "variadic": false,
