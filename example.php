@@ -39,13 +39,13 @@ loadEnvFile();
 
 // Get configuration
 $projectKey = $_ENV['POSTHOG_PROJECT_API_KEY'] ?? getenv('POSTHOG_PROJECT_API_KEY') ?: '';
-$personalApiKey = $_ENV['POSTHOG_PERSONAL_API_KEY'] ?? getenv('POSTHOG_PERSONAL_API_KEY') ?: '';
+$secretKey = $_ENV['POSTHOG_SECRET_KEY'] ?? getenv('POSTHOG_SECRET_KEY') ?: '';
 $host = $_ENV['POSTHOG_HOST'] ?? getenv('POSTHOG_HOST') ?: 'https://app.posthog.com';
 
 // Check if credentials are provided
-if (!$projectKey || !$personalApiKey) {
+if (!$projectKey || !$secretKey) {
     echo "❌ Missing PostHog credentials!\n";
-    echo "   Please set POSTHOG_PROJECT_API_KEY and POSTHOG_PERSONAL_API_KEY environment variables\n";
+    echo "   Please set POSTHOG_PROJECT_API_KEY and POSTHOG_SECRET_KEY environment variables\n";
     echo "   or copy .env.example to .env and fill in your values\n";
     exit(1);
 }
@@ -63,7 +63,7 @@ try {
             'ssl' => !(substr($host, 0, 7) === 'http://') // Use SSL unless explicitly http://
         ],
         null,
-        $personalApiKey
+        secretKey: $secretKey
     );
 
     // Test by attempting to get feature flags (this validates both keys)
@@ -72,14 +72,14 @@ try {
     // If we get here without exception, credentials work
     echo "✅ Authentication successful!\n";
     echo "   Project API Key: " . substr($projectKey, 0, 9) . "...\n";
-    echo "   Personal API Key: [REDACTED]\n";
+    echo "   Secret Key: [REDACTED]\n";
     echo "   Host: $host\n\n\n";
 } catch (Exception $e) {
     echo "❌ Authentication failed!\n";
     echo "   Error: " . $e->getMessage() . "\n";
     echo "\n   Please check your credentials:\n";
     echo "   - POSTHOG_PROJECT_API_KEY: Project API key from PostHog settings\n";
-    echo "   - POSTHOG_PERSONAL_API_KEY: Personal API key (required for local evaluation)\n";
+    echo "   - POSTHOG_SECRET_KEY: Secret key (required for local evaluation)\n";
     echo "   - POSTHOG_HOST: Your PostHog instance URL\n";
     exit(1);
 }
@@ -111,7 +111,7 @@ function identifyAndCaptureExamples()
             'ssl' => !str_starts_with($_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 'http://')
         ],
         null,
-        $_ENV['POSTHOG_PERSONAL_API_KEY']
+        secretKey: $_ENV['POSTHOG_SECRET_KEY']
     );
 
     // Capture an event
@@ -177,7 +177,7 @@ function featureFlagExamples()
             'ssl' => !str_starts_with($_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 'http://')
         ],
         null,
-        $_ENV['POSTHOG_PERSONAL_API_KEY']
+        secretKey: $_ENV['POSTHOG_SECRET_KEY']
     );
 
     echo "🚩 Getting individual feature flags...\n";
@@ -227,7 +227,7 @@ function flagDependencyExamples()
             'ssl' => !str_starts_with($_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 'http://')
         ],
         null,
-        $_ENV['POSTHOG_PERSONAL_API_KEY']
+        secretKey: $_ENV['POSTHOG_SECRET_KEY']
     );
 
     // Test @example.com user (should satisfy dependency if flags exist)
@@ -400,7 +400,7 @@ function contextManagementExamples()
             'ssl' => !str_starts_with($_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 'http://')
         ],
         null,
-        $_ENV['POSTHOG_PERSONAL_API_KEY']
+        secretKey: $_ENV['POSTHOG_SECRET_KEY']
     );
 
     echo "🏷️ Testing groups and properties...\n";
@@ -452,7 +452,7 @@ function etagPollingExamples()
             'ssl' => !str_starts_with($_ENV['POSTHOG_HOST'] ?? 'https://app.posthog.com', 'http://')
         ],
         null,
-        $_ENV['POSTHOG_PERSONAL_API_KEY']
+        secretKey: $_ENV['POSTHOG_SECRET_KEY']
     );
 
     $client = PostHog::getClient();
@@ -538,7 +538,7 @@ function errorTrackingExamples()
             ],
         ],
         null,
-        $_ENV['POSTHOG_PERSONAL_API_KEY']
+        secretKey: $_ENV['POSTHOG_SECRET_KEY']
     );
 
     echo "Auto capture enabled for uncaught exceptions, PHP errors, and fatal shutdown errors.\n";
