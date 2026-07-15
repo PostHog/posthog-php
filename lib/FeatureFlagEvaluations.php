@@ -178,12 +178,16 @@ class FeatureFlagEvaluations
             // Missing flags get a null response (not false), matching the legacy single-flag path
             // so consumers can distinguish "flag exists and is disabled" from "flag not found".
             '$feature_flag_response' => $response,
-            // Server-reported signal for whether the flag is linked to an experiment.
-            // Defaults to false when the server does not report it (older deployments).
-            '$feature_flag_has_experiment' => $record?->hasExperiment ?? false,
             // Always set explicitly so consumers don't have to infer "missing key means remote".
             'locally_evaluated' => $record?->locallyEvaluated ?? false,
         ];
+
+        // Server-reported signal for whether the flag is linked to an experiment. Only sent
+        // when the server explicitly reported it; omitted when unknown (older deployments,
+        // missing metadata, missing flags).
+        if ($record?->hasExperiment !== null) {
+            $properties['$feature_flag_has_experiment'] = $record->hasExperiment;
+        }
 
         if ($record !== null) {
             if ($record->id !== null) {

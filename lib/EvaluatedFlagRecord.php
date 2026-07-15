@@ -20,8 +20,8 @@ final class EvaluatedFlagRecord
      * @param int|null $version Feature flag version, when provided by the API.
      * @param string|null $reason Evaluation reason, when provided by the API.
      * @param bool $locallyEvaluated Whether the value was computed locally.
-     * @param bool $hasExperiment Server-reported signal for whether the flag is linked to an
-     *     experiment. Defaults to false when the server does not report it (older deployments).
+     * @param bool|null $hasExperiment Server-reported signal for whether the flag is linked to an
+     *     experiment. Null when the server does not report it (older deployments).
      */
     public function __construct(
         public readonly string $key,
@@ -32,7 +32,7 @@ final class EvaluatedFlagRecord
         public readonly ?int $version,
         public readonly ?string $reason,
         public readonly bool $locallyEvaluated,
-        public readonly bool $hasExperiment = false,
+        public readonly ?bool $hasExperiment = null,
     ) {
     }
 

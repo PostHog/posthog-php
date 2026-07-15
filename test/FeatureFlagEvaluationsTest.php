@@ -364,8 +364,8 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertArrayNotHasKey('$feature_flag_version', $properties);
         $this->assertArrayNotHasKey('$feature_flag_request_id', $properties);
         $this->assertArrayNotHasKey('$feature_flag_evaluated_at', $properties);
-        // Local definition doesn't report has_experiment, so the property defaults to false.
-        $this->assertFalse($properties['$feature_flag_has_experiment']);
+        // Local definition doesn't report has_experiment, so the property is omitted.
+        $this->assertArrayNotHasKey('$feature_flag_has_experiment', $properties);
     }
 
     public function testHasExperimentFromRemoteMetadataPropagatesToEvent(): void
@@ -384,20 +384,15 @@ class FeatureFlagEvaluationsTest extends TestCase
 
         $batches = $this->batchRequests();
         $this->assertCount(1, $batches);
-        $hasExperimentByFlag = [];
+        $propertiesByFlag = [];
         foreach ($batches[0]['batch'] as $event) {
-            $properties = $event['properties'];
-            $hasExperimentByFlag[$properties['$feature_flag']] = $properties['$feature_flag_has_experiment'];
+            $propertiesByFlag[$event['properties']['$feature_flag']] = $event['properties'];
         }
 
-        $this->assertSame(
-            [
-                'simple-test' => true,
-                'multivariate-test' => false,
-                'having_fun' => false,
-            ],
-            $hasExperimentByFlag
-        );
+        $this->assertTrue($propertiesByFlag['simple-test']['$feature_flag_has_experiment']);
+        $this->assertFalse($propertiesByFlag['multivariate-test']['$feature_flag_has_experiment']);
+        // Unreported has_experiment omits the property rather than defaulting it.
+        $this->assertArrayNotHasKey('$feature_flag_has_experiment', $propertiesByFlag['having_fun']);
     }
 
     public function testHasExperimentFromLocalDefinitionPropagatesToEvent(): void
@@ -466,7 +461,8 @@ class FeatureFlagEvaluationsTest extends TestCase
         $properties = $batches[0]['batch'][0]['properties'];
         $this->assertNull($properties['$feature_flag_response']);
         $this->assertFalse($properties['locally_evaluated']);
-        $this->assertFalse($properties['$feature_flag_has_experiment']);
+        // Missing flags have no server-reported has_experiment, so the property is omitted.
+        $this->assertArrayNotHasKey('$feature_flag_has_experiment', $properties);
     }
 
     public function testRemotePayloadHandlesPreDecodedValue(): void

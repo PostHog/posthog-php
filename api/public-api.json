@@ -1579,7 +1579,7 @@
                 "hasExperiment": {
                     "static": false,
                     "readonly": true,
-                    "type": "bool",
+                    "type": "?bool",
                     "default": null,
                     "hasDefault": false
                 },
@@ -1722,11 +1722,11 @@
                         },
                         {
                             "name": "hasExperiment",
-                            "type": "bool",
+                            "type": "?bool",
                             "byReference": false,
                             "variadic": false,
                             "optional": true,
-                            "default": false,
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         }

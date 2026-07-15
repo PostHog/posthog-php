@@ -788,19 +788,23 @@ class Client implements FeatureFlagEvaluationsHost
 
         if ($sendFeatureFlagEvents) {
             // Locally-evaluated flags carry has_experiment in the stored definition;
-            // remotely-evaluated flags carry it in the response metadata. Defaults to
-            // false when the server (older deployment) does not report it.
+            // remotely-evaluated flags carry it in the response metadata. Null when the
+            // server (older deployment) does not report it, in which case the property
+            // is omitted from the event.
             if ($flagWasEvaluatedLocally) {
-                $hasExperiment = (bool) ($localFlagDefinition['has_experiment'] ?? false);
+                $hasExperiment = $localFlagDefinition['has_experiment'] ?? null;
             } else {
-                $hasExperiment = (bool) ($flagDetail['metadata']['has_experiment'] ?? false);
+                $hasExperiment = $flagDetail['metadata']['has_experiment'] ?? null;
             }
 
             $properties = [
                 '$feature_flag' => $key,
                 '$feature_flag_response' => $result,
-                '$feature_flag_has_experiment' => $hasExperiment,
             ];
+
+            if (!is_null($hasExperiment)) {
+                $properties['$feature_flag_has_experiment'] = (bool) $hasExperiment;
+            }
 
             if (!is_null($requestId)) {
                 $properties['$feature_flag_request_id'] = $requestId;
@@ -1046,7 +1050,9 @@ class Client implements FeatureFlagEvaluationsHost
                     version: null,
                     reason: 'Evaluated locally',
                     locallyEvaluated: true,
-                    hasExperiment: (bool) ($flag['has_experiment'] ?? false),
+                    hasExperiment: isset($flag['has_experiment'])
+                        ? (bool) $flag['has_experiment']
+                        : null,
                 );
             }
 
@@ -1119,7 +1125,9 @@ class Client implements FeatureFlagEvaluationsHost
                             : null,
                         reason: $flagDetail['reason']['description'] ?? null,
                         locallyEvaluated: false,
-                        hasExperiment: (bool) ($flagDetail['metadata']['has_experiment'] ?? false),
+                        hasExperiment: isset($flagDetail['metadata']['has_experiment'])
+                            ? (bool) $flagDetail['metadata']['has_experiment']
+                            : null,
                     );
                 }
             } catch (HttpException $e) {
