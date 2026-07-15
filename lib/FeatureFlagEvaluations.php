@@ -182,6 +182,13 @@ class FeatureFlagEvaluations
             'locally_evaluated' => $record?->locallyEvaluated ?? false,
         ];
 
+        // Server-reported signal for whether the flag is linked to an experiment. Only sent
+        // when the server explicitly reported it; omitted when unknown (older deployments,
+        // missing metadata, missing flags).
+        if ($record?->hasExperiment !== null) {
+            $properties['$feature_flag_has_experiment'] = $record->hasExperiment;
+        }
+
         if ($record !== null) {
             if ($record->id !== null) {
                 $properties['$feature_flag_id'] = $record->id;

@@ -488,6 +488,41 @@ class FeatureFlagTest extends TestCase
         });
     }
 
+    public static function hasExperimentCases(): array
+    {
+        // The event property mirrors the server's has_experiment field exactly and is
+        // omitted when the server does not report it (older deployments).
+        return [
+            'reported true' => [true],
+            'reported false' => [false],
+            'absent' => [null],
+        ];
+    }
+
+    /**
+     * @dataProvider hasExperimentCases
+     */
+    public function testFeatureFlagCalledEventIncludesHasExperimentFromRemoteMetadata(?bool $reported)
+    {
+        $response = MockedResponses::FLAGS_V2_RESPONSE;
+        if ($reported !== null) {
+            $response['flags']['simple-test']['metadata']['has_experiment'] = $reported;
+        }
+        $this->setUp($response, personalApiKey: null);
+
+        $this->assertTrue(PostHog::isFeatureEnabled('simple-test', 'user-id'));
+        PostHog::flush();
+
+        $payload = json_decode($this->http_client->calls[1]['payload'], true);
+        $properties = $payload['batch'][0]['properties'];
+        $this->assertSame('simple-test', $properties['$feature_flag']);
+        if ($reported === null) {
+            $this->assertArrayNotHasKey('$feature_flag_has_experiment', $properties);
+        } else {
+            $this->assertSame($reported, $properties['$feature_flag_has_experiment']);
+        }
+    }
+
     /**
      * @dataProvider decideResponseCases
      */

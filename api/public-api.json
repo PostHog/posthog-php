@@ -1576,6 +1576,13 @@
                     "default": null,
                     "hasDefault": false
                 },
+                "hasExperiment": {
+                    "static": false,
+                    "readonly": true,
+                    "type": "?bool",
+                    "default": null,
+                    "hasDefault": false
+                },
                 "id": {
                     "static": false,
                     "readonly": true,
@@ -1712,6 +1719,16 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": false
+                        },
+                        {
+                            "name": "hasExperiment",
+                            "type": "?bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },

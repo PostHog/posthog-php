@@ -1578,6 +1578,31 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         });
     }
 
+    public function testFeatureFlagCalledEventIncludesHasExperimentFromLocalDefinition()
+    {
+        $localResponse = MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST;
+        $localResponse['flags'][0]['has_experiment'] = true;
+
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: $localResponse);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertTrue(PostHog::getFeatureFlag('simple-flag', 'some-distinct-id'));
+        PostHog::flush();
+
+        $payload = json_decode($this->http_client->calls[1]['payload'], true);
+        $properties = $payload['batch'][0]['properties'];
+        $this->assertSame('simple-flag', $properties['$feature_flag']);
+        $this->assertTrue($properties['$feature_flag_has_experiment']);
+    }
+
     public function testFeatureFlagsDontFallbackToDecideWhenOnlyLocalEvaluationIsTrue()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_FLAGS_REQUEST);
