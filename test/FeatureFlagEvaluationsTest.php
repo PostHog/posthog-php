@@ -364,6 +364,63 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertArrayNotHasKey('$feature_flag_version', $properties);
         $this->assertArrayNotHasKey('$feature_flag_request_id', $properties);
         $this->assertArrayNotHasKey('$feature_flag_evaluated_at', $properties);
+        // Local definition doesn't report has_experiment, so the property defaults to false.
+        $this->assertFalse($properties['$feature_flag_has_experiment']);
+    }
+
+    public function testHasExperimentFromRemoteMetadataPropagatesToEvent(): void
+    {
+        $response = MockedResponses::FLAGS_V2_RESPONSE;
+        $response['flags']['simple-test']['metadata']['has_experiment'] = true;
+        $response['flags']['multivariate-test']['metadata']['has_experiment'] = false;
+        // having_fun's metadata omits has_experiment, covering older deployments.
+        $this->makeClient(flagsEndpointResponse: $response);
+
+        $snapshot = PostHog::evaluateFlags('user-1');
+        $snapshot->isEnabled('simple-test');
+        $snapshot->getFlag('multivariate-test');
+        $snapshot->isEnabled('having_fun');
+        PostHog::flush();
+
+        $batches = $this->batchRequests();
+        $this->assertCount(1, $batches);
+        $hasExperimentByFlag = [];
+        foreach ($batches[0]['batch'] as $event) {
+            $properties = $event['properties'];
+            $hasExperimentByFlag[$properties['$feature_flag']] = $properties['$feature_flag_has_experiment'];
+        }
+
+        $this->assertSame(
+            [
+                'simple-test' => true,
+                'multivariate-test' => false,
+                'having_fun' => false,
+            ],
+            $hasExperimentByFlag
+        );
+    }
+
+    public function testHasExperimentFromLocalDefinitionPropagatesToEvent(): void
+    {
+        $localResponse = MockedResponses::LOCAL_EVALUATION_REQUEST;
+        $localResponse['flags'][0]['has_experiment'] = true;
+        $this->makeClient(
+            personalApiKey: 'test-personal-key',
+            localEvaluationResponse: $localResponse,
+        );
+        $snapshot = PostHog::evaluateFlags(
+            'user-1',
+            personProperties: ['region' => 'USA']
+        );
+
+        $this->assertTrue($snapshot->isEnabled('person-flag'));
+        PostHog::flush();
+
+        $batches = $this->batchRequests();
+        $this->assertCount(1, $batches);
+        $properties = $batches[0]['batch'][0]['properties'];
+        $this->assertTrue($properties['locally_evaluated']);
+        $this->assertTrue($properties['$feature_flag_has_experiment']);
     }
 
     public function testLocalEvaluationSkipsRemoteFlagsRequestWhenAllResolved(): void
@@ -409,6 +466,7 @@ class FeatureFlagEvaluationsTest extends TestCase
         $properties = $batches[0]['batch'][0]['properties'];
         $this->assertNull($properties['$feature_flag_response']);
         $this->assertFalse($properties['locally_evaluated']);
+        $this->assertFalse($properties['$feature_flag_has_experiment']);
     }
 
     public function testRemotePayloadHandlesPreDecodedValue(): void

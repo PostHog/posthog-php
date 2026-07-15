@@ -1569,13 +1569,38 @@ class FeatureFlagLocalEvaluationTest extends TestCase
                     ),
                     1 => array(
                         "path" => "/batch/",
-                        'payload' => '{"batch":[{"properties":{"$feature_flag":"simple-flag","$feature_flag_response":true,"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true,"$groups":[]},"distinct_id":"some-distinct-id","event":"$feature_flag_called","$groups":[],"groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
+                        'payload' => '{"batch":[{"properties":{"$feature_flag":"simple-flag","$feature_flag_response":true,"$feature_flag_has_experiment":false,"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true,"$groups":[]},"distinct_id":"some-distinct-id","event":"$feature_flag_called","$groups":[],"groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),
                 )
             );
         });
+    }
+
+    public function testFeatureFlagCalledEventIncludesHasExperimentFromLocalDefinition()
+    {
+        $localResponse = MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST;
+        $localResponse['flags'][0]['has_experiment'] = true;
+
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: $localResponse);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertTrue(PostHog::getFeatureFlag('simple-flag', 'some-distinct-id'));
+        PostHog::flush();
+
+        $payload = json_decode($this->http_client->calls[1]['payload'], true);
+        $properties = $payload['batch'][0]['properties'];
+        $this->assertSame('simple-flag', $properties['$feature_flag']);
+        $this->assertTrue($properties['$feature_flag_has_experiment']);
     }
 
     public function testFeatureFlagsDontFallbackToDecideWhenOnlyLocalEvaluationIsTrue()

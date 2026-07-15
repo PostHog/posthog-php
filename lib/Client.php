@@ -699,9 +699,11 @@ class Client implements FeatureFlagEvaluationsHost
         $result = null;
         $payload = null;
         $featureFlagError = null;
+        $localFlagDefinition = null;
 
         foreach ($this->featureFlags as $flag) {
             if ($flag["key"] == $key) {
+                $localFlagDefinition = $flag;
                 try {
                     $result = $this->computeFlagLocally(
                         $flag,
@@ -785,9 +787,19 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         if ($sendFeatureFlagEvents) {
+            // Locally-evaluated flags carry has_experiment in the stored definition;
+            // remotely-evaluated flags carry it in the response metadata. Defaults to
+            // false when the server (older deployment) does not report it.
+            if ($flagWasEvaluatedLocally) {
+                $hasExperiment = (bool) ($localFlagDefinition['has_experiment'] ?? false);
+            } else {
+                $hasExperiment = (bool) ($flagDetail['metadata']['has_experiment'] ?? false);
+            }
+
             $properties = [
                 '$feature_flag' => $key,
                 '$feature_flag_response' => $result,
+                '$feature_flag_has_experiment' => $hasExperiment,
             ];
 
             if (!is_null($requestId)) {
@@ -1034,6 +1046,7 @@ class Client implements FeatureFlagEvaluationsHost
                     version: null,
                     reason: 'Evaluated locally',
                     locallyEvaluated: true,
+                    hasExperiment: (bool) ($flag['has_experiment'] ?? false),
                 );
             }
 
@@ -1106,6 +1119,7 @@ class Client implements FeatureFlagEvaluationsHost
                             : null,
                         reason: $flagDetail['reason']['description'] ?? null,
                         locallyEvaluated: false,
+                        hasExperiment: (bool) ($flagDetail['metadata']['has_experiment'] ?? false),
                     );
                 }
             } catch (HttpException $e) {
