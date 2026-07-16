@@ -164,9 +164,11 @@ class Client implements FeatureFlagEvaluationsHost
      * Time-based options use milliseconds unless the option name says otherwise:
      * `timeout` defaults to 10000ms, `feature_flag_request_timeout_ms` defaults to 3000ms,
      * and `maximum_backoff_duration` defaults to 10000ms for retry backoff. Retry backoff starts
-     * at 100ms and doubles until capped by `maximum_backoff_duration`. `flush_interval_seconds`
-     * defaults to 5 seconds. For the socket consumer, `timeout` is passed to pfsockopen() and is
-     * in seconds.
+     * at 100ms and doubles until capped by `maximum_backoff_duration`. `max_queue_size` defaults
+     * to 10000 events, `batch_size` defaults to 100 events, and `flush_interval_seconds` defaults
+     * to 5 seconds. The interval is checked when another event is enqueued because PHP has no
+     * portable in-process background timer. For the socket consumer, `timeout` is passed to
+     * pfsockopen() and is in seconds.
      *
      * Feature flag requests to `/flags/?v=2` retry transient curl/network errors and HTTP 502/504.
      * `feature_flag_request_max_retries` defaults to 1; set it to 0 to disable these retries.

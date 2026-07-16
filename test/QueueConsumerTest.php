@@ -10,6 +10,22 @@ use PostHog\QueueConsumer;
 
 class QueueConsumerTest extends TestCase
 {
+    public function testDefaultQueueAcceptsTenThousandItemsAndRejectsTheNext(): void
+    {
+        $consumer = new QueueConsumerTestConsumer(
+            [],
+            ['batch_size' => 20_000, 'flush_interval_seconds' => 3600]
+        );
+
+        for ($i = 0; $i < 10_000; ++$i) {
+            $consumer->enqueue($i);
+        }
+
+        $this->assertCount(10_000, $consumer->queuedItems());
+        $this->assertFalse($consumer->enqueue('overflow'));
+        $this->assertCount(10_000, $consumer->queuedItems());
+    }
+
     public function testRetryableFlushFailureKeepsBatchQueued(): void
     {
         $first = $this->message('first');
