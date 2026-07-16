@@ -241,12 +241,16 @@ PHP, 255, false);
                 $event['properties']['$exception_list'][0]['mechanism']
             );
             $this->assertSame('ErrorException', $event['properties']['$exception_list'][0]['type']);
-            $this->assertSame('trigger_error', $frames[0]['function']);
-            $this->assertSame(__FILE__, $frames[0]['abs_path']);
-            $this->assertSame($triggerLine, $frames[0]['lineno']);
-            $this->assertSame(__CLASS__ . '->triggerWarningHelper', $frames[1]['function']);
-            $this->assertSame(__FILE__, $frames[1]['abs_path']);
-            $this->assertSame($callSiteLine, $frames[1]['lineno']);
+            // Canonical bottom-up order: the crash site (trigger_error) is the last frame and its
+            // caller sits just before it.
+            $crashFrame = $frames[count($frames) - 1];
+            $callerFrame = $frames[count($frames) - 2];
+            $this->assertSame('trigger_error', $crashFrame['function']);
+            $this->assertSame(__FILE__, $crashFrame['abs_path']);
+            $this->assertSame($triggerLine, $crashFrame['lineno']);
+            $this->assertSame(__CLASS__ . '->triggerWarningHelper', $callerFrame['function']);
+            $this->assertSame(__FILE__, $callerFrame['abs_path']);
+            $this->assertSame($callSiteLine, $callerFrame['lineno']);
             $this->assertFalse($this->framesContainFunction($frames, ExceptionCapture::class . '::handleError'));
         } finally {
             error_reporting($previousReporting);
