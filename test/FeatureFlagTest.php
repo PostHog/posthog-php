@@ -523,6 +523,70 @@ class FeatureFlagTest extends TestCase
         }
     }
 
+    public function testMinimalFlagCalledEventKeepsOnlyAllowlistedProperties()
+    {
+        $response = MockedResponses::FLAGS_V2_RESPONSE;
+        $response['minimalFlagCalledEvents'] = true;
+        $response['flags']['simple-test']['metadata']['has_experiment'] = false;
+        $this->setUp($response, personalApiKey: null);
+
+        $this->assertTrue(PostHog::isFeatureEnabled('simple-test', 'user-id'));
+        PostHog::flush();
+
+        $payload = json_decode($this->http_client->calls[1]['payload'], true);
+        $properties = $payload['batch'][0]['properties'];
+        ksort($properties);
+        $expected = [
+            '$feature_flag' => 'simple-test',
+            '$feature_flag_response' => true,
+            '$feature_flag_has_experiment' => false,
+            '$feature_flag_request_id' => '98487c8a-287a-4451-a085-299cd76228dd',
+            '$feature_flag_id' => 6,
+            '$feature_flag_version' => 1,
+            '$feature_flag_reason' => 'Matched condition set 1',
+            '$groups' => [],
+            '$lib' => 'posthog-php',
+            '$lib_version' => PostHog::VERSION,
+            '$is_server' => true,
+        ];
+        ksort($expected);
+        $this->assertSame($expected, $properties);
+    }
+
+    public static function fullFlagCalledEventCases(): array
+    {
+        // Minimization requires both the server gate and an explicit has_experiment=false
+        // signal; any missing signal falls back to the full legacy event shape.
+        return [
+            'gated but experiment-linked' => [true, true],
+            'gated but has_experiment unreported' => [true, null],
+            'ungated with has_experiment false' => [false, false],
+        ];
+    }
+
+    /**
+     * @dataProvider fullFlagCalledEventCases
+     */
+    public function testFlagCalledEventStaysFullWithoutBothMinimalSignals(bool $gated, ?bool $hasExperiment)
+    {
+        $response = MockedResponses::FLAGS_V2_RESPONSE;
+        if ($gated) {
+            $response['minimalFlagCalledEvents'] = true;
+        }
+        if ($hasExperiment !== null) {
+            $response['flags']['simple-test']['metadata']['has_experiment'] = $hasExperiment;
+        }
+        $this->setUp($response, personalApiKey: null);
+
+        $this->assertTrue(PostHog::isFeatureEnabled('simple-test', 'user-id'));
+        PostHog::flush();
+
+        $payload = json_decode($this->http_client->calls[1]['payload'], true);
+        $properties = $payload['batch'][0]['properties'];
+        // Full events keep the consumer metadata that minimal events strip.
+        $this->assertSame('LibCurl', $properties['$lib_consumer']);
+    }
+
     /**
      * @dataProvider decideResponseCases
      */

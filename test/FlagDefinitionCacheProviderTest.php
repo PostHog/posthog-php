@@ -287,6 +287,36 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $this->assertSame([], $httpClient->calls ?? []);
     }
 
+    public function testMinimalFlagCalledGatePersistsThroughProviderCache(): void
+    {
+        // Simulates a restart: a fresh client reads definitions (including the
+        // minimal_flag_called_events gate) from the shared cache instead of the API and still
+        // minimizes $feature_flag_called events.
+        $provider = new MockFlagDefinitionCacheProvider();
+        $provider->shouldFetch = false;
+        $data = $this->sampleFlagDefinitionData();
+        $data['flags'][0]['has_experiment'] = false;
+        $data['minimal_flag_called_events'] = true;
+        $provider->cachedData = $data;
+        $httpClient = new MockedHttpClient(host: "app.posthog.com");
+
+        $client = $this->createClient($provider, $httpClient);
+        $this->assertTrue($client->getFeatureFlag('beta-ui', 'user-1'));
+        $client->flush();
+
+        $batchCall = null;
+        foreach ($httpClient->calls as $call) {
+            if (str_starts_with($call['path'], '/batch/')) {
+                $batchCall = $call;
+            }
+        }
+        $this->assertNotNull($batchCall);
+        $properties = json_decode($batchCall['payload'], true)['batch'][0]['properties'];
+        $this->assertFalse($properties['$feature_flag_has_experiment']);
+        $this->assertTrue($properties['$is_server']);
+        $this->assertArrayNotHasKey('$lib_consumer', $properties);
+    }
+
     public function testInvalidProviderOptionThrows(): void
     {
         $this->expectException(InvalidArgumentException::class);
