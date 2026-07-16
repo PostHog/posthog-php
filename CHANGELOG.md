@@ -1,3 +1,13 @@
+## 4.11.0
+
+### Minor Changes
+
+- a657369: Emit error tracking stack frames in the canonical bottom-up order: `stacktrace.frames[0]` is now the outermost/entry-point call and the last frame is the crash site. This aligns the PHP SDK with the cross-SDK stack frame ordering standard.
+
+### Patch Changes
+
+- 67f1b4a: Fix the default event queue capacity at 10,000 events.
+
 ## 4.10.0
 
 ### Minor Changes
