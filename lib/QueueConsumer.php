@@ -27,7 +27,7 @@ abstract class QueueConsumer extends Consumer
     protected $type = "QueueConsumer";
 
     protected $queue;
-    protected $max_queue_size = 1000;
+    protected $max_queue_size = 10000;
     protected $batch_size = 100;
     protected $flush_interval = 5.0;
     protected $flush_after = null;
@@ -163,7 +163,7 @@ abstract class QueueConsumer extends Consumer
     {
         $count = count($this->queue);
 
-        if ($count > $this->max_queue_size) {
+        if ($count >= $this->max_queue_size) {
             return false;
         }
 
