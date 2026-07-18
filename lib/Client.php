@@ -24,6 +24,10 @@ class Client implements FeatureFlagEvaluationsHost
      * server-controlled minimal_flag_called_events gate is on and the flag reports
      * has_experiment=false, every property outside this list is stripped — including request
      * context properties and SDK consumer metadata.
+     *
+     * Keep in sync with the $feature_flag_* properties built in doGetFeatureFlagResult() and
+     * FeatureFlagEvaluations::recordAccess(). A new flag-eval property added there but omitted
+     * here is silently stripped from minimized events.
      */
     private const MINIMAL_FLAG_CALLED_EVENT_PROPERTIES = [
         '$feature_flag',
@@ -454,6 +458,9 @@ class Client implements FeatureFlagEvaluationsHost
         unset($message["send_feature_flags"]);
 
         if ($this->shouldSendMinimalFlagCalledEvent($message)) {
+            // Runs after message() enrichment (above) so consumer metadata added there, e.g.
+            // $lib_consumer, is also stripped. This also means before_send (below) sees the
+            // already-minimized properties for gated events, not the full envelope.
             $message["properties"] = array_intersect_key(
                 $message["properties"],
                 array_flip(self::MINIMAL_FLAG_CALLED_EVENT_PROPERTIES)
@@ -470,6 +477,10 @@ class Client implements FeatureFlagEvaluationsHost
 
     /**
      * Run the configured before_send callback for a fully enriched capture event.
+     *
+     * For a gated, non-experiment $feature_flag_called event, properties have already been
+     * reduced to the minimal allowlist (see capture()) by the time the callback runs, so
+     * before_send sees the minimized shape rather than the full envelope for those events.
      *
      * @param array<string, mixed> $message
      * @return array<string, mixed>|null
@@ -1581,7 +1592,7 @@ class Client implements FeatureFlagEvaluationsHost
         $this->featureFlags = $data['flags'];
         $this->groupTypeMapping = $data['group_type_mapping'];
         $this->cohorts = $data['cohorts'];
-        $this->minimalFlagCalledEvents = ($data['minimal_flag_called_events'] ?? null) === true;
+        $this->minimalFlagCalledEvents = $data['minimal_flag_called_events'];
 
         // Build flags by key dictionary for dependency resolution
         $this->featureFlagsByKey = [];
