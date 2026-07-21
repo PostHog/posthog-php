@@ -18,6 +18,36 @@ use Throwable;
 class Client implements FeatureFlagEvaluationsHost
 {
     private const SIZE_LIMIT = 50_000;
+
+    /**
+     * Allowlist of event properties kept when a $feature_flag_called event is minimized. When the
+     * server-controlled minimal_flag_called_events gate is on and the flag reports
+     * has_experiment=false, every property outside this list is stripped — including request
+     * context properties and SDK consumer metadata.
+     *
+     * Keep in sync with the $feature_flag_* properties built in doGetFeatureFlagResult() and
+     * FeatureFlagEvaluations::recordAccess(). A new flag-eval property added there but omitted
+     * here is silently stripped from minimized events.
+     */
+    private const MINIMAL_FLAG_CALLED_EVENT_PROPERTIES = [
+        '$feature_flag',
+        '$feature_flag_response',
+        '$feature_flag_has_experiment',
+        '$feature_flag_id',
+        '$feature_flag_version',
+        '$feature_flag_reason',
+        '$feature_flag_request_id',
+        '$feature_flag_evaluated_at',
+        '$feature_flag_error',
+        'locally_evaluated',
+        '$groups',
+        '$process_person_profile',
+        '$session_id',
+        '$lib',
+        '$lib_version',
+        '$is_server',
+    ];
+
     private const CONSUMERS = [
         "socket" => Socket::class,
         "file" => File::class,
@@ -120,6 +150,15 @@ class Client implements FeatureFlagEvaluationsHost
      * @var bool Whether flag definitions have been loaded successfully at least once.
      */
     private $flagDefinitionsLoaded;
+
+    /**
+     * Server-controlled gate for minimal $feature_flag_called events, read from the top-level
+     * minimalFlagCalledEvents field of /flags responses and the minimal_flag_called_events field
+     * of the flag definitions payload. Absence of the field means off.
+     *
+     * @var bool
+     */
+    private $minimalFlagCalledEvents;
 
     /**
      * @var FlagDefinitionCacheProvider|null External shared cache provider for flag definitions.
@@ -255,6 +294,7 @@ class Client implements FeatureFlagEvaluationsHost
         $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(self::SIZE_LIMIT);
         $this->flagsEtag = null;
         $this->flagDefinitionsLoaded = false;
+        $this->minimalFlagCalledEvents = false;
 
         if ($this->enabled) {
             ExceptionCapture::configure($this, $options['error_tracking'] ?? []);
@@ -417,6 +457,16 @@ class Client implements FeatureFlagEvaluationsHost
 
         unset($message["send_feature_flags"]);
 
+        if ($this->shouldSendMinimalFlagCalledEvent($message)) {
+            // Runs after message() enrichment (above) so consumer metadata added there, e.g.
+            // $lib_consumer, is also stripped. This also means before_send (below) sees the
+            // already-minimized properties for gated events, not the full envelope.
+            $message["properties"] = array_intersect_key(
+                $message["properties"],
+                array_flip(self::MINIMAL_FLAG_CALLED_EVENT_PROPERTIES)
+            );
+        }
+
         $message = $this->applyBeforeSend($message);
         if ($message === null) {
             return false;
@@ -427,6 +477,10 @@ class Client implements FeatureFlagEvaluationsHost
 
     /**
      * Run the configured before_send callback for a fully enriched capture event.
+     *
+     * For a gated, non-experiment $feature_flag_called event, properties have already been
+     * reduced to the minimal allowlist (see capture()) by the time the callback runs, so
+     * before_send sees the minimized shape rather than the full envelope for those events.
      *
      * @param array<string, mixed> $message
      * @return array<string, mixed>|null
@@ -460,6 +514,22 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         return $result;
+    }
+
+    /**
+     * Whether a $feature_flag_called event should be reduced to the minimal property allowlist.
+     * Requires the server-controlled gate plus an explicit has_experiment=false signal for the
+     * flag. Any missing signal keeps the full legacy shape; experiment-linked flags always send
+     * the full envelope because experiment exposure analysis reads it.
+     *
+     * @param array<string, mixed> $message
+     * @return bool
+     */
+    private function shouldSendMinimalFlagCalledEvent(array $message): bool
+    {
+        return $this->minimalFlagCalledEvents
+            && ($message['event'] ?? null) === '$feature_flag_called'
+            && ($message['properties']['$feature_flag_has_experiment'] ?? null) === false;
     }
 
     /**
@@ -1470,6 +1540,7 @@ class Client implements FeatureFlagEvaluationsHost
                 ? $data['group_type_mapping']
                 : [],
             'cohorts' => isset($data['cohorts']) && is_array($data['cohorts']) ? $data['cohorts'] : [],
+            'minimal_flag_called_events' => ($data['minimal_flag_called_events'] ?? null) === true,
         ];
     }
 
@@ -1506,6 +1577,7 @@ class Client implements FeatureFlagEvaluationsHost
             'flags' => $data['flags'],
             'group_type_mapping' => $groupTypeMapping,
             'cohorts' => $data['cohorts'],
+            'minimal_flag_called_events' => ($data['minimal_flag_called_events'] ?? null) === true,
         ];
     }
 
@@ -1520,6 +1592,7 @@ class Client implements FeatureFlagEvaluationsHost
         $this->featureFlags = $data['flags'];
         $this->groupTypeMapping = $data['group_type_mapping'];
         $this->cohorts = $data['cohorts'];
+        $this->minimalFlagCalledEvents = $data['minimal_flag_called_events'];
 
         // Build flags by key dictionary for dependency resolution
         $this->featureFlagsByKey = [];
@@ -1801,7 +1874,11 @@ class Client implements FeatureFlagEvaluationsHost
             );
         }
 
-        return $this->normalizeFeatureFlags($httpResponse->getResponse());
+        $response = $this->normalizeFeatureFlags($httpResponse->getResponse());
+        // Only gated projects receive the field on v2 responses, so absence means off.
+        $this->minimalFlagCalledEvents = ($response['minimalFlagCalledEvents'] ?? null) === true;
+
+        return $response;
     }
 
     /**

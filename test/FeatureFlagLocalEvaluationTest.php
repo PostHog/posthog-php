@@ -1603,6 +1603,67 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->assertTrue($properties['$feature_flag_has_experiment']);
     }
 
+    public function testMinimalFlagCalledEventFromLocalEvaluationGate()
+    {
+        $localResponse = MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST;
+        $localResponse['minimal_flag_called_events'] = true;
+        $localResponse['flags'][0]['has_experiment'] = false;
+
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: $localResponse);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertTrue(PostHog::getFeatureFlag('simple-flag', 'some-distinct-id'));
+        PostHog::flush();
+
+        $payload = json_decode($this->http_client->calls[1]['payload'], true);
+        $properties = $payload['batch'][0]['properties'];
+        ksort($properties);
+        $expected = [
+            '$feature_flag' => 'simple-flag',
+            '$feature_flag_response' => true,
+            '$feature_flag_has_experiment' => false,
+            '$groups' => [],
+            '$lib' => 'posthog-php',
+            '$lib_version' => PostHog::VERSION,
+            '$is_server' => true,
+        ];
+        ksort($expected);
+        $this->assertSame($expected, $properties);
+    }
+
+    public function testLocalEvaluationGateWithoutHasExperimentKeepsFullEvent()
+    {
+        $localResponse = MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST;
+        $localResponse['minimal_flag_called_events'] = true;
+
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: $localResponse);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+
+        $this->assertTrue(PostHog::getFeatureFlag('simple-flag', 'some-distinct-id'));
+        PostHog::flush();
+
+        $payload = json_decode($this->http_client->calls[1]['payload'], true);
+        $properties = $payload['batch'][0]['properties'];
+        // Without an explicit has_experiment=false signal the full shape is kept.
+        $this->assertSame('LibCurl', $properties['$lib_consumer']);
+    }
+
     public function testFeatureFlagsDontFallbackToDecideWhenOnlyLocalEvaluationIsTrue()
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_FLAGS_REQUEST);

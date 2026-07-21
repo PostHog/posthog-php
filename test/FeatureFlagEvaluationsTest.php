@@ -418,6 +418,43 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertTrue($properties['$feature_flag_has_experiment']);
     }
 
+    public function testMinimalFlagCalledEventKeepsLocallyEvaluatedUnderGate(): void
+    {
+        $localResponse = MockedResponses::LOCAL_EVALUATION_REQUEST;
+        $localResponse['minimal_flag_called_events'] = true;
+        $localResponse['flags'][0]['has_experiment'] = false;
+        $this->makeClient(
+            personalApiKey: 'test-personal-key',
+            localEvaluationResponse: $localResponse,
+        );
+        $snapshot = PostHog::evaluateFlags(
+            'user-1',
+            personProperties: ['region' => 'USA']
+        );
+
+        $this->assertTrue($snapshot->isEnabled('person-flag'));
+        PostHog::flush();
+
+        $batches = $this->batchRequests();
+        $this->assertCount(1, $batches);
+        $properties = $batches[0]['batch'][0]['properties'];
+        ksort($properties);
+        $expected = [
+            '$feature_flag' => 'person-flag',
+            '$feature_flag_response' => true,
+            '$feature_flag_has_experiment' => false,
+            '$feature_flag_id' => 1,
+            '$feature_flag_reason' => 'Evaluated locally',
+            '$groups' => [],
+            '$lib' => 'posthog-php',
+            '$lib_version' => PostHog::VERSION,
+            '$is_server' => true,
+            'locally_evaluated' => true,
+        ];
+        ksort($expected);
+        $this->assertSame($expected, $properties);
+    }
+
     public function testLocalEvaluationSkipsRemoteFlagsRequestWhenAllResolved(): void
     {
         // When local definitions cover every flag and they all evaluate without inconclusive
