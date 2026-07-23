@@ -1,3 +1,9 @@
+## 4.12.1
+
+### Patch Changes
+
+- test: release with new changeset management
+
 ## 4.12.0
 
 ### Minor Changes
