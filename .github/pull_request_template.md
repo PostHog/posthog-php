@@ -16,7 +16,7 @@
 
 ### If releasing new changes
 
-- [ ] Ran `pnpm changeset` to generate a changeset file
+- [ ] Ran `pnpm change` to generate a change intent file
 
 <!-- For more details check RELEASING.md -->
 

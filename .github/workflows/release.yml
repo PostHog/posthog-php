@@ -11,14 +11,14 @@ permissions:
   contents: read
 
 # Concurrency control: only one release process can run at a time
-# This prevents race conditions if multiple releasable changesets merge simultaneously
+# This prevents race conditions if multiple releasable change intents merge simultaneously
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
   check-changesets:
-    name: Check for changesets
+    name: Check for change intents
     runs-on: ubuntu-latest
     outputs:
       has-changesets: ${{ steps.check.outputs.has-changesets }}
@@ -30,16 +30,28 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Check for changesets
+      - name: Check for change intents
         id: check
         run: |
-          changeset_count=$(find .changeset -name '*.md' ! -name 'README.md' 2>/dev/null | wc -l)
-          if [ "$changeset_count" -gt 0 ]; then
+          shopt -s nullglob
+          releasable_count=0
+          for change_intent in .changeset/*.md; do
+            if awk -v pattern="^[[:space:]]*['\"]?posthog-php['\"]?[[:space:]]*:[[:space:]]*(patch|minor|major)[[:space:]]*$" '
+              NR == 1 { if ($0 != "---") exit 1; next }
+              $0 == "---" { found_end = 1; exit }
+              $0 ~ pattern { releasable = 1 }
+              END { if (!found_end || !releasable) exit 1 }
+            ' "$change_intent"; then
+              releasable_count=$((releasable_count + 1))
+            fi
+          done
+
+          if [ "$releasable_count" -gt 0 ]; then
             echo "has-changesets=true" >> "$GITHUB_OUTPUT"
-            echo "Found $changeset_count changeset(s), ready to release"
+            echo "Found $releasable_count releasable change intent(s)"
           else
             echo "has-changesets=false" >> "$GITHUB_OUTPUT"
-            echo "No changesets to release"
+            echo "No releasable change intents found"
           fi
 
   prepare-release-candidate:
@@ -64,16 +76,13 @@ jobs:
       - name: Setup pnpm and Node.js
         uses: pnpm/setup@5d160c5bc68a09337ad0d5654e237e03253b5879 # v1.0.0
         with:
-          # pnpm/setup installs runtimes via pnpm runtime, which requires pnpm >=11.1.0.
-          version: 11.7.0
+          # Native release management requires pnpm >=11.13.0.
+          version: 11.13.1
           runtime: node@24
           cache: true
           install: false
 
-      - name: Install release tooling dependencies
-        run: pnpm install --frozen-lockfile --ignore-scripts
-
-      - name: Apply changesets and update version
+      - name: Apply change intents and update version
         id: candidate
         env:
           # If scripts/bump-version.sh changes, recompute this with:
@@ -84,7 +93,8 @@ jobs:
           set -euo pipefail
 
           source_sha=$(git rev-parse HEAD)
-          pnpm exec changeset version
+          pnpm version -r
+          git add --intent-to-add .changeset/ledger.yaml
           new_version=$(node -p "require('./package.json').version")
 
           actual_bump_script_sha256=$(sha256sum scripts/bump-version.sh | awk '{print $1}')
@@ -103,7 +113,7 @@ jobs:
           changed_files=$(git diff --name-only)
           while IFS= read -r file; do
             case "$file" in
-              CHANGELOG.md|composer.json|package.json|lib/PostHog.php|.changeset/*.md) ;;
+              CHANGELOG.md|composer.json|package.json|lib/PostHog.php|.changeset/*) ;;
               *)
                 echo "Unexpected release candidate change: $file" >&2
                 exit 1
