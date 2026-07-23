@@ -48,7 +48,7 @@ jobs:
 
       - name: Validate composer files
         if: needs.detect-markdown-only.outputs.markdown_only != 'true'
-        run: composer validate --no-check-lock --no-check-version --strict
+        run: composer validate --no-check-version --strict
 
   public-api:
     needs: detect-markdown-only
