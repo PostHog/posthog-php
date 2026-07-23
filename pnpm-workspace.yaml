@@ -2,3 +2,7 @@ packages:
   - '.'
 
 minimumReleaseAge: 10080
+
+versioning:
+  changelog:
+    storage: repository
