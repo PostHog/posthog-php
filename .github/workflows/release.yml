@@ -82,6 +82,12 @@ jobs:
           cache: true
           install: false
 
+      - name: Set up PHP 8.4
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: 8.4
+          tools: composer
+
       - name: Apply change intents and update version
         id: candidate
         env:
@@ -104,6 +110,7 @@ jobs:
           fi
 
           ./scripts/bump-version.sh "$new_version"
+          composer update --lock --no-install --no-interaction --no-audit
 
           if [ -z "$(git status --porcelain)" ]; then
             echo "No release candidate changes were generated" >&2
@@ -113,7 +120,7 @@ jobs:
           changed_files=$(git diff --name-only)
           while IFS= read -r file; do
             case "$file" in
-              CHANGELOG.md|composer.json|package.json|lib/PostHog.php|.changeset/*) ;;
+              CHANGELOG.md|composer.json|composer.lock|package.json|lib/PostHog.php|.changeset/*) ;;
               *)
                 echo "Unexpected release candidate change: $file" >&2
                 exit 1
@@ -244,7 +251,7 @@ jobs:
           tools: composer
 
       - name: Validate composer files
-        run: composer validate --no-check-lock --no-check-version --strict
+        run: composer validate --no-check-version --strict
 
       - name: Send failure event to PostHog
         if: ${{ failure() }}
@@ -277,6 +284,9 @@ jobs:
     with:
       slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
       slack_user_group_id: ${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}
+      checkout_repository: false
+      tag_pattern: "[0-9]*"
+      tag_sort: version
     secrets:
       slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
       posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
@@ -353,6 +363,7 @@ jobs:
         with:
           client-id: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_APP_ID }}
           private-key: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_PRIVATE_KEY }}
+          permission-contents: write
 
       - name: Commit version bump
         id: commit-version-bump
@@ -361,12 +372,20 @@ jobs:
           commit_message: "chore: release ${{ needs.prepare-release-candidate.outputs.new-version }} [version bump] [skip ci]"
           repo: ${{ github.repository }}
           branch: main
-          file_pattern: "CHANGELOG.md composer.json package.json lib/PostHog.php .changeset"
+          file_pattern: "CHANGELOG.md composer.json composer.lock package.json lib/PostHog.php .changeset"
         env:
           GITHUB_TOKEN: ${{ steps.releaser.outputs.token }}
 
+      - name: Require release commit
+        env:
+          COMMIT_SHA: ${{ steps.commit-version-bump.outputs.commit-hash }}
+        run: |
+          if [ -z "$COMMIT_SHA" ]; then
+            echo "Release commit was not created" >&2
+            exit 1
+          fi
+
       - name: Create GitHub release
-        if: steps.commit-version-bump.outputs.commit-hash != ''
         env:
           GH_TOKEN: ${{ steps.releaser.outputs.token }}
           NEW_VERSION: ${{ needs.prepare-release-candidate.outputs.new-version }}
