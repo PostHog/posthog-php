@@ -365,6 +365,10 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             "key" => 123,
         ]));
 
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => null,
+        ]));
+
         $prop = [
             "key" => "key",
             "value" => 3,
@@ -408,6 +412,10 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "Alakazam",
         ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => null,
+        ]));
     }
 
     public function testMatchPropertyEndsWith(): void
@@ -440,6 +448,10 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
         self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => 123,
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => null,
         ]));
 
         $prop = [
@@ -489,6 +501,30 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => "Alakazam",
         ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => null,
+        ]));
+    }
+
+    public function testMatchPropertyStartsWithEndsWithMissingKeyIsInconclusive(): void
+    {
+        foreach (["starts_with", "not_starts_with", "ends_with", "not_ends_with"] as $operator) {
+            $prop = [
+                "key" => "key",
+                "value" => "Val",
+                "operator" => $operator
+            ];
+
+            try {
+                FeatureFlag::matchProperty($prop, [
+                    "key2" => "value",
+                ]);
+                self::fail("Expected InconclusiveMatchException for operator {$operator}");
+            } catch (InconclusiveMatchException $exception) {
+                self::assertInstanceOf(InconclusiveMatchException::class, $exception);
+            }
+        }
     }
 
     public function testMatchPropertyRegex(): void
