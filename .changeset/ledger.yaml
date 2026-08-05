@@ -2,3 +2,7 @@ posthog-php@4.12.1:
   dir: ""
   intents:
     - funny-mugs-march
+posthog-php@4.13.0:
+  dir: ""
+  intents:
+    - starts-with-ends-with-operators
