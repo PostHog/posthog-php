@@ -416,6 +416,22 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => null,
         ]));
+
+        // Case folding is ASCII-only, mirroring the flags service: non-ASCII
+        // characters do not match across case.
+        $prop = [
+            "key" => "key",
+            "value" => "ä",
+            "operator" => "starts_with"
+        ];
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "ÄBC",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "äbc",
+        ]));
     }
 
     public function testMatchPropertyEndsWith(): void
@@ -505,6 +521,36 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         self::assertTrue(FeatureFlag::matchProperty($prop, [
             "key" => null,
         ]));
+
+        // Case folding is ASCII-only, mirroring the flags service: non-ASCII
+        // characters do not match across case.
+        $prop = [
+            "key" => "key",
+            "value" => "é",
+            "operator" => "ends_with"
+        ];
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "CAFÉ",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "café",
+        ]));
+    }
+
+    public function testMatchPropertyUnknownOperatorIsInconclusive(): void
+    {
+        $prop = [
+            "key" => "key",
+            "value" => "value",
+            "operator" => "future_operator"
+        ];
+
+        $this->expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop, [
+            "key" => "value",
+        ]);
     }
 
     public function testMatchPropertyStartsWithEndsWithMissingKeyIsInconclusive(): void

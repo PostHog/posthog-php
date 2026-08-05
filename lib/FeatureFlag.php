@@ -173,7 +173,7 @@ class FeatureFlag
                 && FeatureFlag::compareSemverTuples($overrideTuple, $upper) < 0;
         }
 
-        return false;
+        throw new InconclusiveMatchException("Unknown operator: " . $operator);
     }
 
     /**
