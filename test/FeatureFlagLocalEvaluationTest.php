@@ -333,6 +333,246 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         ]));
     }
 
+    public function testMatchPropertyStartsWith(): void
+    {
+        $prop = [
+            "key" => "key",
+            "value" => "Val",
+            "operator" => "starts_with"
+        ];
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "value",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "VALUE",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "vaLue4",
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "prevalue",
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "Alakazam",
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => 123,
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => null,
+        ]));
+
+        $prop = [
+            "key" => "key",
+            "value" => 3,
+            "operator" => "starts_with"
+        ];
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "3",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => 323,
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => 123,
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "val3",
+        ]));
+
+        $prop = [
+            "key" => "key",
+            "value" => "Val",
+            "operator" => "not_starts_with"
+        ];
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "value",
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "VALUE",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "prevalue",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "Alakazam",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => null,
+        ]));
+
+        // Case folding is ASCII-only, mirroring the flags service: non-ASCII
+        // characters do not match across case.
+        $prop = [
+            "key" => "key",
+            "value" => "ä",
+            "operator" => "starts_with"
+        ];
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "ÄBC",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "äbc",
+        ]));
+    }
+
+    public function testMatchPropertyEndsWith(): void
+    {
+        $prop = [
+            "key" => "key",
+            "value" => "lUe",
+            "operator" => "ends_with"
+        ];
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "value",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "VALUE",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "343tfvalue",
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "value2",
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "Alakazam",
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => 123,
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => null,
+        ]));
+
+        $prop = [
+            "key" => "key",
+            "value" => 3,
+            "operator" => "ends_with"
+        ];
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "3",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => 323,
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => 13,
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => 321,
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "3val",
+        ]));
+
+        $prop = [
+            "key" => "key",
+            "value" => "lUe",
+            "operator" => "not_ends_with"
+        ];
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "value",
+        ]));
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "VALUE",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "value2",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "Alakazam",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => null,
+        ]));
+
+        // Case folding is ASCII-only, mirroring the flags service: non-ASCII
+        // characters do not match across case.
+        $prop = [
+            "key" => "key",
+            "value" => "é",
+            "operator" => "ends_with"
+        ];
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, [
+            "key" => "CAFÉ",
+        ]));
+
+        self::assertTrue(FeatureFlag::matchProperty($prop, [
+            "key" => "café",
+        ]));
+    }
+
+    public function testMatchPropertyUnknownOperatorIsInconclusive(): void
+    {
+        $prop = [
+            "key" => "key",
+            "value" => "value",
+            "operator" => "future_operator"
+        ];
+
+        $this->expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty($prop, [
+            "key" => "value",
+        ]);
+    }
+
+    public function testMatchPropertyStartsWithEndsWithMissingKeyIsInconclusive(): void
+    {
+        foreach (["starts_with", "not_starts_with", "ends_with", "not_ends_with"] as $operator) {
+            $prop = [
+                "key" => "key",
+                "value" => "Val",
+                "operator" => $operator
+            ];
+
+            try {
+                FeatureFlag::matchProperty($prop, [
+                    "key2" => "value",
+                ]);
+                self::fail("Expected InconclusiveMatchException for operator {$operator}");
+            } catch (InconclusiveMatchException $exception) {
+                self::assertInstanceOf(InconclusiveMatchException::class, $exception);
+            }
+        }
+    }
+
     public function testMatchPropertyRegex(): void
     {
         $prop = [

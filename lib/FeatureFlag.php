@@ -57,6 +57,22 @@ class FeatureFlag
             return strpos(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value))) == false;
         }
 
+        if ($operator == "starts_with") {
+            return str_starts_with(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value)));
+        }
+
+        if ($operator == "not_starts_with") {
+            return !str_starts_with(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value)));
+        }
+
+        if ($operator == "ends_with") {
+            return str_ends_with(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value)));
+        }
+
+        if ($operator == "not_ends_with") {
+            return !str_ends_with(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value)));
+        }
+
         if (in_array($operator, ["regex", "not_regex"])) {
             $regexValue = FeatureFlag::prepareValueForRegex($value);
             if (FeatureFlag::isRegularExpression($regexValue)) {
@@ -157,7 +173,7 @@ class FeatureFlag
                 && FeatureFlag::compareSemverTuples($overrideTuple, $upper) < 0;
         }
 
-        return false;
+        throw new InconclusiveMatchException("Unknown operator: " . $operator);
     }
 
     /**
