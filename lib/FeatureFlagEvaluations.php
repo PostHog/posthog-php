@@ -52,17 +52,19 @@ class FeatureFlagEvaluations
     }
 
     /**
-     * Whether the flag is enabled for the snapshot's distinct id. Returns false for unknown keys.
+     * Whether the flag is enabled for the snapshot's distinct id. Returns $defaultValue for
+     * unknown keys; a flag with a real value (including false) always takes precedence.
      *
      * @param string $key Feature flag key.
+     * @param bool $defaultValue Value to return when the flag has no resolvable value.
      * @return bool
      */
-    public function isEnabled(string $key): bool
+    public function isEnabled(string $key, bool $defaultValue = false): bool
     {
         $record = $this->flags[$key] ?? null;
         $this->recordAccess($key, $record);
 
-        return $record?->enabled ?? false;
+        return $record?->enabled ?? $defaultValue;
     }
 
     /**

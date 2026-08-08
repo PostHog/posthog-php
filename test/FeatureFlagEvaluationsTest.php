@@ -181,6 +181,34 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertSame('flag_missing', $properties['$feature_flag_error']);
     }
 
+    public function testIsEnabledReturnsCallerSuppliedDefaultForUnknownKey(): void
+    {
+        $host = new FakeFlagEvaluationsHost();
+        $snapshot = new FeatureFlagEvaluations(
+            'user-1',
+            [],
+            [],
+            $host
+        );
+
+        $this->assertTrue($snapshot->isEnabled('does-not-exist', true));
+        $this->assertFalse($snapshot->isEnabled('does-not-exist'));
+        $this->assertFalse($snapshot->isEnabled('does-not-exist', false));
+    }
+
+    public function testIsEnabledDefaultDoesNotOverrideARealFalseValue(): void
+    {
+        $host = new FakeFlagEvaluationsHost();
+        $snapshot = new FeatureFlagEvaluations(
+            'user-1',
+            ['flag-a' => $this->makeRecord('flag-a', false)],
+            [],
+            $host
+        );
+
+        $this->assertFalse($snapshot->isEnabled('flag-a', true));
+    }
+
     public function testOnlyWarnsOnUnknownKeys(): void
     {
         $host = new FakeFlagEvaluationsHost();
