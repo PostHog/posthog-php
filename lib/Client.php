@@ -2023,7 +2023,7 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         if (false !== filter_var($ts, FILTER_VALIDATE_INT)) {
-            return date("c", (int)$ts);
+            return $this->formatUnixTimestamp((int)$ts);
         }
 
         // Anything else try to parse as a date string.
@@ -2032,7 +2032,7 @@ class Client implements FeatureFlagEvaluationsHost
                 try {
                     return $this->formatDateTime(new \DateTimeImmutable($ts));
                 } catch (\Exception) {
-                    return date("c", strtotime($ts));
+                    return $this->formatUnixTimestamp((int)strtotime($ts));
                 }
             }
 
@@ -2042,19 +2042,27 @@ class Client implements FeatureFlagEvaluationsHost
         // date() only accepts integer timestamps, so use DateTimeImmutable for microtime(true).
         $date = \DateTimeImmutable::createFromFormat('U.u', sprintf('%.6F', (float)$ts));
         if (false === $date) {
-            return date("c", (int)$ts);
+            return $this->formatUnixTimestamp((int)$ts);
         }
 
         return $this->formatDateTime($date);
     }
 
     /**
-     * Format in the configured timezone, including microseconds when present.
+     * Format a Unix timestamp in UTC.
+     */
+    private function formatUnixTimestamp(int $timestamp): string
+    {
+        return $this->formatDateTime((new \DateTimeImmutable())->setTimestamp($timestamp));
+    }
+
+    /**
+     * Format in UTC, including microseconds when present.
      */
     private function formatDateTime(\DateTimeInterface $date): string
     {
         $date = \DateTimeImmutable::createFromInterface($date)
-            ->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+            ->setTimezone(new \DateTimeZone('UTC'));
         $format = '000000' === $date->format('u') ? 'Y-m-d\\TH:i:sP' : 'Y-m-d\\TH:i:s.uP';
 
         return $date->format($format);

@@ -2,4 +2,4 @@
 'posthog-php': patch
 ---
 
-Preserve fractional seconds in event timestamps.
+Preserve fractional seconds and emit event timestamps in UTC.
