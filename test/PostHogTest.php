@@ -61,10 +61,15 @@ class PostHogTest extends TestCase
 
     private function firstBatchEvent(): array
     {
+        return $this->firstBatchEvents()[0];
+    }
+
+    private function firstBatchEvents(): array
+    {
         foreach ($this->http_client->calls as $call) {
             if (($call["path"] ?? null) === "/batch/") {
                 $decoded = json_decode($call["payload"], true);
-                return $decoded["batch"][0];
+                return $decoded["batch"];
             }
         }
 
@@ -1394,6 +1399,127 @@ class PostHogTest extends TestCase
 
         $this->assertIsBool($result);
         $this->assertTrue($result);
+    }
+
+    public function testDefaultTimestampPreservesMicroseconds(): void
+    {
+        $this->executeAtFrozenDateTime(
+            new \DateTimeImmutable('2024-01-01T00:00:00.123456+00:00'),
+            function (): void {
+                self::assertTrue(
+                    PostHog::capture(
+                        array(
+                            "distinctId" => "user-id",
+                            "event" => "default-timestamp",
+                        )
+                    )
+                );
+                self::assertTrue(PostHog::flush());
+            }
+        );
+
+        self::assertSame('2024-01-01T00:00:00.123456+00:00', $this->firstBatchEvent()['timestamp']);
+    }
+
+    public function testMicrotimeTimestampPreservesMicroseconds(): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "user-id",
+                    "event" => "microtime-timestamp",
+                    "timestamp" => 1704067200.123456,
+                )
+            )
+        );
+        self::assertTrue(PostHog::flush());
+
+        self::assertSame('2024-01-01T00:00:00.123456+00:00', $this->firstBatchEvent()['timestamp']);
+    }
+
+    public function testIsoTimestampPreservesMicroseconds(): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "user-id",
+                    "event" => "iso-timestamp",
+                    "timestamp" => '2024-01-01T02:00:00.654321+02:00',
+                )
+            )
+        );
+        self::assertTrue(PostHog::flush());
+
+        self::assertSame('2024-01-01T00:00:00.654321+00:00', $this->firstBatchEvent()['timestamp']);
+    }
+
+    public function testInvalidTimestampFallsBackToCurrentTime(): void
+    {
+        $this->executeAtFrozenDateTime(
+            new \DateTimeImmutable('2024-01-01T00:00:00.123456+00:00'),
+            function (): void {
+                self::assertTrue(
+                    PostHog::capture(
+                        array(
+                            "distinctId" => "user-id",
+                            "event" => "invalid-timestamp",
+                            "timestamp" => "not-a-date",
+                        )
+                    )
+                );
+                self::assertTrue(PostHog::flush());
+            }
+        );
+
+        self::assertSame('2024-01-01T00:00:00.123456+00:00', $this->firstBatchEvent()['timestamp']);
+    }
+
+    public function testTimestampsAreFormattedInUtc(): void
+    {
+        date_default_timezone_set('America/Los_Angeles');
+
+        try {
+            $this->executeAtFrozenDateTime(
+                new \DateTimeImmutable('2024-01-01T00:00:00.123456-08:00'),
+                function (): void {
+                    self::assertTrue(
+                        PostHog::capture(
+                            array(
+                                "distinctId" => "user-id",
+                                "event" => "default-timestamp",
+                            )
+                        )
+                    );
+                    self::assertTrue(
+                        PostHog::capture(
+                            array(
+                                "distinctId" => "user-id",
+                                "event" => "integer-timestamp",
+                                "timestamp" => 1704067200,
+                            )
+                        )
+                    );
+                    self::assertTrue(
+                        PostHog::capture(
+                            array(
+                                "distinctId" => "user-id",
+                                "event" => "iso-timestamp",
+                                "timestamp" => '2024-01-01T02:00:00.654321+02:00',
+                            )
+                        )
+                    );
+                    self::assertTrue(PostHog::flush());
+                }
+            );
+        } finally {
+            date_default_timezone_set('UTC');
+            Clock::set(new NativeClock());
+        }
+
+        $events = $this->firstBatchEvents();
+        self::assertSame('2024-01-01T08:00:00.123456+00:00', $events[0]['timestamp']);
+        self::assertSame('2024-01-01T00:00:00+00:00', $events[1]['timestamp']);
+        self::assertSame('2024-01-01T00:00:00.654321+00:00', $events[2]['timestamp']);
     }
 
     public function testTimestamps(): void

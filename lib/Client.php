@@ -2009,49 +2009,63 @@ class Client implements FeatureFlagEvaluationsHost
 
     /**
      * Formats a timestamp by making sure it is set
-     * and converting it to iso8601.
+     * and converting it to ISO 8601 without discarding fractional seconds.
      *
-     * The timestamp can be time in seconds `time()` or `microseconds(true)`.
-     * any other input is considered an error and the method will return a new date.
+     * The timestamp can be time in seconds `time()` or `microtime(true)`.
+     * Any other input is considered an error and the method will return a new date.
      *
-     * Note: php's date() "u" format (for microseconds) has a bug in it
-     * it always shows `.000` for microseconds since `date()` only accepts
-     * ints, so we have to construct the date ourselves if microtime is passed.
-     *
-     * @param $ts
-     * @return false|string
+     * @param mixed $ts
      */
-    private function formatTime($ts)
+    private function formatTime($ts): string
     {
-        // time()
         if (null == $ts || !$ts) {
-            $ts = Clock::get()->now()->getTimestamp();
-        }
-        if (false !== filter_var($ts, FILTER_VALIDATE_INT)) {
-            return date("c", (int)$ts);
+            return $this->formatDateTime(Clock::get()->now());
         }
 
-        // anything else try to strtotime the date.
+        if (false !== filter_var($ts, FILTER_VALIDATE_INT)) {
+            return $this->formatUnixTimestamp((int)$ts);
+        }
+
+        // Anything else try to parse as a date string.
         if (false === filter_var($ts, FILTER_VALIDATE_FLOAT)) {
             if (is_string($ts)) {
-                return date("c", strtotime($ts));
+                try {
+                    return $this->formatDateTime(new \DateTimeImmutable($ts));
+                } catch (\Exception) {
+                    return $this->formatDateTime(Clock::get()->now());
+                }
             }
 
-            return date("c", Clock::get()->now()->getTimestamp());
+            return $this->formatDateTime(Clock::get()->now());
         }
 
-        // fix for floatval casting in send.php
-        $parts = explode(".", (string)$ts);
-        if (!isset($parts[1])) {
-            return date("c", (int)$parts[0]);
+        // date() only accepts integer timestamps, so use DateTimeImmutable for microtime(true).
+        $date = \DateTimeImmutable::createFromFormat('U.u', sprintf('%.6F', (float)$ts));
+        if (false === $date) {
+            return $this->formatUnixTimestamp((int)$ts);
         }
 
-        // microtime(true)
-        $sec = (int)$parts[0];
-        $usec = (int)$parts[1];
-        $fmt = sprintf("Y-m-d\\TH:i:s%sP", $usec);
+        return $this->formatDateTime($date);
+    }
 
-        return date($fmt, (int)$sec);
+    /**
+     * Format a Unix timestamp in UTC.
+     */
+    private function formatUnixTimestamp(int $timestamp): string
+    {
+        return $this->formatDateTime((new \DateTimeImmutable())->setTimestamp($timestamp));
+    }
+
+    /**
+     * Format in UTC, including microseconds when present.
+     */
+    private function formatDateTime(\DateTimeInterface $date): string
+    {
+        $date = \DateTimeImmutable::createFromInterface($date)
+            ->setTimezone(new \DateTimeZone('UTC'));
+        $format = '000000' === $date->format('u') ? 'Y-m-d\\TH:i:sP' : 'Y-m-d\\TH:i:s.uP';
+
+        return $date->format($format);
     }
 
     /**
