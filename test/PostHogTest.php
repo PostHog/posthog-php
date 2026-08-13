@@ -1396,6 +1396,58 @@ class PostHogTest extends TestCase
         $this->assertTrue($result);
     }
 
+    public function testDefaultTimestampPreservesMicroseconds(): void
+    {
+        $this->executeAtFrozenDateTime(
+            new \DateTimeImmutable('2024-01-01T00:00:00.123456+00:00'),
+            function (): void {
+                self::assertTrue(
+                    PostHog::capture(
+                        array(
+                            "distinctId" => "user-id",
+                            "event" => "default-timestamp",
+                        )
+                    )
+                );
+                self::assertTrue(PostHog::flush());
+            }
+        );
+
+        self::assertSame('2024-01-01T00:00:00.123456+00:00', $this->firstBatchEvent()['timestamp']);
+    }
+
+    public function testMicrotimeTimestampPreservesMicroseconds(): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "user-id",
+                    "event" => "microtime-timestamp",
+                    "timestamp" => 1704067200.123456,
+                )
+            )
+        );
+        self::assertTrue(PostHog::flush());
+
+        self::assertSame('2024-01-01T00:00:00.123456+00:00', $this->firstBatchEvent()['timestamp']);
+    }
+
+    public function testIsoTimestampPreservesMicroseconds(): void
+    {
+        self::assertTrue(
+            PostHog::capture(
+                array(
+                    "distinctId" => "user-id",
+                    "event" => "iso-timestamp",
+                    "timestamp" => '2024-01-01T02:00:00.654321+02:00',
+                )
+            )
+        );
+        self::assertTrue(PostHog::flush());
+
+        self::assertSame('2024-01-01T00:00:00.654321+00:00', $this->firstBatchEvent()['timestamp']);
+    }
+
     public function testTimestamps(): void
     {
         self::assertTrue(
