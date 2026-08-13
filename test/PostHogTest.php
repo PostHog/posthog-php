@@ -1453,6 +1453,27 @@ class PostHogTest extends TestCase
         self::assertSame('2024-01-01T00:00:00.654321+00:00', $this->firstBatchEvent()['timestamp']);
     }
 
+    public function testInvalidTimestampFallsBackToCurrentTime(): void
+    {
+        $this->executeAtFrozenDateTime(
+            new \DateTimeImmutable('2024-01-01T00:00:00.123456+00:00'),
+            function (): void {
+                self::assertTrue(
+                    PostHog::capture(
+                        array(
+                            "distinctId" => "user-id",
+                            "event" => "invalid-timestamp",
+                            "timestamp" => "not-a-date",
+                        )
+                    )
+                );
+                self::assertTrue(PostHog::flush());
+            }
+        );
+
+        self::assertSame('2024-01-01T00:00:00.123456+00:00', $this->firstBatchEvent()['timestamp']);
+    }
+
     public function testTimestampsAreFormattedInUtc(): void
     {
         date_default_timezone_set('America/Los_Angeles');

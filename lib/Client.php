@@ -2032,7 +2032,7 @@ class Client implements FeatureFlagEvaluationsHost
                 try {
                     return $this->formatDateTime(new \DateTimeImmutable($ts));
                 } catch (\Exception) {
-                    return $this->formatUnixTimestamp((int)strtotime($ts));
+                    return $this->formatDateTime(Clock::get()->now());
                 }
             }
 
