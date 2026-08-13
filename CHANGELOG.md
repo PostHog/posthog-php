@@ -1,3 +1,9 @@
+## 4.13.1
+
+### Patch Changes
+
+- Preserve fractional seconds and emit event timestamps in UTC.
+
 ## 4.13.0
 
 ### Minor Changes
