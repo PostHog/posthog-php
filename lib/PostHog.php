@@ -154,8 +154,9 @@ class PostHog
      *     `library`, `properties['$lib_version']` instead of `library_version`, and
      *     `properties['$lib_consumer']` instead of `library_consumer`. Legacy top-level SDK metadata
      *     values are still used as fallbacks when the canonical property is absent; `type` is ignored.
-     *     UTC timestamps are preferred. Timestamp overrides with another timezone are converted to
-     *     the equivalent UTC instant before serialization.
+     *     Integer and float timestamps are Unix epoch seconds; strings must be parseable. Null or
+     *     invalid values use the current SDK time. Timestamps are converted to the equivalent UTC
+     *     instant before serialization.
      * @return bool Whether the capture call succeeded.
      * @throws Exception
      */
@@ -176,8 +177,9 @@ class PostHog
      *     distinct_id?: string,
      *     properties?: array<string, mixed>,
      *     timestamp?: int|float|string|null
-     * } $message UTC timestamps are preferred. Timestamp overrides with another timezone are
-     *     converted to the equivalent UTC instant before serialization.
+     * } $message Integer and float timestamps are Unix epoch seconds; strings must be parseable.
+     *     Null or invalid values use the current SDK time. Timestamps are converted to the equivalent
+     *     UTC instant before serialization.
      * @return bool Whether the identify call succeeded.
      * @throws Exception
      */
@@ -469,8 +471,9 @@ class PostHog
      *     alias: string,
      *     properties?: array<string, mixed>,
      *     timestamp?: int|float|string|null
-     * } $message UTC timestamps are preferred. Timestamp overrides with another timezone are
-     *     converted to the equivalent UTC instant before serialization.
+     * } $message Integer and float timestamps are Unix epoch seconds; strings must be parseable.
+     *     Null or invalid values use the current SDK time. Timestamps are converted to the equivalent
+     *     UTC instant before serialization.
      * @return bool Whether the alias call succeeded.
      * @throws Exception
      */

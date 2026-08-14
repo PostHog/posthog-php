@@ -383,8 +383,9 @@ class Client implements FeatureFlagEvaluationsHost
      *     `library`, `properties['$lib_version']` instead of `library_version`, and
      *     `properties['$lib_consumer']` instead of `library_consumer`. Legacy top-level SDK metadata
      *     values are still used as fallbacks when the canonical property is absent; `type` is ignored.
-     *     UTC timestamps are preferred. Timestamp overrides with another timezone are converted to
-     *     the equivalent UTC instant before serialization.
+     *     Integer and float timestamps are Unix epoch seconds; strings must be parseable. Null or
+     *     invalid values use the current SDK time. Timestamps are converted to the equivalent UTC
+     *     instant before serialization.
      * @return bool Whether the capture call succeeded.
      */
     public function capture(array $message)
@@ -583,8 +584,9 @@ class Client implements FeatureFlagEvaluationsHost
      *     distinct_id?: string,
      *     properties?: array<string, mixed>,
      *     timestamp?: int|float|string|null
-     * } $message UTC timestamps are preferred. Timestamp overrides with another timezone are
-     *     converted to the equivalent UTC instant before serialization.
+     * } $message Integer and float timestamps are Unix epoch seconds; strings must be parseable.
+     *     Null or invalid values use the current SDK time. Timestamps are converted to the equivalent
+     *     UTC instant before serialization.
      * @return bool Whether the identify call succeeded.
      */
     public function identify(array $message)
@@ -1967,8 +1969,9 @@ class Client implements FeatureFlagEvaluationsHost
      *     alias: string,
      *     properties?: array<string, mixed>,
      *     timestamp?: int|float|string|null
-     * } $message UTC timestamps are preferred. Timestamp overrides with another timezone are
-     *     converted to the equivalent UTC instant before serialization.
+     * } $message Integer and float timestamps are Unix epoch seconds; strings must be parseable.
+     *     Null or invalid values use the current SDK time. Timestamps are converted to the equivalent
+     *     UTC instant before serialization.
      * @return bool Whether the alias call succeeded.
      */
     public function alias(array $message)
@@ -2021,14 +2024,14 @@ class Client implements FeatureFlagEvaluationsHost
      * Formats a timestamp by making sure it is set
      * and converting it to ISO 8601 without discarding fractional seconds.
      *
-     * The timestamp can be time in seconds `time()` or `microtime(true)`.
-     * Any other input is considered an error and the method will return a new date.
+     * Integer and float values are Unix epoch seconds, including zero. Strings are parsed as dates.
+     * Null, empty, and invalid inputs use the SDK clock.
      *
      * @param mixed $ts
      */
     private function formatTime($ts): string
     {
-        if (null == $ts || !$ts) {
+        if (null === $ts || '' === $ts) {
             return $this->formatDateTime(Clock::get()->now());
         }
 
