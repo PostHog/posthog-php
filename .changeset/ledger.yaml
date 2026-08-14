@@ -10,3 +10,7 @@ posthog-php@4.13.1:
   dir: ""
   intents:
     - quiet-clocks-tick
+posthog-php@4.13.2:
+  dir: ""
+  intents:
+    - calm-owls-drift

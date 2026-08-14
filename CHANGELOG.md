@@ -1,3 +1,9 @@
+## 4.13.2
+
+### Patch Changes
+
+- Normalize SDK timestamps to UTC before serialization.
+
 ## 4.13.1
 
 ### Patch Changes
