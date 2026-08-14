@@ -1437,6 +1437,26 @@ class PostHogTest extends TestCase
         self::assertSame('2024-01-01T00:00:00.123456+00:00', $this->firstBatchEvent()['timestamp']);
     }
 
+    public function testZeroTimestampsUseUnixEpoch(): void
+    {
+        foreach ([0, 0.0] as $index => $timestamp) {
+            self::assertTrue(
+                PostHog::capture(
+                    array(
+                        "distinctId" => "user-id",
+                        "event" => "zero-timestamp-{$index}",
+                        "timestamp" => $timestamp,
+                    )
+                )
+            );
+        }
+        self::assertTrue(PostHog::flush());
+
+        $events = $this->firstBatchEvents();
+        self::assertSame('1970-01-01T00:00:00+00:00', $events[0]['timestamp']);
+        self::assertSame('1970-01-01T00:00:00+00:00', $events[1]['timestamp']);
+    }
+
     public function testIsoTimestampPreservesMicroseconds(): void
     {
         self::assertTrue(
@@ -1520,6 +1540,34 @@ class PostHogTest extends TestCase
         self::assertSame('2024-01-01T08:00:00.123456+00:00', $events[0]['timestamp']);
         self::assertSame('2024-01-01T00:00:00+00:00', $events[1]['timestamp']);
         self::assertSame('2024-01-01T00:00:00.654321+00:00', $events[2]['timestamp']);
+    }
+
+    public function testIdentifyAndAliasTimestampsAreFormattedInUtc(): void
+    {
+        $originalTimezone = date_default_timezone_get();
+        date_default_timezone_set('America/Los_Angeles');
+
+        try {
+            self::assertTrue(PostHog::identify([
+                'distinctId' => 'user-id',
+                'properties' => ['plan' => 'pro'],
+                'timestamp' => '2022-05-01T05:30:00+05:30',
+            ]));
+            self::assertTrue(PostHog::alias([
+                'distinctId' => 'user-id',
+                'alias' => 'previous-id',
+                'timestamp' => '2022-05-01T05:30:00+05:30',
+            ]));
+            self::assertTrue(PostHog::flush());
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+
+        $events = $this->firstBatchEvents();
+        self::assertSame('$identify', $events[0]['event']);
+        self::assertSame('2022-05-01T00:00:00+00:00', $events[0]['timestamp']);
+        self::assertSame('$create_alias', $events[1]['event']);
+        self::assertSame('2022-05-01T00:00:00+00:00', $events[1]['timestamp']);
     }
 
     public function testTimestamps(): void
