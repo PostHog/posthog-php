@@ -370,7 +370,7 @@ class Client implements FeatureFlagEvaluationsHost
      *     distinct_id?: string,
      *     properties?: array<string, mixed>,
      *     groups?: array<string, mixed>,
-     *     timestamp?: mixed,
+     *     timestamp?: int|float|string|null,
      *     uuid?: string,
      *     flags?: FeatureFlagEvaluations,
      *     send_feature_flags?: bool,
@@ -383,6 +383,8 @@ class Client implements FeatureFlagEvaluationsHost
      *     `library`, `properties['$lib_version']` instead of `library_version`, and
      *     `properties['$lib_consumer']` instead of `library_consumer`. Legacy top-level SDK metadata
      *     values are still used as fallbacks when the canonical property is absent; `type` is ignored.
+     *     UTC timestamps are preferred. Timestamp overrides with another timezone are converted to
+     *     the equivalent UTC instant before serialization.
      * @return bool Whether the capture call succeeded.
      */
     public function capture(array $message)
@@ -576,7 +578,13 @@ class Client implements FeatureFlagEvaluationsHost
     /**
      * Tags properties about the user.
      *
-     * @param array{distinctId?: string, distinct_id?: string, properties?: array<string, mixed>} $message
+     * @param array{
+     *     distinctId?: string,
+     *     distinct_id?: string,
+     *     properties?: array<string, mixed>,
+     *     timestamp?: int|float|string|null
+     * } $message UTC timestamps are preferred. Timestamp overrides with another timezone are
+     *     converted to the equivalent UTC instant before serialization.
      * @return bool Whether the identify call succeeded.
      */
     public function identify(array $message)
@@ -1957,8 +1965,10 @@ class Client implements FeatureFlagEvaluationsHost
      *     distinctId?: string,
      *     distinct_id?: string,
      *     alias: string,
-     *     properties?: array<string, mixed>
-     * } $message
+     *     properties?: array<string, mixed>,
+     *     timestamp?: int|float|string|null
+     * } $message UTC timestamps are preferred. Timestamp overrides with another timezone are
+     *     converted to the equivalent UTC instant before serialization.
      * @return bool Whether the alias call succeeded.
      */
     public function alias(array $message)
