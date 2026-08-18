@@ -1,0 +1,47 @@
+{
+    "body": {
+        "api_key": "<redacted>",
+        "distinct_id": "person-123",
+        "flag_keys_to_evaluate": [
+            "checkout-redesign",
+            "server-rollout"
+        ],
+        "geoip_disable": true,
+        "group_properties": {
+            "organization": {
+                "employee_count": 150,
+                "industry": "analytics",
+                "settings": {}
+            },
+            "project": {
+                "enabled": false,
+                "tags": [
+                    "php",
+                    "server"
+                ]
+            }
+        },
+        "groups": {
+            "organization": "org-42",
+            "project": "project-7"
+        },
+        "person_properties": {
+            "empty_list": [],
+            "empty_object": {},
+            "nullable": null,
+            "plan": "enterprise",
+            "roles": [
+                "admin",
+                "editor"
+            ]
+        }
+    },
+    "headers": {
+        "User-Agent": "posthog-php/<sdk-version>"
+    },
+    "options": {
+        "shouldRetry": false,
+        "timeout": 3000
+    },
+    "path": "/flags/?v=2"
+}

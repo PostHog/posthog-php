@@ -1,0 +1,127 @@
+{
+    "body": {
+        "api_key": "<redacted>",
+        "batch": [
+            {
+                "$groups": {
+                    "organization": "org-42",
+                    "project": "project-7"
+                },
+                "distinct_id": "person-123",
+                "event": "checkout completed",
+                "groups": {
+                    "organization": "org-42",
+                    "project": "project-7"
+                },
+                "properties": {
+                    "$groups": {
+                        "organization": "org-42",
+                        "project": "project-7"
+                    },
+                    "$is_server": true,
+                    "$lib": "posthog-php",
+                    "$lib_consumer": "LibCurl",
+                    "$lib_version": "<sdk-version>",
+                    "boolean_false": false,
+                    "boolean_true": true,
+                    "empty_list": [],
+                    "empty_object": {},
+                    "empty_string": "",
+                    "float": 42.5,
+                    "floating_zero": 0,
+                    "integer": 42,
+                    "large_integer": 9007199254740991,
+                    "list_order": [
+                        "third",
+                        "first",
+                        "second"
+                    ],
+                    "negative_floating_zero": 0,
+                    "negative_integer": -42,
+                    "nested_object": {
+                        "alpha": "first",
+                        "zeta": null
+                    },
+                    "null": null,
+                    "numeric_string": "0",
+                    "text": "line one\n\"quoted\" \\ slash / café 🌍",
+                    "zero": 0
+                },
+                "timestamp": "2024-01-02T03:04:05.123456+00:00",
+                "uuid": "<uuid-1>"
+            },
+            {
+                "$set": {
+                    "email": "person@example.com",
+                    "preferences": {},
+                    "roles": [
+                        "admin",
+                        "editor"
+                    ]
+                },
+                "distinct_id": "person-123",
+                "event": "$identify",
+                "groups": [],
+                "properties": {
+                    "$is_server": true,
+                    "$lib": "posthog-php",
+                    "$lib_consumer": "LibCurl",
+                    "$lib_version": "<sdk-version>",
+                    "email": "person@example.com",
+                    "preferences": {},
+                    "roles": [
+                        "admin",
+                        "editor"
+                    ]
+                },
+                "timestamp": "2024-01-02T03:04:05.123456+00:00"
+            },
+            {
+                "distinct_id": null,
+                "event": "$create_alias",
+                "groups": [],
+                "properties": {
+                    "$is_server": true,
+                    "$lib": "posthog-php",
+                    "$lib_consumer": "LibCurl",
+                    "$lib_version": "<sdk-version>",
+                    "alias": "anonymous-456",
+                    "distinct_id": "person-123",
+                    "source": "snapshot-suite"
+                },
+                "timestamp": "2024-01-02T03:04:05.123456+00:00"
+            },
+            {
+                "distinct_id": "$organization_org-42",
+                "event": "$groupidentify",
+                "groups": [],
+                "properties": {
+                    "$group_key": "org-42",
+                    "$group_set": {
+                        "employees": 150,
+                        "labels": [
+                            "customer",
+                            "beta"
+                        ],
+                        "metadata": {},
+                        "name": "PostHog"
+                    },
+                    "$group_type": "organization",
+                    "$is_server": true,
+                    "$lib": "posthog-php",
+                    "$lib_consumer": "LibCurl",
+                    "$lib_version": "<sdk-version>"
+                },
+                "timestamp": "2024-01-02T03:04:05.123456+00:00",
+                "uuid": "<uuid-2>"
+            }
+        ]
+    },
+    "headers": {
+        "User-Agent": "posthog-php/<sdk-version>"
+    },
+    "options": {
+        "shouldVerify": true
+    },
+    "path": "/batch/"
+}
