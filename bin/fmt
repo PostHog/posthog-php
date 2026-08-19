@@ -15,23 +15,10 @@ fi
 
 # Run PHPCBF on all PHP files in lib/ and test/ directories
 echo "Running PHPCBF on lib/ and test/ directories..."
-./vendor/bin/phpcbf --standard=phpcs.xml lib/ test/ || {
-    # PHPCBF returns exit code 1 when it fixes files, which is expected behavior
-    # Only fail if it's a different error (exit code 2 or higher)
-    exit_code=$?
-    if [ $exit_code -gt 1 ]; then
-        fatal "PHPCBF failed with exit code $exit_code"
-    fi
-    echo "PHPCBF finished fixing files (exit code $exit_code is expected when fixes are made)"
-}
+./vendor/bin/phpcbf --standard=phpcs.xml --runtime-set ignore_non_auto_fixable_on_exit 1 lib/ test/
 
 # Also format the example.php file
 echo "Running PHPCBF on example.php..."
-./vendor/bin/phpcbf --standard=phpcs.xml example.php || {
-    exit_code=$?
-    if [ $exit_code -gt 1 ]; then
-        fatal "PHPCBF failed on example.php with exit code $exit_code"
-    fi
-}
+./vendor/bin/phpcbf --standard=phpcs.xml --runtime-set ignore_non_auto_fixable_on_exit 1 example.php
 
 echo "PHP formatting complete!"
