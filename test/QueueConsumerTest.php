@@ -74,18 +74,26 @@ class QueueConsumerTest extends TestCase
     {
         $before = glob('/tmp/forkcurl_*') ?: [];
         $consumer = new ForkCurl('test-key', ['compress_request' => true]);
+        $marker = bin2hex(random_bytes(16));
 
         // The raw JSON is below 1 MiB, but shell escaping expands each apostrophe.
-        $result = $consumer->flushBatch([['event' => str_repeat("'", 300_000)]]);
+        $result = $consumer->flushBatch([['event' => $marker . str_repeat("'", 300_000)]]);
 
         $after = glob('/tmp/forkcurl_*') ?: [];
-        $created = array_values(array_diff($after, $before));
-        foreach ($created as $file) {
+        $createdByTest = array_values(array_filter(
+            array_diff($after, $before),
+            static function ($file) use ($marker): bool {
+                $compressed = @file_get_contents($file);
+                $payload = false !== $compressed ? @gzdecode($compressed) : false;
+                return false !== $payload && str_contains($payload, $marker);
+            }
+        ));
+        foreach ($createdByTest as $file) {
             @unlink($file);
         }
 
         $this->assertSame('non_retryable_failure', $result);
-        $this->assertSame([], $created);
+        $this->assertSame([], $createdByTest);
     }
 
     public function testSocketRejectsOversizedPayloadBeforeOpeningConnection(): void
