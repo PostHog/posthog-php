@@ -199,6 +199,35 @@ abstract class QueueConsumer extends Consumer
     }
 
     /**
+     * Encode a batch and enforce the transport-independent payload size limit.
+     *
+     * The limit applies to the raw JSON body, before transport-specific escaping,
+     * compression, or HTTP framing.
+     *
+     * @param array<int, array<string, mixed>> $batch Batch of messages to encode.
+     * @return string|false Encoded payload, or false when it cannot be sent.
+     */
+    protected function encodeBatchPayload($batch)
+    {
+        $payload = json_encode($this->payload($batch));
+        if (false === $payload) {
+            $this->handleError(json_last_error(), "Failed to encode batch payload: " . json_last_error_msg());
+            return false;
+        }
+
+        if (strlen($payload) >= self::MAX_BATCH_PAYLOAD_SIZE) {
+            if ($this->debug()) {
+                $msg = "Message size is larger than " . self::MAX_BATCH_PAYLOAD_SIZE_HUMAN;
+                error_log("[PostHog][" . $this->type . "] " . $msg);
+            }
+
+            return false;
+        }
+
+        return $payload;
+    }
+
+    /**
      * Given a batch of messages the method returns
      * a valid payload.
      *
