@@ -47,19 +47,18 @@ class Socket extends QueueConsumer
      */
     public function flushBatch($batch)
     {
+        $payload = $this->encodeBatchPayload($batch);
+        if (false === $payload) {
+            return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+        }
+
         $socket = $this->createSocket();
 
         if (!$socket) {
             return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
         }
 
-        $payload = $this->payload($batch);
-        $payload = json_encode($payload);
-
         $body = $this->createBody($this->host, $payload);
-        if (false === $body) {
-            return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
-        }
 
         return $this->makeRequest($socket, $body)
             ? true
@@ -212,15 +211,6 @@ class Socket extends QueueConsumer
         $req .= "Content-length: " . strlen($content) . "\r\n";
         $req .= "\r\n";
         $req .= $content;
-
-        if (strlen($req) >= self::MAX_BATCH_PAYLOAD_SIZE) {
-            if ($this->debug()) {
-                $msg = "Message size is larger than " . self::MAX_BATCH_PAYLOAD_SIZE_HUMAN;
-                error_log("[PostHog][" . $this->type . "] " . $msg);
-            }
-
-            return false;
-        }
 
         return $req;
     }
