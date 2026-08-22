@@ -47,8 +47,17 @@ class ForkCurl extends QueueConsumer
             return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
         }
 
-        // Escape for shell usage.
-        $payload = escapeshellarg($payload);
+        // Escape for shell usage and reject payloads that expand beyond the
+        // configured safety limit before creating compression temporary files.
+        try {
+            $payload = escapeshellarg($payload);
+        } catch (\ValueError $error) {
+            $this->handleError($error->getCode(), $error->getMessage());
+            return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+        }
+        if ($this->payloadExceedsSizeLimit($payload)) {
+            return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+        }
 
         $protocol = $this->ssl() ? "https://" : "http://";
 

@@ -70,12 +70,13 @@ class QueueConsumerTest extends TestCase
         $this->assertNull($httpClient->calls);
     }
 
-    public function testForkCurlRejectsOversizedCompressedPayloadWithoutLeakingTempFile(): void
+    public function testForkCurlRejectsExpandedShellPayloadWithoutLeakingTempFile(): void
     {
         $before = glob('/tmp/forkcurl_*') ?: [];
         $consumer = new ForkCurl('test-key', ['compress_request' => true]);
 
-        $result = $consumer->flushBatch([['event' => str_repeat('x', 1024 * 1024)]]);
+        // The raw JSON is below 1 MiB, but shell escaping expands each apostrophe.
+        $result = $consumer->flushBatch([['event' => str_repeat("'", 300_000)]]);
 
         $after = glob('/tmp/forkcurl_*') ?: [];
         $created = array_values(array_diff($after, $before));

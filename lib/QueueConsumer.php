@@ -215,16 +215,31 @@ abstract class QueueConsumer extends Consumer
             return false;
         }
 
-        if (strlen($payload) >= self::MAX_BATCH_PAYLOAD_SIZE) {
-            if ($this->debug()) {
-                $msg = "Message size is larger than " . self::MAX_BATCH_PAYLOAD_SIZE_HUMAN;
-                error_log("[PostHog][" . $this->type . "] " . $msg);
-            }
-
+        if ($this->payloadExceedsSizeLimit($payload)) {
             return false;
         }
 
         return $payload;
+    }
+
+    /**
+     * Check a raw or transport-encoded payload against the batch size limit.
+     *
+     * @param string $payload Payload representation to measure.
+     * @return bool Whether the payload reaches or exceeds the limit.
+     */
+    protected function payloadExceedsSizeLimit($payload)
+    {
+        if (strlen($payload) < self::MAX_BATCH_PAYLOAD_SIZE) {
+            return false;
+        }
+
+        if ($this->debug()) {
+            $msg = "Message size is larger than " . self::MAX_BATCH_PAYLOAD_SIZE_HUMAN;
+            error_log("[PostHog][" . $this->type . "] " . $msg);
+        }
+
+        return true;
     }
 
     /**
