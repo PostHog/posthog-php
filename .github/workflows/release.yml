@@ -280,7 +280,7 @@ jobs:
     name: Notify Slack - Approval Needed
     needs: [check-changesets, prepare-release-candidate, verify-release-candidate]
     if: needs.check-changesets.outputs.has-changesets == 'true' && needs.prepare-release-candidate.result == 'success' && needs.verify-release-candidate.result == 'success'
-    uses: posthog/.github/.github/workflows/notify-approval-needed.yml@cb0979b67dcd585828b61ac45927eef4da8f6287 # main
+    uses: posthog/.github/.github/workflows/notify-approval-needed.yml@5ba5d24966f2c416ca792654638e4ce6f19f545b # main
     with:
       slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
       slack_user_group_id: ${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}
