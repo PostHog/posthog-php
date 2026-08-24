@@ -1,3 +1,9 @@
+## 4.13.3
+
+### Patch Changes
+
+- Apply batch payload size checks consistently before transport processing
+
 ## 4.13.2
 
 ### Patch Changes

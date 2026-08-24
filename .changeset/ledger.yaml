@@ -14,3 +14,7 @@ posthog-php@4.13.2:
   dir: ""
   intents:
     - calm-owls-drift
+posthog-php@4.13.3:
+  dir: ""
+  intents:
+    - fuzzy-laws-allow
