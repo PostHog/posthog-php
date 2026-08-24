@@ -36,6 +36,11 @@ class QueueConsumerTestConsumer extends QueueConsumer
         return $this->queue;
     }
 
+    public function encodedBatchPayload(array $batch)
+    {
+        return $this->encodeBatchPayload($batch);
+    }
+
     public function flushBatch($batch)
     {
         $this->flushedBatches[] = $batch;

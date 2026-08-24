@@ -4,6 +4,7 @@ namespace PostHog\Test;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
 use PostHog\Consumer\Socket;
 use PostHog\QueueConsumer;
@@ -24,6 +25,97 @@ class QueueConsumerTest extends TestCase
         $this->assertCount(10_000, $consumer->queuedItems());
         $this->assertFalse($consumer->enqueue('overflow'));
         $this->assertCount(10_000, $consumer->queuedItems());
+    }
+
+    public function testBatchPayloadSizeLimitAppliesToRawJson(): void
+    {
+        $consumer = new QueueConsumerTestConsumer([]);
+
+        $emptyPayload = $consumer->encodedBatchPayload([['event' => '']]);
+        $this->assertIsString($emptyPayload);
+
+        $remainingBytes = (1024 * 1024) - strlen($emptyPayload);
+        $belowLimit = [['event' => str_repeat('x', $remainingBytes - 1)]];
+        $atLimit = [['event' => str_repeat('x', $remainingBytes)]];
+
+        $this->assertIsString($consumer->encodedBatchPayload($belowLimit));
+        $this->assertFalse($consumer->encodedBatchPayload($atLimit));
+    }
+
+    public function testBatchPayloadEncodingFailureIsNotSendable(): void
+    {
+        $error = null;
+        $consumer = new QueueConsumerTestConsumer(
+            [],
+            [
+                'error_handler' => static function ($code, $message) use (&$error): void {
+                    $error = [$code, $message];
+                },
+            ]
+        );
+
+        $this->assertFalse($consumer->encodedBatchPayload([['event' => "\xB1\x31"]]));
+        $this->assertSame(JSON_ERROR_UTF8, $error[0]);
+        $this->assertStringContainsString('Failed to encode batch payload', $error[1]);
+    }
+
+    public function testLibCurlRejectsOversizedPayloadBeforeSendingRequest(): void
+    {
+        $httpClient = new MockedHttpClient('app.posthog.com');
+        $consumer = new LibCurl('test-key', ['compress_request' => true], $httpClient);
+
+        $result = $consumer->flushBatch([['event' => str_repeat('x', 1024 * 1024)]]);
+
+        $this->assertSame('non_retryable_failure', $result);
+        $this->assertNull($httpClient->calls);
+    }
+
+    public function testForkCurlRejectsExpandedShellPayloadWithoutLeakingTempFile(): void
+    {
+        $before = glob('/tmp/forkcurl_*') ?: [];
+        $consumer = new ForkCurl('test-key', ['compress_request' => true]);
+        $marker = bin2hex(random_bytes(16));
+
+        // The raw JSON is below 1 MiB, but shell escaping expands each apostrophe.
+        $result = $consumer->flushBatch([['event' => $marker . str_repeat("'", 300_000)]]);
+
+        $after = glob('/tmp/forkcurl_*') ?: [];
+        $createdByTest = array_values(array_filter(
+            array_diff($after, $before),
+            static function ($file) use ($marker): bool {
+                $compressed = @file_get_contents($file);
+                $payload = false !== $compressed ? @gzdecode($compressed) : false;
+                return false !== $payload && str_contains($payload, $marker);
+            }
+        ));
+        foreach ($createdByTest as $file) {
+            @unlink($file);
+        }
+
+        $this->assertSame('non_retryable_failure', $result);
+        $this->assertSame([], $createdByTest);
+    }
+
+    public function testSocketRejectsOversizedPayloadBeforeOpeningConnection(): void
+    {
+        $networkAttempted = false;
+        $consumer = new Socket(
+            'test-key',
+            [
+                'compress_request' => true,
+                'host' => 'invalid.invalid',
+                'ssl' => false,
+                'timeout' => 0.01,
+                'error_handler' => static function () use (&$networkAttempted): void {
+                    $networkAttempted = true;
+                },
+            ]
+        );
+
+        $result = $consumer->flushBatch([['event' => str_repeat('x', 1024 * 1024)]]);
+
+        $this->assertSame('non_retryable_failure', $result);
+        $this->assertFalse($networkAttempted);
     }
 
     public function testRetryableFlushFailureKeepsBatchQueued(): void

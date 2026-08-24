@@ -42,11 +42,22 @@ class ForkCurl extends QueueConsumer
      */
     public function flushBatch($messages)
     {
-        $body = $this->payload($messages);
-        $payload = json_encode($body);
+        $payload = $this->encodeBatchPayload($messages);
+        if (false === $payload) {
+            return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+        }
 
-        // Escape for shell usage.
-        $payload = escapeshellarg($payload);
+        // Escape for shell usage and reject payloads that expand beyond the
+        // configured safety limit before creating compression temporary files.
+        try {
+            $payload = escapeshellarg($payload);
+        } catch (\ValueError $error) {
+            $this->handleError($error->getCode(), $error->getMessage());
+            return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+        }
+        if ($this->payloadExceedsSizeLimit($payload)) {
+            return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+        }
 
         $protocol = $this->ssl() ? "https://" : "http://";
 
@@ -78,15 +89,6 @@ class ForkCurl extends QueueConsumer
         }
 
         $cmd .= " '" . $url . "'";
-
-        if (strlen($payload) >= self::MAX_BATCH_PAYLOAD_SIZE) {
-            if ($this->debug()) {
-                $msg = "Message size is larger than " . self::MAX_BATCH_PAYLOAD_SIZE_HUMAN;
-                error_log("[PostHog][" . $this->type . "] " . $msg);
-            }
-
-            return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
-        }
 
         // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
         $cmd .= " -H 'User-Agent: " . $this->userAgent() . "'";
