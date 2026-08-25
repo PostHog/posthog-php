@@ -289,6 +289,19 @@ class FeatureFlagEvaluationsTest extends TestCase
         }
     }
 
+    public function testEmptyFlagKeysReturnsEmptySnapshotWithoutEvaluationRequests(): void
+    {
+        $this->makeClient();
+        $callsBefore = count($this->http_client->calls ?? []);
+
+        $snapshot = PostHog::evaluateFlags('user-1', flagKeys: []);
+
+        $this->assertInstanceOf(FeatureFlagEvaluations::class, $snapshot);
+        $this->assertSame([], $snapshot->getKeys());
+        $this->assertCount($callsBefore, $this->http_client->calls ?? []);
+        $this->assertSame(0, $this->flagsRequestCount());
+    }
+
     public function testFlagKeysIsForwardedInRequestBody(): void
     {
         $this->makeClient();
