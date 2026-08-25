@@ -1069,6 +1069,15 @@ class Client implements FeatureFlagEvaluationsHost
             );
         }
 
+        if ($flagKeys === []) {
+            return new FeatureFlagEvaluations(
+                $distinctId,
+                [],
+                $groups,
+                $this,
+            );
+        }
+
         [$personProperties, $groupProperties] = $this->addLocalPersonAndGroupProperties(
             $groups,
             $personProperties,
