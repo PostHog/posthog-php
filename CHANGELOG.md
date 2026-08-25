@@ -1,3 +1,9 @@
+## 4.13.4
+
+### Patch Changes
+
+- Return an empty feature flag snapshot without evaluation requests when the requested flag key list is empty.
+
 ## 4.13.3
 
 ### Patch Changes
