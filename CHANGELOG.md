@@ -1,3 +1,9 @@
+## 4.13.5
+
+### Patch Changes
+
+- Return false for the `is_not_set` operator during local evaluation when the property key is present.
+
 ## 4.13.4
 
 ### Patch Changes

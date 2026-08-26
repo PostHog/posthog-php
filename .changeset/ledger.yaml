@@ -22,3 +22,7 @@ posthog-php@4.13.4:
   dir: ""
   intents:
     - empty-scopes-stop
+posthog-php@4.13.5:
+  dir: ""
+  intents:
+    - present-properties-match
