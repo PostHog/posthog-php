@@ -2,4 +2,4 @@
 "posthog-php": patch
 ---
 
-Align local `is_set` and `is_not_set` evaluation with partial property context.
+Return false for the `is_not_set` operator during local evaluation when the property key is present.
