@@ -248,34 +248,55 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         ]);
     }
 
-    public function testMatchPropertyIsSet(): void
+    /**
+     * @dataProvider presentPresenceOperatorValuesProvider
+     */
+    public function testMatchPropertyPresenceOperatorsTreatPresentValuesAsSet($value): void
     {
-        $prop = [
-            "key" => "key",
-            "value" => "is_set",
-            "operator" => "is_set"
+        foreach (["is_set" => true, "is_not_set" => false] as $operator => $expected) {
+            $prop = [
+                "key" => "key",
+                "value" => $operator,
+                "operator" => $operator,
+            ];
+
+            self::assertSame($expected, FeatureFlag::matchProperty($prop, [
+                "key" => $value,
+            ]));
+        }
+    }
+
+    public static function presentPresenceOperatorValuesProvider(): array
+    {
+        return [
+            'null' => [null],
+            'false' => [false],
+            'zero' => [0],
+            'empty string' => [''],
+            'empty array' => [[]],
+            // stdClass is PHP's JSON-object host equivalent and keeps it distinct from [] (an empty array).
+            'empty object' => [new \stdClass()],
         ];
+    }
 
-        self::assertTrue(FeatureFlag::matchProperty($prop, [
-            "key" => "value",
-        ]));
+    public function testMatchPropertyPresenceOperatorsAreInconclusiveForOmittedKey(): void
+    {
+        foreach (["is_set", "is_not_set"] as $operator) {
+            $prop = [
+                "key" => "key",
+                "value" => $operator,
+                "operator" => $operator,
+            ];
 
-        self::assertTrue(FeatureFlag::matchProperty($prop, [
-            "key" => "value2",
-        ]));
-
-        self::assertTrue(FeatureFlag::matchProperty($prop, [
-            "key" => "",
-        ]));
-
-        self::assertTrue(FeatureFlag::matchProperty($prop, [
-            "key" => null,
-        ]));
-
-        self::expectException(InconclusiveMatchException::class);
-        FeatureFlag::matchProperty($prop, [
-            "key2" => "value",
-        ]);
+            try {
+                FeatureFlag::matchProperty($prop, [
+                    "key2" => "value",
+                ]);
+                self::fail("Expected InconclusiveMatchException for operator {$operator}");
+            } catch (InconclusiveMatchException $exception) {
+                self::assertInstanceOf(InconclusiveMatchException::class, $exception);
+            }
+        }
     }
 
     public function testMatchPropertyContains(): void

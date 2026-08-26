@@ -32,7 +32,7 @@ class FeatureFlag
         }
 
         if ($operator == "is_not_set") {
-            throw new InconclusiveMatchException("can't match properties with operator is_not_set");
+            return false;
         }
 
         $overrideValue = $propertyValues[$key];
