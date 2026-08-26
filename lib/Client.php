@@ -556,11 +556,17 @@ class Client implements FeatureFlagEvaluationsHost
             return false;
         }
 
+        $reservedExceptionProperties = array_flip([
+            '$exception_list', '$exception_level', '$exception_source', '$debug_images',
+            '$exception_handled', '$exception_types', '$exception_values', '$exception_sources',
+            '$exception_functions', '$exception_fingerprint_version', '$exception_fingerprint_record',
+            '$exception_issue_id', '$exception_release', '$cymbal_errors',
+        ]);
         $properties = array_merge(
-            $additionalProperties,
+            array_diff_key($additionalProperties, $reservedExceptionProperties),
             [
                 '$exception_list' => $exceptionList,
-                '$exception_handled' => ExceptionPayloadBuilder::getPrimaryHandled($exceptionList),
+                '$exception_level' => 'error',
             ]
         );
 

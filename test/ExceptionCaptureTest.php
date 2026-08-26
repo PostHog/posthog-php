@@ -160,10 +160,11 @@ class ExceptionCaptureTest extends TestCase
             $event = $this->findExceptionEvent();
 
             $this->assertSame('$exception', $event['event']);
-            $this->assertFalse($event['properties']['$exception_handled']);
-            $this->assertSame('php_exception_handler', $event['properties']['$exception_source']);
+            $this->assertArrayNotHasKey('$exception_handled', $event['properties']);
+            $this->assertSame('fatal', $event['properties']['$exception_level']);
+            $this->assertSame('php.exception_handler', $event['properties']['$exception_source']);
             $this->assertSame(
-                ['type' => 'auto.exception_handler', 'handled' => false],
+                ['type' => 'onuncaughtexception', 'handled' => false, 'synthetic' => false, 'exception_id' => 0],
                 $event['properties']['$exception_list'][0]['mechanism']
             );
             $this->assertSame('RuntimeException', $event['properties']['$exception_list'][0]['type']);
@@ -199,8 +200,8 @@ PHP, 255, false);
         $this->assertCount(1, $result['calls']);
         $payload = json_decode($result['calls'][0]['payload'], true);
         $event = $payload['batch'][0];
-        $this->assertFalse($event['properties']['$exception_handled']);
-        $this->assertSame('php_exception_handler', $event['properties']['$exception_source']);
+        $this->assertArrayNotHasKey('$exception_handled', $event['properties']);
+        $this->assertSame('php.exception_handler', $event['properties']['$exception_source']);
         $this->assertNotEmpty($result['error_messages']);
         $this->assertStringContainsString('uncaught without previous', $result['error_messages'][0]);
     }
@@ -233,11 +234,12 @@ PHP, 255, false);
             $frames = $event['properties']['$exception_list'][0]['stacktrace']['frames'];
 
             $this->assertSame(1, $previousCalls);
-            $this->assertTrue($event['properties']['$exception_handled']);
-            $this->assertSame('php_error_handler', $event['properties']['$exception_source']);
+            $this->assertArrayNotHasKey('$exception_handled', $event['properties']);
+            $this->assertSame('warning', $event['properties']['$exception_level']);
+            $this->assertSame('php.error_handler', $event['properties']['$exception_source']);
             $this->assertSame(E_USER_WARNING, $event['properties']['$php_error_severity']);
             $this->assertSame(
-                ['type' => 'auto.error_handler', 'handled' => true],
+                ['type' => 'error_handler', 'handled' => true, 'synthetic' => true, 'exception_id' => 0],
                 $event['properties']['$exception_list'][0]['mechanism']
             );
             $this->assertSame('ErrorException', $event['properties']['$exception_list'][0]['type']);
@@ -305,11 +307,12 @@ PHP, 255, false);
         $event = $this->findExceptionEvent();
         $frames = $event['properties']['$exception_list'][0]['stacktrace']['frames'];
 
-        $this->assertFalse($event['properties']['$exception_handled']);
-        $this->assertSame('php_shutdown_handler', $event['properties']['$exception_source']);
+        $this->assertArrayNotHasKey('$exception_handled', $event['properties']);
+        $this->assertSame('fatal', $event['properties']['$exception_level']);
+        $this->assertSame('php.shutdown_handler', $event['properties']['$exception_source']);
         $this->assertSame(E_ERROR, $event['properties']['$php_error_severity']);
         $this->assertSame(
-            ['type' => 'auto.shutdown_handler', 'handled' => false],
+            ['type' => 'crash_reporter', 'handled' => false, 'synthetic' => true, 'exception_id' => 0],
             $event['properties']['$exception_list'][0]['mechanism']
         );
         $this->assertCount(1, $frames);
@@ -342,8 +345,8 @@ PHP);
         $this->assertCount(1, $result['calls']);
         $payload = json_decode($result['calls'][0]['payload'], true);
         $event = $payload['batch'][0];
-        $this->assertSame('php_error_handler', $event['properties']['$exception_source']);
-        $this->assertFalse($event['properties']['$exception_handled']);
+        $this->assertSame('php.error_handler', $event['properties']['$exception_source']);
+        $this->assertArrayNotHasKey('$exception_handled', $event['properties']);
     }
 
     public function testExcludedExceptionsSkipCapture(): void
@@ -443,8 +446,8 @@ PHP);
         $this->assertSame('context-session', $event['properties']['$session_id']);
         $this->assertSame('/api/context', $event['properties']['$request_path']);
         $this->assertSame('context-value', $event['properties']['context_property']);
-        $this->assertSame('php_exception_handler', $event['properties']['$exception_source']);
-        $this->assertFalse($event['properties']['$exception_handled']);
+        $this->assertSame('php.exception_handler', $event['properties']['$exception_source']);
+        $this->assertArrayNotHasKey('$exception_handled', $event['properties']);
         $this->assertArrayNotHasKey('$process_person_profile', $event['properties']);
     }
 
@@ -468,15 +471,15 @@ PHP);
         $event = $this->findExceptionEvent();
         $exceptionList = $event['properties']['$exception_list'];
 
-        $this->assertFalse($event['properties']['$exception_handled']);
+        $this->assertArrayNotHasKey('$exception_handled', $event['properties']);
         $this->assertSame('RuntimeException', $exceptionList[0]['type']);
         $this->assertSame(
-            ['type' => 'auto.exception_handler', 'handled' => false],
+            ['type' => 'onuncaughtexception', 'handled' => false, 'synthetic' => false, 'exception_id' => 0],
             $exceptionList[0]['mechanism']
         );
         $this->assertSame('InvalidArgumentException', $exceptionList[1]['type']);
         $this->assertSame(
-            ['type' => 'generic', 'handled' => true],
+            ['type' => 'chained', 'source' => 'cause', 'synthetic' => false, 'exception_id' => 1, 'parent_id' => 0],
             $exceptionList[1]['mechanism']
         );
     }
@@ -552,8 +555,8 @@ PHP);
         $this->assertCount(1, $result['calls']);
         $payload = json_decode($result['calls'][0]['payload'], true);
         $event = $payload['batch'][0];
-        $this->assertSame('php_error_handler', $event['properties']['$exception_source']);
-        $this->assertFalse($event['properties']['$exception_handled']);
+        $this->assertSame('php.error_handler', $event['properties']['$exception_source']);
+        $this->assertArrayNotHasKey('$exception_handled', $event['properties']);
     }
 
     public function testUserErrorCanBeCapturedFromErrorHandlerWhenPreviousHandlerHandlesIt(): void
@@ -584,10 +587,10 @@ PHP);
         $payload = json_decode($result['calls'][0]['payload'], true);
         $event = $payload['batch'][0];
 
-        $this->assertSame('php_error_handler', $event['properties']['$exception_source']);
-        $this->assertTrue($event['properties']['$exception_handled']);
+        $this->assertSame('php.error_handler', $event['properties']['$exception_source']);
+        $this->assertArrayNotHasKey('$exception_handled', $event['properties']);
         $this->assertSame(
-            ['type' => 'auto.error_handler', 'handled' => true],
+            ['type' => 'error_handler', 'handled' => true, 'synthetic' => true, 'exception_id' => 0],
             $event['properties']['$exception_list'][0]['mechanism']
         );
     }
