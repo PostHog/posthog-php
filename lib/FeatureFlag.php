@@ -571,7 +571,7 @@ class FeatureFlag
 
     private static function unicodeLowercase($value)
     {
-        return mb_strtolower($value, "UTF-8");
+        return mb_convert_case($value, MB_CASE_LOWER_SIMPLE, "UTF-8");
     }
 
     private static function valueToString($value)

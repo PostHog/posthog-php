@@ -265,13 +265,16 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $isNot["operator"] = "is_not";
         self::assertFalse(FeatureFlag::matchProperty($isNot, ["key" => "ä"]));
 
-        foreach ([["ß", "ss"], ["Σ", "ς"]] as [$filter, $property]) {
+        foreach ([["ß", "ss"], ["Σ", "ς"], ["ΟΣ", "ος"]] as [$filter, $property]) {
             $exact["value"] = $filter;
             self::assertFalse(FeatureFlag::matchProperty($exact, ["key" => $property]));
 
             $isNot["value"] = $filter;
             self::assertTrue(FeatureFlag::matchProperty($isNot, ["key" => $property]));
         }
+
+        $exact["value"] = "ΟΣ";
+        self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => "οσ"]));
     }
 
     public function testMatchPropertyStringificationPreservesIntegralFloats(): void
