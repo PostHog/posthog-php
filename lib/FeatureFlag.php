@@ -571,7 +571,14 @@ class FeatureFlag
 
     private static function unicodeLowercase($value)
     {
-        return mb_convert_case($value, MB_CASE_LOWER_SIMPLE, "UTF-8");
+        // Rust's full, context-independent lowercase expands U+0130, while PHP's
+        // simple mode does not. Expand it before applying simple lowercase.
+        $value = str_replace("\u{0130}", "i\u{0307}", $value);
+
+        // The polyfill does not define MB_CASE_LOWER_SIMPLE, but its regular
+        // lowercase mapping is context-independent and therefore equivalent here.
+        $mode = defined('MB_CASE_LOWER_SIMPLE') ? MB_CASE_LOWER_SIMPLE : MB_CASE_LOWER;
+        return mb_convert_case($value, $mode, "UTF-8");
     }
 
     private static function valueToString($value)

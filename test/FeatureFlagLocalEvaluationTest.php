@@ -258,6 +258,10 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
         self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => "ä"]));
 
+        $exact["value"] = "İ";
+        self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => "i\u{0307}"]));
+        self::assertFalse(FeatureFlag::matchProperty($exact, ["key" => "i"]));
+
         $exact["value"] = ["FREE", "Ä"];
         self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => "ä"]));
 
