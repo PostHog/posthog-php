@@ -293,6 +293,11 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
         self::assertFalse(FeatureFlag::matchProperty($endsWith, ["key" => 323.0]));
         self::assertTrue(FeatureFlag::matchProperty($endsWith, ["key" => 323]));
+
+        foreach ([["1e+20", 1.0e20], ["-1e-7", -1.0e-7], ["INF", INF], ["NAN", NAN]] as [$filter, $property]) {
+            $exact["value"] = $filter;
+            self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => $property]));
+        }
     }
 
     /**

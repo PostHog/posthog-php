@@ -580,7 +580,11 @@ class FeatureFlag
             return $value ? "true" : "false";
         }
         if (is_float($value)) {
-            return json_encode($value, JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR);
+            if (!is_finite($value)) {
+                return strval($value);
+            }
+            $encoded = json_encode($value, JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR);
+            return preg_replace('/\.0(e[+-]?\d+)$/', '$1', $encoded);
         }
         return strval($value);
     }
