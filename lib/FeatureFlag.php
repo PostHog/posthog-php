@@ -54,7 +54,7 @@ class FeatureFlag
         }
 
         if ($operator == "not_icontains") {
-            return strpos(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value))) == false;
+            return strpos(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value))) === false;
         }
 
         if ($operator == "starts_with") {
@@ -557,19 +557,32 @@ class FeatureFlag
 
     private static function computeExactMatch($value, $overrideValue)
     {
+        $overrideString = FeatureFlag::unicodeLowercase(FeatureFlag::valueToString($overrideValue));
         if (is_array($value)) {
-            return in_array(strtolower(FeatureFlag::valueToString($overrideValue)), array_map('strtolower', array_map(fn($val) => FeatureFlag::valueToString($val), $value)));
+            foreach ($value as $candidate) {
+                if (FeatureFlag::unicodeLowercase(FeatureFlag::valueToString($candidate)) === $overrideString) {
+                    return true;
+                }
+            }
+            return false;
         }
-        return strtolower(FeatureFlag::valueToString($value)) == strtolower(FeatureFlag::valueToString($overrideValue));
+        return FeatureFlag::unicodeLowercase(FeatureFlag::valueToString($value)) === $overrideString;
+    }
+
+    private static function unicodeLowercase($value)
+    {
+        return mb_strtolower($value, "UTF-8");
     }
 
     private static function valueToString($value)
     {
         if (is_bool($value)) {
             return $value ? "true" : "false";
-        } else {
-            return strval($value);
         }
+        if (is_float($value)) {
+            return json_encode($value, JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR);
+        }
+        return strval($value);
     }
 
     private static function compare($lhs, $rhs, $operator, $type = "string")

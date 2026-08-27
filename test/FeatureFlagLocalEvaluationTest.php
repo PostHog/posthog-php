@@ -248,6 +248,53 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         ]);
     }
 
+    public function testMatchPropertyExactUsesUnicodeLowercase(): void
+    {
+        $exact = [
+            "key" => "key",
+            "value" => "Ä",
+            "operator" => "exact",
+        ];
+
+        self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => "ä"]));
+
+        $exact["value"] = ["FREE", "Ä"];
+        self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => "ä"]));
+
+        $isNot = $exact;
+        $isNot["operator"] = "is_not";
+        self::assertFalse(FeatureFlag::matchProperty($isNot, ["key" => "ä"]));
+
+        foreach ([["ß", "ss"], ["Σ", "ς"]] as [$filter, $property]) {
+            $exact["value"] = $filter;
+            self::assertFalse(FeatureFlag::matchProperty($exact, ["key" => $property]));
+
+            $isNot["value"] = $filter;
+            self::assertTrue(FeatureFlag::matchProperty($isNot, ["key" => $property]));
+        }
+    }
+
+    public function testMatchPropertyStringificationPreservesIntegralFloats(): void
+    {
+        $exact = [
+            "key" => "key",
+            "value" => "323.0",
+            "operator" => "exact",
+        ];
+
+        self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => 323.0]));
+        self::assertFalse(FeatureFlag::matchProperty($exact, ["key" => 323]));
+
+        $endsWith = [
+            "key" => "key",
+            "value" => "3",
+            "operator" => "ends_with",
+        ];
+
+        self::assertFalse(FeatureFlag::matchProperty($endsWith, ["key" => 323.0]));
+        self::assertTrue(FeatureFlag::matchProperty($endsWith, ["key" => 323]));
+    }
+
     /**
      * @dataProvider presentPresenceOperatorValuesProvider
      */
@@ -352,6 +399,24 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         self::assertFalse(FeatureFlag::matchProperty($prop, [
             "key" => "three",
         ]));
+
+        // Case folding is ASCII-only, mirroring the flags service.
+        $prop["value"] = "ä";
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["key" => "ÄBC"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["key" => "äbc"]));
+    }
+
+    public function testMatchPropertyNotContainsNegatesMatchAtOffsetZero(): void
+    {
+        $prop = [
+            "key" => "key",
+            "value" => "VALUE",
+            "operator" => "not_icontains",
+        ];
+
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["key" => "value suffix"]));
+        self::assertFalse(FeatureFlag::matchProperty($prop, ["key" => "prefix value suffix"]));
+        self::assertTrue(FeatureFlag::matchProperty($prop, ["key" => "different"]));
     }
 
     public function testMatchPropertyStartsWith(): void
