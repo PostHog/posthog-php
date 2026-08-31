@@ -104,7 +104,8 @@ class FeatureFlag
                     return FeatureFlag::compare($overrideValue, $parsedValue, $operator, "numeric");
                 }
             } else {
-                return FeatureFlag::compare(FeatureFlag::valueToString($overrideValue), FeatureFlag::valueToString($value), $operator);
+                // Preserve the existing fallback for non-numeric comparison values.
+                return FeatureFlag::compare(strval($overrideValue), strval($value), $operator);
             }
         }
 
@@ -557,8 +558,12 @@ class FeatureFlag
 
     private static function computeExactMatch($value, $overrideValue)
     {
+        if (FeatureFlag::isTruthyOrFalsyPropertyValue($value)) {
+            return FeatureFlag::isTruthyPropertyValue($value) === FeatureFlag::isTruthyPropertyValue($overrideValue);
+        }
+
         $overrideString = FeatureFlag::unicodeLowercase(FeatureFlag::valueToString($overrideValue));
-        if (is_array($value)) {
+        if (is_array($value) && array_is_list($value)) {
             foreach ($value as $candidate) {
                 if (FeatureFlag::unicodeLowercase(FeatureFlag::valueToString($candidate)) === $overrideString) {
                     return true;
@@ -569,31 +574,190 @@ class FeatureFlag
         return FeatureFlag::unicodeLowercase(FeatureFlag::valueToString($value)) === $overrideString;
     }
 
+    private static function isTruthyOrFalsyPropertyValue($value)
+    {
+        if (is_bool($value)) {
+            return true;
+        }
+        if (is_string($value)) {
+            return in_array(strtolower($value), ["true", "false"], true);
+        }
+        if (is_array($value) && array_is_list($value)) {
+            foreach ($value as $candidate) {
+                if (!FeatureFlag::isTruthyOrFalsyPropertyValue($candidate)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private static function isTruthyPropertyValue($value)
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+        if (is_string($value)) {
+            return strtolower($value) === "true";
+        }
+        if (is_array($value) && array_is_list($value)) {
+            foreach ($value as $candidate) {
+                if (!FeatureFlag::isTruthyPropertyValue($candidate)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
     private static function unicodeLowercase($value)
     {
-        // Rust's full, context-independent lowercase expands U+0130, while PHP's
-        // simple mode does not. Expand it before applying simple lowercase.
-        $value = str_replace("\u{0130}", "i\u{0307}", $value);
-
-        // The polyfill does not define MB_CASE_LOWER_SIMPLE, but its regular
-        // lowercase mapping is context-independent and therefore equivalent here.
         $mode = defined('MB_CASE_LOWER_SIMPLE') ? MB_CASE_LOWER_SIMPLE : MB_CASE_LOWER;
+        $characters = preg_split('//u', $value, -1, PREG_SPLIT_NO_EMPTY);
+        if ($characters === false) {
+            return mb_convert_case($value, $mode, "UTF-8");
+        }
+
+        foreach ($characters as $index => $character) {
+            if ($character !== "Σ") {
+                continue;
+            }
+
+            // PHP 8.2+'s PCRE2 supports the Cased and Case_Ignorable
+            // derived properties used by Unicode's Final_Sigma rule.
+            $precededByCased = false;
+            for ($before = $index - 1; $before >= 0; $before--) {
+                if (preg_match('/^\p{Case_Ignorable}$/u', $characters[$before])) {
+                    continue;
+                }
+                $precededByCased = preg_match('/^\p{Cased}$/u', $characters[$before]) === 1;
+                break;
+            }
+
+            $followedByCased = false;
+            for ($after = $index + 1; $after < count($characters); $after++) {
+                if (preg_match('/^\p{Case_Ignorable}$/u', $characters[$after])) {
+                    continue;
+                }
+                $followedByCased = preg_match('/^\p{Cased}$/u', $characters[$after]) === 1;
+                break;
+            }
+
+            $characters[$index] = $precededByCased && !$followedByCased ? "ς" : "σ";
+        }
+
+        // U+0130 is the unconditional multi-code-point lowercase mapping that
+        // PHP's simple mode omits.
+        $value = str_replace("\u{0130}", "i\u{0307}", implode('', $characters));
         return mb_convert_case($value, $mode, "UTF-8");
     }
 
     private static function valueToString($value)
     {
+        if (is_string($value)) {
+            return $value;
+        }
         if (is_bool($value)) {
             return $value ? "true" : "false";
         }
+        if (is_null($value)) {
+            return "null";
+        }
         if (is_float($value)) {
-            if (!is_finite($value)) {
-                return strval($value);
-            }
-            $encoded = json_encode($value, JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR);
-            return preg_replace('/\.0(e[+-]?\d+)$/', '$1', $encoded);
+            return FeatureFlag::floatToString($value);
+        }
+        if (is_array($value) || is_object($value)) {
+            return FeatureFlag::jsonValueToString($value);
         }
         return strval($value);
+    }
+
+    private static function jsonValueToString($value)
+    {
+        $jsonFlags = JSON_UNESCAPED_LINE_TERMINATORS
+            | JSON_UNESCAPED_SLASHES
+            | JSON_UNESCAPED_UNICODE
+            | JSON_THROW_ON_ERROR;
+
+        if (is_string($value)) {
+            return json_encode($value, $jsonFlags);
+        }
+        if (is_bool($value)) {
+            return $value ? "true" : "false";
+        }
+        if (is_null($value)) {
+            return "null";
+        }
+        if (is_float($value)) {
+            return FeatureFlag::floatToString($value);
+        }
+        if (is_int($value)) {
+            return strval($value);
+        }
+        if ($value instanceof \JsonSerializable) {
+            return FeatureFlag::jsonValueToString($value->jsonSerialize());
+        }
+        if (is_object($value)) {
+            $value = get_object_vars($value);
+            $isList = false;
+        } else {
+            $isList = array_is_list($value);
+        }
+
+        if ($isList) {
+            $items = array_map(fn($item) => FeatureFlag::jsonValueToString($item), $value);
+            return '[' . implode(',', $items) . ']';
+        }
+
+        ksort($value, SORT_STRING);
+        $items = [];
+        foreach ($value as $key => $item) {
+            $encodedKey = json_encode(strval($key), $jsonFlags);
+            $items[] = $encodedKey . ':' . FeatureFlag::jsonValueToString($item);
+        }
+        return '{' . implode(',', $items) . '}';
+    }
+
+    private static function floatToString($value)
+    {
+        if (!is_finite($value)) {
+            return strval($value);
+        }
+
+        $encoded = json_encode($value, JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR);
+        if ($value == 0.0) {
+            return str_starts_with($encoded, '-') ? "-0.0" : "0.0";
+        }
+
+        preg_match('/^(-?)(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/i', $encoded, $parts);
+        $sign = $parts[1];
+        $integer = $parts[2];
+        $fraction = $parts[3] ?? '';
+        $encodedExponent = intval($parts[4] ?? 0);
+        $digits = $integer . $fraction;
+        $firstNonZero = strspn($digits, '0');
+        $digits = rtrim(substr($digits, $firstNonZero), '0');
+        $decimalPosition = strlen($integer) + $encodedExponent;
+        $exponent = $decimalPosition - $firstNonZero - 1;
+
+        if ($exponent >= 16 || $exponent <= -6) {
+            $mantissa = $digits[0];
+            if (strlen($digits) > 1) {
+                $mantissa .= '.' . substr($digits, 1);
+            }
+            return $sign . $mantissa . 'e' . ($exponent >= 0 ? '+' : '') . $exponent;
+        }
+
+        $position = $exponent + 1;
+        if ($position <= 0) {
+            return $sign . '0.' . str_repeat('0', -$position) . $digits;
+        }
+        if ($position >= strlen($digits)) {
+            return $sign . $digits . str_repeat('0', $position - strlen($digits)) . '.0';
+        }
+        return $sign . substr($digits, 0, $position) . '.' . substr($digits, $position);
     }
 
     private static function compare($lhs, $rhs, $operator, $type = "string")

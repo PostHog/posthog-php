@@ -269,7 +269,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $isNot["operator"] = "is_not";
         self::assertFalse(FeatureFlag::matchProperty($isNot, ["key" => "ä"]));
 
-        foreach ([["ß", "ss"], ["Σ", "ς"], ["ΟΣ", "ος"]] as [$filter, $property]) {
+        foreach ([["ß", "ss"], ["Σ", "ς"]] as [$filter, $property]) {
             $exact["value"] = $filter;
             self::assertFalse(FeatureFlag::matchProperty($exact, ["key" => $property]));
 
@@ -277,8 +277,53 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             self::assertTrue(FeatureFlag::matchProperty($isNot, ["key" => $property]));
         }
 
-        $exact["value"] = "ΟΣ";
-        self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => "οσ"]));
+        foreach ([["ΟΣ", "ος"], ["ΟΔΟΣ", "οδος"], ["ΠΑΡΑΓΓΕΛΙΕΣ", "παραγγελιες"]] as [$filter, $property]) {
+            $exact["value"] = $filter;
+            self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => $property]));
+
+            $isNot["value"] = $filter;
+            self::assertFalse(FeatureFlag::matchProperty($isNot, ["key" => $property]));
+        }
+
+        foreach ([["ΟΣ", "οσ"], ["ΟΔΟΣ", "οδοσ"], ["ΠΑΡΑΓΓΕΛΙΕΣ", "παραγγελιεσ"]] as [$filter, $property]) {
+            $exact["value"] = $filter;
+            self::assertFalse(FeatureFlag::matchProperty($exact, ["key" => $property]));
+
+            $isNot["value"] = $filter;
+            self::assertTrue(FeatureFlag::matchProperty($isNot, ["key" => $property]));
+        }
+
+        $exact["value"] = "invalid-\xFF";
+        self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => "invalid-\xFF"]));
+    }
+
+    public function testMatchPropertyExactUsesBackendBooleanCoercion(): void
+    {
+        $cases = [
+            [false, "banana", true],
+            ["false", 0, true],
+            [false, ["a" => true], true],
+            [true, ["a" => true], false],
+            [false, new \stdClass(), true],
+            [["false"], null, true],
+            [["true", "false"], "true", false],
+            [["true", "false"], "pro", true],
+            [[], true, true],
+            [[], "true", true],
+            [[], [], true],
+            [[], [true], true],
+            [[], false, false],
+            [[], "banana", false],
+            [["FREE", "PRO"], "pro", true],
+        ];
+
+        foreach ($cases as [$filter, $property, $expected]) {
+            $exact = ["key" => "key", "value" => $filter, "operator" => "exact"];
+            self::assertSame($expected, FeatureFlag::matchProperty($exact, ["key" => $property]));
+
+            $exact["operator"] = "is_not";
+            self::assertSame(!$expected, FeatureFlag::matchProperty($exact, ["key" => $property]));
+        }
     }
 
     public function testMatchPropertyStringificationPreservesIntegralFloats(): void
@@ -305,6 +350,41 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             $exact["value"] = $filter;
             self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => $property]));
         }
+    }
+
+    public function testMatchPropertyStringificationMatchesBackendJson(): void
+    {
+        $cases = [
+            ["[1,2]", [1, 2]],
+            ['{"a":2,"b":1}', ["b" => 1, "a" => 2]],
+            ['{"outer":{"a":2,"b":1}}', ["outer" => ["b" => 1, "a" => 2]]],
+            ["1e-7", 1.0e-7],
+            ["1e-6", 1.0e-6],
+            ["1.2e-6", 1.2e-6],
+            ["1e+16", 1.0e16],
+            ["0.00001", 1.0e-5],
+            ["0.000099", 9.9e-5],
+        ];
+
+        foreach ($cases as [$filter, $property]) {
+            $exact = ["key" => "key", "value" => $filter, "operator" => "exact"];
+            self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => $property]));
+
+            $exact["operator"] = "is_not";
+            self::assertFalse(FeatureFlag::matchProperty($exact, ["key" => $property]));
+        }
+
+        $exact = ["key" => "key", "value" => "Array", "operator" => "exact"];
+        self::assertFalse(FeatureFlag::matchProperty($exact, ["key" => [1, 2]]));
+
+        $jsonSerializable = new class implements \JsonSerializable {
+            public function jsonSerialize(): mixed
+            {
+                return ["b" => 1, "a" => 2];
+            }
+        };
+        $exact["value"] = '{"a":2,"b":1}';
+        self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => $jsonSerializable]));
     }
 
     /**
@@ -1254,7 +1334,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             "operator" => "is_not"
         ];
 
-        self::assertTrue(FeatureFlag::matchProperty($prop_a, [
+        self::assertFalse(FeatureFlag::matchProperty($prop_a, [
             "key" => null,
         ]));
         self::assertFalse(FeatureFlag::matchProperty($prop_a, [
