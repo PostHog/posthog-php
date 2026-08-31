@@ -1,3 +1,9 @@
+## 4.13.6
+
+### Patch Changes
+
+- Match local feature flag boolean coercion, JSON stringification, numeric formatting, and string case handling with the flags service.
+
 ## 4.13.5
 
 ### Patch Changes

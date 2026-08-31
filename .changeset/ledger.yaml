@@ -26,3 +26,7 @@ posthog-php@4.13.5:
   dir: ""
   intents:
     - present-properties-match
+posthog-php@4.13.6:
+  dir: ""
+  intents:
+    - local-flag-case-folding
