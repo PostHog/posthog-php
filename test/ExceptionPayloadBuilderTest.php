@@ -44,7 +44,10 @@ class ExceptionPayloadBuilderTest extends TestCase
         $this->assertCount(1, $result);
         $this->assertEquals('Error', $result[0]['type']);
         $this->assertEquals('something went wrong', $result[0]['value']);
-        $this->assertEquals(['type' => 'generic', 'handled' => true], $result[0]['mechanism']);
+        $this->assertEquals(
+            ['type' => 'generic', 'handled' => true, 'synthetic' => true, 'exception_id' => 0],
+            $result[0]['mechanism']
+        );
         $this->assertNull($result[0]['stacktrace']);
     }
 
@@ -59,7 +62,10 @@ class ExceptionPayloadBuilderTest extends TestCase
         $entry = $result[0];
         $this->assertEquals('RuntimeException', $entry['type']);
         $this->assertEquals('test error', $entry['value']);
-        $this->assertEquals(['type' => 'generic', 'handled' => true], $entry['mechanism']);
+        $this->assertEquals(
+            ['type' => 'generic', 'handled' => true, 'synthetic' => false, 'exception_id' => 0],
+            $entry['mechanism']
+        );
     }
 
     public function testStacktraceFramesArePresent(): void
@@ -421,7 +427,9 @@ PHP;
             $this->assertEquals('$exception', $event['event']);
             $this->assertEquals('user-123', $event['distinct_id']);
             $this->assertArrayHasKey('$exception_list', $event['properties']);
-            $this->assertTrue($event['properties']['$exception_handled']);
+            $this->assertArrayNotHasKey('$exception_handled', $event['properties']);
+            $this->assertSame('error', $event['properties']['$exception_level']);
+            $this->assertTrue($event['properties']['$exception_list'][0]['mechanism']['handled']);
             $this->assertCount(1, $event['properties']['$exception_list']);
             $this->assertEquals('RuntimeException', $event['properties']['$exception_list'][0]['type']);
             $this->assertEquals('boom', $event['properties']['$exception_list'][0]['value']);
@@ -440,7 +448,7 @@ PHP;
         $payload = json_decode($batchCall['payload'], true);
         $props = $payload['batch'][0]['properties'];
 
-        $this->assertTrue($props['$exception_handled']);
+        $this->assertArrayNotHasKey('$exception_handled', $props);
         $this->assertSame('RuntimeException', $props['$exception_list'][0]['type']);
         $this->assertSame('wrapped', $props['$exception_list'][0]['value']);
         $this->assertSame('InvalidArgumentException', $props['$exception_list'][1]['type']);
@@ -513,7 +521,8 @@ PHP;
 
         $this->assertSame('RuntimeException', $props['$exception_list'][0]['type']);
         $this->assertSame('real error', $props['$exception_list'][0]['value']);
-        $this->assertTrue($props['$exception_handled']);
+        $this->assertArrayNotHasKey('$exception_handled', $props);
+        $this->assertSame('error', $props['$exception_level']);
     }
 
     public function testCaptureExceptionFromString(): void

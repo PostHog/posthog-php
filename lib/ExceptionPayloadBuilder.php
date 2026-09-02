@@ -26,19 +26,27 @@ class ExceptionPayloadBuilder
         int $maxFrames = self::DEFAULT_MAX_FRAMES
     ): array {
         if (is_string($exception)) {
-            return [self::buildSingleException('Error', $exception, null, $maxFrames)];
+            return self::finalizeExceptionList([
+                self::buildSingleException('Error', $exception, null, $maxFrames, true),
+            ]);
         }
 
         if ($exception instanceof \Throwable) {
             $chain = [];
             $current = $exception;
 
-            while ($current !== null) {
+            $seen = [];
+            while ($current !== null && count($chain) < 50) {
+                $id = spl_object_id($current);
+                if (isset($seen[$id])) {
+                    break;
+                }
+                $seen[$id] = true;
                 $chain[] = self::buildThrowableException($current, $maxFrames);
                 $current = $current->getPrevious();
             }
 
-            return $chain;
+            return self::finalizeExceptionList($chain);
         }
 
         return [];
@@ -61,7 +69,8 @@ class ExceptionPayloadBuilder
             get_class($exception),
             $exception->getMessage(),
             $trace,
-            $maxFrames
+            $maxFrames,
+            false
         );
     }
 
@@ -91,7 +100,7 @@ class ExceptionPayloadBuilder
             ]];
         }
 
-        return self::buildSingleException($type, $message, $trace, $maxFrames);
+        return self::buildSingleException($type, $message, $trace, $maxFrames, true);
     }
 
     /**
@@ -107,7 +116,11 @@ class ExceptionPayloadBuilder
             return $exceptionList;
         }
 
-        $exceptionList[0]['mechanism'] = array_merge($exceptionList[0]['mechanism'] ?? [], $mechanism);
+        $exceptionList = self::finalizeExceptionList($exceptionList);
+        $exceptionList[0]['mechanism'] = array_merge(
+            $exceptionList[0]['mechanism'] ?? [],
+            self::validMechanism($mechanism)
+        );
 
         return $exceptionList;
     }
@@ -129,7 +142,8 @@ class ExceptionPayloadBuilder
             get_class($exception),
             $exception->getMessage(),
             self::normalizeThrowableTrace($exception),
-            $maxFrames
+            $maxFrames,
+            false
         );
     }
 
@@ -201,7 +215,13 @@ class ExceptionPayloadBuilder
         }
     }
 
-    private static function buildSingleException(string $type, string $message, ?array $trace, int $maxFrames): array
+    private static function buildSingleException(
+        string $type,
+        string $message,
+        ?array $trace,
+        int $maxFrames,
+        bool $synthetic
+    ): array
     {
         return [
             'type'      => $type,
@@ -209,9 +229,57 @@ class ExceptionPayloadBuilder
             'mechanism' => [
                 'type'    => 'generic',
                 'handled' => true,
+                'synthetic' => $synthetic,
             ],
             'stacktrace' => self::buildStacktrace($trace, $maxFrames),
         ];
+    }
+
+    /** @param array<int, array<string, mixed>> $exceptionList */
+    private static function finalizeExceptionList(array $exceptionList): array
+    {
+        $exceptionList = array_slice($exceptionList, 0, 50);
+        foreach ($exceptionList as $index => &$entry) {
+            $mechanism = self::validMechanism($entry['mechanism'] ?? []);
+            $mechanism['exception_id'] = $index;
+            if ($index === 0) {
+                unset($mechanism['parent_id'], $mechanism['source']);
+                $mechanism['type'] = $mechanism['type'] ?? 'generic';
+                $mechanism['handled'] = $mechanism['handled'] ?? true;
+            } else {
+                $mechanism['type'] = 'chained';
+                $mechanism['source'] = 'cause';
+                $mechanism['parent_id'] = $index - 1;
+                unset($mechanism['handled']);
+            }
+            $entry['mechanism'] = $mechanism;
+        }
+        unset($entry);
+        return $exceptionList;
+    }
+
+    /** @param mixed $mechanism */
+    private static function validMechanism($mechanism): array
+    {
+        if (!is_array($mechanism)) {
+            return [];
+        }
+        $result = array_diff_key($mechanism, array_flip([
+            'type', 'handled', 'source', 'synthetic', 'exception_id', 'parent_id',
+        ]));
+        if (is_string($mechanism['type'] ?? null) && $mechanism['type'] !== '') {
+            $result['type'] = $mechanism['type'];
+        }
+        if (is_bool($mechanism['handled'] ?? null)) {
+            $result['handled'] = $mechanism['handled'];
+        }
+        if (is_string($mechanism['source'] ?? null) && $mechanism['source'] !== '') {
+            $result['source'] = $mechanism['source'];
+        }
+        if (is_bool($mechanism['synthetic'] ?? null)) {
+            $result['synthetic'] = $mechanism['synthetic'];
+        }
+        return $result;
     }
 
     private static function buildStacktrace(?array $trace, int $maxFrames): ?array

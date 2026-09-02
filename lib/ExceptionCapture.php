@@ -180,8 +180,8 @@ class ExceptionCapture
                     $exception,
                     $errno,
                     'error_handler',
-                    'php_error_handler',
-                    ['type' => 'auto.error_handler', 'handled' => false],
+                    'php.error_handler',
+                    ['type' => 'error_handler', 'handled' => false, 'synthetic' => true],
                     [$exceptionEntry]
                 );
 
@@ -201,8 +201,8 @@ class ExceptionCapture
                 $exception,
                 $errno,
                 'error_handler',
-                'php_error_handler',
-                ['type' => 'auto.error_handler', 'handled' => $handled],
+                'php.error_handler',
+                ['type' => 'error_handler', 'handled' => $handled, 'synthetic' => true],
                 [$exceptionEntry]
             );
 
@@ -269,8 +269,8 @@ class ExceptionCapture
             $exception,
             $severity,
             'shutdown_handler',
-            'php_shutdown_handler',
-            ['type' => 'auto.shutdown_handler', 'handled' => false],
+            'php.shutdown_handler',
+            ['type' => 'crash_reporter', 'handled' => false, 'synthetic' => true],
             [$exceptionEntry]
         );
 
@@ -369,11 +369,19 @@ class ExceptionCapture
         $maxFrames = self::$options['max_frames'] ?? 20;
         $exceptionList = ExceptionPayloadBuilder::buildExceptionList($exception, $maxFrames);
         $exceptionList = ExceptionPayloadBuilder::overridePrimaryMechanism($exceptionList, [
-            'type' => 'auto.exception_handler',
+            'type' => 'onuncaughtexception',
             'handled' => false,
+            'synthetic' => false,
         ]);
 
-        self::sendExceptionEvent($exception, 'exception_handler', 'php_exception_handler', $exceptionList);
+        self::sendExceptionEvent(
+            $exception,
+            'exception_handler',
+            'php.exception_handler',
+            $exceptionList,
+            null,
+            'fatal'
+        );
     }
 
     /**
@@ -388,7 +396,14 @@ class ExceptionCapture
         array $exceptionList
     ): void {
         $exceptionList = ExceptionPayloadBuilder::overridePrimaryMechanism($exceptionList, $mechanism);
-        self::sendExceptionEvent($exception, $contextSource, $eventSource, $exceptionList, $severity);
+        self::sendExceptionEvent(
+            $exception,
+            $contextSource,
+            $eventSource,
+            $exceptionList,
+            $severity,
+            self::levelForSeverity($severity, ExceptionPayloadBuilder::getPrimaryHandled($exceptionList))
+        );
     }
 
     /**
@@ -401,7 +416,8 @@ class ExceptionCapture
         string $contextSource,
         string $eventSource,
         array $exceptionList,
-        ?int $severity = null
+        ?int $severity = null,
+        string $level = 'error'
     ): void {
         if (self::$client === null || self::$isCapturing) {
             return;
@@ -421,15 +437,21 @@ class ExceptionCapture
 
             $properties = [
                 '$exception_list' => $exceptionList,
-                '$exception_handled' => ExceptionPayloadBuilder::getPrimaryHandled($exceptionList),
                 '$exception_source' => $eventSource,
+                '$exception_level' => $level,
             ];
 
             if ($severity !== null) {
                 $properties['$php_error_severity'] = $severity;
             }
 
-            $properties = array_merge($providerContext['properties'], $properties);
+            $reserved = array_flip([
+                '$exception_list', '$exception_level', '$exception_source', '$debug_images',
+                '$exception_handled', '$exception_types', '$exception_values', '$exception_sources',
+                '$exception_functions', '$exception_fingerprint_version', '$exception_fingerprint_record',
+                '$exception_issue_id', '$exception_release', '$cymbal_errors',
+            ]);
+            $properties = array_merge(array_diff_key($providerContext['properties'], $reserved), $properties);
 
             $distinctId = $providerContext['distinctId'];
             if ($distinctId === null) {
@@ -447,6 +469,23 @@ class ExceptionCapture
         } finally {
             self::$isCapturing = false;
         }
+    }
+
+    private static function levelForSeverity(int $severity, bool $handled): string
+    {
+        if (!$handled && in_array($severity, self::SHUTDOWN_FATAL_ERROR_TYPES, true)) {
+            return 'fatal';
+        }
+        if (in_array($severity, [E_WARNING, E_USER_WARNING, E_CORE_WARNING, E_COMPILE_WARNING], true)) {
+            return 'warning';
+        }
+        if (in_array($severity, [E_NOTICE, E_USER_NOTICE, E_STRICT], true)) {
+            return 'info';
+        }
+        if (in_array($severity, [E_DEPRECATED, E_USER_DEPRECATED], true)) {
+            return 'warning';
+        }
+        return 'error';
     }
 
     /**
