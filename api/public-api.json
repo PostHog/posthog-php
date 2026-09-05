@@ -2136,6 +2136,16 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": false
+                        },
+                        {
+                            "name": "propertyMatchingVersion",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 1,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -2202,6 +2212,16 @@
                             "variadic": false,
                             "optional": true,
                             "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "propertyMatchingVersion",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 1,
                             "defaultConstant": null,
                             "hasDefault": true
                         }
@@ -2302,6 +2322,16 @@
                             "default": [],
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "propertyMatchingVersion",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 1,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -2330,6 +2360,16 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": false
+                        },
+                        {
+                            "name": "propertyMatchingVersion",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 1,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -2396,6 +2436,16 @@
                             "variadic": false,
                             "optional": true,
                             "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "propertyMatchingVersion",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 1,
                             "defaultConstant": null,
                             "hasDefault": true
                         }

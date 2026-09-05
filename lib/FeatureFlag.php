@@ -18,10 +18,11 @@ class FeatureFlag
      *
      * @param array<string, mixed> $property Feature flag property filter.
      * @param array<string, mixed> $propertyValues Available property values keyed by property name.
+     * @param mixed $propertyMatchingVersion Definition snapshot selector; only 2 enables explicit matching.
      * @return bool Whether the property matches.
      * @throws InconclusiveMatchException When the property cannot be evaluated locally.
      */
-    public static function matchProperty($property, $propertyValues)
+    public static function matchProperty($property, $propertyValues, $propertyMatchingVersion = 1)
     {
         $key = $property["key"];
         $operator = $property["operator"] ?? "exact";
@@ -38,11 +39,11 @@ class FeatureFlag
         $overrideValue = $propertyValues[$key];
 
         if ($operator == "exact") {
-            return FeatureFlag::computeExactMatch($value, $overrideValue);
+            return FeatureFlag::computeExactMatch($value, $overrideValue, $propertyMatchingVersion);
         }
 
         if ($operator == "is_not") {
-            return !FeatureFlag::computeExactMatch($value, $overrideValue);
+            return !FeatureFlag::computeExactMatch($value, $overrideValue, $propertyMatchingVersion);
         }
 
         if ($operator == "is_set") {
@@ -186,12 +187,20 @@ class FeatureFlag
      * @param array<string, array<string, mixed>>|null $flagsByKey Local feature flag definitions keyed by key.
      * @param array<string, mixed>|null $evaluationCache Cache used for flag dependency evaluation.
      * @param string|null $distinctId Distinct ID used for nested flag dependency evaluation.
+     * @param mixed $propertyMatchingVersion Definition snapshot selector; defaults to legacy matching.
      * @return bool Whether the cohort matches.
      * @throws RequiresServerEvaluationException When the cohort requires server-side data.
      * @throws InconclusiveMatchException When the cohort cannot be evaluated locally.
      */
-    public static function matchCohort($property, $propertyValues, $cohortProperties, $flagsByKey = null, $evaluationCache = null, $distinctId = null)
-    {
+    public static function matchCohort(
+        $property,
+        $propertyValues,
+        $cohortProperties,
+        $flagsByKey = null,
+        $evaluationCache = null,
+        $distinctId = null,
+        $propertyMatchingVersion = 1
+    ) {
         $cohortId = strval($property["value"]);
         if (!array_key_exists($cohortId, $cohortProperties)) {
             throw new RequiresServerEvaluationException(
@@ -201,7 +210,15 @@ class FeatureFlag
         }
 
         $propertyGroup = $cohortProperties[$cohortId];
-        return FeatureFlag::matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties, $flagsByKey, $evaluationCache, $distinctId);
+        return FeatureFlag::matchPropertyGroup(
+            $propertyGroup,
+            $propertyValues,
+            $cohortProperties,
+            $flagsByKey,
+            $evaluationCache,
+            $distinctId,
+            $propertyMatchingVersion
+        );
     }
 
     /**
@@ -213,12 +230,20 @@ class FeatureFlag
      * @param array<string, array<string, mixed>>|null $flagsByKey Local feature flag definitions keyed by key.
      * @param array<string, mixed>|null $evaluationCache Cache used for flag dependency evaluation.
      * @param string|null $distinctId Distinct ID used for nested flag dependency evaluation.
+     * @param mixed $propertyMatchingVersion Definition snapshot selector; defaults to legacy matching.
      * @return bool Whether the property group matches.
      * @throws RequiresServerEvaluationException When server-side data is required.
      * @throws InconclusiveMatchException When the group cannot be evaluated locally.
      */
-    public static function matchPropertyGroup($propertyGroup, $propertyValues, $cohortProperties, $flagsByKey = null, $evaluationCache = null, $distinctId = null)
-    {
+    public static function matchPropertyGroup(
+        $propertyGroup,
+        $propertyValues,
+        $cohortProperties,
+        $flagsByKey = null,
+        $evaluationCache = null,
+        $distinctId = null,
+        $propertyMatchingVersion = 1
+    ) {
         if (!$propertyGroup) {
             return true;
         }
@@ -237,7 +262,15 @@ class FeatureFlag
             // a nested property group
             foreach ($properties as $prop) {
                 try {
-                    $matches = FeatureFlag::matchPropertyGroup($prop, $propertyValues, $cohortProperties, $flagsByKey, $evaluationCache, $distinctId);
+                    $matches = FeatureFlag::matchPropertyGroup(
+                        $prop,
+                        $propertyValues,
+                        $cohortProperties,
+                        $flagsByKey,
+                        $evaluationCache,
+                        $distinctId,
+                        $propertyMatchingVersion
+                    );
                     if ($propertyGroupType === 'AND') {
                         if (!$matches) {
                             return false;
@@ -267,11 +300,27 @@ class FeatureFlag
                     $matches = false;
                     $propType = $prop["type"] ?? null;
                     if ($propType === 'cohort') {
-                        $matches = FeatureFlag::matchCohort($prop, $propertyValues, $cohortProperties, $flagsByKey, $evaluationCache, $distinctId);
+                        $matches = FeatureFlag::matchCohort(
+                            $prop,
+                            $propertyValues,
+                            $cohortProperties,
+                            $flagsByKey,
+                            $evaluationCache,
+                            $distinctId,
+                            $propertyMatchingVersion
+                        );
                     } elseif ($propType === 'flag') {
-                        $matches = FeatureFlag::evaluateFlagDependency($prop, $flagsByKey, $evaluationCache, $distinctId, $propertyValues, $cohortProperties);
+                        $matches = FeatureFlag::evaluateFlagDependency(
+                            $prop,
+                            $flagsByKey,
+                            $evaluationCache,
+                            $distinctId,
+                            $propertyValues,
+                            $cohortProperties,
+                            $propertyMatchingVersion
+                        );
                     } else {
-                        $matches = FeatureFlag::matchProperty($prop, $propertyValues);
+                        $matches = FeatureFlag::matchProperty($prop, $propertyValues, $propertyMatchingVersion);
                     }
 
                     $negation = $prop["negation"] ?? false;
@@ -556,10 +605,14 @@ class FeatureFlag
         }
     }
 
-    private static function computeExactMatch($value, $overrideValue)
+    private static function computeExactMatch($value, $overrideValue, $propertyMatchingVersion)
     {
-        if (FeatureFlag::isTruthyOrFalsyPropertyValue($value)) {
+        if ($propertyMatchingVersion !== 2 && FeatureFlag::isTruthyOrFalsyPropertyValue($value)) {
             return FeatureFlag::isTruthyPropertyValue($value) === FeatureFlag::isTruthyPropertyValue($overrideValue);
+        }
+
+        if ($value === []) {
+            return FeatureFlag::isTruthyPropertyValue($overrideValue);
         }
 
         $overrideString = FeatureFlag::unicodeLowercase(FeatureFlag::valueToString($overrideValue));
@@ -840,6 +893,7 @@ class FeatureFlag
      * @param array<string, mixed> $groups Group identifiers for group-based flags.
      * @param array<string, array<string, mixed>> $groupProperties Group properties for evaluation.
      * @param array<string, string> $groupTypeMapping Mapping from group type index to group type name.
+     * @param mixed $propertyMatchingVersion Definition snapshot selector; defaults to legacy matching.
      * @return bool|string False for disabled, true for enabled boolean flags, or variant key.
      * @throws RequiresServerEvaluationException When server-side data is required.
      * @throws InconclusiveMatchException When the flag cannot be evaluated locally.
@@ -853,7 +907,8 @@ class FeatureFlag
         $evaluationCache = null,
         $groups = [],
         $groupProperties = [],
-        $groupTypeMapping = []
+        $groupTypeMapping = [],
+        $propertyMatchingVersion = 1
     ) {
         $flagFilters = $flag["filters"] ?? [];
         $flagConditions = $flagFilters["groups"] ?? [];
@@ -891,7 +946,16 @@ class FeatureFlag
                     }
                 }
 
-                $matchResult = FeatureFlag::isConditionMatch($flag, $effectiveBucketing, $condition, $effectiveProperties, $cohorts, $flagsByKey, $evaluationCache);
+                $matchResult = FeatureFlag::isConditionMatch(
+                    $flag,
+                    $effectiveBucketing,
+                    $condition,
+                    $effectiveProperties,
+                    $cohorts,
+                    $flagsByKey,
+                    $evaluationCache,
+                    $propertyMatchingVersion
+                );
 
                 if ($matchResult === ConditionMatch::Match) {
                     $variantOverride = $condition["variant"] ?? null;
@@ -940,8 +1004,16 @@ class FeatureFlag
         return false;
     }
 
-    private static function isConditionMatch($featureFlag, $distinctId, $condition, $properties, $cohorts, $flagsByKey = null, $evaluationCache = null): ConditionMatch
-    {
+    private static function isConditionMatch(
+        $featureFlag,
+        $distinctId,
+        $condition,
+        $properties,
+        $cohorts,
+        $flagsByKey = null,
+        $evaluationCache = null,
+        $propertyMatchingVersion = 1
+    ): ConditionMatch {
         $rolloutPercentage = array_key_exists("rollout_percentage", $condition) ? $condition["rollout_percentage"] : null;
 
         if (count($condition['properties'] ?? []) > 0) {
@@ -949,11 +1021,27 @@ class FeatureFlag
                 $matches = false;
                 $propertyType = $property['type'] ?? null;
                 if ($propertyType == 'cohort') {
-                    $matches = FeatureFlag::matchCohort($property, $properties, $cohorts, $flagsByKey, $evaluationCache, $distinctId);
+                    $matches = FeatureFlag::matchCohort(
+                        $property,
+                        $properties,
+                        $cohorts,
+                        $flagsByKey,
+                        $evaluationCache,
+                        $distinctId,
+                        $propertyMatchingVersion
+                    );
                 } elseif ($propertyType == 'flag') {
-                    $matches = FeatureFlag::evaluateFlagDependency($property, $flagsByKey, $evaluationCache, $distinctId, $properties, $cohorts);
+                    $matches = FeatureFlag::evaluateFlagDependency(
+                        $property,
+                        $flagsByKey,
+                        $evaluationCache,
+                        $distinctId,
+                        $properties,
+                        $cohorts,
+                        $propertyMatchingVersion
+                    );
                 } else {
-                    $matches = FeatureFlag::matchProperty($property, $properties);
+                    $matches = FeatureFlag::matchProperty($property, $properties, $propertyMatchingVersion);
                 }
 
                 if (!$matches) {
@@ -1014,11 +1102,19 @@ class FeatureFlag
      * @param string $distinctId Distinct ID used for bucketing.
      * @param array<string, mixed> $properties Person or group properties for evaluation.
      * @param array<string, mixed> $cohortProperties Local cohort definitions keyed by cohort ID.
+     * @param mixed $propertyMatchingVersion Definition snapshot selector; defaults to legacy matching.
      * @return bool Whether the dependency matches.
      * @throws InconclusiveMatchException When the dependency cannot be evaluated locally.
      */
-    public static function evaluateFlagDependency($property, $flagsByKey, $evaluationCache, $distinctId, $properties, $cohortProperties)
-    {
+    public static function evaluateFlagDependency(
+        $property,
+        $flagsByKey,
+        $evaluationCache,
+        $distinctId,
+        $properties,
+        $cohortProperties,
+        $propertyMatchingVersion = 1
+    ) {
         if ($flagsByKey === null || $evaluationCache === null) {
             throw new InconclusiveMatchException(sprintf(
                 "Cannot evaluate flag dependency on '%s' without flags_by_key and evaluation_cache",
@@ -1077,7 +1173,8 @@ class FeatureFlag
                             $properties,
                             $cohortProperties,
                             $flagsByKey,
-                            $evaluationCache
+                            $evaluationCache,
+                            propertyMatchingVersion: $propertyMatchingVersion
                         );
                         $evaluationCache[$depFlagKey] = $depResult;
                     } catch (InconclusiveMatchException $e) {

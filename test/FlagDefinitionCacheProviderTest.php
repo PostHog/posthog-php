@@ -331,6 +331,225 @@ class FlagDefinitionCacheProviderTest extends TestCase
         );
     }
 
+    public function testMatchingVersionSurvivesApiAndProviderRoundTrip(): void
+    {
+        $provider = new MockFlagDefinitionCacheProvider();
+        $httpClient = new MockedHttpClient(
+            host: 'app.posthog.com',
+            flagEndpointResponse: $this->versionedDefinitions(2)
+        );
+        $client = $this->createClient($provider, $httpClient);
+        $this->assertVersionedResults($client, false);
+        $this->assertSame(2, $provider->storedData['property_matching_version']);
+
+        $provider->shouldFetch = false;
+        $provider->cachedData = $provider->storedData;
+        $cacheHttp = new MockedHttpClient(host: 'app.posthog.com');
+        $cachedClient = $this->createClient($provider, $cacheHttp);
+        $this->assertVersionedResults($cachedClient, false);
+        $this->assertSame([], $cacheHttp->calls ?? []);
+        $this->assertOnlyDefinitionsRequests($httpClient);
+    }
+
+    public function testVersionOnlyApiReloadAnd304OrFailurePreserveSnapshot(): void
+    {
+        $provider = new MockFlagDefinitionCacheProvider();
+        $httpClient = new MockedHttpClient(host: 'app.posthog.com');
+        $httpClient->setFlagEndpointResponseQueue([
+            ['response' => $this->versionedDefinitions(1), 'etag' => 'legacy'],
+            ['response' => $this->versionedDefinitions(2), 'etag' => 'explicit'],
+            ['responseCode' => 304],
+            ['responseCode' => 500],
+            ['response' => $this->versionedDefinitions(1)],
+            ['response' => $this->versionedDefinitions(2)],
+            ['response' => $this->versionedDefinitions(null)],
+            ['response' => $this->versionedDefinitions(3)],
+        ]);
+        $client = $this->createClient($provider, $httpClient);
+        foreach ([true, false, false, false, true, false, true, true] as $index => $expected) {
+            if ($index > 0) {
+                $client->loadFlags();
+            }
+            $this->assertVersionedResults($client, $expected);
+            if ($index === 2 || $index === 3) {
+                $this->assertSame('explicit', $client->getFlagsEtag());
+                $this->assertSame(2, $provider->storedData['property_matching_version']);
+            }
+        }
+        $this->assertOnlyDefinitionsRequests($httpClient);
+    }
+
+    public function testVersionOnlyCacheReloadAndReadFailure(): void
+    {
+        $provider = new MockFlagDefinitionCacheProvider();
+        $provider->shouldFetch = false;
+        $provider->cachedData = $this->versionedDefinitions(1);
+        $httpClient = new MockedHttpClient(host: 'app.posthog.com');
+        $client = $this->createClient($provider, $httpClient);
+        foreach ([1, 2, 1, 2, null, 3] as $version) {
+            $provider->cachedData = $this->versionedDefinitions($version);
+            // Also cover the provider's supported camelCase projection.
+            $provider->cachedData['groupTypeMapping'] = $provider->cachedData['group_type_mapping'];
+            unset($provider->cachedData['group_type_mapping']);
+            $client->loadFlags();
+            $this->assertVersionedResults($client, $version !== 2);
+            if ($version === 2) {
+                $provider->getError = new \RuntimeException('read failed');
+                $client->loadFlags();
+                $this->assertVersionedResults($client, false);
+                $provider->getError = null;
+                $provider->cachedData = ['flags' => 'malformed'];
+                $client->loadFlags();
+                $this->assertVersionedResults($client, false);
+                $provider->cachedData = null;
+                $client->loadFlags();
+                $this->assertVersionedResults($client, false);
+            }
+        }
+        $this->assertSame([], $httpClient->calls ?? []);
+    }
+
+    public function testReloadDuringEvaluationDoesNotChangeItsDefinitionSnapshot(): void
+    {
+        foreach (['all', 'snapshot', 'single'] as $api) {
+            $provider = new MockFlagDefinitionCacheProvider();
+            $provider->shouldFetch = false;
+            $definitions = $this->versionedDefinitions(2);
+            $definitions['flags'][0]['filters']['groups'][0]['properties'] = [
+                ['key' => 'reload', 'value' => '"trigger"', 'operator' => 'exact'],
+                ['key' => 'value', 'value' => false, 'operator' => 'exact'],
+            ];
+            $provider->cachedData = $definitions;
+            $httpClient = new MockedHttpClient(host: 'app.posthog.com');
+            $client = $this->createClient($provider, $httpClient);
+            $provider->cachedData = $this->versionedDefinitions(1);
+            $reloadValue = new class ($client) implements \JsonSerializable {
+                public function __construct(private Client $client)
+                {
+                }
+
+                public function jsonSerialize(): mixed
+                {
+                    $this->client->loadFlags();
+                    return 'trigger';
+                }
+            };
+            $personProperties = ['value' => 'banana', 'reload' => $reloadValue];
+            $groups = ['company' => 'acme'];
+            $groupProperties = ['company' => ['value' => 'banana']];
+            if ($api === 'all') {
+                $results = $client->getAllFlags('user', $groups, $personProperties, $groupProperties);
+                $this->assertSame(array_fill_keys(array_column($definitions['flags'], 'key'), false), $results);
+            } elseif ($api === 'snapshot') {
+                $snapshot = $client->evaluateFlags('user', $groups, $personProperties, $groupProperties);
+                foreach (array_column($definitions['flags'], 'key') as $key) {
+                    $this->assertFalse($snapshot->getFlag($key));
+                }
+            } else {
+                set_error_handler(static fn ($errno) => $errno === E_USER_DEPRECATED, E_USER_DEPRECATED);
+                try {
+                    $this->assertFalse($client->getFeatureFlag(
+                        'person', 'user', $groups, $personProperties, $groupProperties, false, false
+                    ));
+                } finally {
+                    restore_error_handler();
+                }
+            }
+            // The reentrant reload applies to the next call, not the evaluation in progress.
+            $this->assertVersionedResults($client, true);
+            $this->assertSame([], $httpClient->calls ?? []);
+        }
+    }
+
+    public function testVersionedMissingPropertyStillFallsBackRemotely(): void
+    {
+        foreach ([1, 2] as $version) {
+            $provider = new MockFlagDefinitionCacheProvider();
+            $provider->shouldFetch = false;
+            $provider->cachedData = $this->versionedDefinitions($version);
+            $httpClient = new MockedHttpClient(
+                host: 'app.posthog.com',
+                flagsEndpointResponse: ['flags' => ['person' => ['enabled' => true, 'variant' => null]]]
+            );
+            $client = $this->createClient($provider, $httpClient);
+            $local = $client->evaluateFlags('user', onlyEvaluateLocally: true, flagKeys: ['person']);
+            $this->assertSame([], $local->getKeys());
+            $this->assertSame([], $httpClient->calls ?? []);
+            $remote = $client->evaluateFlags('user', flagKeys: ['person']);
+            $this->assertTrue($remote->getFlag('person'));
+            $this->assertCount(1, $httpClient->calls);
+            $this->assertStringStartsWith('/flags/?', $httpClient->calls[0]['path']);
+        }
+    }
+
+    private function assertVersionedResults(Client $client, bool $expected): void
+    {
+        $groups = ['company' => 'acme'];
+        $properties = ['value' => 'banana'];
+        $groupProperties = ['company' => $properties];
+        $expectedFlags = array_fill_keys(['person', 'group', 'mixed', 'cohort', 'dependency', 'cohort-dependency'], $expected);
+        $this->assertSame($expectedFlags, $client->getAllFlags('user', $groups, $properties, $groupProperties));
+        $snapshot = $client->evaluateFlags('user', $groups, $properties, $groupProperties);
+        foreach ($expectedFlags as $key => $value) {
+            $this->assertSame($value, $snapshot->getFlag($key));
+        }
+        // Exercise the legacy single-flag entry point without its intentional deprecation warning.
+        set_error_handler(static fn ($errno) => $errno === E_USER_DEPRECATED, E_USER_DEPRECATED);
+        try {
+            $this->assertSame($expected, $client->getFeatureFlag(
+                'person', 'user', $groups, $properties, $groupProperties, false, false
+            ));
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    private function assertOnlyDefinitionsRequests(MockedHttpClient $httpClient): void
+    {
+        foreach ($httpClient->calls ?? [] as $call) {
+            $this->assertStringStartsWith('/flags/definitions?', $call['path']);
+        }
+    }
+
+    private function versionedDefinitions(?int $version): array
+    {
+        $leaf = ['key' => 'value', 'type' => 'person', 'value' => false, 'operator' => 'exact'];
+        $cohort = ['key' => 'id', 'type' => 'cohort', 'value' => 1];
+        $dependency = [
+            'key' => 'person', 'type' => 'flag', 'value' => true,
+            'operator' => 'flag_evaluates_to', 'dependency_chain' => ['person'],
+        ];
+        $makeFlag = static fn ($key, $property) => [
+            'key' => $key, 'active' => true, 'version' => 2,
+            'filters' => ['groups' => [['properties' => [$property], 'rollout_percentage' => 100]]],
+        ];
+        $flags = [
+            $makeFlag('person', $leaf),
+            $makeFlag('group', $leaf),
+            $makeFlag('mixed', $leaf),
+            $makeFlag('cohort', $cohort),
+            $makeFlag('dependency', $dependency),
+            $makeFlag('cohort-dependency', ['key' => 'id', 'type' => 'cohort', 'value' => 3]),
+        ];
+        $flags[1]['filters']['aggregation_group_type_index'] = 0;
+        $flags[2]['filters']['groups'][0]['aggregation_group_type_index'] = 0;
+        $data = [
+            'flags' => $flags,
+            'group_type_mapping' => ['0' => 'company'],
+            'cohorts' => [
+                '1' => ['type' => 'AND', 'values' => [
+                    ['type' => 'OR', 'values' => [['key' => 'id', 'type' => 'cohort', 'value' => 2]]],
+                ]],
+                '2' => ['type' => 'AND', 'values' => [$leaf]],
+                '3' => ['type' => 'AND', 'values' => [$dependency]],
+            ],
+        ];
+        if ($version !== null) {
+            $data['property_matching_version'] = $version;
+        }
+        return $data;
+    }
+
     private function createClient(MockFlagDefinitionCacheProvider $provider, MockedHttpClient $httpClient): Client
     {
         return new Client(
