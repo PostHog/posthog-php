@@ -15,8 +15,11 @@ interface FlagDefinitionCacheProvider
      * Retrieve cached local-evaluation flag definitions.
      *
      * Return null when the external cache is empty or unavailable. Returned data should include the
-     * complete definition set: flags, group_type_mapping, and cohorts. groupTypeMapping is also
-     * accepted when reading cached data for integrations that prefer camelCase.
+     * complete definition set: flags, group_type_mapping, cohorts, and property_matching_version.
+     * Preserve property_matching_version together with the definitions: only 2 selects explicit
+     * property matching; missing/1 and other versions use legacy matching. Older cache entries
+     * without this field remain supported and reset matching to legacy when loaded.
+     * groupTypeMapping is also accepted for integrations that prefer camelCase.
      *
      * @return array<string, mixed>|null
      */
@@ -34,6 +37,7 @@ interface FlagDefinitionCacheProvider
 
     /**
      * Receive definitions fetched successfully from PostHog so they can be stored externally.
+     * Store the complete array, including property_matching_version, as one snapshot.
      *
      * @param array<string, mixed> $data
      * @return void
