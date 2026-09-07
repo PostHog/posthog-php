@@ -13,9 +13,23 @@ on:
 
 jobs:
   compliance:
-    name: PostHog SDK compliance tests
+    name: PostHog PHP compliance (${{ matrix.consumer }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - consumer: lib_curl
+            dockerfile: sdk_compliance_adapter/Dockerfile
+          - consumer: socket
+            dockerfile: sdk_compliance_adapter/Dockerfile.socket
+          - consumer: fork_curl
+            dockerfile: sdk_compliance_adapter/Dockerfile.fork_curl
     uses: PostHog/posthog-sdk-test-harness/.github/workflows/test-sdk-action.yml@6d19abb9c81e2262dacbe340e7dddda9c871c178
     with:
-      adapter-dockerfile: "sdk_compliance_adapter/Dockerfile"
+      adapter-dockerfile: ${{ matrix.dockerfile }}
       adapter-context: "."
-      test-harness-version: "0.10.0"
+      test-harness-version: "1.0.0"
+      report-name: sdk-compliance-${{ matrix.consumer }}
+      sdk-type: server
+      concurrency: 1
+      continue-on-error: true
