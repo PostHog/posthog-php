@@ -13,7 +13,15 @@ and gzip. No tests are filtered; compliance assertions remain advisory in CI.
 | `socket` | SDK Socket | Synchronous socket response handling |
 | `fork_curl` | SDK ForkCurl + system curl/gzip | Foreground, using existing `debug=true` |
 
-CI runs all three profiles with distinct report artifacts. All profiles use
+CI runs all three profiles with distinct report artifacts. An independent
+`report-completeness` job checks each artifact against `expected_inventory.json`
+(the harness 1.0.0 server V0 and flags IDs). Missing, empty, incomplete, duplicate,
+or unexpected results and inconsistent summary counts fail this gate. Complete
+reports with failing assertions still pass the inventory gate; SDK compliance
+assertions remain advisory. The checker reads the pinned harness's Markdown result
+tables, not diagnostic text or the reusable job's conclusion.
+
+All profiles use
 `debug=true`, no local flag definitions/secret key, and SDK flag-called events.
 Compression is enabled only when requested at `/init`. Flags use the SDK's own
 uncompressed HTTP client even when capture compression is enabled.
@@ -111,6 +119,13 @@ TEST_MOCK_PORT=19276 TEST_PROXY_PORT=19277 PYTHONDONTWRITEBYTECODE=1 \
   python3 -m unittest discover -s sdk_compliance_adapter -p 'test_*.py' -v
 ```
 
-These checks cover byte-preserving relay behavior, SDK-generated UUIDs, immediate
+The report checker can also run independently without PHP or network access:
+
+```sh
+python3 -m unittest discover -s sdk_compliance_adapter -p 'test_check_report.py' -v
+python3 sdk_compliance_adapter/check_report.py socket report/sdk-compliance-report.md
+```
+
+The adapter checks cover byte-preserving relay behavior, SDK-generated UUIDs, immediate
 capture, production retries, compression plus flags, real SDK result booleans,
 worker failure, and reset isolation. They use local mock traffic only.
