@@ -178,7 +178,7 @@ class Controller:
     def handle(self, method, path, data):
         if method == "GET" and path == "/health":
             return 200, {
-                "sdk_name": "posthog-php",
+                "sdk_name": f"posthog-php-{os.environ.get('POSTHOG_CONSUMER', 'lib_curl')}",
                 "sdk_version": self.version,
                 "adapter_version": "1.0.0",
                 "capabilities": ["capture_v0", "encoding_gzip"],

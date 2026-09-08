@@ -64,6 +64,17 @@ class AdapterTest(unittest.TestCase):
     def capture(self):
         return self.call("/capture", {"event": "test-event", "distinct_id": "test-user"})
 
+    def test_health_names_consumer_profiles(self):
+        os.environ.pop("POSTHOG_CONSUMER", None)
+        self.assertEqual(self.call("/health")["sdk_name"], "posthog-php-lib_curl")
+        for consumer in ("lib_curl", "socket", "fork_curl"):
+            with self.subTest(consumer=consumer):
+                os.environ["POSTHOG_CONSUMER"] = consumer
+                health = self.call("/health")
+                self.assertEqual(health["sdk_name"], f"posthog-php-{consumer}")
+                self.assertEqual(health["sdk_version"], self.controller.version)
+                self.assertEqual(health["capabilities"], ["capture_v0", "encoding_gzip"])
+
     def test_sdk_generated_uuid_and_immediate_flush(self):
         for consumer in ("lib_curl", "socket", "fork_curl"):
             with self.subTest(consumer=consumer):
