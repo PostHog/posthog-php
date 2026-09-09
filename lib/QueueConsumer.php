@@ -209,9 +209,9 @@ abstract class QueueConsumer extends Consumer
      */
     protected function encodeBatchPayload($batch)
     {
-        $payload = json_encode($this->payload($batch));
+        $payload = EventSerializer::encode($this->payload($batch), true, $error);
         if (false === $payload) {
-            $this->handleError(json_last_error(), "Failed to encode batch payload: " . json_last_error_msg());
+            $this->handleError(json_last_error(), "Failed to encode batch payload: " . $error);
             return false;
         }
 
