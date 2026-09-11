@@ -18,7 +18,7 @@ COPY sdk_compliance_adapter/ /app/sdk_compliance_adapter/
 
 RUN php -r 'exit(extension_loaded("curl") ? 0 : 1);'
 
-ENV POSTHOG_CONSUMER=lib_curl
+ENV POSTHOG_CONSUMER=socket
 
 RUN PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s sdk_compliance_adapter -p 'test_*.py' -v
 
