@@ -806,6 +806,9 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         $flagWasEvaluatedLocally = !is_null($result);
+        if ($flagWasEvaluatedLocally) {
+            $payload = $this->localFlagPayload($localFlagDefinition, $result);
+        }
         $requestId = null;
         $evaluatedAt = null;
         $flagDetail = null;
@@ -1137,7 +1140,7 @@ class Client implements FeatureFlagEvaluationsHost
                     key: $key,
                     enabled: $enabled,
                     variant: $variant,
-                    payload: null,
+                    payload: $this->localFlagPayload($flag, $value),
                     id: $id,
                     version: null,
                     reason: 'Evaluated locally',
@@ -1307,6 +1310,27 @@ class Client implements FeatureFlagEvaluationsHost
         }
         ksort($groups);
         return '_' . json_encode($groups, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+    }
+
+    /**
+     * Payload for a locally computed flag value, read from the definition's `filters.payloads`
+     * map: keyed by the variant for a multivariate flag, or by "true" / "false" for a boolean
+     * flag. Null when the flag carries no payload.
+     *
+     * @param array<string, mixed> $flag Local flag definition.
+     * @param bool|string $value Result of computeFlagLocally() for this flag.
+     * @return mixed
+     */
+    private function localFlagPayload(array $flag, bool|string $value): mixed
+    {
+        $payloadKey = is_string($value) ? $value : ($value ? 'true' : 'false');
+        $rawPayload = $flag['filters']['payloads'][$payloadKey] ?? null;
+        if ($rawPayload === null) {
+            return null;
+        }
+
+        // Payloads come down as JSON strings, but defensively handle pre-decoded values too.
+        return is_string($rawPayload) ? json_decode($rawPayload, true) : $rawPayload;
     }
 
     /**
