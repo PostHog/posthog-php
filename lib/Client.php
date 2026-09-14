@@ -136,6 +136,9 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public $featureFlagsByKey;
 
+    /** @var mixed Matching selector from the current definition set; missing defaults to legacy. */
+    private $propertyMatchingVersion = 1;
+
     /**
      * @var SizeLimitedHash
      */
@@ -783,12 +786,14 @@ class Client implements FeatureFlagEvaluationsHost
         $featureFlagError = null;
         $localFlagDefinition = null;
 
-        foreach ($this->featureFlags as $flag) {
+        $definitionSnapshot = $this->flagDefinitionSnapshot();
+        foreach ($definitionSnapshot['flags'] as $flag) {
             if ($flag["key"] == $key) {
                 $localFlagDefinition = $flag;
                 try {
                     $result = $this->computeFlagLocally(
                         $flag,
+                        $definitionSnapshot,
                         $distinctId,
                         $groups,
                         $personProperties,
@@ -997,11 +1002,13 @@ class Client implements FeatureFlagEvaluationsHost
         $response = [];
         $fallbackToFlags = false;
 
-        if (count($this->featureFlags) > 0) {
-            foreach ($this->featureFlags as $flag) {
+        $definitionSnapshot = $this->flagDefinitionSnapshot();
+        if (count($definitionSnapshot['flags']) > 0) {
+            foreach ($definitionSnapshot['flags'] as $flag) {
                 try {
                     $response[$flag['key']] = $this->computeFlagLocally(
                         $flag,
+                        $definitionSnapshot,
                         $distinctId,
                         $groups,
                         $personProperties,
@@ -1098,10 +1105,11 @@ class Client implements FeatureFlagEvaluationsHost
         // Local pass: try to resolve any flag we can without going to the server. Track whether
         // any flag was inconclusive (which forces a remote round trip) so we can skip /flags
         // entirely when local evaluation covered everything we know about.
-        $hasLocalDefinitions = count($this->featureFlags) > 0;
+        $definitionSnapshot = $this->flagDefinitionSnapshot();
+        $hasLocalDefinitions = count($definitionSnapshot['flags']) > 0;
         if ($hasLocalDefinitions) {
             $localKeys = [];
-            foreach ($this->featureFlags as $flag) {
+            foreach ($definitionSnapshot['flags'] as $flag) {
                 $key = $flag['key'] ?? null;
                 if (!is_string($key) || $key === '') {
                     continue;
@@ -1115,6 +1123,7 @@ class Client implements FeatureFlagEvaluationsHost
                 try {
                     $value = $this->computeFlagLocally(
                         $flag,
+                        $definitionSnapshot,
                         $distinctId,
                         $groups,
                         $personProperties,
@@ -1344,8 +1353,26 @@ class Client implements FeatureFlagEvaluationsHost
         error_log("[PostHog][Client] " . $message);
     }
 
+    /**
+     * Capture one definition context for an entire local evaluation, including dependencies.
+     * PHP arrays are copy-on-write, so a reentrant reload cannot change this snapshot.
+     *
+     * @return array<string, mixed>
+     */
+    private function flagDefinitionSnapshot(): array
+    {
+        return [
+            'flags' => $this->featureFlags,
+            'flags_by_key' => $this->featureFlagsByKey,
+            'group_type_mapping' => $this->groupTypeMapping,
+            'cohorts' => $this->cohorts,
+            'property_matching_version' => $this->propertyMatchingVersion,
+        ];
+    }
+
     private function computeFlagLocally(
         array $featureFlag,
+        array $definitionSnapshot,
         string $distinctId,
         array $groups = array(),
         array $personProperties = array(),
@@ -1366,7 +1393,7 @@ class Client implements FeatureFlagEvaluationsHost
         $aggregationGroupTypeIndex = $flagFilters["aggregation_group_type_index"] ?? null;
 
         if (!is_null($aggregationGroupTypeIndex)) {
-            $groupName = $this->groupTypeMapping[strval($aggregationGroupTypeIndex)] ?? null;
+            $groupName = $definitionSnapshot['group_type_mapping'][strval($aggregationGroupTypeIndex)] ?? null;
 
             if (is_null($groupName)) {
                 throw new InconclusiveMatchException("Flag has unknown group type index");
@@ -1381,12 +1408,13 @@ class Client implements FeatureFlagEvaluationsHost
                 $featureFlag,
                 $groups[$groupName],
                 $focusedGroupProperties,
-                $this->cohorts,
-                $this->featureFlagsByKey,
+                $definitionSnapshot['cohorts'],
+                $definitionSnapshot['flags_by_key'],
                 $evaluationCache,
                 $groups,
                 $groupProperties,
-                $this->groupTypeMapping
+                $definitionSnapshot['group_type_mapping'],
+                $definitionSnapshot['property_matching_version']
             );
         } else {
             $localPersonProperties = $personProperties;
@@ -1398,12 +1426,13 @@ class Client implements FeatureFlagEvaluationsHost
                 $featureFlag,
                 $distinctId,
                 $localPersonProperties,
-                $this->cohorts,
-                $this->featureFlagsByKey,
+                $definitionSnapshot['cohorts'],
+                $definitionSnapshot['flags_by_key'],
                 $evaluationCache,
                 $groups,
                 $groupProperties,
-                $this->groupTypeMapping
+                $definitionSnapshot['group_type_mapping'],
+                $definitionSnapshot['property_matching_version']
             );
         }
     }
@@ -1585,6 +1614,7 @@ class Client implements FeatureFlagEvaluationsHost
                 : [],
             'cohorts' => isset($data['cohorts']) && is_array($data['cohorts']) ? $data['cohorts'] : [],
             'minimal_flag_called_events' => ($data['minimal_flag_called_events'] ?? null) === true,
+            'property_matching_version' => $data['property_matching_version'] ?? 1,
         ];
     }
 
@@ -1622,6 +1652,7 @@ class Client implements FeatureFlagEvaluationsHost
             'group_type_mapping' => $groupTypeMapping,
             'cohorts' => $data['cohorts'],
             'minimal_flag_called_events' => ($data['minimal_flag_called_events'] ?? null) === true,
+            'property_matching_version' => $data['property_matching_version'] ?? 1,
         ];
     }
 
@@ -1636,6 +1667,7 @@ class Client implements FeatureFlagEvaluationsHost
         $this->featureFlags = $data['flags'];
         $this->groupTypeMapping = $data['group_type_mapping'];
         $this->cohorts = $data['cohorts'];
+        $this->propertyMatchingVersion = $data['property_matching_version'];
         $this->minimalFlagCalledEvents = $data['minimal_flag_called_events'];
 
         // Build flags by key dictionary for dependency resolution
