@@ -1,3 +1,9 @@
+## 4.13.7
+
+### Patch Changes
+
+- Resolve feature flag payloads during local evaluation from the definition's `filters.payloads`, so `evaluateFlags()->getFlagPayload()` and `getFeatureFlagPayload()` no longer return null for locally evaluated flags.
+
 ## 4.13.6
 
 ### Patch Changes
