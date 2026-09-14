@@ -481,6 +481,61 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertSame(0, $this->flagsRequestCount());
     }
 
+    public function testLocalEvaluationResolvesPayloads(): void
+    {
+        // Local definitions carry `filters.payloads`, keyed by "true" for boolean flags and by
+        // variant key for multivariate ones, so a locally evaluated flag exposes its payload
+        // without a /flags request.
+        $this->makeClient(
+            personalApiKey: 'test-personal-key',
+            localEvaluationResponse: [
+                'flags' => [
+                    [
+                        'id' => 1,
+                        'key' => 'boolean-payload',
+                        'active' => true,
+                        'filters' => [
+                            'groups' => [['properties' => [], 'rollout_percentage' => 100]],
+                            'payloads' => ['true' => '{"tiers": [33, 66, 100]}'],
+                        ],
+                    ],
+                    [
+                        'id' => 2,
+                        'key' => 'variant-payload',
+                        'active' => true,
+                        'filters' => [
+                            'groups' => [['properties' => [], 'rollout_percentage' => 100]],
+                            'multivariate' => ['variants' => [
+                                ['key' => 'control', 'rollout_percentage' => 0],
+                                ['key' => 'test', 'rollout_percentage' => 100],
+                            ]],
+                            'payloads' => ['control' => '"a"', 'test' => ['already' => 'decoded']],
+                        ],
+                    ],
+                    [
+                        'id' => 3,
+                        'key' => 'off-with-payload',
+                        'active' => false,
+                        'filters' => [
+                            'groups' => [['properties' => [], 'rollout_percentage' => 100]],
+                            'payloads' => ['true' => '1'],
+                        ],
+                    ],
+                ],
+                'group_type_mapping' => [],
+                'cohorts' => [],
+            ],
+        );
+
+        $snapshot = PostHog::evaluateFlags('user-1');
+
+        $this->assertSame(['tiers' => [33, 66, 100]], $snapshot->getFlagPayload('boolean-payload'));
+        $this->assertSame('test', $snapshot->getFlag('variant-payload'));
+        $this->assertSame(['already' => 'decoded'], $snapshot->getFlagPayload('variant-payload'));
+        $this->assertNull($snapshot->getFlagPayload('off-with-payload'));
+        $this->assertSame(0, $this->flagsRequestCount());
+    }
+
     public function testRemoteEvaluatedAtPropagatesToEvent(): void
     {
         $response = MockedResponses::FLAGS_V2_RESPONSE;
