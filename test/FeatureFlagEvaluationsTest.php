@@ -536,6 +536,48 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertSame(0, $this->flagsRequestCount());
     }
 
+    #[DataProvider('falseFlagPayloadProvider')]
+    public function testLocalFalseFlagResolvesPayload(mixed $rawPayload, mixed $expectedPayload): void
+    {
+        $this->makeClient(
+            personalApiKey: 'test-personal-key',
+            localEvaluationResponse: [
+                'flags' => [[
+                    'id' => 1,
+                    'key' => 'false-payload',
+                    'active' => true,
+                    'filters' => [
+                        'groups' => [['properties' => [], 'rollout_percentage' => 0]],
+                        'payloads' => ['true' => '123', 'false' => $rawPayload],
+                    ],
+                ]],
+                'group_type_mapping' => [],
+                'cohorts' => [],
+            ],
+        );
+
+        $snapshot = $this->client->evaluateFlags('user-1');
+
+        $this->assertFalse($snapshot->getFlag('false-payload'));
+        $this->assertSame($expectedPayload, $snapshot->getFlagPayload('false-payload'));
+        $this->assertSame(
+            $expectedPayload,
+            $this->client->getFeatureFlagPayload('false-payload', 'user-1')
+        );
+        $this->assertSame(0, $this->flagsRequestCount());
+    }
+
+    public static function falseFlagPayloadProvider(): array
+    {
+        return [
+            'JSON false' => ['false', false],
+            'pre-decoded false' => [false, false],
+            'number' => ['400', 400],
+            'object' => ['{"fallback":true}', ['fallback' => true]],
+            'missing payload' => [null, null],
+        ];
+    }
+
     public function testRemoteEvaluatedAtPropagatesToEvent(): void
     {
         $response = MockedResponses::FLAGS_V2_RESPONSE;

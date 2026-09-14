@@ -1314,8 +1314,8 @@ class Client implements FeatureFlagEvaluationsHost
 
     /**
      * Payload for a locally computed flag value, read from the definition's `filters.payloads`
-     * map: keyed by the variant for a multivariate flag, or by "true" for a boolean flag that is
-     * on. Null when the flag is off or carries no payload.
+     * map: keyed by the variant for a multivariate flag, or by "true" / "false" for a boolean
+     * flag. Null when the flag carries no payload.
      *
      * @param array<string, mixed> $flag Local flag definition.
      * @param bool|string $value Result of computeFlagLocally() for this flag.
@@ -1323,11 +1323,8 @@ class Client implements FeatureFlagEvaluationsHost
      */
     private function localFlagPayload(array $flag, bool|string $value): mixed
     {
-        if ($value === false) {
-            return null;
-        }
-
-        $rawPayload = $flag['filters']['payloads'][is_string($value) ? $value : 'true'] ?? null;
+        $payloadKey = is_string($value) ? $value : ($value ? 'true' : 'false');
+        $rawPayload = $flag['filters']['payloads'][$payloadKey] ?? null;
         if ($rawPayload === null) {
             return null;
         }
