@@ -12,6 +12,11 @@ use PostHog\PostHog;
  * Args
  */
 
+if (in_array('--help', $argv, true)) {
+  print("Usage: php send.php --apiKey KEY --file FILE [--host HOST]\n");
+  exit(0);
+}
+
 $args = parse($argv);
 
 /**
@@ -54,13 +59,15 @@ $lines = explode("\n", $contents);
  * Initialize the client.
  */
 
-PostHog::init($args["apiKey"], array(
+$options = array(
   "debug" => true,
   "error_handler" => function($code, $msg){
     print("$code: $msg\n");
     exit(1);
   }
-));
+);
+if (isset($args["host"])) $options["host"] = $args["host"];
+PostHog::init($args["apiKey"], $options);
 
 /**
  * Payloads
@@ -70,7 +77,12 @@ $total = 0;
 $successful = 0;
 foreach ($lines as $line) {
   if (!trim($line)) continue;
-  $payload = json_decode($line, true);
+  // Keep the public array envelope without turning nested JSON objects into lists.
+  $payload = \PostHog\EventSerializer::decode($line, $decodeError);
+  if ($decodeError !== null) {
+    print("Failed to decode event payload: $decodeError\n");
+    exit(1);
+  }
   $ret = call_user_func_array(array("PostHog\\PostHog", "raw"), array($payload));
   if ($ret) $successful++;
   $total++;

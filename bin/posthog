@@ -141,7 +141,12 @@ function parse_json($input)
         return null;
     }
 
-    return json_decode($input, true);
+    // The client expects an array container; nested JSON objects must retain their identity.
+    $decoded = \PostHog\EventSerializer::decode($input, $decodeError);
+    if ($decodeError !== null) {
+        error('Failed to decode properties: ' . $decodeError);
+    }
+    return $decoded;
 }
 
 function parse_timestamp($input)

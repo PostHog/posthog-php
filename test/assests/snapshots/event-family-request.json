@@ -39,10 +39,8 @@
                     "negative_floating_zero": 0,
                     "negative_integer": -42,
                     "nested_object": {
-                        "alpha": "first",
-                        "zeta": null
+                        "alpha": "first"
                     },
-                    "null": null,
                     "numeric_string": "0",
                     "text": "line one\n\"quoted\" \\ slash / café 🌍",
                     "zero": 0

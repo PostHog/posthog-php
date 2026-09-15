@@ -1741,6 +1741,84 @@
                 }
             }
         },
+        "PostHog\\EventSerializer": {
+            "type": "class",
+            "abstract": false,
+            "final": true,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "decode": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "json",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "error",
+                            "type": "?string",
+                            "byReference": true,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "encode": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "payload",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "batch",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "error",
+                            "type": "?string",
+                            "byReference": true,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                }
+            }
+        },
         "PostHog\\ExceptionCapture": {
             "type": "class",
             "abstract": false,
@@ -3312,6 +3390,53 @@
                     "abstract": false,
                     "final": false,
                     "returnType": null,
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\JsonObject": {
+            "type": "class",
+            "abstract": false,
+            "final": true,
+            "readonly": false,
+            "extends": null,
+            "implements": [
+                "JsonSerializable"
+            ],
+            "constants": [],
+            "properties": {
+                "members": {
+                    "static": false,
+                    "readonly": false,
+                    "type": "array",
+                    "default": null,
+                    "hasDefault": false
+                }
+            },
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "members",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "jsonSerialize": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "mixed",
                     "parameters": []
                 }
             }

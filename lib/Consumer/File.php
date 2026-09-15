@@ -4,6 +4,7 @@ namespace PostHog\Consumer;
 
 use Exception;
 use PostHog\Consumer;
+use PostHog\EventSerializer;
 
 /**
  * Consumer that writes analytics messages to a local file.
@@ -101,7 +102,11 @@ class File extends Consumer
             return false;
         }
 
-        $content = json_encode($body);
+        $content = EventSerializer::encode($body, false, $error);
+        if ($content === false) {
+            $this->handleError(json_last_error(), "Failed to encode event payload: " . $error);
+            return false;
+        }
         $content .= "\n";
 
         return fwrite($this->file_handle, $content) == strlen($content);
