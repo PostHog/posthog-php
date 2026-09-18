@@ -30,3 +30,7 @@ posthog-php@4.13.6:
   dir: ""
   intents:
     - local-flag-case-folding
+posthog-php@4.13.7:
+  dir: ""
+  intents:
+    - local-evaluation-payloads
