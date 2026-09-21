@@ -34,3 +34,7 @@ posthog-php@4.13.7:
   dir: ""
   intents:
     - local-evaluation-payloads
+posthog-php@4.13.8:
+  dir: ""
+  intents:
+    - versioned-property-matching

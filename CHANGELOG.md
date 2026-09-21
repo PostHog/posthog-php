@@ -1,3 +1,9 @@
+## 4.13.8
+
+### Patch Changes
+
+- Honor the definitions snapshot's `property_matching_version` during local feature flag evaluation, including group, cohort, and flag dependency conditions. Version 2 uses explicit boolean matching; missing or other versions retain legacy matching. Preserve the selector across external definition caches and reloads.
+
 ## 4.13.7
 
 ### Patch Changes
