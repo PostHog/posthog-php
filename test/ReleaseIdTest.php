@@ -7,6 +7,7 @@ use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\PostHog;
 use PostHog\Test\Assets\MockedResponses;
+use ReflectionProperty;
 use RuntimeException;
 
 class ReleaseIdTest extends TestCase
@@ -26,6 +27,9 @@ class ReleaseIdTest extends TestCase
     public function tearDown(): void
     {
         $this->setReleaseIdEnv($this->previousReleaseId === false ? null : $this->previousReleaseId);
+        // The groupIdentify case installs its client in the facade, and a later test that uses the
+        // facade without calling init would otherwise send through it.
+        (new ReflectionProperty(PostHog::class, 'client'))->setValue(null, null);
     }
 
     public static function eventCases(): array
