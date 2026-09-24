@@ -21,7 +21,8 @@ class PostHog
      *
      * When $apiKey is omitted or blank, POSTHOG_API_KEY is used when present. When no
      * non-empty API key can be resolved, a disabled no-op client is initialized. When the
-     * host option is omitted, POSTHOG_HOST is used when present.
+     * host option is omitted, POSTHOG_HOST is used when present. When POSTHOG_RELEASE_ID is set,
+     * its value is sent as $release_id on every event unless the event already carries one.
      *
      * @param string|null $apiKey Your project API key.
      * Time-based options use milliseconds unless the option name says otherwise:

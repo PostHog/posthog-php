@@ -19,6 +19,8 @@ class Client implements FeatureFlagEvaluationsHost
 {
     private const SIZE_LIMIT = 50_000;
 
+    private const ENV_RELEASE_ID = "POSTHOG_RELEASE_ID";
+
     /**
      * Allowlist of event properties kept when a $feature_flag_called event is minimized. When the
      * server-controlled minimal_flag_called_events gate is on and the flag reports
@@ -46,6 +48,7 @@ class Client implements FeatureFlagEvaluationsHost
         '$lib',
         '$lib_version',
         '$is_server',
+        '$release_id',
     ];
 
     private const CONSUMERS = [
@@ -179,6 +182,15 @@ class Client implements FeatureFlagEvaluationsHost
     private $shutdownComplete;
 
     /**
+     * Release id from POSTHOG_RELEASE_ID, sent as $release_id on every event. A PHP app has no
+     * bundle to inject a release into, so a deploy step creates the release with
+     * `posthog-cli release resolve` and starts the app with the printed id in the environment.
+     *
+     * @var string|null
+     */
+    private ?string $releaseId;
+
+    /**
      * @var bool
      */
     private $debug;
@@ -203,6 +215,8 @@ class Client implements FeatureFlagEvaluationsHost
      *
      * @param string|null $apiKey Your project API key. When omitted or empty, the client is disabled
      *     and uses the noop consumer.
+     * When POSTHOG_RELEASE_ID is set at construction, its value is sent as $release_id on every
+     * event unless the event already carries one.
      * Time-based options use milliseconds unless the option name says otherwise:
      * `timeout` defaults to 10000ms, `feature_flag_request_timeout_ms` defaults to 3000ms,
      * and `maximum_backoff_duration` defaults to 10000ms for retry backoff. Retry backoff starts
@@ -269,6 +283,8 @@ class Client implements FeatureFlagEvaluationsHost
         );
         $this->flagDefinitionCacheProviderShutdown = false;
         $this->shutdownComplete = false;
+        $envReleaseId = getenv(self::ENV_RELEASE_ID);
+        $this->releaseId = $envReleaseId === false ? null : StringNormalizer::normalizeOptional($envReleaseId);
         $this->options['host'] = StringNormalizer::normalizeHost($options['host'] ?? null);
         if (!$this->enabled) {
             if (($this->options['consumer'] ?? null) !== 'noop') {
@@ -2337,6 +2353,10 @@ class Client implements FeatureFlagEvaluationsHost
             $msg["properties"]['$lib_consumer'] = is_scalar($legacyLibraryConsumer) && (string) $legacyLibraryConsumer !== ''
                 ? (string) $legacyLibraryConsumer
                 : $this->consumer->getConsumer();
+        }
+
+        if ($this->releaseId !== null && !array_key_exists('$release_id', $msg["properties"])) {
+            $msg["properties"]['$release_id'] = $this->releaseId;
         }
 
         // When running as a server SDK (the default), tag events as server-side so
