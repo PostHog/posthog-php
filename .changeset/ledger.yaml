@@ -38,3 +38,7 @@ posthog-php@4.13.8:
   dir: ""
   intents:
     - versioned-property-matching
+posthog-php@4.14.0:
+  dir: ""
+  intents:
+    - release-id-env
