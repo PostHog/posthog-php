@@ -237,17 +237,17 @@ class PostHogTest extends TestCase
 
     public function testInitWithParamApiKey(): void
     {
-        $this->expectNotToPerformAssertions();
-
-        PostHog::init("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", array("debug" => true));
+        PostHog::init('test-project-key', ['debug' => true]);
+        $this->assertSame('test-project-key', $this->readPrivate(PostHog::getClient(), 'apiKey'));
+        $this->assertNotInstanceOf(NoOp::class, $this->getConsumer(PostHog::getClient()));
     }
 
     public function testInitWithEnvApiKey(): void
     {
-        $this->expectNotToPerformAssertions();
-
-        $this->withEnvApiKey("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", function () {
-            PostHog::init(null, array("debug" => true));
+        $this->withEnvApiKey('test-environment-key', function () {
+            PostHog::init(null, ['debug' => true]);
+            $this->assertSame('test-environment-key', $this->readPrivate(PostHog::getClient(), 'apiKey'));
+            $this->assertNotInstanceOf(NoOp::class, $this->getConsumer(PostHog::getClient()));
         });
     }
 
@@ -1572,54 +1572,17 @@ class PostHogTest extends TestCase
 
     public function testTimestamps(): void
     {
-        self::assertTrue(
-            PostHog::capture(
-                array(
-                    "distinctId" => "user-id",
-                    "event" => "integer-timestamp",
-                    "timestamp" => (int) mktime(0, 0, 0, date('n'), 1, date('Y')),
-                )
-            )
-        );
-
-        self::assertTrue(
-            PostHog::capture(
-                array(
-                    "distinctId" => "user-id",
-                    "event" => "string-integer-timestamp",
-                    "timestamp" => (string) mktime(0, 0, 0, date('n'), 1, date('Y')),
-                )
-            )
-        );
-
-        self::assertTrue(
-            PostHog::capture(
-                array(
-                    "distinctId" => "user-id",
-                    "event" => "iso8630-timestamp",
-                    "timestamp" => date(DATE_ATOM, mktime(0, 0, 0, date('n'), 1, date('Y'))),
-                )
-            )
-        );
-
-        self::assertTrue(
-            PostHog::capture(
-                array(
-                    "distinctId" => "user-id",
-                    "event" => "iso8601-timestamp",
-                    "timestamp" => date(DATE_ATOM, mktime(0, 0, 0, date('n'), 1, date('Y'))),
-                )
-            )
-        );
-
-        self::assertTrue(
-            PostHog::capture(
-                array(
-                    "distinctId" => "user-id",
-                    "event" => "strtotime-timestamp",
-                    "timestamp" => strtotime('1 week ago'),
-                )
-            )
+        foreach ([1704067200, '1704067200', '2024-01-01T00:00:00+00:00', strtotime('2024-01-01 UTC')] as $timestamp) {
+            self::assertTrue(PostHog::capture([
+                'distinctId' => 'user-id',
+                'event' => 'timestamp',
+                'timestamp' => $timestamp,
+            ]));
+        }
+        self::assertTrue(PostHog::flush());
+        self::assertSame(
+            array_fill(0, 4, '2024-01-01T00:00:00+00:00'),
+            array_column($this->firstBatchEvents(), 'timestamp')
         );
     }
 
@@ -1649,11 +1612,9 @@ class PostHogTest extends TestCase
 
     public function testGroupIdentifyValidation(): void
     {
-        try {
-            Posthog::groupIdentify(array());
-        } catch (Exception $e) {
-            $this->assertEquals("PostHog::groupIdentify() expects a groupType", $e->getMessage());
-        }
+        $this->expectException(Exception::class);
+        $this->expectExceptionMessage('PostHog::groupIdentify() expects a groupType');
+        PostHog::groupIdentify([]);
     }
 
     public function testDefaultPropertiesGetAddedProperly(): void

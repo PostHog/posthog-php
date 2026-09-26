@@ -12,8 +12,8 @@ from unittest.mock import patch
 from server import Controller, Relay
 
 
-MOCK_PORT = int(os.environ.get("TEST_MOCK_PORT", "19276"))
-PROXY_PORT = int(os.environ.get("TEST_PROXY_PORT", "19277"))
+MOCK_PORT = int(os.environ.get("TEST_MOCK_PORT", "0"))
+PROXY_PORT = int(os.environ.get("TEST_PROXY_PORT", "0"))
 
 
 class MockHandler(BaseHTTPRequestHandler):
@@ -33,21 +33,19 @@ class MockHandler(BaseHTTPRequestHandler):
 
 class AdapterTest(unittest.TestCase):
     def setUp(self):
+        self.environment = patch.dict(os.environ, {"PROXY_PORT": str(PROXY_PORT)})
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
         self.mock = ThreadingHTTPServer(("127.0.0.1", MOCK_PORT), MockHandler)
+        self.addCleanup(self.mock.server_close)
         self.mock.requests = []
         self.mock.statuses = []
         self.thread = threading.Thread(target=self.mock.serve_forever, daemon=True)
         self.thread.start()
-        self.environment = patch.dict(os.environ, {"PROXY_PORT": str(PROXY_PORT)})
-        self.environment.start()
+        self.addCleanup(self.thread.join)
+        self.addCleanup(self.mock.shutdown)
         self.controller = Controller()
-
-    def tearDown(self):
-        self.controller.reset()
-        self.mock.shutdown()
-        self.mock.server_close()
-        self.thread.join()
-        self.environment.stop()
+        self.addCleanup(self.controller.reset)
 
     def call(self, path, data=None):
         status, result = self.controller.handle("GET" if data is None else "POST", path, data or {})
@@ -58,7 +56,7 @@ class AdapterTest(unittest.TestCase):
         os.environ["POSTHOG_CONSUMER"] = consumer
         self.mock.requests.clear()
         self.mock.statuses.clear()
-        self.call("/init", {"host": f"http://127.0.0.1:{MOCK_PORT}",
+        self.call("/init", {"host": f"http://127.0.0.1:{self.mock.server_address[1]}",
                             "api_key": "phc_local_test", **options})
 
     def capture(self):
@@ -172,7 +170,7 @@ class RelayTest(unittest.TestCase):
             relay = Relay(("127.0.0.1", PROXY_PORT), target.getsockname())
             relay_thread = threading.Thread(target=relay.serve_forever)
             relay_thread.start()
-            with socket.create_connection(relay.server_address) as client:
+            with socket.create_connection(relay.server_address, timeout=5) as client:
                 self.assertTrue(accepted.wait(5))
                 relay.shutdown()
                 relay.server_close()
@@ -207,7 +205,7 @@ class RelayTest(unittest.TestCase):
             relay_thread = threading.Thread(target=relay.serve_forever)
             relay_thread.start()
             try:
-                with socket.create_connection(relay.server_address) as client:
+                with socket.create_connection(relay.server_address, timeout=5) as client:
                     client.sendall(request)
                     data = b""
                     while True:

@@ -70,7 +70,7 @@ class ForkCurl extends QueueConsumer
         if ($this->compress_request) {
             // Compress request to file
             $tmpfname = tempnam("/tmp", "forkcurl_");
-            $cmd2 = "echo " . $payload . " | gzip > " . $tmpfname;
+            $cmd2 = "printf '%s' " . $payload . " | gzip > " . $tmpfname;
             exec($cmd2, $output, $exit);
 
             if (0 == $exit) {

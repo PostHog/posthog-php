@@ -130,7 +130,7 @@ class ExceptionPayloadBuilderTest extends TestCase
         $this->assertEquals('InvalidArgumentException', $result[1]['type']);
     }
 
-    public function testReturnsEmptyArrayForInvalidInput(): void
+    public function testBuildExceptionListRejectsInvalidInput(): void
     {
         $this->expectException(\TypeError::class);
         ExceptionPayloadBuilder::buildExceptionList([]);
@@ -143,9 +143,10 @@ class ExceptionPayloadBuilderTest extends TestCase
         $result = ExceptionPayloadBuilder::buildExceptionList($e);
 
         $frames = $result[0]['stacktrace']['frames'];
-        // Any in-app frame whose source file is readable should have context_line
-        $testFrames = array_filter($frames, fn($f) => isset($f['context_line']));
-        $this->assertNotEmpty($testFrames, 'At least one in-app frame should have context_line');
+        $crashFrame = $frames[count($frames) - 1];
+        $this->assertSame(__FILE__, $crashFrame['abs_path']);
+        $this->assertSame($e->getLine(), $crashFrame['lineno']);
+        $this->assertSame("throw new \\RuntimeException('context test');", trim($crashFrame['context_line']));
     }
 
     public function testStacktraceUsesThrowableFileAndLineForMostRecentFrame(): void
@@ -529,7 +530,7 @@ PHP;
         $this->assertEquals('a plain string error', $props['$exception_list'][0]['value']);
     }
 
-    public function testCaptureExceptionReturnsFalseForInvalidInput(): void
+    public function testCaptureExceptionRejectsInvalidInput(): void
     {
         $this->expectException(\TypeError::class);
         $this->client->captureException([]);
@@ -596,6 +597,13 @@ PHP;
     {
         $result = PostHog::captureException(new \Exception('facade test'), 'facade-user');
         $this->assertTrue($result);
+        $this->assertTrue(PostHog::flush());
+        $call = $this->findBatchCall();
+        $this->assertNotNull($call);
+        $event = json_decode($call['payload'], true)['batch'][0];
+        $this->assertSame('$exception', $event['event']);
+        $this->assertSame('facade-user', $event['distinct_id']);
+        $this->assertSame('facade test', $event['properties']['$exception_list'][0]['value']);
     }
 
     // -------------------------------------------------------------------------
