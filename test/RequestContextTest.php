@@ -167,7 +167,9 @@ class RequestContextTest extends TestCase
             PostHog::withContext(['distinctId' => 'leaky-user'], function (): void {
                 throw new \RuntimeException('boom');
             });
-        } catch (\RuntimeException) {
+            $this->fail('withContext must rethrow the callback exception');
+        } catch (\RuntimeException $exception) {
+            $this->assertSame('boom', $exception->getMessage());
         }
 
         $this->assertNull(PostHog::getContext());
@@ -324,14 +326,16 @@ class RequestContextTest extends TestCase
 
     public function testEmptyAndNonStringHeaderValuesAreIgnored(): void
     {
-        $context = PostHog::contextFromHeaders([
-            'X-POSTHOG-DISTINCT-ID' => " \n\r\t ",
-            'X-POSTHOG-SESSION-ID' => "\x00\x7F",
-        ]);
+        foreach ([" \n\r\t ", "\x00\x7F", null, 123, false, new \stdClass(), []] as $value) {
+            $context = PostHog::contextFromHeaders([
+                'X-POSTHOG-DISTINCT-ID' => $value,
+                'X-POSTHOG-SESSION-ID' => $value,
+            ]);
 
-        $this->assertNull($context['distinctId']);
-        $this->assertNull($context['sessionId']);
-        $this->assertArrayNotHasKey('$session_id', $context['properties']);
+            $this->assertNull($context['distinctId']);
+            $this->assertNull($context['sessionId']);
+            $this->assertArrayNotHasKey('$session_id', $context['properties']);
+        }
     }
 
     public function testPhpServerNormalizedPostHogHeadersAreRecognized(): void

@@ -165,6 +165,6 @@ class MockedHttpClient extends \PostHog\HttpClient
             );
         }
 
-        return parent::sendRequest($path, $payload, $extraHeaders, $requestOptions);
+        throw new \LogicException('Unexpected HTTP request in test: ' . $path);
     }
 }

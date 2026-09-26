@@ -593,7 +593,7 @@ class FeatureFlagTest extends TestCase
     public function testGetFeatureFlagDefault($response)
     {
         $this->setUp($response);
-        $this->assertEquals(PostHog::getFeatureFlag('blah', 'user-id'), null);
+        $this->assertNull(PostHog::getFeatureFlag('blah', 'user-id'));
 
         $this->checkEmptyErrorLogs();
     }
@@ -637,7 +637,10 @@ class FeatureFlagTest extends TestCase
     public function testfetchFeatureVariants($response)
     {
         $this->setUp($response);
-        $this->assertIsArray(PostHog::fetchFeatureVariants('user-id'));
+        $flags = PostHog::fetchFeatureVariants('user-id');
+        $this->assertTrue($flags['simple-test']);
+        $this->assertFalse($flags['having_fun']);
+        $this->assertSame('variant-value', $flags['multivariate-test']);
     }
 
      /**

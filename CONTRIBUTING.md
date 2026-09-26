@@ -28,6 +28,14 @@ Run the test command used in CI:
 XDEBUG_MODE=coverage ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml --coverage-text
 ```
 
+The PHPUnit transport tests use a loopback HTTP server, not live PostHog endpoints. They require the cURL extension, the `curl` and `gzip` commands, and permission to start PHP subprocesses and listen on loopback ports.
+
+Run the adapter fidelity and report checker tests (Python standard library only):
+
+```bash
+python3 -m unittest discover -s sdk_compliance_adapter -v
+```
+
 CI also runs PHP_CodeSniffer with `phpcs.xml`. You can run an equivalent local check with:
 
 ```bash

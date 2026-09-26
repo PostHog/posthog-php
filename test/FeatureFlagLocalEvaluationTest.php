@@ -6,6 +6,7 @@ namespace PostHog\Test;
 require_once 'test/error_log_mock.php';
 
 use Exception;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\FeatureFlag;
 use PostHog\Client;
@@ -137,11 +138,6 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             "key" => null,
         ]));
 
-        self::expectException(InconclusiveMatchException::class);
-        FeatureFlag::matchProperty($prop, [
-            "key2" => "value2",
-        ]);
-
         $prop = [
             "key" => "key",
             "value" => "value",
@@ -182,6 +178,12 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         FeatureFlag::matchProperty($prop, [
             "key2" => "value",
         ]);
+    }
+
+    public function testDefaultExactOperatorWithMissingPropertyIsInconclusive(): void
+    {
+        self::expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchProperty(['key' => 'key', 'value' => 'value'], ['key2' => 'value2']);
     }
 
     public function testMatchPropertyNotIn(): void
@@ -1051,28 +1053,6 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             "key" => "2022-04-30",
         ]));
 
-        // can't be an invalid number or invalid string
-        self::expectException(Exception::class);
-        FeatureFlag::matchProperty($prop_a, [
-            "key" => "abcdef",
-        ]);
-        self::expectException(InconclusiveMatchException::class);
-        FeatureFlag::matchProperty($prop_a, [
-            "key" => "62802180000012345",
-        ]);
-
-        // // invalid flag property
-        // const property_c = { key: 'key', value: 'abcd123', operator: 'is_date_before' }
-        $prop_c = [
-            "key" => "key",
-            "value" => "abcd123",
-            "operator" => "is_date_before"
-        ];
-        self::expectException(InconclusiveMatchException::class);
-        FeatureFlag::matchProperty($prop_c, [
-            "key" => "2022-05-30",
-        ]);
-
         // // Timezone
         $prop_d = [
             "key" => "key",
@@ -1094,6 +1074,25 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         self::assertFalse(FeatureFlag::matchProperty($prop_d, [
             "key" => "2022-04-05 11:34:13 +00:00",
         ]));
+    }
+
+    public static function invalidAbsoluteDateCases(): array
+    {
+        return [
+            'invalid property' => ['2022-05-01', 'abcdef'],
+            'oversized numeric date' => ['2022-05-01', '62802180000012345'],
+            'invalid condition' => ['abcd123', '2022-05-30'],
+        ];
+    }
+
+    #[DataProvider('invalidAbsoluteDateCases')]
+    public function testMalformedAbsoluteDateThrows(string $condition, string $value): void
+    {
+        self::expectException(Exception::class);
+        self::expectExceptionMessage('Failed to parse time string');
+        FeatureFlag::matchProperty([
+            'key' => 'key', 'value' => $condition, 'operator' => 'is_date_before',
+        ], ['key' => $value]);
     }
 
     public function testMatchPropertyRelativeDateOperators(): void
@@ -1140,6 +1139,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
                 FeatureFlag::matchProperty($prop_a, [
                     "key" => "abcdef",
                 ]);
+                self::fail('Expected malformed property date to throw');
             } catch (Exception $exception) {
                 self::assertStringContainsString("Failed to parse time string (abcdef) at position 0 (a): The timezone could not be found in the database", $exception->getMessage());
             }
@@ -1175,16 +1175,18 @@ class FeatureFlagLocalEvaluationTest extends TestCase
                 FeatureFlag::matchProperty($prop_c, [
                     "key" => "2022-05-30",
                 ]);
+                self::fail('Expected invalid condition date to be inconclusive');
             } catch (InconclusiveMatchException $exception) {
                 self::assertStringContainsString("The date provided 1234 must be a string or date object", $exception->getMessage());
             }
 
             try {
-                FeatureFlag::matchProperty($prop_c, [
+                FeatureFlag::matchProperty($prop_a, [
                     "key" => 1,
                 ]);
+                self::fail('Expected invalid property date to be inconclusive');
             } catch (InconclusiveMatchException $exception) {
-                self::assertStringContainsString("The date provided 1234 must be a string or date object", $exception->getMessage());
+                self::assertStringContainsString("The date provided 1 must be a string or date object", $exception->getMessage());
             }
 
             // # Try all possible relative dates
@@ -1705,6 +1707,10 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             $opts['group_properties'] ?? []
         );
         $this->assertSame($expected, $result);
+        $this->assertSame(
+            ['/flags/definitions?send_cohorts&token=random_key'],
+            array_column($this->http_client->calls, 'path')
+        );
     }
 
     public static function mixedTargetingProvider(): array
@@ -1747,22 +1753,26 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testMixedTargetingRolloutBucketing()
     {
+        $definitions = MockedResponses::LOCAL_EVALUATION_GROUP_ROLLOUT_REQUEST;
+        $definitions['flags'][0]['filters']['groups'][0]['rollout_percentage'] = 50;
         $this->http_client = new MockedHttpClient(
             host: "app.posthog.com",
-            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_GROUP_ROLLOUT_REQUEST
+            flagEndpointResponse: $definitions
         );
         $this->client = new Client(self::FAKE_API_KEY, ["debug" => true], $this->http_client, "test");
         PostHog::init(null, null, $this->client);
 
-        // With rollout 100% and a group passed, the group condition resolves locally —
-        // the matcher must hash on the group key, not the distinct_id.
+        // SHA-1 rollout fractions: person-a = 0.48159, person-b = 0.52761.
         $this->assertTrue(PostHog::getFeatureFlag(
-            'rollout-flag',
-            'any-distinct-id',
-            ["company" => "acme"],
-            [],
-            ["company" => []]
+            'rollout-flag', 'person-b', ['company' => 'person-a'], [], ['company' => []]
         ));
+        $this->assertFalse(PostHog::getFeatureFlag(
+            'rollout-flag', 'person-a', ['company' => 'person-b'], [], ['company' => []]
+        ));
+        $this->assertSame(
+            ['/flags/definitions?send_cohorts&token=random_key'],
+            array_column($this->http_client->calls, 'path')
+        );
     }
 
     public function testFlagComplexDefinition()
@@ -1807,7 +1817,11 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
     public function testFlagFallbackToDecideWithFalseFlag()
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::FALLBACK_TO_FLAGS_REQUEST);
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::FALLBACK_TO_FLAGS_REQUEST,
+            flagsEndpointResponse: ['featureFlags' => ['false-flag' => false]]
+        );
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1818,24 +1832,23 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        $this->assertEquals(PostHog::getFeatureFlag('unknown-flag???', 'some-distinct'), null);
-        $this->assertEquals(PostHog::getFeatureFlag('false-flag', 'some-distinct'), null);
+        $this->assertNull(PostHog::getFeatureFlag('unknown-flag???', 'some-distinct'));
+        $this->assertFalse(PostHog::getFeatureFlag('false-flag', 'some-distinct'));
+        $this->assertSame(
+            ['/flags/definitions?send_cohorts&token=random_key', '/flags/?v=2', '/flags/?v=2'],
+            array_column($this->http_client->calls, 'path')
+        );
 
         $this->checkEmptyErrorLogs();
     }
 
     public function testFeatureFlagDefaultsComeIntoPlayOnlyWhenDecideErrorsOut()
     {
-        $this->client = new Client(
-            self::FAKE_API_KEY,
-            [
-                "debug" => true,
-            ],
-            null,
-            null
-        );
+        $this->http_client = new MockedHttpClient('unused', flagsEndpointResponseCode: 500);
+        $this->client = new Client(self::FAKE_API_KEY, [], $this->http_client);
         PostHog::init(null, null, $this->client);
-        $this->assertEquals(PostHog::getFeatureFlag('simple-flag', 'distinct-id'), null);
+        $this->assertNull(PostHog::getFeatureFlag('simple-flag', 'distinct-id'));
+        $this->assertSame(['/flags/?v=2'], array_column($this->http_client->calls, 'path'));
     }
 
 
@@ -1909,8 +1922,11 @@ class FeatureFlagLocalEvaluationTest extends TestCase
 
         $flags = PostHog::getAllFlags('distinct-id');
 
-        $this->assertEquals($flags["variant-1"], true);
-        $this->assertEquals($flags["variant-2"], false);
+        $this->assertSame(['variant-1' => true, 'variant-2' => false], $flags);
+        $this->assertSame(
+            ['/flags/definitions?send_cohorts&token=random_key'],
+            array_column($this->http_client->calls, 'path')
+        );
     }
 
     public function testLoadFeatureFlags()
@@ -2095,49 +2111,14 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        # beta-feature should fallback to decide because property type is unknown,
-        # but doesn't because only_evaluate_locally is true
-        $this->assertEquals(PostHog::getFeatureFlag(
-            'beta-feature',
-            'some-distinct-id',
-            array(),
-            array(),
-            array(),
-            true,
-            false
-        ), null);
-
-        $this->assertEquals(PostHog::isFeatureEnabled(
-            'beta-feature',
-            'some-distinct-id',
-            array(),
-            array(),
-            array(),
-            true,
-            false
-        ), null);
-
-        # beta-feature2 should fallback to decide because region property not given with call
-        # but doesn't because only_evaluate_locally is true
-        $this->assertEquals(PostHog::getFeatureFlag(
-            'beta-feature2',
-            'some-distinct-id',
-            array(),
-            array(),
-            array(),
-            true,
-            false
-        ), null);
-
-        $this->assertEquals(PostHog::isFeatureEnabled(
-            'beta-feature2',
-            'some-distinct-id',
-            array(),
-            array(),
-            array(),
-            true,
-            false
-        ), false);
+        foreach (['feature-1', 'feature-2', 'undefined-flag'] as $key) {
+            $this->assertNull(PostHog::getFeatureFlag($key, 'some-distinct-id', [], [], [], true, false));
+            $this->assertNull(PostHog::isFeatureEnabled($key, 'some-distinct-id', [], [], [], true, false));
+        }
+        $this->assertSame(
+            ['/flags/definitions?send_cohorts&token=random_key'],
+            array_column($this->http_client->calls, 'path')
+        );
     }
 
     public function testComputingInactiveFlagLocally()
@@ -2372,8 +2353,8 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'test_id', [], ["email" => "test@posthog.com"]), "second-variant");
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'example_id'), "first-variant");
+        $this->assertSame("second-variant", PostHog::getFeatureFlag('beta-feature', 'test_id', [], ["email" => "test@posthog.com"]));
+        $this->assertSame("first-variant", PostHog::getFeatureFlag('beta-feature', 'example_id'));
     }
 
     public function testFlagWithClashingVariantOverrides()
@@ -2389,9 +2370,9 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'test_id', [], ["email" => "test@posthog.com"]), "second-variant");
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'example_id', [], ["email" => "test@posthog.com"]), "second-variant");
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'example_id'), "first-variant");
+        $this->assertSame("second-variant", PostHog::getFeatureFlag('beta-feature', 'test_id', [], ["email" => "test@posthog.com"]));
+        $this->assertSame("second-variant", PostHog::getFeatureFlag('beta-feature', 'example_id', [], ["email" => "test@posthog.com"]));
+        $this->assertSame("first-variant", PostHog::getFeatureFlag('beta-feature', 'example_id'));
     }
 
     public function testFlagWithInvalidVariantOverrides()
@@ -2407,8 +2388,8 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         );
         PostHog::init(null, null, $this->client);
 
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'test_id', [], ["email" => "test@posthog.com"]), "third-variant");
-        $this->assertEquals(PostHog::getFeatureFlag('beta-feature', 'example_id'), "second-variant");
+        $this->assertSame("third-variant", PostHog::getFeatureFlag('beta-feature', 'test_id', [], ["email" => "test@posthog.com"]));
+        $this->assertSame("second-variant", PostHog::getFeatureFlag('beta-feature', 'example_id'));
     }
 
     public function testConditionsEvaluatedInOrder()
@@ -2427,7 +2408,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         // VIP users now match the first condition (100% rollout) instead of their specific variant override
         // because conditions are evaluated in order
         $result = PostHog::getFeatureFlag('test-flag', 'vip_user', [], ["email" => "user@vip.com"]);
-        $this->assertTrue(in_array($result, ['control', 'test'])); // Should get one of the regular variants, not vip-variant
+        $this->assertTrue(in_array($result, ['control', 'test'], true)); // Should get one of the regular variants, not vip-variant
     }
 
     public function testEventCalled()
@@ -3469,7 +3450,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         ];
         foreach (range(0, 999) as $number) {
             $testResult = PostHog::getFeatureFlag('simple-flag', sprintf('distinct_id_%s', $number));
-            $this->assertEquals($testResult, $result[$number]);
+            $this->assertSame($result[$number], $testResult);
         }
     }
 
@@ -4491,7 +4472,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         ];
         foreach (range(0, 999) as $number) {
             $testResult = PostHog::getFeatureFlag('multivariate-flag', sprintf('distinct_id_%s', $number));
-            $this->assertEquals($testResult, $result[$number]);
+            $this->assertSame($result[$number], $testResult);
         }
     }
 
@@ -5131,6 +5112,13 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         // Patch version comparison
         self::assertTrue(FeatureFlag::matchProperty($prop_gt, ["version" => "1.0.1"]));
         self::assertTrue(FeatureFlag::matchProperty($prop_gt, ["version" => "1.0.10"]));
+
+        foreach ([['2.0.0', '10.0.0'], ['1.2.0', '1.10.0'], ['1.0.2', '1.0.10']] as [$lower, $higher]) {
+            $prop = ['key' => 'version', 'value' => $lower, 'operator' => 'semver_gt'];
+            self::assertTrue(FeatureFlag::matchProperty($prop, ['version' => $higher]));
+            $prop['value'] = $higher;
+            self::assertFalse(FeatureFlag::matchProperty($prop, ['version' => $lower]));
+        }
     }
 
     public function testMatchPropertySemverZeroVersions(): void

@@ -173,17 +173,13 @@ class FeatureFlagErrorTest extends TestCase
                     array $extraHeaders = [],
                     array $requestOptions = []
                 ): \PostHog\HttpResponse {
-                    if (!isset($this->calls)) {
-                        $this->calls = [];
-                    }
-                    array_push($this->calls, array(
-                        "path" => $path,
-                        "payload" => $payload,
-                        "extraHeaders" => $extraHeaders,
-                        "requestOptions" => $requestOptions
-                    ));
-
                     if (str_starts_with($path, "/flags/")) {
+                        $this->calls[] = [
+                            'path' => $path,
+                            'payload' => $payload,
+                            'extraHeaders' => $extraHeaders,
+                            'requestOptions' => $requestOptions,
+                        ];
                         throw new \Exception("Network error");
                     }
 
@@ -256,7 +252,7 @@ class FeatureFlagErrorTest extends TestCase
 
             $this->client = new Client(
                 self::FAKE_API_KEY,
-                ["debug" => true],
+                ["debug" => true, "feature_flag_request_max_retries" => 0],
                 $this->http_client,
                 null
             );
