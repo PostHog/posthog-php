@@ -4,7 +4,7 @@ Thanks for your interest in improving the PostHog PHP SDK.
 
 ## Development setup
 
-1. Install [PHP](https://www.php.net/manual/en/install.php) and [Composer](https://getcomposer.org/download/).
+1. Install [PHP](https://www.php.net/manual/en/install.php) and [Composer](https://getcomposer.org/download/). Enable PHP's `zlib` extension for the gzip regression tests. This is a development-only dependency, not an SDK runtime requirement.
 2. Install dependencies using the same command CI uses:
 
    ```bash

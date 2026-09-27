@@ -16,10 +16,6 @@ class ForkCurlCompressionTest extends TestCase
     #[DataProvider('compressionCases')]
     public function testEscapedCharactersSurviveDelivery(bool $compressed): void
     {
-        if ($compressed && !function_exists('gzdecode')) {
-            self::markTestSkipped('The HTTP test fixture needs ext-zlib to decode gzip requests.');
-        }
-
         $server = new LocalHttpServer();
         try {
             $consumer = new ForkCurl('test-key', [
