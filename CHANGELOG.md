@@ -1,3 +1,9 @@
+## 4.14.1
+
+### Patch Changes
+
+- Preserve escaped characters in gzip-compressed fork-curl event payloads.
+
 ## 4.14.0
 
 ### Minor Changes
