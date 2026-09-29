@@ -10,7 +10,7 @@ class FlagDependencyIntegrationTest extends TestCase
     public function testClientIntegrationWithFlagDependencies(): void
     {
         // Create a client with mock flags that have dependencies
-        $client = new Client("fake-api-key", [], null, null, false);
+        $client = new Client("fake-api-key", [], new MockedHttpClient('unused'), null, false);
         // Set up flags manually (simulating what would come from the API)
         $client->featureFlags = [
             [

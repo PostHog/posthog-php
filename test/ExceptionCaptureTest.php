@@ -283,6 +283,7 @@ PHP, 255, false);
 
             $this->assertTrue($result);
             $this->assertSame(1, $previousCalls);
+            $this->client->flush();
             $this->assertNull($this->findBatchCall());
         } finally {
             error_reporting($previousReporting);
@@ -721,7 +722,7 @@ PHP;
             $output = [];
             $exitCode = 0;
 
-            exec(PHP_BINARY . ' ' . escapeshellarg($scriptPath), $output, $exitCode);
+            exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($scriptPath), $output, $exitCode);
 
             $this->assertSame($expectedExitCode, $exitCode, implode("\n", $output));
 

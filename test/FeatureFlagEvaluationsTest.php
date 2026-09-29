@@ -103,6 +103,10 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertSame(1, $this->flagsRequestCount());
         $this->assertContains('simple-test', $snapshot->getKeys());
         $this->assertContains('multivariate-test', $snapshot->getKeys());
+        $this->assertTrue($snapshot->isEnabled('simple-test'));
+        $this->assertFalse($snapshot->isEnabled('having_fun'));
+        $this->assertSame('variant-value', $snapshot->getFlag('multivariate-test'));
+        $this->assertSame(1, $this->flagsRequestCount());
     }
 
     public function testNoFeatureFlagCalledEventsUntilAccess(): void
@@ -164,6 +168,8 @@ class FeatureFlagEvaluationsTest extends TestCase
 
         $this->assertSame(['key' => 'value'], $payload);
         $this->assertSame([], $this->batchRequests());
+        $this->assertSame([], $snapshot->onlyAccessed()->getKeys());
+        $this->assertSame(1, $this->flagsRequestCount());
     }
 
     public function testUnknownKeyAccessRecordsFlagMissingError(): void
@@ -476,8 +482,10 @@ class FeatureFlagEvaluationsTest extends TestCase
             personalApiKey: 'test-personal-key',
             localEvaluationResponse: MockedResponses::LOCAL_EVALUATION_REQUEST,
         );
-        PostHog::evaluateFlags('user-1', personProperties: ['region' => 'USA']);
+        $snapshot = PostHog::evaluateFlags('user-1', personProperties: ['region' => 'USA']);
 
+        $this->assertSame(['person-flag'], $snapshot->getKeys());
+        $this->assertTrue($snapshot->isEnabled('person-flag'));
         $this->assertSame(0, $this->flagsRequestCount());
     }
 

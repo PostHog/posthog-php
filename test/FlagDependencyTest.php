@@ -430,7 +430,7 @@ class FlagDependencyTest extends TestCase
     {
         // Test production-style multivariate dependency chain:
         // multivariate-root-flag -> multivariate-intermediate-flag -> multivariate-leaf-flag
-        $client = new Client("fake-api-key", [], null, "fake-personal-api-key", false);
+        $client = new Client("fake-api-key", [], new MockedHttpClient('unused'), "fake-personal-api-key", false);
         $client->featureFlags = [
             // Leaf flag: multivariate with fruit variants
             [
@@ -633,9 +633,9 @@ class FlagDependencyTest extends TestCase
             [],
             true
         );
-        $this->assertEquals("pineapple", $leafResult);
-        $this->assertEquals("blue", $intermediateResult);
-        $this->assertEquals("breaking-bad", $rootResult);
+        $this->assertSame("pineapple", $leafResult);
+        $this->assertSame("blue", $intermediateResult);
+        $this->assertSame("breaking-bad", $rootResult);
 
         // Test successful mango -> red -> the-wire chain
         $mangoLeafResult = $client->getFeatureFlag(
@@ -662,9 +662,9 @@ class FlagDependencyTest extends TestCase
             [],
             true
         );
-        $this->assertEquals("mango", $mangoLeafResult);
-        $this->assertEquals("red", $mangoIntermediateResult);
-        $this->assertEquals("the-wire", $mangoRootResult);
+        $this->assertSame("mango", $mangoLeafResult);
+        $this->assertSame("red", $mangoIntermediateResult);
+        $this->assertSame("the-wire", $mangoRootResult);
 
         // Test broken chain - user without matching email gets default/false results
         $unknownLeafResult = $client->getFeatureFlag(
@@ -691,9 +691,9 @@ class FlagDependencyTest extends TestCase
             [],
             true
         );
-        $this->assertEquals(false, $unknownLeafResult); // No matching email -> null variant -> false
-        $this->assertEquals(false, $unknownIntermediateResult); // Dependency not satisfied
-        $this->assertEquals(false, $unknownRootResult); // Chain broken
+        $this->assertFalse($unknownLeafResult);
+        $this->assertFalse($unknownIntermediateResult);
+        $this->assertFalse($unknownRootResult);
     }
 
     public function testMultiLevelMultivariateDependencyChain(): void
@@ -793,7 +793,7 @@ class FlagDependencyTest extends TestCase
             $evaluationCache
         );
         // Since email doesn't match, it should fall back to the second condition which has variant "control"
-        $this->assertEquals("control", $leafResult);
+        $this->assertSame("control", $leafResult);
 
         // Test 2: Intermediate flag should evaluate to "blue" when dependency is satisfied and variant_type is "blue"
         $evaluationCache = []; // Reset cache
@@ -806,7 +806,7 @@ class FlagDependencyTest extends TestCase
             $flagsByKey,
             $evaluationCache
         );
-        $this->assertEquals("blue", $intermediateResult);
+        $this->assertSame("blue", $intermediateResult);
 
         // Test 3: Intermediate flag should evaluate to false when leaf dependency fails
         $evaluationCache = []; // Reset cache

@@ -314,5 +314,8 @@ class EtagSupportTest extends TestCase
         $this->client->loadFlags();
         $this->assertCount(1, $this->client->featureFlags);
         $this->assertEquals('person-flag', $this->client->featureFlags[0]['key']);
+        $this->assertSame('"original-etag"', $this->client->getFlagsEtag());
+        global $errorMessages;
+        $this->assertStringContainsString('Failed to load feature flags (HTTP 500)', implode("\n", $errorMessages));
     }
 }

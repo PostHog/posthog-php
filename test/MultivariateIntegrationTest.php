@@ -10,7 +10,7 @@ class MultivariateIntegrationTest extends TestCase
     public function testMultivariateFlagDependencies(): void
     {
         // Create a client with mock multivariate flags that have dependencies
-        $client = new Client("fake-api-key", [], null, null, false);
+        $client = new Client("fake-api-key", [], new MockedHttpClient('unused'), null, false);
 
         // Leaf flag: multivariate with consistent hashing
         $leafFlag = [
@@ -97,9 +97,10 @@ class MultivariateIntegrationTest extends TestCase
                 true // only_evaluate_locally
             );
 
+            $this->assertContains($leafResult, ['variant-a', 'variant-b', 'variant-c']);
             if ($leafResult === "variant-a") {
                 // When leaf flag is variant-a, dependent should be "special-variant"
-                $this->assertEquals("special-variant", $dependentResult);
+                $this->assertSame("special-variant", $dependentResult);
                 $foundVariantA = true;
             } else {
                 // When leaf flag is NOT variant-a, dependent should be false
@@ -120,7 +121,7 @@ class MultivariateIntegrationTest extends TestCase
     public function testBooleanFlagDependencyOnMultivariate(): void
     {
         // Test a boolean flag that depends on any variant of a multivariate flag
-        $client = new Client("fake-api-key", [], null, null, false);
+        $client = new Client("fake-api-key", [], new MockedHttpClient('unused'), null, false);
 
         $multivariateFlag = [
             "id" => 1,

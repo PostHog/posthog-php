@@ -2,174 +2,77 @@
 
 namespace PostHog\Test;
 
-use Exception;
-use PHPUnit\Framework\TestCase;
-use PostHog\Client;
 use RuntimeException;
 
-class ConsumerSocketTest extends TestCase
+class ConsumerSocketTest extends ConsumerTransportTestCase
 {
-    public function setUp(): void
+    protected function consumer(): string
     {
-        date_default_timezone_set("UTC");
-    }
-
-    public function testCapture(): void
-    {
-        $client = new Client(
-            "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
-            array(
-                "consumer" => "socket",
-            )
-        );
-        self::assertTrue(
-            $client->capture(
-                array(
-                    "distinctId" => "some-user",
-                    "event" => "Socket PHP Event",
-                )
-            )
-        );
-        $client->__destruct();
-    }
-
-    public function testIdentify(): void
-    {
-        $client = new Client(
-            "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
-            array(
-                "consumer" => "socket",
-            )
-        );
-        self::assertTrue(
-            $client->identify(
-                array(
-                    "distinctId" => "Calvin",
-                    "properties" => array(
-                        "loves_php" => false,
-                        "birthday" => time(),
-                    ),
-                )
-            )
-        );
-        $client->__destruct();
+        return 'socket';
     }
 
     public function testShortTimeout(): void
     {
-        $client = new Client(
-            "BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg",
-            array(
-                "timeout" => 0.01,
-                "consumer" => "socket",
-            )
-        );
-
-        self::assertTrue(
-            $client->capture(
-                array(
-                    "distinctId" => "some-user",
-                    "event" => "Socket PHP Event",
-                )
-            )
-        );
-
-        self::assertTrue(
-            $client->identify(
-                array(
-                    "distinctId" => "some-user",
-                    "properties" => array(),
-                )
-            )
-        );
-
-        $client->__destruct();
+        $client = $this->client(['timeout' => 0.01]);
+        self::assertTrue($client->capture(['distinctId' => 'some-user', 'event' => 'short timeout']));
+        self::assertSame('short timeout', $this->flushEvent($client)['event']);
     }
 
     public function testBatchSizeOneConnectionErrorReturnsFalse(): void
     {
-        $client = new Client(
-            "x",
-            array(
-                "batch_size" => 1,
-                "consumer" => "socket",
-                "host" => "invalid.invalid",
-                "ssl" => false,
-                "timeout" => 0.01,
-            )
-        );
-
-        self::assertFalse(
-            $client->capture(
-                array(
-                    "distinctId" => "some-user",
-                    "event" => "Socket PHP Event",
-                )
-            )
-        );
+        $this->server->stop();
+        $client = $this->client(['batch_size' => 1, 'debug' => false, 'timeout' => 0.01]);
+        self::assertFalse($client->capture(['distinctId' => 'some-user', 'event' => 'connection refused']));
     }
 
     public function testProductionProblems(): void
     {
-        $client = new Client(
-            "x",
-            array(
-                "consumer" => "socket",
-                "error_handler" => function () {
-                    throw new Exception("Was called");
-                },
-            )
-        );
-
-        // Shouldn't error out without debug on.
-        $client->capture(array("user_id" => "some-user", "event" => "Production Problems"));
-        $client->__destruct();
-        self::assertTrue(true);
+        $this->server->stop();
+        $client = $this->client(['debug' => false, 'timeout' => 0.01]);
+        self::assertTrue($client->capture(['distinctId' => 'some-user', 'event' => 'connection refused']));
+        self::assertFalse($client->flush());
+        self::assertTrue($client->flush(), 'Non-retryable socket failures drop the failed batch');
     }
 
     public function testLargeMessage(): void
     {
-        $options = array(
-            "debug" => true,
-            "consumer" => "socket",
-        );
+        $client = $this->client();
+        $largeProperty = str_repeat('a', 10000);
+        self::assertTrue($client->capture([
+            'distinctId' => 'some-user',
+            'event' => 'large event',
+            'properties' => ['big_property' => $largeProperty],
+        ]));
+        self::assertSame($largeProperty, $this->flushEvent($client)['properties']['big_property']);
+    }
 
-        $client = new Client("BrpS4SctoaCCsyjlnlun3OzyNJAafdlv__jUWaaJWXg", $options);
-
-        $big_property = "";
-
-        for ($i = 0; $i < 10000; ++$i) {
-            $big_property .= "a";
-        }
-
-        self::assertTrue(
-            $client->capture(
-                array(
-                    "distinctId" => "some-user",
-                    "event" => "Super Large PHP Event",
-                    "properties" => array("big_property" => $big_property),
-                )
-            )
-        );
-
-        $client->__destruct();
+    public function testHttpFailureDropsBatchAndLogsWhenDebugging(): void
+    {
+        $this->server->stop();
+        $this->server = new LocalHttpServer([['status' => 400, 'body' => 'invalid payload']]);
+        global $errorMessages;
+        $errorMessages = [];
+        $client = $this->client();
+        self::assertTrue($client->capture(['distinctId' => 'some-user', 'event' => 'rejected']));
+        self::assertFalse($client->flush());
+        self::assertTrue($client->flush());
+        self::assertCount(1, $this->server->requests());
+        self::assertSame(['[PostHog][Socket] invalid payload'], $errorMessages);
     }
 
     public function testConnectionError(): void
     {
-        $this->expectException('RuntimeException');
-        $client = new Client(
-            "x",
-            array(
-                "consumer" => "socket",
-                "host" => "t.posthog.comcomcom",
-                "error_handler" => function ($errno, $errmsg) {
-                    throw new RuntimeException($errmsg, $errno);
-                },
-            )
-        );
-
-        $client->capture(array("user_id" => "some-user", "event" => "Event"));
-        $client->__destruct();
+        $this->server->stop();
+        $client = $this->client([
+            'debug' => false,
+            'timeout' => 0.01,
+            'error_handler' => static function ($errno, $message): void {
+                throw new RuntimeException('socket connection failed', (int) $errno);
+            },
+        ]);
+        self::assertTrue($client->capture(['distinctId' => 'some-user', 'event' => 'connection refused']));
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('socket connection failed');
+        $client->flush();
     }
 }

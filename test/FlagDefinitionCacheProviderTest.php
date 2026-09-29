@@ -289,18 +289,21 @@ class FlagDefinitionCacheProviderTest extends TestCase
 
     public function testMinimalFlagCalledGatePersistsThroughProviderCache(): void
     {
-        // Simulates a restart: a fresh client reads definitions (including the
-        // minimal_flag_called_events gate) from the shared cache instead of the API and still
-        // minimizes $feature_flag_called events.
         $provider = new MockFlagDefinitionCacheProvider();
-        $provider->shouldFetch = false;
         $data = $this->sampleFlagDefinitionData();
         $data['flags'][0]['has_experiment'] = false;
         $data['minimal_flag_called_events'] = true;
-        $provider->cachedData = $data;
-        $httpClient = new MockedHttpClient(host: "app.posthog.com");
+        $apiHttp = new MockedHttpClient(host: 'app.posthog.com', flagEndpointResponse: $data);
+        $originalClient = $this->createClient($provider, $apiHttp);
+        $this->assertTrue($provider->storedData['minimal_flag_called_events']);
+        $this->assertSame(1, $provider->onReceivedCallCount);
+        $originalClient->shutdown();
 
+        $provider->shouldFetch = false;
+        $provider->cachedData = $provider->storedData;
+        $httpClient = new MockedHttpClient(host: "app.posthog.com");
         $client = $this->createClient($provider, $httpClient);
+        $this->assertSame([], $httpClient->calls ?? []);
         $this->assertTrue($client->getFeatureFlag('beta-ui', 'user-1'));
         $client->flush();
 
