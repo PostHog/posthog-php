@@ -30,6 +30,11 @@ class Client implements FeatureFlagEvaluationsHost
      * Keep in sync with the $feature_flag_* properties built in doGetFeatureFlagResult() and
      * FeatureFlagEvaluations::recordAccess(). A new flag-eval property added there but omitted
      * here is silently stripped from minimized events.
+     *
+     * The session-attribution entries are kept because web analytics reads a session's initial
+     * attribution from the first event in that session, and a minimized event can be that first
+     * event — stripping them would null out attribution for the whole session. Full $referrer
+     * stays out; only $referring_domain and the bare campaign/click-id keys survive.
      */
     private const MINIMAL_FLAG_CALLED_EVENT_PROPERTIES = [
         '$feature_flag',
@@ -49,6 +54,16 @@ class Client implements FeatureFlagEvaluationsHost
         '$lib_version',
         '$is_server',
         '$release_id',
+        '$referring_domain',
+        'utm_source',
+        'utm_medium',
+        'utm_campaign',
+        'utm_content',
+        'utm_term',
+        'gad_source',
+        'mc_cid',
+        'gclid',
+        'fbclid',
     ];
 
     private const CONSUMERS = [

@@ -553,6 +553,55 @@ class FeatureFlagTest extends TestCase
         $this->assertSame($expected, $properties);
     }
 
+    public function testMinimalFlagCalledEventKeepsSessionAttributionProperties()
+    {
+        $response = MockedResponses::FLAGS_V2_RESPONSE;
+        $response['minimalFlagCalledEvents'] = true;
+        $response['flags']['simple-test']['metadata']['has_experiment'] = false;
+        $this->setUp($response, personalApiKey: null);
+
+        PostHog::withContext([
+            'properties' => [
+                '$referring_domain' => 'news.ycombinator.com',
+                '$referrer' => 'https://news.ycombinator.com/item?id=1',
+                'utm_source' => 'hn',
+                'utm_medium' => 'referral',
+                'utm_campaign' => 'launch',
+                'utm_content' => 'sidebar',
+                'utm_term' => 'feature flags',
+                'gad_source' => '1',
+                'mc_cid' => 'abc123',
+                'gclid' => 'gclid-value',
+                'fbclid' => 'fbclid-value',
+                'custom_property' => 'stripped',
+            ],
+        ], function (): void {
+            $this->assertTrue(PostHog::isFeatureEnabled('simple-test', 'user-id'));
+        });
+        PostHog::flush();
+
+        $payload = json_decode($this->http_client->calls[1]['payload'], true);
+        $properties = $payload['batch'][0]['properties'];
+
+        // Web analytics reads a session's initial attribution from the session's first event,
+        // which a minimized $feature_flag_called event can be.
+        $this->assertSame('news.ycombinator.com', $properties['$referring_domain']);
+        $this->assertSame('hn', $properties['utm_source']);
+        $this->assertSame('referral', $properties['utm_medium']);
+        $this->assertSame('launch', $properties['utm_campaign']);
+        $this->assertSame('sidebar', $properties['utm_content']);
+        $this->assertSame('feature flags', $properties['utm_term']);
+        $this->assertSame('1', $properties['gad_source']);
+        $this->assertSame('abc123', $properties['mc_cid']);
+        $this->assertSame('gclid-value', $properties['gclid']);
+        $this->assertSame('fbclid-value', $properties['fbclid']);
+
+        // Full $referrer stays excluded, and everything outside the allowlist is still stripped.
+        $this->assertArrayNotHasKey('$referrer', $properties);
+        $this->assertArrayNotHasKey('custom_property', $properties);
+        $this->assertArrayNotHasKey('$lib_consumer', $properties);
+    }
+
     public static function fullFlagCalledEventCases(): array
     {
         // Minimization requires both the server gate and an explicit has_experiment=false
