@@ -429,6 +429,43 @@ PHP;
         });
     }
 
+    public function testCaptureExceptionSetsFlatTypeAndMessageProperties(): void
+    {
+        $this->client->captureException(new \TypeError('boom'), 'user-flat');
+        PostHog::flush();
+
+        $batchCall = $this->findBatchCall();
+        $props = json_decode($batchCall['payload'], true)['batch'][0]['properties'];
+
+        $this->assertSame('TypeError', $props['$exception_type']);
+        $this->assertSame('boom', $props['$exception_message']);
+    }
+
+    public function testCaptureExceptionFlatPropertiesMirrorOutermostExceptionOfAChain(): void
+    {
+        $cause = new \InvalidArgumentException('root cause');
+        $this->client->captureException(new \RuntimeException('wrapped', 0, $cause), 'user-flat-chain');
+        PostHog::flush();
+
+        $batchCall = $this->findBatchCall();
+        $props = json_decode($batchCall['payload'], true)['batch'][0]['properties'];
+
+        $this->assertSame('RuntimeException', $props['$exception_type']);
+        $this->assertSame('wrapped', $props['$exception_message']);
+    }
+
+    public function testCaptureExceptionFromStringSetsFlatTypeAndMessageProperties(): void
+    {
+        $this->client->captureException('something broke', 'user-flat-string');
+        PostHog::flush();
+
+        $batchCall = $this->findBatchCall();
+        $props = json_decode($batchCall['payload'], true)['batch'][0]['properties'];
+
+        $this->assertSame('Error', $props['$exception_type']);
+        $this->assertSame('something broke', $props['$exception_message']);
+    }
+
     public function testCaptureExceptionUsesOuterExceptionAsPrimaryForChains(): void
     {
         $cause = new \InvalidArgumentException('root cause');

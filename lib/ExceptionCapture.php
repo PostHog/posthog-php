@@ -419,11 +419,14 @@ class ExceptionCapture
                 'line' => $exception->getLine(),
             ]);
 
-            $properties = [
-                '$exception_list' => $exceptionList,
-                '$exception_handled' => ExceptionPayloadBuilder::getPrimaryHandled($exceptionList),
-                '$exception_source' => $eventSource,
-            ];
+            $properties = array_merge(
+                [
+                    '$exception_list' => $exceptionList,
+                    '$exception_handled' => ExceptionPayloadBuilder::getPrimaryHandled($exceptionList),
+                    '$exception_source' => $eventSource,
+                ],
+                ExceptionPayloadBuilder::getPrimarySummaryProperties($exceptionList)
+            );
 
             if ($severity !== null) {
                 $properties['$php_error_severity'] = $severity;

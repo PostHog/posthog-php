@@ -167,6 +167,8 @@ class ExceptionCaptureTest extends TestCase
                 $event['properties']['$exception_list'][0]['mechanism']
             );
             $this->assertSame('RuntimeException', $event['properties']['$exception_list'][0]['type']);
+            $this->assertSame('RuntimeException', $event['properties']['$exception_type']);
+            $this->assertSame('uncaught boom', $event['properties']['$exception_message']);
             $this->assertFalse($event['properties']['$process_person_profile']);
             $this->assertMatchesRegularExpression(
                 '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/',

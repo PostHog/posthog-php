@@ -123,6 +123,31 @@ class ExceptionPayloadBuilder
         return (bool) (($exceptionList[0]['mechanism']['handled'] ?? false) === true);
     }
 
+    /**
+     * Flat `$exception_type`/`$exception_message` properties mirrored from the primary
+     * (first, outermost) exception. Keys are omitted when the primary entry has no string
+     * type/value, so a malformed list never emits empty summary properties.
+     *
+     * @param array[] $exceptionList Exception entries.
+     * @return array<string, string>
+     */
+    public static function getPrimarySummaryProperties(array $exceptionList): array
+    {
+        $properties = [];
+
+        $type = $exceptionList[0]['type'] ?? null;
+        if (is_string($type)) {
+            $properties['$exception_type'] = $type;
+        }
+
+        $message = $exceptionList[0]['value'] ?? null;
+        if (is_string($message)) {
+            $properties['$exception_message'] = $message;
+        }
+
+        return $properties;
+    }
+
     private static function buildThrowableException(\Throwable $exception, int $maxFrames): array
     {
         return self::buildSingleException(

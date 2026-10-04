@@ -580,7 +580,8 @@ class Client implements FeatureFlagEvaluationsHost
             [
                 '$exception_list' => $exceptionList,
                 '$exception_handled' => ExceptionPayloadBuilder::getPrimaryHandled($exceptionList),
-            ]
+            ],
+            ExceptionPayloadBuilder::getPrimarySummaryProperties($exceptionList)
         );
 
         $message = [

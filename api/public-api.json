@@ -2031,6 +2031,24 @@
                         }
                     ]
                 },
+                "getPrimarySummaryProperties": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": [
+                        {
+                            "name": "exceptionList",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
                 "overridePrimaryMechanism": {
                     "static": true,
                     "abstract": false,
