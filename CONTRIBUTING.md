@@ -36,11 +36,10 @@ Run the adapter fidelity and report checker tests (Python standard library only)
 python3 -m unittest discover -s sdk_compliance_adapter -v
 ```
 
-CI also runs PHP_CodeSniffer with `phpcs.xml`. You can run an equivalent local check with:
+After the Composer install above, run PHP_CodeSniffer with the Composer-installed tool and `phpcs.xml`, matching CI:
 
 ```bash
-curl -OL https://squizlabs.github.io/PHP_CodeSniffer/phpcs.phar
-php phpcs.phar --standard=phpcs.xml --extensions=php .
+./vendor/bin/phpcs --standard=phpcs.xml --extensions=php .
 ```
 
 ## Public API changes
