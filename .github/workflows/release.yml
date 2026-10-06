@@ -32,7 +32,24 @@ jobs:
 
       - name: Check for change intents
         id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TRIGGER_SHA: ${{ github.sha }}
         run: |
+          set -euo pipefail
+
+          # Runs are serialized by the `release` concurrency group, so a duplicate
+          # push event or a superseded run only starts after the earlier run has
+          # finished. If main has moved on since this run was triggered, the
+          # earlier run already handled (or consumed) these change intents.
+          main_sha=$(gh api "repos/$REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [ "$main_sha" != "$TRIGGER_SHA" ]; then
+            echo "has-changesets=false" >> "$GITHUB_OUTPUT"
+            echo "main is at $main_sha, not $TRIGGER_SHA; skipping stale run"
+            exit 0
+          fi
+
           shopt -s nullglob
           releasable_count=0
           for change_intent in .changeset/*.md; do
