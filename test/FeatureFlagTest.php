@@ -573,6 +573,9 @@ class FeatureFlagTest extends TestCase
                 'mc_cid' => 'abc123',
                 'gclid' => 'gclid-value',
                 'fbclid' => 'fbclid-value',
+                'msclkid' => 'msclkid-value',
+                'ttclid' => 'ttclid-value',
+                '_kx' => 'kx-value',
                 'custom_property' => 'stripped',
             ],
         ], function (): void {
@@ -595,6 +598,9 @@ class FeatureFlagTest extends TestCase
         $this->assertSame('abc123', $properties['mc_cid']);
         $this->assertSame('gclid-value', $properties['gclid']);
         $this->assertSame('fbclid-value', $properties['fbclid']);
+        $this->assertSame('msclkid-value', $properties['msclkid']);
+        $this->assertSame('ttclid-value', $properties['ttclid']);
+        $this->assertSame('kx-value', $properties['_kx']);
 
         // Full $referrer stays excluded, and everything outside the allowlist is still stripped.
         $this->assertArrayNotHasKey('$referrer', $properties);

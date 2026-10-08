@@ -34,7 +34,8 @@ class Client implements FeatureFlagEvaluationsHost
      * The session-attribution entries are kept because web analytics reads a session's initial
      * attribution from the first event in that session, and a minimized event can be that first
      * event — stripping them would null out attribution for the whole session. Full $referrer
-     * stays out; only $referring_domain and the bare campaign/click-id keys survive.
+     * stays out; only $referring_domain and the bare campaign/click-id keys survive. The
+     * campaign/click-id keys mirror posthog-js MINIMAL_FLAG_CALLED_EVENT_CAMPAIGN_PROPERTIES.
      */
     private const MINIMAL_FLAG_CALLED_EVENT_PROPERTIES = [
         '$feature_flag',
@@ -63,7 +64,23 @@ class Client implements FeatureFlagEvaluationsHost
         'gad_source',
         'mc_cid',
         'gclid',
+        'gclsrc',
+        'dclid',
+        'gbraid',
+        'wbraid',
         'fbclid',
+        'msclkid',
+        'twclid',
+        'li_fat_id',
+        'igshid',
+        'ttclid',
+        'rdt_cid',
+        'epik',
+        'qclid',
+        'sccid',
+        'oppref',
+        'irclid',
+        '_kx',
     ];
 
     private const CONSUMERS = [
