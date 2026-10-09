@@ -845,6 +845,53 @@ class FeatureFlag
         return $hashVal / self::LONG_SCALE;
     }
 
+    /**
+     * Resolve the holdout variant for a flag, when its bucketing identity falls inside the holdout.
+     *
+     * @param mixed $holdout The flag's filters.holdout configuration, if any.
+     * @param string $bucketingValue Flag-level bucketing identity (distinct id or group key).
+     * @return string|null The "holdout-<id>" variant, or null when no holdout applies.
+     */
+    private static function matchHoldout($holdout, $bucketingValue)
+    {
+        if (!is_array($holdout)) {
+            return null;
+        }
+
+        $holdoutId = $holdout["id"] ?? null;
+        $exclusionPercentage = $holdout["exclusion_percentage"] ?? null;
+
+        if (is_null($holdoutId) || is_null($exclusionPercentage) || !is_numeric($exclusionPercentage)) {
+            return null;
+        }
+
+        $holdoutKey = "holdout-" . $holdoutId;
+        // Fractional percentages are preserved; only the 0-100 range is clamped.
+        $percentage = min(100.0, max(0.0, (float) $exclusionPercentage));
+
+        if ($percentage >= 100.0) {
+            return $holdoutKey;
+        }
+
+        return FeatureFlag::holdoutHash($bucketingValue) <= $percentage / 100 ? $holdoutKey : null;
+    }
+
+    /**
+     * Hash a bucketing identity for holdout membership, matching the backend.
+     *
+     * Unlike the ordinary flag hash, neither the flag key nor the holdout id participates:
+     * the digest is taken over "holdout-<bucketing_value>" with no separator or salt.
+     *
+     * @param string $bucketingValue Flag-level bucketing identity (distinct id or group key).
+     * @return float Hash in the range [0, 1).
+     */
+    private static function holdoutHash($bucketingValue)
+    {
+        $hashVal = base_convert(substr(sha1("holdout-" . $bucketingValue), 0, 15), 16, 10);
+
+        return $hashVal / self::LONG_SCALE;
+    }
+
     private static function getMatchingVariant($flag, $distinctId)
     {
         $variants = FeatureFlag::variantLookupTable($flag);
@@ -911,6 +958,13 @@ class FeatureFlag
         $propertyMatchingVersion = 1
     ) {
         $flagFilters = $flag["filters"] ?? [];
+
+        // Experiment holdouts win over every release condition, variant override, and rollout.
+        $holdoutVariant = FeatureFlag::matchHoldout($flagFilters["holdout"] ?? null, $distinctId);
+        if (!is_null($holdoutVariant)) {
+            return $holdoutVariant;
+        }
+
         $flagConditions = $flagFilters["groups"] ?? [];
         $flagAggregation = $flagFilters["aggregation_group_type_index"] ?? null;
         $earlyExitEnabled = $flagFilters["early_exit"] ?? false;
