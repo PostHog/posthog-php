@@ -20,7 +20,7 @@ After review, merge the PR to `main`. No GitHub release label is required.
 
 A push to `main` that includes `.changeset/*.md` changes automatically starts the release workflow. The workflow then:
 
-1. Checks for pending change intents
+1. Checks for pending change intents. A run whose trigger commit is no longer the tip of `main` skips itself if no releasable intents remain there, and fails if some do, since a later push that didn't touch `.changeset/` starts no release run of its own. In that case, dispatch the Release workflow on `main`
 2. Uses `pnpm version -r` to determine and apply the version bump, consume the intents, update `CHANGELOG.md` and `.changeset/ledger.yaml`, and refresh `composer.lock`
 3. Prepares a release candidate patch for the triggering commit in a read-only job without release secrets, after verifying the release bump script hash
 4. Verifies the release candidate in a separate read-only job and fails if the tag or GitHub Release already exists
