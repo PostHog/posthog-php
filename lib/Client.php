@@ -30,25 +30,57 @@ class Client implements FeatureFlagEvaluationsHost
      * Keep in sync with the $feature_flag_* properties built in doGetFeatureFlagResult() and
      * FeatureFlagEvaluations::recordAccess(). A new flag-eval property added there but omitted
      * here is silently stripped from minimized events.
+     *
+     * The session-attribution entries are kept because web analytics reads a session's initial
+     * attribution from the first event in that session, and a minimized event can be that first
+     * event — stripping them would null out attribution for the whole session. Full $referrer
+     * stays out; only $referring_domain and the bare campaign/click-id keys survive. The
+     * campaign/click-id keys mirror posthog-js MINIMAL_FLAG_CALLED_EVENT_CAMPAIGN_PROPERTIES.
      */
     private const MINIMAL_FLAG_CALLED_EVENT_PROPERTIES = [
-        '$feature_flag',
-        '$feature_flag_response',
-        '$feature_flag_has_experiment',
-        '$feature_flag_id',
-        '$feature_flag_version',
-        '$feature_flag_reason',
-        '$feature_flag_request_id',
-        '$feature_flag_evaluated_at',
-        '$feature_flag_error',
-        'locally_evaluated',
-        '$groups',
-        '$process_person_profile',
-        '$session_id',
-        '$lib',
-        '$lib_version',
-        '$is_server',
-        '$release_id',
+        '$feature_flag' => true,
+        '$feature_flag_response' => true,
+        '$feature_flag_has_experiment' => true,
+        '$feature_flag_id' => true,
+        '$feature_flag_version' => true,
+        '$feature_flag_reason' => true,
+        '$feature_flag_request_id' => true,
+        '$feature_flag_evaluated_at' => true,
+        '$feature_flag_error' => true,
+        'locally_evaluated' => true,
+        '$groups' => true,
+        '$process_person_profile' => true,
+        '$session_id' => true,
+        '$lib' => true,
+        '$lib_version' => true,
+        '$is_server' => true,
+        '$release_id' => true,
+        '$referring_domain' => true,
+        'utm_source' => true,
+        'utm_medium' => true,
+        'utm_campaign' => true,
+        'utm_content' => true,
+        'utm_term' => true,
+        'gad_source' => true,
+        'mc_cid' => true,
+        'gclid' => true,
+        'gclsrc' => true,
+        'dclid' => true,
+        'gbraid' => true,
+        'wbraid' => true,
+        'fbclid' => true,
+        'msclkid' => true,
+        'twclid' => true,
+        'li_fat_id' => true,
+        'igshid' => true,
+        'ttclid' => true,
+        'rdt_cid' => true,
+        'epik' => true,
+        'qclid' => true,
+        'sccid' => true,
+        'oppref' => true,
+        'irclid' => true,
+        '_kx' => true,
     ];
 
     private const CONSUMERS = [
@@ -485,7 +517,7 @@ class Client implements FeatureFlagEvaluationsHost
             // already-minimized properties for gated events, not the full envelope.
             $message["properties"] = array_intersect_key(
                 $message["properties"],
-                array_flip(self::MINIMAL_FLAG_CALLED_EVENT_PROPERTIES)
+                self::MINIMAL_FLAG_CALLED_EVENT_PROPERTIES
             );
         }
 
