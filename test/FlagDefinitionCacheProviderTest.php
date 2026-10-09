@@ -95,6 +95,149 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $this->assertArrayHasKey('beta-ui', $client->featureFlagsByKey);
     }
 
+    public function testProviderOnlyClientLoadsAndEvaluatesCachedDefinitions(): void
+    {
+        foreach ([null, '', " \n\t "] as $credential) {
+            $provider = new MockFlagDefinitionCacheProvider();
+            $provider->shouldFetch = false;
+            $provider->cachedData = $this->versionedDefinitions(2);
+            $httpClient = new MockedHttpClient(host: 'app.posthog.com');
+            $client = new Client(
+                self::FAKE_API_KEY,
+                ['flag_definition_cache_provider' => $provider],
+                $httpClient,
+                personalAPIKey: $credential,
+                secretKey: $credential
+            );
+
+            $this->assertSame(1, $provider->shouldFetchCallCount);
+            $this->assertSame(1, $provider->getCallCount);
+            $this->assertSame(['0' => 'company'], $client->groupTypeMapping);
+            $this->assertSame($provider->cachedData['cohorts'], $client->cohorts);
+            $this->assertVersionedResults($client, false);
+            $this->assertSame([], $httpClient->calls ?? []);
+            $this->assertSame(0, $provider->onReceivedCallCount);
+        }
+    }
+
+    public function testProviderOnlyClientRespectsConstructionOptOutAndSupportsManualLoad(): void
+    {
+        $provider = new MockFlagDefinitionCacheProvider();
+        $provider->shouldFetch = false;
+        $provider->cachedData = $this->sampleFlagDefinitionData();
+        $httpClient = new MockedHttpClient(host: 'app.posthog.com');
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ['flag_definition_cache_provider' => $provider],
+            $httpClient,
+            loadFeatureFlags: false
+        );
+
+        $this->assertSame([], $client->featureFlags);
+        $this->assertSame([], $client->evaluateFlags('user', onlyEvaluateLocally: true)->getKeys());
+        $this->assertSame(0, $provider->shouldFetchCallCount);
+        $this->assertSame(0, $provider->getCallCount);
+
+        $client->loadFlags();
+
+        $this->assertTrue($client->evaluateFlags('user')->getFlag('beta-ui'));
+        $this->assertSame(1, $provider->shouldFetchCallCount);
+        $this->assertSame(1, $provider->getCallCount);
+        $this->assertSame([], $httpClient->calls ?? []);
+    }
+
+    public function testProviderOnlyFetchDecisionDoesNotReadCacheOrRequestApi(): void
+    {
+        $provider = new MockFlagDefinitionCacheProvider();
+        $provider->cachedData = $this->versionedDefinitions(2);
+        $httpClient = new MockedHttpClient(host: 'app.posthog.com');
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ['flag_definition_cache_provider' => $provider],
+            $httpClient
+        );
+
+        $this->assertSame([], $client->featureFlags);
+        $this->assertSame(1, $provider->shouldFetchCallCount);
+        $this->assertSame(0, $provider->getCallCount);
+        $this->assertWarningContains('A secret key is required to fetch flag definitions from PostHog');
+
+        $provider->shouldFetch = false;
+        $client->loadFlags();
+        $this->assertVersionedResults($client, false);
+        $provider->shouldFetch = true;
+        $client->loadFlags();
+
+        $this->assertVersionedResults($client, false);
+        $this->assertSame(3, $provider->shouldFetchCallCount);
+        $this->assertSame(1, $provider->getCallCount);
+        $this->assertSame(0, $provider->onReceivedCallCount);
+        $this->assertSame([], $httpClient->calls ?? []);
+    }
+
+    public function testProviderOnlyCacheMissOrFailureDoesNotRequestApi(): void
+    {
+        foreach (['empty', 'malformed', 'read-error'] as $scenario) {
+            $provider = new MockFlagDefinitionCacheProvider();
+            $provider->shouldFetch = false;
+            if ($scenario === 'malformed') {
+                $provider->cachedData = ['flags' => 'invalid'];
+            } elseif ($scenario === 'read-error') {
+                $provider->getError = new \RuntimeException('Redis read failed');
+            }
+            $httpClient = new MockedHttpClient(host: 'app.posthog.com');
+            $client = new Client(
+                self::FAKE_API_KEY,
+                ['flag_definition_cache_provider' => $provider],
+                $httpClient
+            );
+
+            $this->assertSame([], $client->featureFlags);
+            $this->assertSame(1, $provider->shouldFetchCallCount);
+            $this->assertSame(1, $provider->getCallCount);
+            $this->assertSame(0, $provider->onReceivedCallCount);
+            $this->assertSame([], $httpClient->calls ?? []);
+            $this->assertWarningContains('A secret key is required to fetch flag definitions from PostHog');
+            if ($scenario === 'malformed') {
+                $this->assertWarningContains('Cache provider returned malformed flag definitions');
+            } elseif ($scenario === 'read-error') {
+                $this->assertWarningContains('Cache provider read error: Redis read failed');
+            }
+        }
+    }
+
+    public function testProviderOnlyClientRequiresProjectApiKey(): void
+    {
+        $provider = new MockFlagDefinitionCacheProvider();
+        $provider->shouldFetch = false;
+        $provider->cachedData = $this->sampleFlagDefinitionData();
+        $httpClient = new MockedHttpClient(host: 'app.posthog.com');
+        $client = new Client(
+            null,
+            ['consumer' => 'noop', 'flag_definition_cache_provider' => $provider],
+            $httpClient
+        );
+
+        $client->loadFlags();
+
+        $this->assertSame([], $client->featureFlags);
+        $this->assertSame(0, $provider->shouldFetchCallCount);
+        $this->assertSame(0, $provider->getCallCount);
+        $this->assertSame([], $httpClient->calls ?? []);
+    }
+
+    public function testDirectDefinitionFetchWithoutSecretKeyDoesNotRequestApi(): void
+    {
+        $httpClient = new MockedHttpClient(host: 'app.posthog.com');
+        $client = new Client(self::FAKE_API_KEY, [], $httpClient);
+
+        $response = $client->localFlags();
+
+        $this->assertSame(401, $response->getResponseCode());
+        $this->assertSame([], $httpClient->calls ?? []);
+        $this->assertWarningContains('A secret key is required to fetch flag definitions from PostHog');
+    }
+
     public function testStoresDefinitionsAfterProviderAllowsApiFetch(): void
     {
         $provider = new MockFlagDefinitionCacheProvider();
@@ -189,9 +332,10 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $client->loadFlags();
 
         $this->assertSame(1, $provider->shouldFetchCallCount);
-        $this->assertSame(1, $provider->getCallCount);
+        $this->assertSame(0, $provider->getCallCount);
         $this->assertSame([], $httpClient->calls ?? []);
         $this->assertWarningContains('Cache provider fetch-decision error: Lock acquisition failed');
+        $this->assertWarningContains('A secret key is required to fetch flag definitions from PostHog');
     }
 
     public function testProviderStoreFailureKeepsFetchedDefinitionsUsable(): void
@@ -382,13 +526,17 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $this->assertOnlyDefinitionsRequests($httpClient);
     }
 
-    public function testVersionOnlyCacheReloadAndReadFailure(): void
+    public function testProviderOnlyVersionCacheReloadAndReadFailure(): void
     {
         $provider = new MockFlagDefinitionCacheProvider();
         $provider->shouldFetch = false;
         $provider->cachedData = $this->versionedDefinitions(1);
         $httpClient = new MockedHttpClient(host: 'app.posthog.com');
-        $client = $this->createClient($provider, $httpClient);
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ['flag_definition_cache_provider' => $provider],
+            $httpClient
+        );
         foreach ([1, 2, 1, 2, null, 3] as $version) {
             $provider->cachedData = $this->versionedDefinitions($version);
             // Also cover the provider's supported camelCase projection.

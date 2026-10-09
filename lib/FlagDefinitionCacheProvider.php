@@ -8,6 +8,11 @@ namespace PostHog;
  * Implement this interface to share downloaded flag definitions across PHP workers, serverless
  * invocations, or other distributed SDK instances. Provider methods are called synchronously by the
  * SDK and any thrown error is logged as a warning without crashing application code.
+ *
+ * A project API key is required, but a secret key is not needed to read shared definitions when
+ * shouldFetchFlagDefinitions() returns false. A secret key is required only for direct definition
+ * API requests. Definitions load during construction unless loadFeatureFlags is false; call
+ * Client::loadFlags() to refresh from the provider.
  */
 interface FlagDefinitionCacheProvider
 {
@@ -29,7 +34,9 @@ interface FlagDefinitionCacheProvider
      * Decide whether this SDK instance should fetch fresh definitions from PostHog.
      *
      * Return false when another worker is responsible for fetching and this instance should read the
-     * latest definitions from getFlagDefinitions() instead.
+     * latest definitions from getFlagDefinitions() instead. Returning true requests a direct API
+     * fetch, which is skipped with a warning if no secret key is configured; cached data is not read
+     * in that case. Empty or unavailable caches preserve previously loaded definitions.
      *
      * @return bool
      */

@@ -259,8 +259,9 @@ class Client implements FeatureFlagEvaluationsHost
      * @param HttpClient|null $httpClient Custom HTTP client, primarily for tests and advanced integrations.
      * @param string|null $personalAPIKey Deprecated: use $secretKey instead. Kept as a
      *     backwards-compatible alias for $secretKey.
-     * @param bool $loadFeatureFlags Whether to load local feature flag definitions during construction.
-     * @param string|null $secretKey Credential for local feature flag evaluation and remote config.
+     * @param bool $loadFeatureFlags Whether to load local feature flag definitions during construction
+     *     from a configured cache provider or the PostHog API.
+     * @param string|null $secretKey Credential for fetching local feature flag definitions and remote config.
      *     Accepts either a Personal API Key (`phx_...`) or a Project Secret API Key (`phs_...`).
      *     Defaults to null. When both $secretKey and $personalAPIKey are provided, $secretKey wins.
      */
@@ -323,7 +324,7 @@ class Client implements FeatureFlagEvaluationsHost
         if (
             $this->enabled
             && count($this->featureFlags) == 0
-            && !is_null($this->secretKey)
+            && ($this->secretKey !== null || $this->flagDefinitionCacheProvider !== null)
             && $loadFeatureFlags
         ) {
             $this->loadFlags();
@@ -1490,7 +1491,8 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * Load local feature flag definitions using the configured secret key.
+     * Load local feature flag definitions from the configured cache provider or PostHog API.
+     * Direct API requests require a secret key.
      *
      * @return void
      * @throws Exception
@@ -1523,8 +1525,6 @@ class Client implements FeatureFlagEvaluationsHost
                 } elseif ($this->hasFlagDefinitionsLoaded()) {
                     return;
                 }
-
-                $shouldFetch = !is_null($this->secretKey);
             } catch (Throwable $throwable) {
                 $this->logFlagDefinitionCacheWarning(
                     'Cache provider read error: ' . $throwable->getMessage()
@@ -1532,8 +1532,9 @@ class Client implements FeatureFlagEvaluationsHost
                 if ($this->hasFlagDefinitionsLoaded()) {
                     return;
                 }
-                $shouldFetch = !is_null($this->secretKey);
             }
+
+            $shouldFetch = true;
         }
 
         if ($shouldFetch) {
@@ -1558,7 +1559,7 @@ class Client implements FeatureFlagEvaluationsHost
             $this->logFlagDefinitionCacheWarning(
                 'Cache provider fetch-decision error: ' . $throwable->getMessage()
             );
-            return !is_null($this->secretKey);
+            return true;
         }
     }
 
@@ -1765,6 +1766,7 @@ class Client implements FeatureFlagEvaluationsHost
      * Fetch local feature flag definitions from the PostHog API.
      *
      * @return HttpResponse Raw HTTP response, including ETag metadata when available.
+     *     Returns a 401 response without making a request when no secret key is configured.
      */
     public function localFlags(): HttpResponse
     {
@@ -1777,6 +1779,12 @@ class Client implements FeatureFlagEvaluationsHost
                 ]),
                 200
             );
+        }
+
+        if ($this->secretKey === null) {
+            $message = 'A secret key is required to fetch flag definitions from PostHog';
+            $this->logWarning($message);
+            return new HttpResponse($message, 401);
         }
 
         $headers = [
