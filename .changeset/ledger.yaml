@@ -46,3 +46,7 @@ posthog-php@4.14.1:
   dir: ""
   intents:
     - warm-apples-invite
+posthog-php@4.14.2:
+  dir: ""
+  intents:
+    - flag-called-session-attribution-allowlist
