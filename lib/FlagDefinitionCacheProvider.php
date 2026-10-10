@@ -9,10 +9,10 @@ namespace PostHog;
  * invocations, or other distributed SDK instances. Provider methods are called synchronously by the
  * SDK and any thrown error is logged as a warning without crashing application code.
  *
- * A project API key is required, but a secret key is not needed to read shared definitions when
- * shouldFetchFlagDefinitions() returns false. A secret key is required only for direct definition
- * API requests. Definitions load during construction unless loadFeatureFlags is false; call
- * Client::loadFlags() to refresh from the provider.
+ * A project API key is required. Without a secret key, the SDK only reads shared definitions and
+ * never calls shouldFetchFlagDefinitions() or publishes definitions. With a secret key, the SDK
+ * consults the provider to decide whether to fetch and publish or read the cache. Definitions load
+ * during construction unless loadFeatureFlags is false; call Client::loadFlags() to refresh.
  */
 interface FlagDefinitionCacheProvider
 {
@@ -33,10 +33,11 @@ interface FlagDefinitionCacheProvider
     /**
      * Decide whether this SDK instance should fetch fresh definitions from PostHog.
      *
-     * Return false when another worker is responsible for fetching and this instance should read the
-     * latest definitions from getFlagDefinitions() instead. Returning true requests a direct API
-     * fetch, which is skipped with a warning if no secret key is configured; cached data is not read
-     * in that case. Empty or unavailable caches preserve previously loaded definitions.
+     * Called only when a secret key is configured. Return false when another worker is responsible
+     * for fetching and this instance should read the latest definitions from getFlagDefinitions()
+     * instead. Return true to fetch from the API and publish the result. Empty or unavailable caches
+     * preserve previously loaded definitions; with no loaded definitions, a keyed client may fetch
+     * directly to recover from a cache miss or read failure.
      *
      * @return bool
      */

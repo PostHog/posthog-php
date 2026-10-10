@@ -1492,6 +1492,7 @@ class Client implements FeatureFlagEvaluationsHost
 
     /**
      * Load local feature flag definitions from the configured cache provider or PostHog API.
+     * Without a secret key, provider-backed clients only read the shared cache.
      * Direct API requests require a secret key.
      *
      * @return void
@@ -1534,7 +1535,7 @@ class Client implements FeatureFlagEvaluationsHost
                 }
             }
 
-            $shouldFetch = true;
+            $shouldFetch = $this->secretKey !== null;
         }
 
         if ($shouldFetch) {
@@ -1551,6 +1552,11 @@ class Client implements FeatureFlagEvaluationsHost
     {
         if ($this->flagDefinitionCacheProvider === null) {
             return true;
+        }
+
+        // Cache-only readers must not acquire fetch leadership through the provider.
+        if ($this->secretKey === null) {
+            return false;
         }
 
         try {
