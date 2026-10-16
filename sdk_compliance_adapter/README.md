@@ -68,8 +68,9 @@ not SDK shutdown certification; `/flush` always calls the real public SDK method
 
 ## Known failures and applicability
 
-LibCurl is expected to pass all 47 selected tests. Socket and foreground ForkCurl
-each expose these 11 existing capture failures:
+LibCurl is expected to pass all 47 selected tests. Foreground ForkCurl exposes
+these 11 capture failures. The last Socket report also contains these failures;
+it predates the Socket write-state repair:
 
 - `capture.retry_behavior.retries_on_503`
 - `capture.retry_behavior.retries_on_500`
@@ -83,8 +84,11 @@ each expose these 11 existing capture failures:
 - `capture.deduplication.preserves_uuid_and_timestamp_on_retry`
 - `capture.deduplication.preserves_uuid_and_timestamp_on_batch_retry`
 
-Socket does not reset its write state on retry, treats 408 as terminal, and ignores
-Retry-After. ForkCurl does not retry HTTP rejection and reports a successful curl
+Socket now resends the complete request on each attempt. Native regression tests
+cover 503 and 429 followed by 200, stable request bodies, and queue drain. The full
+Socket compliance suite was not rerun for that repair. Socket still treats 408 as
+terminal and ignores Retry-After. ForkCurl does not retry HTTP rejection and
+reports a successful curl
 process exit as successful delivery even for HTTP errors. The adapter exposes
 these behaviors rather than retrying on the SDK's behalf.
 
