@@ -203,6 +203,165 @@ class FeatureFlagHoldoutTest extends TestCase
         self::assertSame('holdout-727', $snapshot->getFlag('checkout'));
     }
 
+    private static function bannerDependingOnCheckout(string $expectedValue): array
+    {
+        return [
+            'key' => 'checkout-banner',
+            'active' => true,
+            'filters' => [
+                'groups' => [
+                    [
+                        'properties' => [
+                            [
+                                'key' => 'checkout',
+                                'type' => 'flag',
+                                'operator' => 'flag_evaluates_to',
+                                'value' => $expectedValue,
+                                'dependency_chain' => ['checkout'],
+                            ],
+                        ],
+                        'rollout_percentage' => 100,
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    private static function groupCheckout(?array $holdout): array
+    {
+        $flag = self::holdoutFlag($holdout);
+        $flag['filters']['aggregation_group_type_index'] = 0;
+
+        return $flag;
+    }
+
+    private function dependencyEvaluation(
+        array $flags,
+        string $distinctId,
+        array $groups,
+        bool $onlyEvaluateLocally,
+        array $remoteFlags = []
+    ): array {
+        $httpClient = new MockedHttpClient(
+            'app.posthog.com',
+            flagEndpointResponse: ['flags' => $flags, 'group_type_mapping' => ['0' => 'company']],
+            flagsEndpointResponse: $remoteFlags
+        );
+        $client = new Client(
+            self::FAKE_API_KEY,
+            ['debug' => true, 'consumer' => 'noop'],
+            $httpClient,
+            null,
+            secretKey: 'test-secret-key'
+        );
+        PostHog::init(null, null, $client);
+
+        $evaluations = $client->evaluateFlags($distinctId, $groups, [], ['company' => []], $onlyEvaluateLocally);
+        $remoteCalls = array_values(array_filter(
+            $httpClient->calls ?? [],
+            fn ($call) => str_starts_with($call['path'], '/flags/?')
+        ));
+
+        return [$evaluations, $remoteCalls];
+    }
+
+    public function testDependencyWithHoldoutAggregatedDifferentlyIsInconclusiveLocally(): void
+    {
+        $flags = [
+            self::groupCheckout(['id' => 727, 'exclusion_percentage' => 20]),
+            self::bannerDependingOnCheckout('control'),
+        ];
+
+        [$evaluations, $remoteCalls] = $this->dependencyEvaluation($flags, 'user-1', ['company' => 'user-5'], true);
+
+        self::assertSame('control', $evaluations->getFlag('checkout'));
+        self::assertNull($evaluations->getFlag('checkout-banner'));
+        self::assertSame([], $remoteCalls);
+    }
+
+    public function testGroupDependencyOfPersonFlagWithHoldoutIsInconclusiveLocally(): void
+    {
+        $flags = [
+            self::groupCheckout(['id' => 727, 'exclusion_percentage' => 20]),
+            self::bannerDependingOnCheckout('holdout-727'),
+        ];
+
+        [$evaluations, $remoteCalls] = $this->dependencyEvaluation($flags, 'user-5', ['company' => 'user-1'], true);
+
+        self::assertSame('holdout-727', $evaluations->getFlag('checkout'));
+        self::assertNull($evaluations->getFlag('checkout-banner'));
+        self::assertSame([], $remoteCalls);
+    }
+
+    public function testDependencyWithHoldoutAggregatedDifferentlyFallsBackToRemoteEvaluation(): void
+    {
+        $flags = [
+            self::groupCheckout(['id' => 727, 'exclusion_percentage' => 20]),
+            self::bannerDependingOnCheckout('control'),
+        ];
+
+        [$evaluations, $remoteCalls] = $this->dependencyEvaluation(
+            $flags,
+            'user-1',
+            ['company' => 'user-5'],
+            false,
+            ['flags' => [
+                'checkout-banner' => [
+                    'key' => 'checkout-banner',
+                    'enabled' => true,
+                    'variant' => 'remote-banner-value',
+                ],
+            ]]
+        );
+
+        self::assertCount(1, $remoteCalls);
+        self::assertSame('remote-banner-value', $evaluations->getFlag('checkout-banner'));
+    }
+
+    public function testDependencyWithHoldoutAggregatedTheSameStillEvaluatesLocally(): void
+    {
+        $banner = self::bannerDependingOnCheckout('holdout-727');
+        $banner['filters']['aggregation_group_type_index'] = 0;
+        $flags = [self::groupCheckout(['id' => 727, 'exclusion_percentage' => 20]), $banner];
+
+        // The company key "user-1" buckets into the holdout; the distinct id "user-5" would not.
+        [$evaluations, $remoteCalls] = $this->dependencyEvaluation($flags, 'user-5', ['company' => 'user-1'], true);
+
+        self::assertSame('holdout-727', $evaluations->getFlag('checkout'));
+        self::assertTrue($evaluations->getFlag('checkout-banner'));
+        self::assertSame([], $remoteCalls);
+    }
+
+    public function testDependencyWithoutHoldoutAggregatedDifferentlyStillEvaluatesLocally(): void
+    {
+        $flags = [self::groupCheckout(null), self::bannerDependingOnCheckout('control')];
+
+        [$evaluations, $remoteCalls] = $this->dependencyEvaluation($flags, 'user-1', ['company' => 'user-5'], true);
+
+        self::assertSame('control', $evaluations->getFlag('checkout'));
+        self::assertTrue($evaluations->getFlag('checkout-banner'));
+        self::assertSame([], $remoteCalls);
+    }
+
+    public function testNestedDependencyKeepsTheOriginalIdentityAggregation(): void
+    {
+        $middle = self::bannerDependingOnCheckout('control');
+        $middle['key'] = 'middle';
+        $middle['filters']['aggregation_group_type_index'] = 0;
+        $top = self::bannerDependingOnCheckout('true');
+        $top['key'] = 'top';
+        $top['filters']['groups'][0]['properties'][0]['key'] = 'middle';
+        $top['filters']['groups'][0]['properties'][0]['dependency_chain'] = ['checkout', 'middle'];
+        $flags = [self::groupCheckout(['id' => 727, 'exclusion_percentage' => 20]), $middle, $top];
+
+        // "top" is evaluated for a person, so the group holdout reached through the group-aggregated
+        // "middle" still has a mismatched identity.
+        [$evaluations, $remoteCalls] = $this->dependencyEvaluation($flags, 'user-1', ['company' => 'user-5'], true);
+
+        self::assertNull($evaluations->getFlag('top'));
+        self::assertSame([], $remoteCalls);
+    }
+
     private function localEvaluationSnapshot(array $localFlags, string $distinctId, array $groups = [])
     {
         $httpClient = new MockedHttpClient('app.posthog.com', flagEndpointResponse: $localFlags);

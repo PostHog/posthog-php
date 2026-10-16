@@ -854,26 +854,47 @@ class FeatureFlag
      */
     private static function matchHoldout($holdout, $bucketingValue)
     {
-        if (!is_array($holdout)) {
+        $percentage = FeatureFlag::holdoutPercentage($holdout);
+        if (is_null($percentage)) {
             return null;
         }
 
-        $holdoutId = $holdout["id"] ?? null;
-        $exclusionPercentage = $holdout["exclusion_percentage"] ?? null;
-
-        if (is_null($holdoutId) || is_null($exclusionPercentage) || !is_numeric($exclusionPercentage)) {
-            return null;
-        }
-
-        $holdoutKey = "holdout-" . $holdoutId;
-        // Fractional percentages are preserved; only the 0-100 range is clamped.
-        $percentage = min(100.0, max(0.0, (float) $exclusionPercentage));
+        $holdoutKey = "holdout-" . $holdout["id"];
 
         if ($percentage >= 100.0) {
             return $holdoutKey;
         }
 
         return FeatureFlag::holdoutHash($bucketingValue) <= $percentage / 100 ? $holdoutKey : null;
+    }
+
+    /**
+     * @param mixed $holdout The flag's filters.holdout configuration, if any.
+     * @return float|null Exclusion percentage clamped to 0-100, or null when the holdout is unusable.
+     */
+    private static function holdoutPercentage($holdout): ?float
+    {
+        if (!is_array($holdout) || is_null($holdout["id"] ?? null)) {
+            return null;
+        }
+
+        $exclusionPercentage = $holdout["exclusion_percentage"] ?? null;
+        if (!is_numeric($exclusionPercentage)) {
+            return null;
+        }
+
+        // Fractional percentages are preserved; only the 0-100 range is clamped.
+        return min(100.0, max(0.0, (float) $exclusionPercentage));
+    }
+
+    private static function hasActiveHoldout($holdout): bool
+    {
+        return (FeatureFlag::holdoutPercentage($holdout) ?? 0.0) > 0.0;
+    }
+
+    private static function aggregationKey($aggregation): ?string
+    {
+        return is_null($aggregation) ? null : strval($aggregation);
     }
 
     /**
@@ -957,6 +978,40 @@ class FeatureFlag
         $groupTypeMapping = [],
         $propertyMatchingVersion = 1
     ) {
+        return FeatureFlag::matchFeatureFlagPropertiesForIdentity(
+            $flag,
+            $distinctId,
+            $properties,
+            $cohorts,
+            $flagsByKey,
+            $evaluationCache,
+            $groups,
+            $groupProperties,
+            $groupTypeMapping,
+            $propertyMatchingVersion,
+            ($flag["filters"] ?? [])["aggregation_group_type_index"] ?? null
+        );
+    }
+
+    /**
+     * Same as matchFeatureFlagProperties, but bucketing by an identity whose aggregation is already known.
+     * Dependency recursion keeps the root flag's identity, which may differ from the dependency's own.
+     *
+     * @param int|string|null $identityAggregation Null for a person, a group type index otherwise.
+     */
+    private static function matchFeatureFlagPropertiesForIdentity(
+        $flag,
+        $distinctId,
+        $properties,
+        $cohorts,
+        $flagsByKey,
+        $evaluationCache,
+        $groups,
+        $groupProperties,
+        $groupTypeMapping,
+        $propertyMatchingVersion,
+        $identityAggregation
+    ) {
         $flagFilters = $flag["filters"] ?? [];
 
         // Experiment holdouts win over every release condition, variant override, and rollout.
@@ -982,6 +1037,7 @@ class FeatureFlag
 
                 $effectiveProperties = $properties;
                 $effectiveBucketing = $distinctId;
+                $effectiveAggregation = $identityAggregation;
 
                 // Mixed-override path: condition-level aggregation differs from flag-level.
                 // This assumes flag-level aggregation is null for mixed flags.
@@ -997,6 +1053,7 @@ class FeatureFlag
                         }
                         $effectiveProperties = $groupProperties[$groupName];
                         $effectiveBucketing = $groups[$groupName];
+                        $effectiveAggregation = $conditionAggregation;
                     }
                 }
 
@@ -1008,7 +1065,8 @@ class FeatureFlag
                     $cohorts,
                     $flagsByKey,
                     $evaluationCache,
-                    $propertyMatchingVersion
+                    $propertyMatchingVersion,
+                    $effectiveAggregation
                 );
 
                 if ($matchResult === ConditionMatch::Match) {
@@ -1064,9 +1122,10 @@ class FeatureFlag
         $condition,
         $properties,
         $cohorts,
-        $flagsByKey = null,
-        $evaluationCache = null,
-        $propertyMatchingVersion = 1
+        $flagsByKey,
+        $evaluationCache,
+        $propertyMatchingVersion,
+        $identityAggregation
     ): ConditionMatch {
         $rolloutPercentage = array_key_exists("rollout_percentage", $condition) ? $condition["rollout_percentage"] : null;
 
@@ -1085,14 +1144,15 @@ class FeatureFlag
                         $propertyMatchingVersion
                     );
                 } elseif ($propertyType == 'flag') {
-                    $matches = FeatureFlag::evaluateFlagDependency(
+                    $matches = FeatureFlag::evaluateFlagDependencyForIdentity(
                         $property,
                         $flagsByKey,
                         $evaluationCache,
                         $distinctId,
                         $properties,
                         $cohorts,
-                        $propertyMatchingVersion
+                        $propertyMatchingVersion,
+                        $identityAggregation
                     );
                 } else {
                     $matches = FeatureFlag::matchProperty($property, $properties, $propertyMatchingVersion);
@@ -1169,6 +1229,32 @@ class FeatureFlag
         $cohortProperties,
         $propertyMatchingVersion = 1
     ) {
+        return FeatureFlag::evaluateFlagDependencyForIdentity(
+            $property,
+            $flagsByKey,
+            $evaluationCache,
+            $distinctId,
+            $properties,
+            $cohortProperties,
+            $propertyMatchingVersion,
+            false
+        );
+    }
+
+    /**
+     * @param int|string|null|false $identityAggregation Aggregation of the identity being bucketed (null for a
+     *     person, a group type index otherwise). False means unknown and skips the holdout aggregation guard.
+     */
+    private static function evaluateFlagDependencyForIdentity(
+        $property,
+        $flagsByKey,
+        $evaluationCache,
+        $distinctId,
+        $properties,
+        $cohortProperties,
+        $propertyMatchingVersion,
+        $identityAggregation
+    ) {
         if ($flagsByKey === null || $evaluationCache === null) {
             throw new InconclusiveMatchException(sprintf(
                 "Cannot evaluate flag dependency on '%s' without flags_by_key and evaluation_cache",
@@ -1219,16 +1305,35 @@ class FeatureFlag
                 if (!($depFlag["active"] ?? false)) {
                     $evaluationCache[$depFlagKey] = false;
                 } else {
+                    // Holdout bucketing uses the evaluated identity, which can't be resolved for a
+                    // dependency aggregated differently, so defer to server evaluation.
+                    $depFilters = $depFlag["filters"] ?? [];
+                    if (
+                        $identityAggregation !== false &&
+                        FeatureFlag::hasActiveHoldout($depFilters["holdout"] ?? null) &&
+                        FeatureFlag::aggregationKey($depFilters["aggregation_group_type_index"] ?? null) !==
+                            FeatureFlag::aggregationKey($identityAggregation)
+                    ) {
+                        throw new InconclusiveMatchException(sprintf(
+                            "Cannot evaluate flag dependency '%s' with a holdout aggregated differently from the dependent flag", //phpcs:ignore
+                            $depFlagKey
+                        ));
+                    }
+
                     // Recursively evaluate the dependency
                     try {
-                        $depResult = FeatureFlag::matchFeatureFlagProperties(
+                        $depResult = FeatureFlag::matchFeatureFlagPropertiesForIdentity(
                             $depFlag,
                             $distinctId,
                             $properties,
                             $cohortProperties,
                             $flagsByKey,
                             $evaluationCache,
-                            propertyMatchingVersion: $propertyMatchingVersion
+                            [],
+                            [],
+                            [],
+                            $propertyMatchingVersion,
+                            $identityAggregation
                         );
                         $evaluationCache[$depFlagKey] = $depResult;
                     } catch (InconclusiveMatchException $e) {
