@@ -444,6 +444,22 @@ PHP;
             'leading zeros' => [TraceFlags::DEFAULT, str_repeat('0', 31) . '3', str_repeat('0', 15) . '4', []],
             'caller properties' => [TraceFlags::SAMPLED, '0123456789abcdef0123456789abcdef', '0123456789abcdef',
                 ['$trace_id' => 'caller-trace', '$span_id' => 'caller-span']],
+            'request trace ID' => [
+                TraceFlags::SAMPLED, '0123456789abcdef0123456789abcdef', '0123456789abcdef',
+                [], ['$trace_id' => 'request-trace'],
+            ],
+            'request span ID' => [
+                TraceFlags::SAMPLED, '0123456789abcdef0123456789abcdef', '0123456789abcdef',
+                [], ['$span_id' => 'request-span'],
+            ],
+            'event overrides request' => [
+                TraceFlags::SAMPLED, '0123456789abcdef0123456789abcdef', '0123456789abcdef',
+                ['$trace_id' => 'event-trace'], ['$trace_id' => 'request-trace', '$span_id' => 'request-span'],
+            ],
+            'empty request values' => [
+                TraceFlags::SAMPLED, '0123456789abcdef0123456789abcdef', '0123456789abcdef',
+                [], ['$trace_id' => '', '$span_id' => null],
+            ],
         ];
     }
 
@@ -452,11 +468,15 @@ PHP;
         int $flags,
         string $traceId,
         string $spanId,
-        array $additionalProperties
+        array $additionalProperties,
+        array $contextProperties = []
     ): void {
         $scope = Span::wrap(SpanContext::create($traceId, $spanId, $flags))->activate();
         try {
-            $this->assertTrue($this->client->captureException('example error', 'example-user', $additionalProperties));
+            $this->assertTrue($this->client->withContext(
+                ['properties' => $contextProperties],
+                fn (): bool => $this->client->captureException('example error', 'example-user', $additionalProperties)
+            ));
         } finally {
             $scope->detach();
         }
@@ -465,8 +485,13 @@ PHP;
         $payload = json_decode($this->findBatchCall()['payload'], true);
         $event = $payload['batch'][0];
         $this->assertSame('$exception', $event['event']);
-        $this->assertSame($additionalProperties['$trace_id'] ?? $traceId, $event['properties']['$trace_id']);
-        $this->assertSame($additionalProperties['$span_id'] ?? $spanId, $event['properties']['$span_id']);
+        $expected = array_merge(
+            ['$trace_id' => $traceId, '$span_id' => $spanId],
+            $contextProperties,
+            $additionalProperties
+        );
+        $this->assertSame($expected['$trace_id'], $event['properties']['$trace_id']);
+        $this->assertSame($expected['$span_id'], $event['properties']['$span_id']);
 
         $this->httpClient->calls = [];
         $this->client->captureException('outside span', 'example-user');
