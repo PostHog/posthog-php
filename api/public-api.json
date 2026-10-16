@@ -3344,6 +3344,17 @@
                 }
             }
         },
+        "PostHog\\HttpRetryPolicy": {
+            "type": "trait",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": []
+        },
         "PostHog\\InconclusiveMatchException": {
             "type": "class",
             "abstract": false,
