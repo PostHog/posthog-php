@@ -54,3 +54,7 @@ posthog-php@4.14.3:
   dir: ""
   intents:
     - busy-buttons-kiss
+posthog-php@4.14.4:
+  dir: ""
+  intents:
+    - regex-filters-match-flags-service
