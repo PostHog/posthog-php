@@ -2,4 +2,4 @@
 "posthog-php": minor
 ---
 
-Add a `disableGeoip` option to `PostHog::groupIdentify()`. When it is `true`, the `$groupidentify` event carries `$geoip_disable`, so PostHog skips GeoIP enrichment for it.
+Add a client-wide disableGeoip option and per-call overrides for events and remote feature flag evaluation. Keep the default false for compatibility with existing PHP releases; set disableGeoip to true to opt into Node-style GeoIP behavior.

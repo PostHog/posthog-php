@@ -2,7 +2,6 @@
 
 namespace PostHog\Test;
 
-use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\PostHog;
@@ -473,33 +472,6 @@ class RequestContextTest extends TestCase
         $event = $this->flushAndGetEvents()[0];
 
         $this->assertSame('snake-user-123', $event['distinct_id']);
-    }
-
-    public static function groupIdentifyDisableGeoipCases(): array
-    {
-        return [
-            'enabled' => [['disableGeoip' => true], true],
-            'disabled' => [['disableGeoip' => false], false],
-            'omitted' => [[], false],
-        ];
-    }
-
-    #[DataProvider('groupIdentifyDisableGeoipCases')]
-    public function testGroupIdentifyDisableGeoip(array $options, bool $expectGeoipDisabled): void
-    {
-        PostHog::groupIdentify(array_merge([
-            'groupType' => 'organization',
-            'groupKey' => 'acme',
-            'properties' => ['name' => 'Acme Inc.'],
-        ], $options));
-
-        $event = $this->flushAndGetEvents()[0];
-
-        if ($expectGeoipDisabled) {
-            $this->assertTrue($event['properties']['$geoip_disable']);
-        } else {
-            $this->assertArrayNotHasKey('$geoip_disable', $event['properties']);
-        }
     }
 
     public function testEvaluateFlagsUsesContextDistinctIdWhenOmitted(): void

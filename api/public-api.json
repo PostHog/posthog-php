@@ -261,6 +261,16 @@
                             "default": [],
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "disableGeoip",
+                            "type": "?bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -340,11 +350,11 @@
                         },
                         {
                             "name": "disableGeoip",
-                            "type": "bool",
+                            "type": "?bool",
                             "byReference": false,
                             "variadic": false,
                             "optional": true,
-                            "default": false,
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         },
@@ -456,11 +466,11 @@
                         },
                         {
                             "name": "disableGeoip",
-                            "type": "bool",
+                            "type": "?bool",
                             "byReference": false,
                             "variadic": false,
                             "optional": true,
-                            "default": false,
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         },
@@ -2677,6 +2687,16 @@
                             "default": false,
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "disableGeoip",
+                            "type": "?bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -2840,6 +2860,16 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": false
+                        },
+                        {
+                            "name": "disableGeoip",
+                            "type": "?bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -3543,11 +3573,11 @@
                         },
                         {
                             "name": "disableGeoip",
-                            "type": "bool",
+                            "type": "?bool",
                             "byReference": false,
                             "variadic": false,
                             "optional": true,
-                            "default": false,
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         },
