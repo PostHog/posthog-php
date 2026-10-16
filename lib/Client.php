@@ -608,6 +608,7 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         $properties = array_merge(
+            ExceptionPayloadBuilder::getTraceProperties(),
             $additionalProperties,
             [
                 '$exception_list' => $exceptionList,

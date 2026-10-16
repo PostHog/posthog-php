@@ -429,7 +429,11 @@ class ExceptionCapture
                 $properties['$php_error_severity'] = $severity;
             }
 
-            $properties = array_merge($providerContext['properties'], $properties);
+            $properties = array_merge(
+                ExceptionPayloadBuilder::getTraceProperties(),
+                $providerContext['properties'],
+                $properties
+            );
 
             $distinctId = $providerContext['distinctId'];
             if ($distinctId === null) {
