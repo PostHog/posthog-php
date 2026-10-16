@@ -200,8 +200,10 @@ class PostHog
      *     groupKey: string,
      *     properties?: array<string, mixed>,
      *     distinctId?: string,
-     *     distinct_id?: string
+     *     distinct_id?: string,
+     *     disableGeoip?: bool
      * } $message Group identify payload. `distinctId`/`distinct_id` override the default synthetic ID.
+     *     `disableGeoip` skips server-side GeoIP enrichment for this event.
      * @return bool Whether the groupIdentify call succeeded.
      * @throws Exception
      */
@@ -238,6 +240,10 @@ class PostHog
                 "\$group_set" => $message["properties"],
             )
         );
+
+        if (($message["disableGeoip"] ?? false) === true) {
+            $msg["properties"]["\$geoip_disable"] = true;
+        }
 
         return self::capture($msg);
     }
