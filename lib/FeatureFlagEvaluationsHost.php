@@ -24,6 +24,7 @@ interface FeatureFlagEvaluationsHost
      * @param mixed $response Evaluated feature flag response for deduping.
      * @param array<string, mixed> $properties Event properties for the $feature_flag_called event.
      * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @param bool|null $disableGeoip Override GeoIP enrichment; null inherits the client setting.
      * @return void
      */
     public function captureFlagCalledIfNeeded(
@@ -31,7 +32,8 @@ interface FeatureFlagEvaluationsHost
         string $key,
         $response,
         array $properties,
-        array $groups
+        array $groups,
+        ?bool $disableGeoip = null
     ): void;
 
     /**

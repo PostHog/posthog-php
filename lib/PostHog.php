@@ -36,6 +36,8 @@ class PostHog
      *
      * Feature flag requests to `/flags/?v=2` retry transient curl/network errors and HTTP 502/504.
      * `feature_flag_request_max_retries` defaults to 1; set it to 0 to disable these retries.
+     * `disableGeoip` defaults to false for compatibility with existing releases. It applies to events
+     * and remote flag evaluation. Per-call options override this setting; false allows GeoIP enrichment.
      *
      * @param array{
      *     host?: string,
@@ -47,6 +49,7 @@ class PostHog
      *     maximum_backoff_duration?: int,
      *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl'|'noop',
      *     debug?: bool,
+     *     disableGeoip?: bool,
      *     max_queue_size?: int,
      *     batch_size?: int,
      *     flush_interval_seconds?: int|float,
@@ -146,7 +149,8 @@ class PostHog
      *     uuid?: string,
      *     flags?: FeatureFlagEvaluations,
      *     send_feature_flags?: bool,
-     *     sendFeatureFlags?: bool
+     *     sendFeatureFlags?: bool,
+     *     disableGeoip?: bool
      * } $message Event payload. If a top-level `uuid` is supplied it must be a valid UUID;
      *     invalid values are replaced with a generated UUID v4. `send_feature_flags` and
      *     `sendFeatureFlags` are deprecated; pass
@@ -157,7 +161,7 @@ class PostHog
      *     values are still used as fallbacks when the canonical property is absent; `type` is ignored.
      *     Integer and float timestamps are Unix epoch seconds; strings must be parseable. Null or
      *     invalid values use the current SDK time. Timestamps are converted to the equivalent UTC
-     *     instant before serialization.
+     *     instant before serialization. `disableGeoip` overrides the client setting (false by default).
      * @return bool Whether the capture call succeeded.
      * @throws Exception
      */
@@ -177,10 +181,11 @@ class PostHog
      *     distinctId?: string,
      *     distinct_id?: string,
      *     properties?: array<string, mixed>,
-     *     timestamp?: int|float|string|null
+     *     timestamp?: int|float|string|null,
+     *     disableGeoip?: bool
      * } $message Integer and float timestamps are Unix epoch seconds; strings must be parseable.
      *     Null or invalid values use the current SDK time. Timestamps are converted to the equivalent
-     *     UTC instant before serialization.
+     *     UTC instant before serialization. `disableGeoip` overrides the client setting.
      * @return bool Whether the identify call succeeded.
      * @throws Exception
      */
@@ -200,8 +205,10 @@ class PostHog
      *     groupKey: string,
      *     properties?: array<string, mixed>,
      *     distinctId?: string,
-     *     distinct_id?: string
+     *     distinct_id?: string,
+     *     disableGeoip?: bool
      * } $message Group identify payload. `distinctId`/`distinct_id` override the default synthetic ID.
+     *     `disableGeoip` overrides the client setting (false by default); true disables GeoIP enrichment.
      * @return bool Whether the groupIdentify call succeeded.
      * @throws Exception
      */
@@ -232,6 +239,7 @@ class PostHog
         $msg = array(
             "event" => "\$groupidentify",
             "distinctId" => $distinctId,
+            "disableGeoip" => $message["disableGeoip"] ?? null,
             "properties" => array(
                 "\$group_type" => $message["groupType"],
                 "\$group_key" => $message["groupKey"],
@@ -391,7 +399,7 @@ class PostHog
      * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
      * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
      * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
-     * @param bool $disableGeoip Whether to disable GeoIP enrichment during remote evaluation.
+     * @param bool|null $disableGeoip Override GeoIP enrichment; null inherits the client setting.
      * @param list<string>|null $flagKeys Optional list of flag keys. When provided, only these
      *     flags are evaluated — the underlying /flags request asks the server for just this
      *     subset, which makes the response smaller and the request cheaper. Use this when you
@@ -406,7 +414,7 @@ class PostHog
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
-        bool $disableGeoip = false,
+        ?bool $disableGeoip = null,
         ?array $flagKeys = null
     ): FeatureFlagEvaluations {
         self::checkClient();
@@ -471,10 +479,11 @@ class PostHog
      *     distinct_id?: string,
      *     alias: string,
      *     properties?: array<string, mixed>,
-     *     timestamp?: int|float|string|null
+     *     timestamp?: int|float|string|null,
+     *     disableGeoip?: bool
      * } $message Integer and float timestamps are Unix epoch seconds; strings must be parseable.
      *     Null or invalid values use the current SDK time. Timestamps are converted to the equivalent
-     *     UTC instant before serialization.
+     *     UTC instant before serialization. `disableGeoip` overrides the client setting.
      * @return bool Whether the alias call succeeded.
      * @throws Exception
      */

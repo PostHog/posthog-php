@@ -22,7 +22,8 @@ class FakeFlagEvaluationsHost implements FeatureFlagEvaluationsHost
         string $key,
         $response,
         array $properties,
-        array $groups
+        array $groups,
+        ?bool $disableGeoip = null
     ): void {
         $cacheKey = $distinctId
             . "\0" . $key
