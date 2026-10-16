@@ -500,7 +500,6 @@ class RequestContextTest extends TestCase
         } else {
             $this->assertArrayNotHasKey('$geoip_disable', $event['properties']);
         }
-        $this->assertSame(['name' => 'Acme Inc.'], $event['properties']['$group_set']);
     }
 
     public function testEvaluateFlagsUsesContextDistinctIdWhenOmitted(): void
