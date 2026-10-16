@@ -50,3 +50,7 @@ posthog-php@4.14.2:
   dir: ""
   intents:
     - flag-called-session-attribution-allowlist
+posthog-php@4.14.3:
+  dir: ""
+  intents:
+    - busy-buttons-kiss

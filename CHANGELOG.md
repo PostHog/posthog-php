@@ -1,3 +1,9 @@
+## 4.14.3
+
+### Patch Changes
+
+- Allow shared flag definition cache providers to load and refresh local evaluation definitions without a secret key.
+
 ## 4.14.2
 
 ### Patch Changes
