@@ -2031,6 +2031,13 @@
                         }
                     ]
                 },
+                "getTraceProperties": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": []
+                },
                 "overridePrimaryMechanism": {
                     "static": true,
                     "abstract": false,
