@@ -58,3 +58,7 @@ posthog-php@4.14.4:
   dir: ""
   intents:
     - regex-filters-match-flags-service
+posthog-php@4.15.0:
+  dir: ""
+  intents:
+    - group-identify-disable-geoip
