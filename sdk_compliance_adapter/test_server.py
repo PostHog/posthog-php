@@ -111,15 +111,23 @@ class AdapterTest(unittest.TestCase):
                 self.assertEqual(state["total_retries"], 0)
 
     def test_production_retry_attempts_are_observed(self):
-        self.init()
-        self.mock.statuses = [503, 200]
-        captured = self.capture()
-        self.assertTrue(self.call("/flush", {})["success"])
-        requests = self.call("/state")["requests_made"]
-        self.assertEqual([r["status_code"] for r in requests], [503, 200])
-        self.assertEqual([r["retry_attempt"] for r in requests], [0, 1])
-        self.assertTrue(all(r["uuid_list"] == [captured["uuid"]] for r in requests))
-        self.assertEqual(self.mock.requests[0][2], self.mock.requests[1][2])
+        cases = (
+            ("successful retry", [503, 200], 3, True, [503, 200]),
+            ("retry limit", [503, 503, 200], 1, False, [503, 503]),
+            ("retries disabled", [503, 200], 0, False, [503]),
+        )
+        for consumer in ("lib_curl", "socket", "fork_curl"):
+            for name, statuses, max_retries, success, expected_statuses in cases:
+                with self.subTest(consumer=consumer, case=name):
+                    self.init(consumer, max_retries=max_retries)
+                    self.mock.statuses = statuses.copy()
+                    captured = self.capture()
+                    self.assertEqual(self.call("/flush", {})["success"], success)
+                    requests = self.call("/state")["requests_made"]
+                    self.assertEqual([r["status_code"] for r in requests], expected_statuses)
+                    self.assertEqual([r["retry_attempt"] for r in requests], list(range(len(expected_statuses))))
+                    self.assertTrue(all(r["uuid_list"] == [captured["uuid"]] for r in requests))
+                    self.assertTrue(all(r[2] == self.mock.requests[0][2] for r in self.mock.requests))
 
     def test_terminal_response_exposes_sdk_boolean_not_observer_success(self):
         for consumer in ("lib_curl", "socket", "fork_curl"):
@@ -128,7 +136,7 @@ class AdapterTest(unittest.TestCase):
                 self.mock.statuses = [400]
                 self.capture()
                 flushed = self.call("/flush", {})
-                self.assertEqual(flushed["success"], consumer == "fork_curl")
+                self.assertFalse(flushed["success"])
                 self.assertEqual(flushed["events_flushed"], 0)
                 self.assertEqual(self.call("/state")["requests_made"][0]["status_code"], 400)
 

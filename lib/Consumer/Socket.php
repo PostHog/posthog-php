@@ -4,6 +4,7 @@ namespace PostHog\Consumer;
 
 use Exception;
 use PostHog\QueueConsumer;
+use Symfony\Component\Clock\Clock;
 
 /**
  * Queue consumer that sends batches over a raw socket.
@@ -103,6 +104,40 @@ class Socket extends QueueConsumer
         }
     }
 
+    private function readResponse($socket): string|false
+    {
+        $maximumHeaderBytes = 64 * 1024;
+        $timeout = max(0.000001, (float) $this->options['timeout']);
+        $defaultTimeout = (float) ini_get('default_socket_timeout');
+        if ($defaultTimeout > 0) {
+            $timeout = min($timeout, $defaultTimeout);
+        }
+        $deadline = hrtime(true) / 1e9 + $timeout;
+        $response = '';
+
+        while (true) {
+            $headerEnd = strpos($response, "\r\n\r\n");
+            if ($headerEnd !== false) {
+                return $headerEnd + 4 <= $maximumHeaderBytes ? $response : false;
+            }
+            if (strlen($response) >= $maximumHeaderBytes || feof($socket)) {
+                return false;
+            }
+
+            $remaining = $deadline - hrtime(true) / 1e9;
+            if ($remaining <= 0) {
+                return false;
+            }
+            $microseconds = (int) ceil($remaining * 1000000);
+            stream_set_timeout($socket, intdiv($microseconds, 1000000), $microseconds % 1000000);
+            $chunk = fread($socket, min(2048, $maximumHeaderBytes - strlen($response)));
+            if ($chunk === false || $chunk === '' || stream_get_meta_data($socket)['timed_out']) {
+                return false;
+            }
+            $response .= $chunk;
+        }
+    }
+
     /**
      * Attempt to write the request to the socket, wait for response if debug
      * mode is enabled.
@@ -141,9 +176,12 @@ class Socket extends QueueConsumer
             // Get response for request
             $statusCode = 0;
             $errorMessage = "";
+            $responseHeaders = [];
 
             if (!$closed) {
-                $res = $this->parseResponse(fread($socket, 2048));
+                $response = $this->readResponse($socket) ?: '';
+                $responseHeaders = explode("\r\n", strstr($response, "\r\n\r\n", true) ?: '');
+                $res = $this->parseResponse($response);
                 $statusCode = (int)$res["status"];
                 $errorMessage = $res["message"];
             }
@@ -157,12 +195,12 @@ class Socket extends QueueConsumer
             // If status code is greater than 500 and less than 600, it indicates server error
             // Error code 429 indicates rate limited.
             // Retry uploading in these cases.
-            if (($statusCode >= 500 && $statusCode <= 600) || 429 == $statusCode || 0 == $statusCode) {
+            if ($this->isRetryableStatus($statusCode) || 0 == $statusCode) {
                 if ($backoff >= $this->maximum_backoff_duration) {
                     break;
                 }
 
-                usleep($backoff * 1000);
+                Clock::get()->sleep(($this->retryAfterMilliseconds($responseHeaders) ?? $backoff) / 1000);
             } elseif ($statusCode >= 400) {
                 if ($this->debug()) {
                     $this->handleError($res["status"], $res["message"]);

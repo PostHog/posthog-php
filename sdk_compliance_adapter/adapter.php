@@ -69,7 +69,7 @@ function maxBackoffDurationForRetries(int $maxRetries, string $consumer): int
     }
 
     // Socket checks its limit before sleeping; HttpClient checks after doubling.
-    return (100 * (2 ** $maxRetries)) + ($consumer === 'socket' ? 0 : 1);
+    return (100 * (2 ** $maxRetries)) + ($consumer === 'lib_curl' ? 1 : 0);
 }
 
 function handleRequest(array $request, AdapterState $state): array

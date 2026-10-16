@@ -29,8 +29,8 @@ uncompressed HTTP client even when capture compression is enabled.
 The adapter maps `flush_at` to `batch_size` and `flush_interval_ms` to
 `flush_interval_seconds` (SDK default: 5 seconds, enforced on enqueue, not an idle
 timer). `max_retries` maps to the existing backoff-duration option: for three
-retries, 801 ms for HttpClient and 800 ms for Socket, reflecting their different
-limit checks. ForkCurl does not implement that retry option. Socket's connection
+retries, 801 ms for HttpClient and 800 ms for Socket and foreground ForkCurl,
+reflecting their different limit checks. Socket's connection
 timeout is expressed in seconds; the PHP worker's `default_socket_timeout=1`
 bounds reads, including idle retry connections. This is a configured runtime
 profile, not certification of default PHP socket timing.
@@ -66,31 +66,23 @@ Reset kills and waits for only the owned PHP worker, without running its
 queue-flushing destructors. It then closes the relay. This provides test isolation,
 not SDK shutdown certification; `/flush` always calls the real public SDK method.
 
-## Known failures and applicability
+## Retry policy and applicability
 
-LibCurl is expected to pass all 47 selected tests. Foreground ForkCurl exposes
-these 11 capture failures. The last Socket report also contains these failures;
-it predates the Socket write-state repair:
+Socket and foreground ForkCurl retry transient HTTP failures, including 408,
+429, and server errors. Each attempt sends the same batch. Retry delays start at
+100 ms and double after each attempt, within the configured backoff limit.
+Valid Retry-After headers replace the delay for that attempt. These headers can
+contain a number of seconds or an HTTP date. Invalid headers use the normal
+backoff delay; past dates permit an immediate retry.
 
-- `capture.retry_behavior.retries_on_503`
-- `capture.retry_behavior.retries_on_500`
-- `capture.retry_behavior.retries_on_502`
-- `capture.retry_behavior.retries_on_504`
-- `capture.retry_behavior.respects_retry_after_header`
-- `capture.retry_behavior.implements_backoff`
-- `capture.retry_behavior.max_retries_respected`
-- `capture.error_handling.retries_on_408`
-- `capture.deduplication.preserves_uuid_on_retry`
-- `capture.deduplication.preserves_uuid_and_timestamp_on_retry`
-- `capture.deduplication.preserves_uuid_and_timestamp_on_batch_retry`
+HTTP 200 confirms delivery. Terminal HTTP errors and HTTP retry exhaustion make
+flush return false and remove the failed batch, as in LibCurl. Foreground
+ForkCurl keeps its existing queue retention for curl network failures and uses
+the system curl command without requiring PHP's curl extension for batch delivery.
 
-Socket now resends the complete request on each attempt. Native regression tests
-cover 503 and 429 followed by 200, stable request bodies, and queue drain. The full
-Socket compliance suite was not rerun for that repair. Socket still treats 408 as
-terminal and ignores Retry-After. ForkCurl does not retry HTTP rejection and
-reports a successful curl
-process exit as successful delivery even for HTTP errors. The adapter exposes
-these behaviors rather than retrying on the SDK's behalf.
+Native transport tests cover status handling, retry limits, Retry-After parsing,
+stable request bodies, gzip, and queue drain. The full compliance reports measure
+each profile against the selected harness tests.
 
 Background ForkCurl and LibCurl's explicit fire-and-forget option do not promise
 blocking verified delivery and are not selected. File/noop consumers are not HTTP
