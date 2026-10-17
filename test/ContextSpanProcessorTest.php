@@ -50,6 +50,39 @@ class ContextSpanProcessorTest extends TestCase
         $late->end();
     }
 
+    public static function disabledClientKeys(): array
+    {
+        return ['missing' => [null, false], 'empty' => ['', false], 'blank' => [" \t ", false],
+            'enabled noop consumer' => ['test-token', true]];
+    }
+
+    #[DataProvider('disabledClientKeys')]
+    public function testClientStateControlsContextAndSpanEnrichment(?string $apiKey, bool $enabled): void
+    {
+        $client = new Client($apiKey, ['consumer' => 'noop']);
+        $provider = TracerProvider::builder()->addSpanProcessor(new ContextSpanProcessor($client))->build();
+        $tracer = $provider->getTracer('test');
+        $request = $tracer->spanBuilder('request')->setAttribute('app.key', 'keep')->startSpan();
+        $scope = $request->activate();
+        try {
+            $child = $client->withContext(
+                ['distinctId' => 'user', 'sessionId' => 'session'],
+                function () use ($client, $tracer) {
+                    $this->assertSame('user', $client->getContext()['distinctId'] ?? null);
+                    return $tracer->spanBuilder('child')->startSpan();
+                }
+            );
+        } finally {
+            $scope->detach();
+            $request->end();
+        }
+        $child->end();
+        $ids = $enabled ? ['posthogDistinctId' => 'user', 'sessionId' => 'session'] : [];
+        $this->assertSame(['app.key' => 'keep'] + $ids, $request->toSpanData()->getAttributes()->toArray());
+        $this->assertSame($ids, $child->toSpanData()->getAttributes()->toArray());
+        $this->assertNull($client->getContext());
+    }
+
     public static function identityCases(): array
     {
         return [

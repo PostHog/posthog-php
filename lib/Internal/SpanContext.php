@@ -50,7 +50,7 @@ final class SpanContext
             }
 
             $context = $client->getContext();
-            if ($context === null) {
+            if ($context === null || !self::isEnabled($client)) {
                 return;
             }
 
@@ -63,5 +63,10 @@ final class SpanContext
             }
         } catch (\Throwable) {
         }
+    }
+
+    private static function isEnabled(Client $client): bool
+    {
+        return \Closure::bind(fn (): bool => $this->enabled === true, $client, Client::class)();
     }
 }
