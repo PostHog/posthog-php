@@ -93,7 +93,6 @@ class ExceptionPayloadBuilderTest extends TestCase
     {
         $reflector = new \ReflectionClass(ExceptionPayloadBuilder::class);
         $method    = $reflector->getMethod('buildFrame');
-        $method->setAccessible(true);
 
         $frame = $method->invoke(null, [
             'file'     => '/app/vendor/some/package/Foo.php',
@@ -108,7 +107,6 @@ class ExceptionPayloadBuilderTest extends TestCase
     {
         $reflector = new \ReflectionClass(ExceptionPayloadBuilder::class);
         $method    = $reflector->getMethod('buildFrame');
-        $method->setAccessible(true);
 
         $frame = $method->invoke(null, [
             'file'     => '/app/src/Services/MyService.php',
@@ -387,7 +385,6 @@ PHP;
     {
         $reflector = new \ReflectionClass(ExceptionPayloadBuilder::class);
         $method    = $reflector->getMethod('buildFrame');
-        $method->setAccessible(true);
 
         $frame = $method->invoke(null, [
             'file'     => '/app/src/Foo.php',

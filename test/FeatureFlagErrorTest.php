@@ -5,6 +5,7 @@ namespace PostHog\Test;
 // comment out below to print all logs instead of failing tests
 require_once 'test/error_log_mock.php';
 
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\FeatureFlagError;
@@ -38,6 +39,7 @@ class FeatureFlagErrorTest extends TestCase
         $errorMessages = [];
     }
 
+    #[IgnoreDeprecations]
     public function testFlagMissingError()
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
@@ -68,6 +70,7 @@ class FeatureFlagErrorTest extends TestCase
         });
     }
 
+    #[IgnoreDeprecations]
     public function testErrorsWhileComputingFlagsError()
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
@@ -101,6 +104,7 @@ class FeatureFlagErrorTest extends TestCase
         });
     }
 
+    #[IgnoreDeprecations]
     public function testMultipleErrors()
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
@@ -135,6 +139,7 @@ class FeatureFlagErrorTest extends TestCase
         });
     }
 
+    #[IgnoreDeprecations]
     public function testNoErrorWhenFlagEvaluatesSuccessfully()
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
@@ -162,6 +167,7 @@ class FeatureFlagErrorTest extends TestCase
         });
     }
 
+    #[IgnoreDeprecations]
     public function testUnknownErrorWhenExceptionThrown()
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
@@ -239,6 +245,7 @@ class FeatureFlagErrorTest extends TestCase
         $this->assertEquals('api_error_429', FeatureFlagError::apiError(429));
     }
 
+    #[IgnoreDeprecations]
     public function testTimeoutError()
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
@@ -285,6 +292,7 @@ class FeatureFlagErrorTest extends TestCase
         });
     }
 
+    #[IgnoreDeprecations]
     public function testConnectionError()
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
@@ -331,6 +339,7 @@ class FeatureFlagErrorTest extends TestCase
         });
     }
 
+    #[IgnoreDeprecations]
     public function testApiError500()
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
@@ -376,6 +385,7 @@ class FeatureFlagErrorTest extends TestCase
         });
     }
 
+    #[IgnoreDeprecations]
     public function testQuotaLimitedError()
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
@@ -424,6 +434,7 @@ class FeatureFlagErrorTest extends TestCase
         });
     }
 
+    #[IgnoreDeprecations]
     public function testFailedFlagIsFilteredOutByFailedField()
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {

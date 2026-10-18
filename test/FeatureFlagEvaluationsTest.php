@@ -7,6 +7,7 @@ namespace PostHog\Test;
 require_once 'test/error_log_mock.php';
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\EvaluatedFlagRecord;
@@ -545,6 +546,7 @@ class FeatureFlagEvaluationsTest extends TestCase
     }
 
     #[DataProvider('falseFlagPayloadProvider')]
+    #[IgnoreDeprecations]
     public function testLocalFalseFlagResolvesPayload(mixed $rawPayload, mixed $expectedPayload): void
     {
         $this->makeClient(
@@ -884,9 +886,9 @@ class FeatureFlagEvaluationsTest extends TestCase
     }
 
     /**
-     * @dataProvider dedupCallsProvider
      * @param list<array<string,string>> $groupsPerCall
      */
+    #[DataProvider('dedupCallsProvider')]
     public function testFeatureFlagCalledDedupes(array $groupsPerCall, int $expectedCount): void
     {
         $this->makeClient();

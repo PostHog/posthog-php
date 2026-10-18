@@ -668,7 +668,6 @@ PHP);
     {
         $reflection = new \ReflectionClass(ExceptionCapture::class);
         $propertyReflection = $reflection->getProperty($property);
-        $propertyReflection->setAccessible(true);
 
         return $propertyReflection->getValue();
     }

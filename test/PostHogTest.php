@@ -6,6 +6,8 @@ namespace PostHog\Test;
 require_once 'test/error_log_mock.php';
 
 use Exception;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use PostHog\Client;
@@ -262,11 +264,8 @@ class PostHogTest extends TestCase
 
         $ref = new \ReflectionClass($client);
         $apiKeyProp = $ref->getProperty('apiKey');
-        $apiKeyProp->setAccessible(true);
         $personalApiKeyProp = $ref->getProperty('personalAPIKey');
-        $personalApiKeyProp->setAccessible(true);
         $optionsProp = $ref->getProperty('options');
-        $optionsProp->setAccessible(true);
 
         $this->assertEquals('random_key', $apiKeyProp->getValue($client));
         $this->assertNull($personalApiKeyProp->getValue($client));
@@ -282,9 +281,7 @@ class PostHogTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider secretKeyCredentialCases
-     */
+    #[DataProvider('secretKeyCredentialCases')]
     public function testSecretKeyResolution(?string $secretKey, ?string $personalApiKey, string $expected): void
     {
         $client = new Client(self::FAKE_API_KEY, [], $this->http_client, $personalApiKey, false, secretKey: $secretKey);
@@ -296,7 +293,6 @@ class PostHogTest extends TestCase
     private function readPrivate(Client $client, string $property): mixed
     {
         $prop = (new \ReflectionClass($client))->getProperty($property);
-        $prop->setAccessible(true);
 
         return $prop->getValue($client);
     }
@@ -319,17 +315,14 @@ class PostHogTest extends TestCase
         $client = PostHog::getClient();
         $ref = new \ReflectionClass($client);
         $consumerProp = $ref->getProperty('consumer');
-        $consumerProp->setAccessible(true);
         $consumer = $consumerProp->getValue($client);
 
         $cRef = new \ReflectionClass($consumer);
         $httpProp = $cRef->getProperty('httpClient');
-        $httpProp->setAccessible(true);
         $httpClient = $httpProp->getValue($consumer);
 
         $hRef = new \ReflectionClass($httpClient);
         $sslProp = $hRef->getProperty('useSsl');
-        $sslProp->setAccessible(true);
 
         $this->assertFalse($sslProp->getValue($httpClient), 'HttpClient should use ssl=false for http:// hosts');
     }
@@ -341,12 +334,10 @@ class PostHogTest extends TestCase
         $client = PostHog::getClient();
         $ref = new \ReflectionClass($client);
         $consumerProp = $ref->getProperty('consumer');
-        $consumerProp->setAccessible(true);
         $consumer = $consumerProp->getValue($client);
 
         $cRef = new \ReflectionClass($consumer);
         $hostProp = $cRef->getProperty('host');
-        $hostProp->setAccessible(true);
 
         $this->assertEquals('us.i.posthog.com', $hostProp->getValue($consumer));
     }
@@ -358,17 +349,14 @@ class PostHogTest extends TestCase
         $client = PostHog::getClient();
         $ref = new \ReflectionClass($client);
         $consumerProp = $ref->getProperty('consumer');
-        $consumerProp->setAccessible(true);
         $consumer = $consumerProp->getValue($client);
 
         $cRef = new \ReflectionClass($consumer);
         $httpProp = $cRef->getProperty('httpClient');
-        $httpProp->setAccessible(true);
         $httpClient = $httpProp->getValue($consumer);
 
         $hRef = new \ReflectionClass($httpClient);
         $sslProp = $hRef->getProperty('useSsl');
-        $sslProp->setAccessible(true);
 
         $this->assertFalse($sslProp->getValue($httpClient), 'HttpClient should use ssl=false for whitespace-padded http:// hosts');
     }
@@ -380,17 +368,14 @@ class PostHogTest extends TestCase
         $client = PostHog::getClient();
         $ref = new \ReflectionClass($client);
         $consumerProp = $ref->getProperty('consumer');
-        $consumerProp->setAccessible(true);
         $consumer = $consumerProp->getValue($client);
 
         $cRef = new \ReflectionClass($consumer);
         $httpProp = $cRef->getProperty('httpClient');
-        $httpProp->setAccessible(true);
         $httpClient = $httpProp->getValue($consumer);
 
         $hRef = new \ReflectionClass($httpClient);
         $sslProp = $hRef->getProperty('useSsl');
-        $sslProp->setAccessible(true);
 
         $this->assertTrue($sslProp->getValue($httpClient), 'HttpClient should use ssl=true for https:// hosts');
     }
@@ -403,17 +388,14 @@ class PostHogTest extends TestCase
         $client = PostHog::getClient();
         $ref = new \ReflectionClass($client);
         $consumerProp = $ref->getProperty('consumer');
-        $consumerProp->setAccessible(true);
         $consumer = $consumerProp->getValue($client);
 
         $cRef = new \ReflectionClass($consumer);
         $httpProp = $cRef->getProperty('httpClient');
-        $httpProp->setAccessible(true);
         $httpClient = $httpProp->getValue($consumer);
 
         $hRef = new \ReflectionClass($httpClient);
         $sslProp = $hRef->getProperty('useSsl');
-        $sslProp->setAccessible(true);
 
         $this->assertFalse($sslProp->getValue($httpClient), 'HttpClient should use ssl=false for http:// env host');
 
@@ -434,9 +416,7 @@ class PostHogTest extends TestCase
         });
     }
 
-    /**
-     * @dataProvider initNoOpApiKeyCases
-     */
+    #[DataProvider('initNoOpApiKeyCases')]
     public function testInitWithBlankApiKeyConfiguresNoOpClient(string $apiKey): void
     {
         $this->withEnvApiKey(null, function () use ($apiKey) {
@@ -459,16 +439,13 @@ class PostHogTest extends TestCase
 
             $ref = new \ReflectionClass($client);
             $apiKeyProp = $ref->getProperty('apiKey');
-            $apiKeyProp->setAccessible(true);
 
             $this->assertSame(self::FAKE_API_KEY, $apiKeyProp->getValue($client));
             $this->assertNotInstanceOf(NoOp::class, $this->getConsumer($client));
         });
     }
 
-    /**
-     * @dataProvider disabledClientNoRequestCases
-     */
+    #[DataProvider('disabledClientNoRequestCases')]
     public function testClientWithBlankApiKeyDoesNotSendRequests(?string $apiKey, string $flagsMethod): void
     {
         $httpClient = new MockedHttpClient("app.posthog.com");
@@ -483,9 +460,7 @@ class PostHogTest extends TestCase
         $this->assertSame([], $httpClient->calls ?? []);
     }
 
-    /**
-     * @dataProvider queuedBatchSizeCases
-     */
+    #[DataProvider('queuedBatchSizeCases')]
     public function testCapturesStayQueuedUntilFlush(array $options): void
     {
         $httpClient = new MockedHttpClient("app.posthog.com");
@@ -660,9 +635,7 @@ class PostHogTest extends TestCase
         $this->assertSame([], $httpClient->calls ?? []);
     }
 
-    /**
-     * @dataProvider invalidBeforeSendCases
-     */
+    #[DataProvider('invalidBeforeSendCases')]
     public function testBeforeSendInvalidCallbackPathsCaptureOriginalEvent(mixed $beforeSend): void
     {
         $httpClient = new MockedHttpClient("app.posthog.com");
@@ -691,9 +664,8 @@ class PostHogTest extends TestCase
     }
 
 
-    /**
-     * @dataProvider facadeNoOpBeforeInitCases
-     */
+    #[DataProvider('facadeNoOpBeforeInitCases')]
+    #[IgnoreDeprecations]
     public function testFacadeMethodsNoOpBeforeInit(callable $call, mixed $expectedValue): void
     {
         $this->unsetFacadeClient();
@@ -771,9 +743,7 @@ class PostHogTest extends TestCase
         );
     }
 
-    /**
-     * @dataProvider captureGroupsCases
-     */
+    #[DataProvider('captureGroupsCases')]
     public function testCaptureAddsGroupsProperty(string $groupsKey): void
     {
         self::assertTrue(
@@ -902,9 +872,7 @@ class PostHogTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider invalidCaptureFlushIntervalCases
-     */
+    #[DataProvider('invalidCaptureFlushIntervalCases')]
     public function testInvalidCaptureFlushIntervalDefaultsToFiveSeconds(mixed $flushInterval): void
     {
         $mockClock = new MockClock(new \DateTimeImmutable('2022-05-01 00:00:00'));
@@ -942,9 +910,7 @@ class PostHogTest extends TestCase
         }
     }
 
-    /**
-     * @dataProvider validTopLevelUuidCases
-     */
+    #[DataProvider('validTopLevelUuidCases')]
     public function testCaptureKeepsValidTopLevelUuid(string $uuid): void
     {
         self::assertTrue(
@@ -963,9 +929,7 @@ class PostHogTest extends TestCase
         self::assertSame($uuid, $event['uuid']);
     }
 
-    /**
-     * @dataProvider invalidTopLevelUuidCases
-     */
+    #[DataProvider('invalidTopLevelUuidCases')]
     public function testCaptureReplacesInvalidTopLevelUuid(mixed $uuid): void
     {
         self::assertTrue(
@@ -985,9 +949,7 @@ class PostHogTest extends TestCase
         $this->assertValidUuidV4($event['uuid']);
     }
 
-    /**
-     * @dataProvider invalidTopLevelUuidCases
-     */
+    #[DataProvider('invalidTopLevelUuidCases')]
     public function testRawReplacesInvalidTopLevelUuid(mixed $uuid): void
     {
         $this->client->raw(
@@ -1153,6 +1115,7 @@ class PostHogTest extends TestCase
         self::assertArrayNotHasKey('$is_server', $properties);
     }
 
+    #[IgnoreDeprecations]
     public function testCaptureWithSendFeatureFlagsOption(): void
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
@@ -1210,6 +1173,7 @@ class PostHogTest extends TestCase
         });
     }
 
+    #[IgnoreDeprecations]
     public function testCaptureWithLocalSendFlags(): void
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST);
@@ -1257,6 +1221,7 @@ class PostHogTest extends TestCase
         });
     }
 
+    #[IgnoreDeprecations]
     public function testCaptureWithLocalSendFlagsNoOverrides(): void
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST);
@@ -1617,6 +1582,7 @@ class PostHogTest extends TestCase
         PostHog::groupIdentify([]);
     }
 
+    #[IgnoreDeprecations]
     public function testDefaultPropertiesGetAddedProperly(): void
     {
         PostHog::getFeatureFlag('random_key', 'some_id', array("company" => "id:5", "instance" => "app.posthog.com"), array("x1" => "y1"), array("company" => array("x" => "y")));

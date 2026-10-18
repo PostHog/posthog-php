@@ -5,6 +5,7 @@ namespace PostHog\Test;
 require_once 'test/error_log_mock.php';
 
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\FlagDefinitionCacheProvider;
@@ -505,6 +506,7 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $this->assertSame([], $httpClient->calls ?? []);
     }
 
+    #[IgnoreDeprecations]
     public function testMinimalFlagCalledGatePersistsThroughProviderCache(): void
     {
         $provider = new MockFlagDefinitionCacheProvider();

@@ -2,11 +2,13 @@
 
 namespace PostHog\Test;
 
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 
 class MultivariateIntegrationTest extends TestCase
 {
+    #[IgnoreDeprecations]
     public function testMultivariateFlagDependencies(): void
     {
         // Create a client with mock multivariate flags that have dependencies
@@ -118,6 +120,7 @@ class MultivariateIntegrationTest extends TestCase
         $this->assertTrue($foundOtherVariant, "Should have found at least one user that gets other variants");
     }
 
+    #[IgnoreDeprecations]
     public function testBooleanFlagDependencyOnMultivariate(): void
     {
         // Test a boolean flag that depends on any variant of a multivariate flag
