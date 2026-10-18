@@ -2254,7 +2254,10 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function withContext(array $data, callable $fn, array $options = []): mixed
     {
-        return RequestContext::withContext($data, $fn, $options, $this->contextKey());
+        return RequestContext::withContext($data, function () use ($fn): mixed {
+            Internal\SpanContext::enrichCurrent($this);
+            return $fn();
+        }, $options, $this->contextKey());
     }
 
     /**
