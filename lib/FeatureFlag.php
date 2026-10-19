@@ -89,22 +89,17 @@ class FeatureFlag
         }
 
         if (in_array($operator, ["gt", "gte", "lt", "lte"])) {
-            $parsedValue = null;
-
-            if (is_numeric($value)) {
-                $parsedValue = floatval($value);
+            $parsedValue = FeatureFlag::parseNumericValue($value);
+            if ($parsedValue === null) {
+                throw new InconclusiveMatchException("The number set on the flag is not a valid format");
             }
 
-            if (!is_null($parsedValue) && !is_null($overrideValue)) {
-                if (is_string($overrideValue)) {
-                    return FeatureFlag::compare($overrideValue, FeatureFlag::valueToString($value), $operator);
-                } else {
-                    return FeatureFlag::compare($overrideValue, $parsedValue, $operator, "numeric");
-                }
-            } else {
-                // Preserve the existing fallback for non-numeric comparison values.
-                return FeatureFlag::compare(strval($overrideValue), strval($value), $operator);
+            $parsedOverrideValue = FeatureFlag::parseNumericValue($overrideValue);
+            if ($parsedOverrideValue === null) {
+                return false;
             }
+
+            return FeatureFlag::compare($parsedOverrideValue, $parsedValue, $operator);
         }
 
         if (in_array($operator, ["is_date_before", "is_date_after"])) {
@@ -810,16 +805,23 @@ class FeatureFlag
         return $sign . substr($digits, 0, $position) . '.' . substr($digits, $position);
     }
 
-    private static function compare($lhs, $rhs, $operator, $type = "string")
+    private static function parseNumericValue($value): ?float
     {
-        // If type is string, we use strcmp to compare the two strings
-        // If type is numeric, we use <=> to compare the two numbers
-
-        if ($type == "string") {
-            $comparison = strcmp($lhs, $rhs);
-        } else {
-            $comparison = $lhs <=> $rhs;
+        if (is_string($value)) {
+            if (preg_match('/\A[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?\z/', $value) !== 1) {
+                return null;
+            }
+        } elseif (!is_int($value) && !is_float($value)) {
+            return null;
         }
+
+        $parsedValue = (float) $value;
+        return is_finite($parsedValue) ? $parsedValue : null;
+    }
+
+    private static function compare(float $lhs, float $rhs, string $operator): bool
+    {
+        $comparison = $lhs <=> $rhs;
 
         if ($operator == "gt") {
             return $comparison > 0;
