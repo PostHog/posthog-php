@@ -621,7 +621,12 @@ class Client implements FeatureFlagEvaluationsHost
             return false;
         }
 
+        $traceProperties = array_diff_key(
+            ExceptionPayloadBuilder::getTraceProperties(),
+            $this->getContext()['properties'] ?? []
+        );
         $properties = array_merge(
+            $traceProperties,
             $additionalProperties,
             [
                 '$exception_list' => $exceptionList,
