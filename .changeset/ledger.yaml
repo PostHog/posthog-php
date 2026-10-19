@@ -62,3 +62,7 @@ posthog-php@4.15.0:
   dir: ""
   intents:
     - group-identify-disable-geoip
+posthog-php@4.16.0:
+  dir: ""
+  intents:
+    - ambient-exception-traces

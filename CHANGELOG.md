@@ -1,3 +1,9 @@
+## 4.16.0
+
+### Minor Changes
+
+- Add the active OpenTelemetry trace and span IDs to captured exception events when the application provides OpenTelemetry.
+
 ## 4.15.0
 
 ### Minor Changes
