@@ -126,14 +126,15 @@ class HttpClientTest extends TestCase
     {
         return [
             'backoff without retry after' => [[], 100],
-            'retry after below maximum backoff' => [['Retry-After' => '0'], 0],
-            'retry after above maximum backoff' => [['Retry-After' => '3600'], 201],
-            'retry after beyond integer range' => [['Retry-After' => '999999999999999999999999'], 201],
+            'retry after zero' => [['Retry-After' => '0'], 0],
+            'retry after below ceiling' => [['Retry-After' => '2'], 2000],
+            'retry after above ceiling' => [['Retry-After' => '3600'], 10000],
+            'retry after beyond integer range' => [['Retry-After' => '999999999999999999999999'], 10000],
         ];
     }
 
     #[DataProvider('retryDelayCases')]
-    public function testRetryDelayIsBoundedByMaximumBackoff(array $headers, int $delayMilliseconds): void
+    public function testRetryDelayHonorsRetryAfterUpToCeiling(array $headers, int $delayMilliseconds): void
     {
         $server = new LocalHttpServer([['status' => 503, 'headers' => $headers], ['status' => 200]]);
         $clock = new MockClock();

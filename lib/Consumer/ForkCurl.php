@@ -160,9 +160,7 @@ class ForkCurl extends QueueConsumer
                 }
 
                 $headers = file($headersFile, FILE_IGNORE_NEW_LINES) ?: [];
-                Clock::get()->sleep(
-                    $this->retryDelayMilliseconds($headers, $backoff, $this->maximum_backoff_duration) / 1000
-                );
+                Clock::get()->sleep($this->retryDelayMilliseconds($headers, $backoff) / 1000);
                 $backoff *= 2;
             }
         } finally {
