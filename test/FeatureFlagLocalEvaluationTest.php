@@ -837,6 +837,72 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         ]));
     }
 
+    #[DataProvider('regexLikeFlagsServiceProvider')]
+    public function testMatchPropertyRegexMatchesLikeFlagsService(
+        string $operator,
+        $pattern,
+        $propertyValue,
+        bool $expected
+    ): void {
+        $prop = [
+            "key" => "key",
+            "value" => $pattern,
+            "operator" => $operator,
+        ];
+
+        self::assertSame($expected, FeatureFlag::matchProperty($prop, [
+            "key" => $propertyValue,
+        ]));
+    }
+
+    public static function regexLikeFlagsServiceProvider(): array
+    {
+        return [
+            'unescaped slash' => ["regex", "^https://example\\.com/", "https://example.com/pricing", true],
+            'unescaped slash negated' => ["not_regex", "^https://example\\.com/", "https://example.com/pricing", false],
+            'slash mid pattern' => ["regex", "a/b", "a/b", true],
+            'escaped slash' => ["regex", "a\\/b", "a/b", true],
+            'escaped backslash before slash' => ["regex", "a\\\\/b", "a\\/b", true],
+            'bracket class' => ["regex", "[abc]", "b", true],
+            'bracket class negated' => ["not_regex", "[abc]", "b", false],
+            'parenthesized alternation' => ["regex", "(foo|bar)", "xbarx", true],
+            'slash-wrapped pattern is literal' => ["regex", "/abc/i", "ABC", false],
+            'slash-wrapped pattern matches literally' => ["regex", "/abc/i", "x/abc/iy", true],
+            'empty pattern' => ["regex", "", "admin@example.com", true],
+            'empty pattern negated' => ["not_regex", "", "admin@example.com", false],
+            'invalid pattern' => ["regex", "[", "admin@example.com", false],
+            'invalid pattern negated' => ["not_regex", "[", "admin@example.com", false],
+            'case sensitive' => ["regex", "EXAMPLE", "admin@example.com", false],
+            'inline case flag' => ["regex", "(?i)EXAMPLE", "admin@example.com", true],
+            'unicode word' => ["regex", "^\\w+$", "héllo", true],
+            'unicode dot' => ["regex", "^.$", "é", true],
+            'numeric pattern' => ["regex", 12, 123, true],
+            'boolean property' => ["regex", "^true$", true, true],
+            'float property' => ["regex", "^1\\.0$", 1.0, true],
+            'array property' => ["regex", "\\[1,2\\]", [1, 2], true],
+            'null property' => ["regex", "^null$", null, true],
+            'null property negated' => ["not_regex", "x", null, true],
+        ];
+    }
+
+    public function testMatchPropertyRegexExecutionFailureIsInconclusive(): void
+    {
+        foreach (["regex", "not_regex"] as $operator) {
+            try {
+                FeatureFlag::matchProperty([
+                    "key" => "key",
+                    "value" => "x",
+                    "operator" => $operator,
+                ], [
+                    "key" => "\xff",
+                ]);
+                self::fail("Expected {$operator} to be inconclusive");
+            } catch (InconclusiveMatchException $exception) {
+                self::assertInstanceOf(InconclusiveMatchException::class, $exception);
+            }
+        }
+    }
+
     public function testMatchPropertyMathOperators(): void
     {
         $prop = [
@@ -1364,7 +1430,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             "value" => "null",
             "operator" => "regex"
         ];
-        self::assertFalse(FeatureFlag::matchProperty($prop_c, [
+        self::assertTrue(FeatureFlag::matchProperty($prop_c, [
             "key" => null,
         ]));
         self::assertTrue(FeatureFlag::matchProperty($prop_c, [
@@ -1591,6 +1657,54 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             false
         ));
         $this->assertEquals(['region' => 'USA'], $personProperties);
+        $this->assertEquals(array(), $this->http_client->calls);
+
+        $this->checkEmptyErrorLogs();
+    }
+
+    public function testRegexFlagEvaluatesLocallyLikeFlagsService()
+    {
+        $localEvaluationResponse = MockedResponses::LOCAL_EVALUATION_SIMPLE_REQUEST;
+        $localEvaluationResponse['flags'][0]['key'] = 'regex-flag';
+        $localEvaluationResponse['flags'][0]['filters']['groups'][0]['properties'] = [
+            [
+                'key' => 'landing_page',
+                'operator' => 'regex',
+                'value' => '^https://example\\.com/pricing',
+                'type' => 'person',
+            ],
+        ];
+
+        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: $localEvaluationResponse);
+        $this->client = new Client(
+            self::FAKE_API_KEY,
+            [
+                "debug" => true,
+            ],
+            $this->http_client,
+            "test"
+        );
+        PostHog::init(null, null, $this->client);
+        $this->http_client->calls = array();
+
+        $this->assertTrue(PostHog::getFeatureFlag(
+            'regex-flag',
+            'some-distinct-id',
+            [],
+            ['landing_page' => 'https://example.com/pricing?plan=team'],
+            [],
+            true,
+            false
+        ));
+        $this->assertFalse(PostHog::getFeatureFlag(
+            'regex-flag',
+            'some-distinct-id',
+            [],
+            ['landing_page' => ['https://example.com/blog']],
+            [],
+            true,
+            false
+        ));
         $this->assertEquals(array(), $this->http_client->calls);
 
         $this->checkEmptyErrorLogs();

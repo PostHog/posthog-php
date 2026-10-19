@@ -54,6 +54,7 @@ class Client implements FeatureFlagEvaluationsHost
         '$lib' => true,
         '$lib_version' => true,
         '$is_server' => true,
+        '$geoip_disable' => true,
         '$release_id' => true,
         '$referring_domain' => true,
         'utm_source' => true,
@@ -260,6 +261,8 @@ class Client implements FeatureFlagEvaluationsHost
      *
      * Feature flag requests to `/flags/?v=2` retry transient curl/network errors and HTTP 502/504.
      * `feature_flag_request_max_retries` defaults to 1; set it to 0 to disable these retries.
+     * `disableGeoip` defaults to false for compatibility with existing releases. It applies to events
+     * and remote flag evaluation. Per-call options override this setting; false allows GeoIP enrichment.
      *
      * @param array{
      *     host?: string,
@@ -271,6 +274,7 @@ class Client implements FeatureFlagEvaluationsHost
      *     maximum_backoff_duration?: int,
      *     consumer?: 'socket'|'file'|'fork_curl'|'lib_curl'|'noop',
      *     debug?: bool,
+     *     disableGeoip?: bool,
      *     max_queue_size?: int,
      *     batch_size?: int,
      *     flush_interval_seconds?: int|float,
@@ -291,8 +295,9 @@ class Client implements FeatureFlagEvaluationsHost
      * @param HttpClient|null $httpClient Custom HTTP client, primarily for tests and advanced integrations.
      * @param string|null $personalAPIKey Deprecated: use $secretKey instead. Kept as a
      *     backwards-compatible alias for $secretKey.
-     * @param bool $loadFeatureFlags Whether to load local feature flag definitions during construction.
-     * @param string|null $secretKey Credential for local feature flag evaluation and remote config.
+     * @param bool $loadFeatureFlags Whether to load local feature flag definitions during construction
+     *     from a configured cache provider or the PostHog API.
+     * @param string|null $secretKey Credential for fetching local feature flag definitions and remote config.
      *     Accepts either a Personal API Key (`phx_...`) or a Project Secret API Key (`phs_...`).
      *     Defaults to null. When both $secretKey and $personalAPIKey are provided, $secretKey wins.
      */
@@ -309,6 +314,8 @@ class Client implements FeatureFlagEvaluationsHost
         $this->secretKey = StringNormalizer::normalizeOptional($secretKey ?? $personalAPIKey);
         $this->personalAPIKey = $this->secretKey;
         $this->options = $options;
+        // Keep the current default for compatibility; ideally flip to true in the next major release.
+        $this->options['disableGeoip'] = $options['disableGeoip'] ?? false;
         $this->debug = $options["debug"] ?? false;
         $this->flagDefinitionCacheProvider = self::normalizeFlagDefinitionCacheProvider(
             $options['flag_definition_cache_provider'] ?? null
@@ -355,7 +362,7 @@ class Client implements FeatureFlagEvaluationsHost
         if (
             $this->enabled
             && count($this->featureFlags) == 0
-            && !is_null($this->secretKey)
+            && ($this->secretKey !== null || $this->flagDefinitionCacheProvider !== null)
             && $loadFeatureFlags
         ) {
             $this->loadFlags();
@@ -425,7 +432,8 @@ class Client implements FeatureFlagEvaluationsHost
      *     uuid?: string,
      *     flags?: FeatureFlagEvaluations,
      *     send_feature_flags?: bool,
-     *     sendFeatureFlags?: bool
+     *     sendFeatureFlags?: bool,
+     *     disableGeoip?: bool
      * } $message Event payload. If a top-level `uuid` is supplied it must be a valid UUID;
      *     invalid values are replaced with a generated UUID v4. `send_feature_flags` and
      *     `sendFeatureFlags` are deprecated; pass
@@ -436,12 +444,13 @@ class Client implements FeatureFlagEvaluationsHost
      *     values are still used as fallbacks when the canonical property is absent; `type` is ignored.
      *     Integer and float timestamps are Unix epoch seconds; strings must be parseable. Null or
      *     invalid values use the current SDK time. Timestamps are converted to the equivalent UTC
-     *     instant before serialization.
+     *     instant before serialization. `disableGeoip` overrides the client setting (false by default).
      * @return bool Whether the capture call succeeded.
      */
     public function capture(array $message)
     {
         $flagsSnapshot = $message["flags"] ?? null;
+        $disableGeoip = $message['disableGeoip'] ?? null;
         unset($message["flags"]);
         $hasGroups = array_key_exists("groups", $message);
 
@@ -492,7 +501,12 @@ class Client implements FeatureFlagEvaluationsHost
                     // we can without going to the server.
                     $flags = $this->getAllFlags($message["distinct_id"], $message["groups"], [], [], true);
                 } else {
-                    $flags = $this->fetchFeatureVariants($message["distinct_id"], $message["groups"]);
+                    $response = $this->flags(
+                        $message["distinct_id"],
+                        $message["groups"],
+                        disableGeoip: $disableGeoip
+                    );
+                    $flags = $response['featureFlags'] ?? [];
                 }
 
                 // Add all feature variants to event
@@ -639,10 +653,11 @@ class Client implements FeatureFlagEvaluationsHost
      *     distinctId?: string,
      *     distinct_id?: string,
      *     properties?: array<string, mixed>,
-     *     timestamp?: int|float|string|null
+     *     timestamp?: int|float|string|null,
+     *     disableGeoip?: bool
      * } $message Integer and float timestamps are Unix epoch seconds; strings must be parseable.
      *     Null or invalid values use the current SDK time. Timestamps are converted to the equivalent
-     *     UTC instant before serialization.
+     *     UTC instant before serialization. `disableGeoip` overrides the client setting.
      * @return bool Whether the identify call succeeded.
      */
     public function identify(array $message)
@@ -873,7 +888,14 @@ class Client implements FeatureFlagEvaluationsHost
 
         if (!$flagWasEvaluatedLocally && !$onlyEvaluateLocally) {
             try {
-                $response = $this->requestFlags($distinctId, $groups, $personProperties, $groupProperties, false, [$key]);
+                $response = $this->requestFlags(
+                    $distinctId,
+                    $groups,
+                    $personProperties,
+                    $groupProperties,
+                    null,
+                    [$key]
+                );
                 $errors = [];
 
                 if (isset($response['errorsWhileComputingFlags']) && $response['errorsWhileComputingFlags']) {
@@ -1104,7 +1126,7 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
      * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
      * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
-     * @param bool $disableGeoip Whether to disable GeoIP enrichment during remote evaluation.
+     * @param bool|null $disableGeoip Override GeoIP enrichment; null inherits the client setting.
      * @param list<string>|null $flagKeys Optional list of flag keys. When provided, only these
      *     flags are evaluated — the underlying /flags request asks the server for just this
      *     subset, which makes the response smaller and the request cheaper. An empty list returns
@@ -1119,7 +1141,7 @@ class Client implements FeatureFlagEvaluationsHost
         array $personProperties = [],
         array $groupProperties = [],
         bool $onlyEvaluateLocally = false,
-        bool $disableGeoip = false,
+        ?bool $disableGeoip = null,
         ?array $flagKeys = null
     ): FeatureFlagEvaluations {
         $distinctId = $this->resolveDistinctId($distinctId);
@@ -1130,6 +1152,7 @@ class Client implements FeatureFlagEvaluationsHost
                 [],
                 $groups,
                 $this,
+                disableGeoip: $disableGeoip,
             );
         }
 
@@ -1139,6 +1162,7 @@ class Client implements FeatureFlagEvaluationsHost
                 [],
                 $groups,
                 $this,
+                disableGeoip: $disableGeoip,
             );
         }
 
@@ -1307,6 +1331,7 @@ class Client implements FeatureFlagEvaluationsHost
             null,
             $errorsWhileComputing,
             $quotaLimited,
+            $disableGeoip,
         );
     }
 
@@ -1322,6 +1347,7 @@ class Client implements FeatureFlagEvaluationsHost
      * @param mixed $response Evaluated feature flag response for deduping.
      * @param array<string, mixed> $properties Event properties for the $feature_flag_called event.
      * @param array<string, mixed> $groups Group identifiers for group-based flags.
+     * @param bool|null $disableGeoip Override GeoIP enrichment; null inherits the client setting.
      * @return void
      */
     public function captureFlagCalledIfNeeded(
@@ -1329,7 +1355,8 @@ class Client implements FeatureFlagEvaluationsHost
         string $key,
         $response,
         array $properties,
-        array $groups = []
+        array $groups = [],
+        ?bool $disableGeoip = null
     ): void {
         $dedupElement = $distinctId . self::featureFlagResponseCacheKey($response) . self::canonicalGroupsRepr($groups);
         if ($this->distinctIdsFeatureFlagsReported->contains($key, $dedupElement)) {
@@ -1341,6 +1368,7 @@ class Client implements FeatureFlagEvaluationsHost
             'distinct_id' => $distinctId,
             'event' => '$feature_flag_called',
             '$groups' => $groups,
+            'disableGeoip' => $disableGeoip,
         ]);
         $this->distinctIdsFeatureFlagsReported->add($key, $dedupElement);
     }
@@ -1527,7 +1555,9 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * Load local feature flag definitions using the configured secret key.
+     * Load local feature flag definitions from the configured cache provider or PostHog API.
+     * Without a secret key, provider-backed clients only read the shared cache.
+     * Direct API requests require a secret key.
      *
      * @return void
      * @throws Exception
@@ -1560,8 +1590,6 @@ class Client implements FeatureFlagEvaluationsHost
                 } elseif ($this->hasFlagDefinitionsLoaded()) {
                     return;
                 }
-
-                $shouldFetch = !is_null($this->secretKey);
             } catch (Throwable $throwable) {
                 $this->logFlagDefinitionCacheWarning(
                     'Cache provider read error: ' . $throwable->getMessage()
@@ -1569,8 +1597,9 @@ class Client implements FeatureFlagEvaluationsHost
                 if ($this->hasFlagDefinitionsLoaded()) {
                     return;
                 }
-                $shouldFetch = !is_null($this->secretKey);
             }
+
+            $shouldFetch = $this->secretKey !== null;
         }
 
         if ($shouldFetch) {
@@ -1589,13 +1618,18 @@ class Client implements FeatureFlagEvaluationsHost
             return true;
         }
 
+        // Cache-only readers must not acquire fetch leadership through the provider.
+        if ($this->secretKey === null) {
+            return false;
+        }
+
         try {
             return $this->flagDefinitionCacheProvider->shouldFetchFlagDefinitions();
         } catch (Throwable $throwable) {
             $this->logFlagDefinitionCacheWarning(
                 'Cache provider fetch-decision error: ' . $throwable->getMessage()
             );
-            return !is_null($this->secretKey);
+            return true;
         }
     }
 
@@ -1802,6 +1836,7 @@ class Client implements FeatureFlagEvaluationsHost
      * Fetch local feature flag definitions from the PostHog API.
      *
      * @return HttpResponse Raw HTTP response, including ETag metadata when available.
+     *     Returns a 401 response without making a request when no secret key is configured.
      */
     public function localFlags(): HttpResponse
     {
@@ -1814,6 +1849,12 @@ class Client implements FeatureFlagEvaluationsHost
                 ]),
                 200
             );
+        }
+
+        if ($this->secretKey === null) {
+            $message = 'A secret key is required to fetch flag definitions from PostHog';
+            $this->logWarning($message);
+            return new HttpResponse($message, 401);
         }
 
         $headers = [
@@ -1912,7 +1953,7 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, mixed> $groups Group identifiers.
      * @param array<string, mixed> $personProperties Person properties for flag evaluation.
      * @param array<string, array<string, mixed>> $groupProperties Group properties for flag evaluation.
-     * @param bool $disableGeoip Whether to disable GeoIP enrichment during remote evaluation.
+     * @param bool|null $disableGeoip Override GeoIP enrichment; null inherits the client setting.
      * @param list<string>|null $flagKeys Optional list of flag keys to evaluate.
      * @return array<string, mixed> The normalized feature flags response.
      */
@@ -1921,7 +1962,7 @@ class Client implements FeatureFlagEvaluationsHost
         array $groups = array(),
         array $personProperties = [],
         array $groupProperties = [],
-        bool $disableGeoip = false,
+        ?bool $disableGeoip = null,
         ?array $flagKeys = null
     ): array {
         try {
@@ -1948,7 +1989,7 @@ class Client implements FeatureFlagEvaluationsHost
         array $groups = array(),
         array $personProperties = [],
         array $groupProperties = [],
-        bool $disableGeoip = false,
+        ?bool $disableGeoip = null,
         ?array $flagKeys = null
     ): array {
         if (!$this->enabled) {
@@ -1961,7 +2002,7 @@ class Client implements FeatureFlagEvaluationsHost
             'groups' => empty($groups) ? (object) [] : $groups,
             'person_properties' => empty($personProperties) ? (object) [] : $personProperties,
             'group_properties' => empty($groupProperties) ? (object) [] : $groupProperties,
-            'geoip_disable' => $disableGeoip,
+            'geoip_disable' => $disableGeoip ?? $this->options['disableGeoip'],
         );
 
         if ($flagKeys !== null) {
@@ -2087,10 +2128,11 @@ class Client implements FeatureFlagEvaluationsHost
      *     distinct_id?: string,
      *     alias: string,
      *     properties?: array<string, mixed>,
-     *     timestamp?: int|float|string|null
+     *     timestamp?: int|float|string|null,
+     *     disableGeoip?: bool
      * } $message Integer and float timestamps are Unix epoch seconds; strings must be parseable.
      *     Null or invalid values use the current SDK time. Timestamps are converted to the equivalent
-     *     UTC instant before serialization.
+     *     UTC instant before serialization. `disableGeoip` overrides the client setting.
      * @return bool Whether the alias call succeeded.
      */
     public function alias(array $message)
@@ -2367,6 +2409,11 @@ class Client implements FeatureFlagEvaluationsHost
         if (!isset($msg["properties"]) || !is_array($msg["properties"])) {
             $msg["properties"] = array();
         }
+
+        if (($msg['disableGeoip'] ?? $this->options['disableGeoip']) === true) {
+            $msg['properties']['$geoip_disable'] = true;
+        }
+        unset($msg['disableGeoip']);
 
         $legacyLibrary = $msg["library"] ?? null;
         $legacyLibraryVersion = $msg["library_version"] ?? null;

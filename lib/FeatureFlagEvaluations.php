@@ -26,6 +26,7 @@ class FeatureFlagEvaluations
      * @param array<string, bool>|null $accessed Flags already accessed on this snapshot.
      * @param bool $errorsWhileComputing Whether the remote response reported computation errors.
      * @param bool $quotaLimited Whether the remote response was quota limited.
+     * @param bool|null $disableGeoip Override GeoIP enrichment on access events; null uses the client setting.
      */
     public function __construct(
         private readonly string $distinctId,
@@ -37,6 +38,7 @@ class FeatureFlagEvaluations
         ?array $accessed = null,
         private readonly bool $errorsWhileComputing = false,
         private readonly bool $quotaLimited = false,
+        private readonly ?bool $disableGeoip = null,
     ) {
         $this->accessed = $accessed ?? [];
     }
@@ -232,7 +234,8 @@ class FeatureFlagEvaluations
             $key,
             $response,
             $properties,
-            $this->groups
+            $this->groups,
+            $this->disableGeoip
         );
     }
 
@@ -253,6 +256,7 @@ class FeatureFlagEvaluations
             [],
             $this->errorsWhileComputing,
             $this->quotaLimited,
+            $this->disableGeoip,
         );
     }
 }

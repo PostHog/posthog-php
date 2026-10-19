@@ -75,20 +75,17 @@ class FeatureFlag
         }
 
         if (in_array($operator, ["regex", "not_regex"])) {
-            $regexValue = FeatureFlag::prepareValueForRegex($value);
-            if (FeatureFlag::isRegularExpression($regexValue)) {
-                if ($overrideValue === null) {
-                    return false;
-                }
-                $returnValue = preg_match($regexValue, $overrideValue) ? true : false;
-                if ($operator == "regex") {
-                    return $returnValue;
-                } else {
-                    return !$returnValue;
-                }
-            } else {
+            $regexValue = FeatureFlag::prepareValueForRegex(FeatureFlag::valueToString($value));
+            if (!FeatureFlag::isRegularExpression($regexValue)) {
                 return false;
             }
+
+            $matched = preg_match($regexValue, FeatureFlag::valueToString($overrideValue));
+            if ($matched === false) {
+                throw new InconclusiveMatchException("Regex execution failed: " . preg_last_error_msg());
+            }
+
+            return ($matched === 1) === ($operator == "regex");
         }
 
         if (in_array($operator, ["gt", "gte", "lt", "lte"])) {
@@ -1073,24 +1070,12 @@ class FeatureFlag
         return $isRegularExpression;
     }
 
-    private static function prepareValueForRegex($value)
+    private static function prepareValueForRegex(string $pattern): string
     {
-        $regex = $value;
+        // Escape each delimiter slash that is not already escaped by an odd run of backslashes.
+        $escaped = preg_replace('~(?<!\\\\)((?:\\\\\\\\)*)/~', '$1\\\\/', $pattern);
 
-        // If delimiter already exists, do nothing
-        if (FeatureFlag::isRegularExpression($regex)) {
-            return $regex;
-        }
-
-        if (substr($regex, 0, 1) != "/") {
-            $regex = "/" . $regex;
-        }
-
-        if (substr($regex, -1) != "/") {
-            $regex = $regex . "/";
-        }
-
-        return $regex;
+        return "/" . $escaped . "/u";
     }
 
     /**

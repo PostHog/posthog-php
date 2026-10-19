@@ -1,3 +1,21 @@
+## 4.15.0
+
+### Minor Changes
+
+- Add a client-wide disableGeoip option and per-call overrides for events and remote feature flag evaluation. Keep the default false for compatibility with existing PHP releases; set disableGeoip to true to opt into Node-style GeoIP behavior.
+
+## 4.14.4
+
+### Patch Changes
+
+- Match `regex` and `not_regex` flag filters locally the way the flags service does. The filter value is now always used as the pattern itself, so patterns containing `/` (such as `^https://example\.com/`) or starting with a bracket (such as `[abc]`) no longer evaluate to `false`, and slash-wrapped values like `/abc/i` are matched literally. Property values are stringified like the other string operators (`null`, booleans, floats, and arrays included), so an array property no longer throws a `TypeError` out of `getFeatureFlag`. Patterns run in Unicode mode, and a regex execution failure is now inconclusive instead of silently making `not_regex` match.
+
+## 4.14.3
+
+### Patch Changes
+
+- Allow shared flag definition cache providers to load and refresh local evaluation definitions without a secret key.
+
 ## 4.14.2
 
 ### Patch Changes
