@@ -176,11 +176,10 @@ class Socket extends QueueConsumer
             // Get response for request
             $statusCode = 0;
             $errorMessage = "";
-            $responseHeaders = [];
+            $response = "";
 
             if (!$closed) {
                 $response = $this->readResponse($socket) ?: '';
-                $responseHeaders = explode("\r\n", strstr($response, "\r\n\r\n", true) ?: '');
                 $res = $this->parseResponse($response);
                 $statusCode = (int)$res["status"];
                 $errorMessage = $res["message"];
@@ -202,6 +201,7 @@ class Socket extends QueueConsumer
                     break;
                 }
 
+                $responseHeaders = explode("\r\n", strstr($response, "\r\n\r\n", true) ?: '');
                 Clock::get()->sleep(
                     $this->retryDelayMilliseconds($responseHeaders, $backoff, $this->maximum_backoff_duration) / 1000
                 );
