@@ -15,6 +15,14 @@ trait HttpRetryPolicy
     /**
      * @param array<int, string> $headers
      */
+    protected function retryDelayMilliseconds(array $headers, int $backoff, int $maximumMilliseconds): int
+    {
+        return min($this->retryAfterMilliseconds($headers) ?? $backoff, $maximumMilliseconds);
+    }
+
+    /**
+     * @param array<int, string> $headers
+     */
     protected function retryAfterMilliseconds(array $headers): ?int
     {
         foreach ($headers as $header) {
@@ -28,7 +36,7 @@ trait HttpRetryPolicy
             }
 
             if (ctype_digit($value)) {
-                return max(0, (int) $value * 1000);
+                return min((int) $value, intdiv(PHP_INT_MAX, 1000)) * 1000;
             }
 
             $timestamp = strtotime($value);

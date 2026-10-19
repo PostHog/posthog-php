@@ -200,7 +200,9 @@ class Socket extends QueueConsumer
                     break;
                 }
 
-                Clock::get()->sleep(($this->retryAfterMilliseconds($responseHeaders) ?? $backoff) / 1000);
+                Clock::get()->sleep(
+                    $this->retryDelayMilliseconds($responseHeaders, $backoff, $this->maximum_backoff_duration) / 1000
+                );
             } elseif ($statusCode >= 400) {
                 if ($this->debug()) {
                     $this->handleError($res["status"], $res["message"]);

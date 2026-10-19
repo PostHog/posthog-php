@@ -3,6 +3,7 @@
 namespace PostHog;
 
 use Closure;
+use Symfony\Component\Clock\Clock;
 
 /**
  * HTTP client used by the SDK for PostHog API requests.
@@ -166,8 +167,9 @@ class HttpClient
                 } elseif ($this->isRetryableStatus($responseCode)) {
                     // Retry transient failures. Honor Retry-After when provided, otherwise use
                     // exponential backoff starting at 100ms.
-                    $retryAfterMs = $this->retryAfterMilliseconds($responseHeaders);
-                    usleep(($retryAfterMs ?? $backoff) * 1000);
+                    Clock::get()->sleep(
+                        $this->retryDelayMilliseconds($responseHeaders, $backoff, $this->maximumBackoffDurationMs) / 1000
+                    );
                     $backoff *= 2;
                 } else {
                     // Do not retry non-transient responses (e.g. 400, 401, 403, 413,
