@@ -75,10 +75,12 @@ Valid Retry-After headers replace the delay for that attempt. These headers can
 contain a number of seconds or an HTTP date. Invalid headers use the normal
 backoff delay; past dates permit an immediate retry.
 
-HTTP 200 confirms delivery. Terminal HTTP errors and HTTP retry exhaustion make
-flush return false and remove the failed batch, as in LibCurl. Foreground
-ForkCurl keeps its existing queue retention for curl network failures and uses
-the system curl command without requiring PHP's curl extension for batch delivery.
+HTTP 200 confirms delivery. Terminal HTTP errors make flush return false and
+remove the failed batch. Retry exhaustion on a retryable response or a network
+failure makes flush return false and keeps the batch queued. Automatic flushes
+then wait for the maximum backoff duration before they try again; an explicit
+flush tries at once. Foreground ForkCurl uses the system curl command without
+requiring PHP's curl extension for batch delivery.
 
 Native transport tests cover status handling, retry limits, Retry-After parsing,
 stable request bodies, gzip, and queue drain. The full compliance reports measure

@@ -64,8 +64,11 @@ trait HttpRetryTransportTests
                 self::assertSame($compressed ? 'gzip' : null, $request['headers']['content-encoding'] ?? null);
             }
             self::assertEquals($started->modify('+' . $delayMilliseconds . ' milliseconds'), $clock->now());
+            $retained = !$success && $attempts > 1;
             self::assertTrue($client->flush());
-            self::assertCount($attempts, $this->server->requests());
+            $requests = $this->server->requests();
+            self::assertCount($attempts + (int) $retained, $requests);
+            self::assertSame($requests[0]['body'], end($requests)['body']);
         } finally {
             Clock::set($previousClock);
         }

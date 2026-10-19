@@ -8,6 +8,8 @@ use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
 use PostHog\Consumer\Socket;
 use PostHog\QueueConsumer;
+use Symfony\Component\Clock\Clock;
+use Symfony\Component\Clock\MockClock;
 
 class QueueConsumerTest extends TestCase
 {
@@ -180,22 +182,46 @@ class QueueConsumerTest extends TestCase
         $this->assertSame([], $this->queuedItems($consumer));
     }
 
-    public function testRetainedFailedBatchIsRetriedBeforeNewerEvents(): void
+    public static function retainedBatchRetryCases(): array
+    {
+        return [
+            'automatic flush waits for cooldown' => [0, false, false],
+            'automatic flush resumes after cooldown' => [10, false, true],
+            'explicit flush ignores cooldown' => [0, true, true],
+        ];
+    }
+
+    #[DataProvider('retainedBatchRetryCases')]
+    public function testRetainedBatchRetry(int $secondsLater, bool $explicitFlush, bool $retried): void
     {
         $first = $this->message('first');
         $second = $this->message('second');
         $third = $this->message('third');
         $consumer = new QueueConsumerTestConsumer(
-            [QueueConsumerTestConsumer::retryableFailure(), true],
+            [QueueConsumerTestConsumer::retryableFailure(), true, true],
             ['batch_size' => 2]
         );
+        $clock = new MockClock();
+        $previousClock = Clock::get();
+        Clock::set($clock);
 
-        $this->assertTrue($consumer->enqueue($first));
-        $this->assertFalse($consumer->enqueue($second));
-        $this->assertTrue($consumer->enqueue($third));
+        try {
+            $this->assertTrue($consumer->enqueue($first));
+            $this->assertFalse($consumer->enqueue($second));
+            $clock->sleep($secondsLater);
+            $this->assertTrue($consumer->enqueue($third));
+            if ($explicitFlush) {
+                $this->assertTrue($consumer->flush());
+            }
+        } finally {
+            Clock::set($previousClock);
+        }
 
-        $this->assertSame([[$first, $second], [$first, $second], [$third]], $consumer->flushedBatches);
-        $this->assertSame([], $consumer->queuedItems());
+        $this->assertSame(
+            $retried ? [[$first, $second], [$first, $second], [$third]] : [[$first, $second]],
+            $consumer->flushedBatches
+        );
+        $this->assertSame($retried ? [] : [$first, $second, $third], $consumer->queuedItems());
     }
 
     #[DataProvider('libCurlFailureQueueBehaviorCases')]
@@ -224,7 +250,9 @@ class QueueConsumerTest extends TestCase
     {
         return [
             'network failure keeps batch queued' => ['network-failure', false, 0, 28, true],
-            'http failure drops batch' => ['http-failure', '{"status":0}', 500, 0, false],
+            'server error keeps batch queued' => ['server-error', '{"status":0}', 500, 0, true],
+            'rate limit keeps batch queued' => ['rate-limit', '{"status":0}', 429, 0, true],
+            'bad request drops batch' => ['bad-request', '{"status":0}', 400, 0, false],
             'payload too large drops batch' => ['payload-too-large', '{"status":0}', 413, 0, false],
         ];
     }

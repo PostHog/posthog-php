@@ -33,6 +33,7 @@ abstract class QueueConsumer extends Consumer
     protected $batch_size = 100;
     protected $flush_interval = 5.0;
     protected $flush_after = null;
+    protected $retry_cooldown_until = null;
     protected $maximum_backoff_duration = 10000;    // Set maximum waiting limit to 10s
     protected $host = "us.i.posthog.com";
     protected $compress_request = false;
@@ -144,6 +145,10 @@ abstract class QueueConsumer extends Consumer
             $result = $this->flushBatch($batch);
             $success = true === $result;
 
+            if (self::FLUSH_BATCH_RETRYABLE_FAILURE === $result) {
+                $this->retry_cooldown_until = $this->now() + $this->maximum_backoff_duration / 1000;
+            }
+
             if ($success || self::FLUSH_BATCH_RETRYABLE_FAILURE !== $result) {
                 array_splice($this->queue, 0, $batchSize);
             }
@@ -176,6 +181,10 @@ abstract class QueueConsumer extends Consumer
             $this->resetFlushTimer();
         }
 
+        if ($this->inRetryCooldown()) {
+            return true;
+        }
+
         if ($this->flush_interval === 0.0 || $count >= $this->batch_size || $this->flushIntervalElapsed()) {
             return $this->flush(); // return ->flush() result: true on success
         }
@@ -193,6 +202,11 @@ abstract class QueueConsumer extends Consumer
     private function flushIntervalElapsed(): bool
     {
         return $this->flush_after !== null && $this->now() >= $this->flush_after;
+    }
+
+    private function inRetryCooldown(): bool
+    {
+        return $this->retry_cooldown_until !== null && $this->now() < $this->retry_cooldown_until;
     }
 
     private function now(): float
