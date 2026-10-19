@@ -125,12 +125,13 @@ class HttpClientTest extends TestCase
     public static function retryDelayCases(): array
     {
         return [
-            'large rate-limit delay capped' => [429, ['Retry-After' => '60'], 5000],
-            'large service-unavailable delay capped' => [503, ['Retry-After' => '60'], 5000],
+            'large rate-limit delay capped' => [429, ['Retry-After' => '60'], 20000],
+            'large service-unavailable delay capped' => [503, ['Retry-After' => '60'], 20000],
+            'delay above maximum backoff honored' => [429, ['Retry-After' => '3'], 6000],
             'small delay honored' => [429, ['Retry-After' => '1'], 2000],
             'zero delay honored' => [503, ['Retry-After' => '0'], 0],
-            'date delay capped' => [503, ['Retry-After' => 'Thu, 01 Jan 2099 00:00:00 GMT'], 5000],
-            'delay beyond integer range capped' => [429, ['Retry-After' => '999999999999999999999999'], 5000],
+            'date delay capped' => [503, ['Retry-After' => 'Thu, 01 Jan 2099 00:00:00 GMT'], 20000],
+            'delay beyond integer range capped' => [429, ['Retry-After' => '999999999999999999999999'], 20000],
             'no header uses exponential backoff' => [503, [], 300],
         ];
     }
