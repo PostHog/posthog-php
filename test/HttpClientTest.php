@@ -5,8 +5,8 @@ namespace PostHog\Test;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\HttpClient;
-
-require_once __DIR__ . '/fixtures/usleep_mock.php';
+use Symfony\Component\Clock\Clock;
+use Symfony\Component\Clock\MockClock;
 
 class RetryAfterHttpClient extends HttpClient
 {
@@ -65,6 +65,7 @@ class HttpClientTest extends TestCase
             'malformed' => [['Retry-After: not-a-date'], null],
             'past date' => [['Retry-After: Sat, 01 Jan 2000 00:00:00 GMT'], 0],
             'case insensitive' => [['retry-after: 2'], 2000],
+            'beyond integer range' => [['Retry-After: 999999999999999999999999'], intdiv(PHP_INT_MAX, 1000) * 1000],
         ];
     }
 
@@ -124,35 +125,39 @@ class HttpClientTest extends TestCase
     public static function retryDelayCases(): array
     {
         return [
-            'large rate-limit delay capped' => [429, ['Retry-After' => '60'], [2500000, 2500000]],
-            'large service-unavailable delay capped' => [503, ['Retry-After' => '60'], [2500000, 2500000]],
-            'small delay honored' => [429, ['Retry-After' => '1'], [1000000, 1000000]],
-            'date delay capped' => [503, ['Retry-After' => 'Thu, 01 Jan 2099 00:00:00 GMT'], [2500000, 2500000]],
-            'no header uses exponential backoff' => [503, [], [100000, 200000]],
+            'large rate-limit delay capped' => [429, ['Retry-After' => '60'], 5000],
+            'large service-unavailable delay capped' => [503, ['Retry-After' => '60'], 5000],
+            'small delay honored' => [429, ['Retry-After' => '1'], 2000],
+            'zero delay honored' => [503, ['Retry-After' => '0'], 0],
+            'date delay capped' => [503, ['Retry-After' => 'Thu, 01 Jan 2099 00:00:00 GMT'], 5000],
+            'delay beyond integer range capped' => [429, ['Retry-After' => '999999999999999999999999'], 5000],
+            'no header uses exponential backoff' => [503, [], 300],
         ];
     }
 
     #[DataProvider('retryDelayCases')]
-    public function testRetryDelay(int $status, array $headers, array $expectedDelays): void
+    public function testRetryDelay(int $status, array $headers, int $totalDelayMilliseconds): void
     {
-        global $httpClientSleepDurations;
-        $httpClientSleepDurations = [];
         $server = new LocalHttpServer([
             ['status' => $status, 'headers' => $headers],
             ['status' => $status, 'headers' => $headers],
             ['status' => 200, 'body' => 'delivered'],
         ]);
+        $clock = new MockClock();
+        $started = $clock->now();
+        $previousClock = Clock::get();
+        Clock::set($clock);
 
         try {
             $client = new HttpClient($server->address(), useSsl: false, maximumBackoffDuration: 2500);
-            $response = $client->sendRequest('/batch/', '{"batch":[]}');
+            $response = $client->sendRequest('/batch/', '{"batch":[]}', [], ['timeout' => 5000]);
 
-            $this->assertSame($expectedDelays, $httpClientSleepDurations);
+            $this->assertEquals($started->modify('+' . $totalDelayMilliseconds . ' milliseconds'), $clock->now());
             $this->assertSame(200, $response->getResponseCode());
             $this->assertSame('delivered', $response->getResponse());
             $this->assertCount(3, $server->requests());
         } finally {
-            $httpClientSleepDurations = null;
+            Clock::set($previousClock);
             $server->stop();
         }
     }
