@@ -61,9 +61,7 @@ class Socket extends QueueConsumer
 
         $body = $this->createBody($this->host, $payload);
 
-        return $this->makeRequest($socket, $body)
-            ? true
-            : self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+        return $this->makeRequest($socket, $body);
     }
 
     private function createSocket()
@@ -144,7 +142,7 @@ class Socket extends QueueConsumer
      * @param resource $socket the handle for the socket
      * @param string $req request body
      * @param boolean $retry
-     * @return boolean $success
+     * @return bool|string True on success, or a queue failure classification.
      */
     private function makeRequest($socket, $req, $retry = true)
     {
@@ -198,7 +196,7 @@ class Socket extends QueueConsumer
             $isClientError = $statusCode >= 400 && $statusCode < 500 && 429 != $statusCode;
             if (!$isClientError) {
                 if ($backoff >= $this->maximum_backoff_duration) {
-                    break;
+                    return self::FLUSH_BATCH_RETRYABLE_FAILURE;
                 }
 
                 $responseHeaders = explode("\r\n", strstr($response, "\r\n\r\n", true) ?: '');
@@ -219,7 +217,7 @@ class Socket extends QueueConsumer
             }
         }
 
-        return false;
+        return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
     }
 
     /**

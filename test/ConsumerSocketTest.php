@@ -23,7 +23,7 @@ class ConsumerSocketTest extends ConsumerTransportTestCase
     }
 
     #[DataProvider('incompleteResponseCases')]
-    public function testIncompleteResponseDoesNotConfirmDelivery(string $response, float $timeout): void
+    public function testIncompleteResponseKeepsBatchForRetry(string $response, float $timeout): void
     {
         $this->server->stop();
         $this->server = new LocalHttpServer([['raw_response' => $response]]);
@@ -35,7 +35,8 @@ class ConsumerSocketTest extends ConsumerTransportTestCase
             self::assertFalse($client->flush());
             self::assertCount(1, $this->server->requests());
             self::assertTrue($client->flush());
-            self::assertCount(1, $this->server->requests());
+            [$failed, $resent] = $this->server->requests();
+            self::assertSame($failed['body'], $resent['body']);
         } finally {
             ini_set('default_socket_timeout', $previousTimeout);
         }
