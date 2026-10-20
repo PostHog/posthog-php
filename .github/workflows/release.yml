@@ -120,7 +120,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup pnpm and Node.js
-        uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024 # v3.0.0
+        uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
         with:
           # Native release management requires pnpm >=11.13.0.
           version: 11.13.1
@@ -129,7 +129,7 @@ jobs:
           install: false
 
       - name: Set up PHP 8.4
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: 8.4
           tools: composer
@@ -291,7 +291,7 @@ jobs:
           check_missing "git tag" gh api "repos/$REPOSITORY/git/ref/tags/$EXPECTED_VERSION"
 
       - name: Set up PHP 8.4
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
         with:
           php-version: 8.4
           tools: composer
@@ -405,7 +405,7 @@ jobs:
 
       - name: Get GitHub App token
         id: releaser
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_APP_ID }}
           private-key: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_PRIVATE_KEY }}
