@@ -1028,32 +1028,121 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         self::assertTrue(FeatureFlag::matchProperty($prop_e, [
             "key" => "29",
         ]));
-        # depending on the type of override, we adjust type comparison
-        self::assertTrue(FeatureFlag::matchProperty($prop_e, [
+        self::assertFalse(FeatureFlag::matchProperty($prop_e, [
             "key" => "100",
         ]));
         self::assertFalse(FeatureFlag::matchProperty($prop_e, [
             "key" => 100,
         ]));
 
-        $prop_f = [
-            "key" => "key",
-            "value" => "123aloha",
-            "operator" => "gt"
+    }
+
+    #[DataProvider('numericOrderingProvider')]
+    public function testMatchPropertyNumericOrdering($actual, $filter, string $operator, bool $expected): void
+    {
+        self::assertSame($expected, FeatureFlag::matchProperty(
+            ['key' => 'number', 'value' => $filter, 'operator' => $operator],
+            ['number' => $actual]
+        ));
+    }
+
+    public static function numericOrderingProvider(): iterable
+    {
+        $operators = ['gt', 'gte', 'lt', 'lte'];
+        foreach ([
+            [10, 2, [true, true, false, false]],
+            [100, 30, [true, true, false, false]],
+            [10, 5, [true, true, false, false]],
+            [5, 10, [false, false, true, true]],
+            [10, 10, [false, true, false, true]],
+            [-10, -2, [false, false, true, true]],
+            [0, 0, [false, true, false, true]],
+        ] as [$actual, $filter, $expected]) {
+            foreach ([$actual, (string) $actual] as $property) {
+                foreach ([$filter, (string) $filter] as $condition) {
+                    foreach ($operators as $index => $operator) {
+                        yield "$operator " . gettype($property) . " $property / " . gettype($condition) . " $condition"
+                            => [$property, $condition, $operator, $expected[$index]];
+                    }
+                }
+            }
+        }
+
+        foreach ([
+            ['+10', 10.0], ['-10', -10.0], ['10.', 10.0], ['+.5', 0.5],
+            ['-.5', -0.5], ['01.50', 1.5], ['1e2', 100.0], ['-2E+1', -20.0],
+            ['2.5e-1', 0.25], ['-0', 0.0], ['1e-9999', 0.0],
+            ['9007199254740993', 9007199254740992.0],
+            ['1.7976931348623157e308', PHP_FLOAT_MAX],
+        ] as [$string, $number]) {
+            foreach ([[$string, $number], [$number, $string], [$string, $string]] as [$actual, $filter]) {
+                foreach ($operators as $index => $operator) {
+                    yield "$operator decimal $string " . gettype($actual) . '/' . gettype($filter)
+                        => [$actual, $filter, $operator, [false, true, false, true][$index]];
+                }
+            }
+        }
+        yield 'integer operands round to binary64' => [9007199254740993, 9007199254740992, 'gt', false];
+    }
+
+    public static function invalidNumericOperandProvider(): iterable
+    {
+        $invalid = [
+            'empty' => '', 'partial' => '10px', 'padded' => ' 10 ',
+            'leading space' => ' 10', 'trailing space' => '10 ',
+            'newline' => "10\n", 'leading newline' => "\n10", 'tab' => "10\t",
+            'underscore' => '1_0', 'hex' => '0x10', 'comma' => '1,5',
+            'unicode digit' => '١٠', 'incomplete exponent' => '1e', 'dot' => '.',
+            'nan string' => 'NaN', 'infinity string' => 'Infinity', 'inf string' => '-inf', 'null string' => 'null',
+            'overflow string' => '1e309', 'negative overflow string' => '-1e309',
+            'nan' => NAN, 'infinity' => INF, 'negative infinity' => -INF,
+            'null' => null, 'true' => true, 'false' => false,
+            'array' => [], 'numeric array' => [10], 'object' => (object) ['number' => 10],
         ];
-        self::assertFalse(FeatureFlag::matchProperty($prop_f, [
-            "key" => "123",
-        ]));
-        self::assertFalse(FeatureFlag::matchProperty($prop_f, [
-            "key" => 122,
-        ]));
+        foreach (['gt', 'gte', 'lt', 'lte'] as $operator) {
+            foreach ($invalid as $name => $value) {
+                yield "$operator $name" => [$operator, $value];
+            }
+        }
+    }
 
-        # this turns into a string comparison
-        self::assertTrue(FeatureFlag::matchProperty($prop_f, [
-            "key" => 129,
-        ]));
+    #[DataProvider('invalidNumericOperandProvider')]
+    public function testMatchPropertyInvalidNumericActualDoesNotMatch(string $operator, $actual): void
+    {
+        foreach ([2, '2'] as $filter) {
+            self::assertFalse(FeatureFlag::matchProperty(
+                ['key' => 'number', 'value' => $filter, 'operator' => $operator],
+                ['number' => $actual]
+            ));
+        }
+    }
 
+    #[DataProvider('invalidNumericOperandProvider')]
+    public function testMatchPropertyInvalidNumericFilterIsInconclusive(string $operator, $filter): void
+    {
+        foreach ([10, '10', null] as $actual) {
+            try {
+                FeatureFlag::matchProperty(
+                    ['key' => 'number', 'value' => $filter, 'operator' => $operator],
+                    ['number' => $actual]
+                );
+                self::fail('Expected an invalid numeric filter to be inconclusive');
+            } catch (InconclusiveMatchException $exception) {
+                self::assertSame('The number set on the flag is not a valid format', $exception->getMessage());
+            }
+        }
+    }
 
+    public function testMatchPropertyMissingNumericActualIsInconclusive(): void
+    {
+        foreach (['gt', 'gte', 'lt', 'lte'] as $operator) {
+            try {
+                FeatureFlag::matchProperty(['key' => 'number', 'value' => '2', 'operator' => $operator], []);
+                self::fail('Expected a missing numeric property to be inconclusive');
+            } catch (InconclusiveMatchException $exception) {
+                self::assertSame("Can't match properties without a given property value", $exception->getMessage());
+            }
+        }
     }
 
     public function testMatchPropertyDateOperators(): void
@@ -1434,54 +1523,6 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             "key" => null,
         ]));
         self::assertTrue(FeatureFlag::matchProperty($prop_c, [
-            "key" => "null",
-        ]));
-
-        $prop_e = [
-            "key" => "key",
-            "value" => "null",
-            "operator" => "gt"
-        ];
-        self::assertFalse(FeatureFlag::matchProperty($prop_e, [
-            "key" => null,
-        ]));
-        self::assertFalse(FeatureFlag::matchProperty($prop_e, [
-            "key" => "null",
-        ]));
-
-        $prop_f = [
-            "key" => "key",
-            "value" => "null",
-            "operator" => "lt"
-        ];
-        self::assertTrue(FeatureFlag::matchProperty($prop_f, [
-            "key" => null,
-        ]));
-        self::assertFalse(FeatureFlag::matchProperty($prop_f, [
-            "key" => "null",
-        ]));
-
-        $prop_g = [
-            "key" => "key",
-            "value" => "null",
-            "operator" => "gte"
-        ];
-        self::assertFalse(FeatureFlag::matchProperty($prop_g, [
-            "key" => null,
-        ]));
-        self::assertTrue(FeatureFlag::matchProperty($prop_g, [
-            "key" => "null",
-        ]));
-
-        $prop_h = [
-            "key" => "key",
-            "value" => "null",
-            "operator" => "lte"
-        ];
-        self::assertTrue(FeatureFlag::matchProperty($prop_h, [
-            "key" => null,
-        ]));
-        self::assertTrue(FeatureFlag::matchProperty($prop_h, [
             "key" => "null",
         ]));
 

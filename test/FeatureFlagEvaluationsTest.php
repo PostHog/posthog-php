@@ -489,6 +489,72 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertSame(0, $this->flagsRequestCount());
     }
 
+    #[DataProvider('numericLocalEvaluationProvider')]
+    public function testNumericOrderingLocalEvaluationAndFallback(
+        string $operator,
+        mixed $filter,
+        array $personProperties,
+        bool|string $expected,
+        bool $fallback
+    ): void {
+        $this->makeClient(
+            personalApiKey: 'test-personal-key',
+            flagsEndpointResponse: [
+                'flags' => ['numeric-flag' => ['enabled' => true, 'variant' => 'remote-value']],
+            ],
+            localEvaluationResponse: [
+                'flags' => [[
+                    'id' => 1,
+                    'key' => 'numeric-flag',
+                    'active' => true,
+                    'filters' => ['groups' => [[
+                        'properties' => [[
+                            'key' => 'number',
+                            'type' => 'person',
+                            'operator' => $operator,
+                            'value' => $filter,
+                        ]],
+                        'rollout_percentage' => 100,
+                    ]]],
+                ]],
+                'group_type_mapping' => [],
+                'cohorts' => [],
+            ],
+        );
+
+        $snapshot = $this->client->evaluateFlags('user-1', personProperties: $personProperties);
+
+        $this->assertSame($expected, $snapshot->getFlag('numeric-flag'));
+        $this->assertSame($fallback ? 1 : 0, $this->flagsRequestCount());
+
+        if ($fallback) {
+            $localSnapshot = $this->client->evaluateFlags(
+                'user-1',
+                personProperties: $personProperties,
+                onlyEvaluateLocally: true
+            );
+            $this->assertSame([], $localSnapshot->getKeys());
+            $this->assertSame(1, $this->flagsRequestCount());
+        }
+    }
+
+    public static function numericLocalEvaluationProvider(): iterable
+    {
+        yield 'reported gt numeric filter' => ['gt', 2, ['number' => '10'], true, false];
+        yield 'reported lt numeric filter' => ['lt', 30, ['number' => '100'], false, false];
+        yield 'reported gte string filter' => ['gte', '5', ['number' => '10'], true, false];
+        yield 'reported lte string filter' => ['lte', '5', ['number' => '10'], false, false];
+        yield 'numeric actual and string filter' => ['gt', '2', ['number' => 10], true, false];
+        yield 'signed exponent' => ['lt', '-.5', ['number' => '-1e1'], true, false];
+        $invalidOperands = ['10px', ' 10 ', "10\n", '1_0', 'NaN', 'Infinity', '1e309', null, true, [], (object) []];
+        foreach ($invalidOperands as $index => $invalid) {
+            yield "invalid actual $index" => ['gt', '2', ['number' => $invalid], false, false];
+            yield "invalid filter $index" => ['gt', $invalid, ['number' => '10'], 'remote-value', true];
+        }
+        yield 'missing actual' => ['gt', '2', [], 'remote-value', true];
+        yield 'invalid filter and actual' => ['gt', 'bad', ['number' => null], 'remote-value', true];
+    }
+
     public function testLocalEvaluationResolvesPayloads(): void
     {
         // Local definitions carry `filters.payloads`, keyed by "true" for boolean flags and by
