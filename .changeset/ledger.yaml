@@ -66,3 +66,7 @@ posthog-php@4.16.0:
   dir: ""
   intents:
     - ambient-exception-traces
+posthog-php@4.16.1:
+  dir: ""
+  intents:
+    - fix-numeric-string-ordering
