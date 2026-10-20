@@ -106,7 +106,7 @@ class LibCurl extends QueueConsumer
             return true;
         }
 
-        return $this->isNetworkFailure($response)
+        return $this->isNetworkFailure($response) || $this->isRetryableStatus($response->getResponseCode())
             ? self::FLUSH_BATCH_RETRYABLE_FAILURE
             : self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
     }

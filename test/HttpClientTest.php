@@ -5,6 +5,8 @@ namespace PostHog\Test;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\HttpClient;
+use Symfony\Component\Clock\Clock;
+use Symfony\Component\Clock\MockClock;
 
 class RetryAfterHttpClient extends HttpClient
 {
@@ -63,6 +65,7 @@ class HttpClientTest extends TestCase
             'malformed' => [['Retry-After: not-a-date'], null],
             'past date' => [['Retry-After: Sat, 01 Jan 2000 00:00:00 GMT'], 0],
             'case insensitive' => [['retry-after: 2'], 2000],
+            'beyond integer range' => [['Retry-After: 999999999999999999999999'], intdiv(PHP_INT_MAX, 1000) * 1000],
         ];
     }
 
@@ -115,6 +118,36 @@ class HttpClientTest extends TestCase
                 $this->assertSame($requests[0], $requests[1]);
             }
         } finally {
+            $server->stop();
+        }
+    }
+
+    public static function retryDelayCases(): array
+    {
+        return [
+            'backoff without retry after' => [[], 100],
+            'retry after zero' => [['Retry-After' => '0'], 0],
+            'retry after below ceiling' => [['Retry-After' => '2'], 2000],
+            'retry after above ceiling' => [['Retry-After' => '3600'], 10000],
+            'retry after beyond integer range' => [['Retry-After' => '999999999999999999999999'], 10000],
+        ];
+    }
+
+    #[DataProvider('retryDelayCases')]
+    public function testRetryDelayHonorsRetryAfterUpToCeiling(array $headers, int $delayMilliseconds): void
+    {
+        $server = new LocalHttpServer([['status' => 503, 'headers' => $headers], ['status' => 200]]);
+        $clock = new MockClock();
+        $started = $clock->now();
+        $previousClock = Clock::get();
+        Clock::set($clock);
+        try {
+            $client = new HttpClient($server->address(), useSsl: false, maximumBackoffDuration: 201);
+            $response = $client->sendRequest('/batch/', '{"batch":[]}', [], ['timeout' => 5000]);
+            $this->assertSame(200, $response->getResponseCode());
+            $this->assertEquals($started->modify('+' . $delayMilliseconds . ' milliseconds'), $clock->now());
+        } finally {
+            Clock::set($previousClock);
             $server->stop();
         }
     }

@@ -3,6 +3,7 @@
 namespace PostHog;
 
 use Closure;
+use Symfony\Component\Clock\Clock;
 
 /**
  * HTTP client used by the SDK for PostHog API requests.
@@ -11,6 +12,8 @@ use Closure;
  */
 class HttpClient
 {
+    use HttpRetryPolicy;
+
     /**
      * @var string
      */
@@ -164,8 +167,7 @@ class HttpClient
                 } elseif ($this->isRetryableStatus($responseCode)) {
                     // Retry transient failures. Honor Retry-After when provided, otherwise use
                     // exponential backoff starting at 100ms.
-                    $retryAfterMs = $this->retryAfterMilliseconds($responseHeaders);
-                    usleep(($retryAfterMs ?? $backoff) * 1000);
+                    Clock::get()->sleep($this->retryDelayMilliseconds($responseHeaders, $backoff) / 1000);
                     $backoff *= 2;
                 } else {
                     // Do not retry non-transient responses (e.g. 400, 401, 403, 413,
@@ -203,41 +205,6 @@ class HttpClient
         }
 
         return new HttpResponse($response, $responseCode, null, $curlErrno);
-    }
-
-    protected function isRetryableStatus(int $responseCode): bool
-    {
-        return $responseCode === 408
-            || $responseCode === 429
-            || ($responseCode >= 500 && $responseCode <= 600);
-    }
-
-    /**
-     * @param array<int, string> $headers
-     */
-    protected function retryAfterMilliseconds(array $headers): ?int
-    {
-        foreach ($headers as $header) {
-            if (stripos($header, 'Retry-After:') !== 0) {
-                continue;
-            }
-
-            $value = trim(substr($header, strlen('Retry-After:')));
-            if ($value === '') {
-                return null;
-            }
-
-            if (ctype_digit($value)) {
-                return max(0, (int) $value * 1000);
-            }
-
-            $timestamp = strtotime($value);
-            if ($timestamp !== false) {
-                return max(0, (int) (($timestamp - time()) * 1000));
-            }
-        }
-
-        return null;
     }
 
     private function handleError($code, $message)
