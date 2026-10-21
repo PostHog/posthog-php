@@ -395,7 +395,11 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function __destruct()
     {
-        $this->shutdown();
+        try {
+            $this->shutdown();
+        } catch (Throwable $throwable) {
+            error_log('[PostHog][Client] Shutdown failed during destruction: ' . $throwable->getMessage());
+        }
     }
 
     /**
@@ -409,12 +413,15 @@ class Client implements FeatureFlagEvaluationsHost
             return true;
         }
 
-        $flushed = $this->flush();
-        $this->shutdownFlagDefinitionCacheProvider();
-        $this->consumer->__destruct();
-        // Release the per-client feature-flag-called dedupe cache once the client is shut down.
-        $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(self::SIZE_LIMIT);
-        $this->shutdownComplete = true;
+        try {
+            $flushed = $this->flush();
+        } finally {
+            $this->shutdownFlagDefinitionCacheProvider();
+            $this->consumer->__destruct();
+            // Release the per-client feature-flag-called dedupe cache once the client is shut down.
+            $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(self::SIZE_LIMIT);
+            $this->shutdownComplete = true;
+        }
 
         return $flushed;
     }
