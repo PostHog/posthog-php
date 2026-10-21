@@ -38,6 +38,10 @@ while ($connection = stream_socket_accept($server, 30)) {
     ], JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
 
     $response = array_shift($responses) ?? [];
+    $closeServer = $response['close_server'] ?? false;
+    if ($closeServer) {
+        fclose($server);
+    }
     $status = $response['status'] ?? 200;
     $body = $response['body'] ?? '{"status":1}';
     $headers = '';
@@ -54,4 +58,7 @@ while ($connection = stream_socket_accept($server, 30)) {
         $wire = substr($wire, $written);
     }
     fclose($connection);
+    if ($closeServer) {
+        break;
+    }
 }
