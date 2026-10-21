@@ -2,6 +2,7 @@
 
 namespace PostHog\Test;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
 class ConsumerSocketTest extends ConsumerTransportTestCase
@@ -9,6 +10,35 @@ class ConsumerSocketTest extends ConsumerTransportTestCase
     protected function consumer(): string
     {
         return 'socket';
+    }
+
+    public static function retryableStatuses(): array
+    {
+        return ['server failure' => [503], 'rate limit' => [429]];
+    }
+
+    #[DataProvider('retryableStatuses')]
+    public function testRetrySendsTheCompleteBatch(int $status): void
+    {
+        $this->server->stop();
+        $this->server = new LocalHttpServer([['status' => $status], ['status' => 200]]);
+        $client = $this->client(['maximum_backoff_duration' => 200]);
+        $previousTimeout = ini_set('default_socket_timeout', '1');
+
+        try {
+            self::assertTrue($client->capture(['distinctId' => 'some-user', 'event' => 'retried event']));
+            self::assertTrue($client->flush());
+            $requests = $this->server->requests();
+            self::assertCount(2, $requests);
+            self::assertSame('POST /batch/ HTTP/1.1', $requests[1]['requestLine']);
+            self::assertSame($requests[0]['body'], $requests[1]['body']);
+            $payload = json_decode($requests[1]['body'], true, 512, JSON_THROW_ON_ERROR);
+            self::assertSame('retried event', $payload['batch'][0]['event']);
+            self::assertTrue($client->flush());
+            self::assertCount(2, $this->server->requests());
+        } finally {
+            ini_set('default_socket_timeout', $previousTimeout);
+        }
     }
 
     public function testShortTimeout(): void
