@@ -25,6 +25,20 @@ class ConsumerCurlTimeoutTest extends TestCase
             'verify_batch_events_request' => $verify], false);
     }
 
+    public static function positiveFractionalTransports(): array
+    {
+        return [
+            'libcurl' => ['LibCurl', false],
+            'forkcurl' => ['ForkCurl', true],
+        ];
+    }
+
+    #[DataProvider('positiveFractionalTransports')]
+    public function testPositiveFractionalTimeoutDoesNotWaitIndefinitely(string $transport, bool $debug): void
+    {
+        $this->runReceiver($transport, ['timeout' => 0.5, 'debug' => $debug], false, expectRequest: false);
+    }
+
     public function testLibCurlWithoutVerificationDoesNotWaitEvenWithZeroTimeout(): void
     {
         $this->runReceiver('LibCurl', ['timeout' => 0, 'debug' => false,
@@ -42,11 +56,23 @@ class ConsumerCurlTimeoutTest extends TestCase
         $this->runReceiver($transport, ['timeout' => 0, 'debug' => true], true);
     }
 
-    public function testLibCurlDefaultTimeoutIsTenSeconds(): void
+    public static function libCurlTimeoutValues(): array
     {
-        $consumer = new LibCurl('test-key');
+        return [
+            'default' => [[], 10000],
+            'unlimited' => [['timeout' => 0], 0],
+            'sub-millisecond' => [['timeout' => 0.5], 1],
+            'fractional milliseconds' => [['timeout' => 1.5], 2],
+            'whole milliseconds' => [['timeout' => 50], 50],
+        ];
+    }
+
+    #[DataProvider('libCurlTimeoutValues')]
+    public function testLibCurlTimeoutUsesWholeMilliseconds(array $options, int $expected): void
+    {
+        $consumer = new LibCurl('test-key', $options);
         $client = (new ReflectionProperty(LibCurl::class, 'httpClient'))->getValue($consumer);
-        self::assertSame(10000, (new ReflectionProperty($client, 'curlTimeoutMilliseconds'))->getValue($client));
+        self::assertSame($expected, (new ReflectionProperty($client, 'curlTimeoutMilliseconds'))->getValue($client));
     }
 
     public static function forkCurlTimeoutArguments(): array
@@ -54,6 +80,8 @@ class ConsumerCurlTimeoutTest extends TestCase
         return [
             'default' => [[], '10'],
             'milliseconds' => [['timeout' => 50], '0.05'],
+            'sub-millisecond' => [['timeout' => 0.5], '0.001'],
+            'fractional milliseconds' => [['timeout' => 1.5], '0.002'],
             'fractional seconds' => [['timeout' => 1250], '1.25'],
             'unlimited' => [['timeout' => 0], '0'],
         ];
@@ -87,7 +115,7 @@ class ConsumerCurlTimeoutTest extends TestCase
         }
     }
 
-    private function runReceiver(string $transport, array $options, bool $respond): void
+    private function runReceiver(string $transport, array $options, bool $respond, bool $expectRequest = true): void
     {
         $server = proc_open(
             [PHP_BINARY, __DIR__ . '/fixtures/curl-timeout-receiver.php', $respond ? 'respond' : 'stall'],
@@ -102,8 +130,8 @@ class ConsumerCurlTimeoutTest extends TestCase
             self::assertNotSame('', $address, 'Timeout receiver did not become ready');
             $options['host'] = $address;
             $process = $this->startConsumer($transport, $options, $pipes);
-            if (($options['verify_batch_events_request'] ?? true) === false) {
-                self::assertTrue($this->waitForExit($process), 'Unverified request exceeded the watchdog');
+            if (!$expectRequest || ($options['verify_batch_events_request'] ?? true) === false) {
+                self::assertTrue($this->waitForExit($process), 'Consumer exceeded the watchdog');
                 self::assertSame('"retryable_failure"', trim(stream_get_contents($pipes[1])));
                 return;
             }

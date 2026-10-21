@@ -64,7 +64,7 @@ class ForkCurl extends QueueConsumer
         $path = "/batch/";
         $url = $protocol . $this->host . $path;
 
-        $timeout = escapeshellarg((string) (($this->options['timeout'] ?? 10000) / 1000));
+        $timeout = escapeshellarg((string) (ceil($this->options['timeout'] ?? 10000) / 1000));
         $cmd = "curl -X POST -H 'Content-Type: application/json'";
         $cmd .= " --connect-timeout " . $timeout . " --max-time " . $timeout;
 

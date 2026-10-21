@@ -2,4 +2,4 @@
 "posthog-php": patch
 ---
 
-Honor the configured ingestion timeout in the libcurl and forked curl transports.
+Honor configured ingestion timeouts in the libcurl and forked curl transports, rounding positive fractional milliseconds up so they remain bounded.

@@ -34,7 +34,7 @@ class LibCurl extends QueueConsumer
             $this->compress_request,
             $this->debug(),
             $this->options['error_handler'] ?? null,
-            (int) ($this->options['timeout'] ?? 10000)
+            (int) ceil($this->options['timeout'] ?? 10000)
         );
     }
 
