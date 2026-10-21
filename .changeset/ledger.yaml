@@ -70,3 +70,7 @@ posthog-php@4.16.1:
   dir: ""
   intents:
     - fix-numeric-string-ordering
+posthog-php@4.16.2:
+  dir: ""
+  intents:
+    - tough-pianos-walk
