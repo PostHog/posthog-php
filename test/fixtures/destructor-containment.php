@@ -9,22 +9,42 @@ use PostHog\FlagDefinitionCacheProvider;
 [$script, $target, $failure, $throwableClass, $operation] = $argv;
 $throwable = new $throwableClass('application failure');
 $options = ['batch_size' => 100, 'flush_interval_seconds' => 3600];
-$property = "\xB1\x31";
+$retry = str_ends_with($operation, '-retry');
+if ($retry) {
+    $operation = substr($operation, 0, -strlen('-retry'));
+    $server = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
+    if ($server === false) {
+        throw new RuntimeException($error, $errno);
+    }
+    $options['host'] = stream_socket_get_name($server, false);
+    $options['ssl'] = false;
+    fclose($server);
+}
+$property = $retry ? 'valid input' : "\xB1\x31";
 if ($failure === 'serializer') {
-    $property = new class ($throwable) implements JsonSerializable {
-        public function __construct(private Throwable $throwable)
+    $property = new class ($throwable, $retry) implements JsonSerializable {
+        private int $attempts = 0;
+
+        public function __construct(private Throwable $throwable, private bool $retry)
         {
         }
 
         public function jsonSerialize(): mixed
         {
             echo "serialization-attempted\n";
+            if ($this->retry && ++$this->attempts === 1) {
+                return 'valid input';
+            }
             throw $this->throwable;
         }
     };
 } else {
-    $options['error_handler'] = static function () use ($throwable): void {
+    $attempts = 0;
+    $options['error_handler'] = static function () use ($throwable, $retry, &$attempts): void {
         echo "error-handler-called\n";
+        if ($retry && ++$attempts === 1) {
+            return;
+        }
         throw $throwable;
     };
 }

@@ -6,6 +6,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\Consumer\File;
+use PostHog\HttpClient;
+use PostHog\HttpResponse;
 use ReflectionProperty;
 use RuntimeException;
 
@@ -68,6 +70,113 @@ class DestructorContainmentTest extends TestCase
                 yield "$name-shutdown" => [...$case, 'shutdown'];
             }
         }
+    }
+
+    public static function shutdownRetryCases(): iterable
+    {
+        foreach (self::automaticDestructionCases() as $name => [$target, $failure, $throwableClass]) {
+            if ($target === 'client') {
+                yield $name => [$failure, $throwableClass];
+            }
+        }
+    }
+
+    #[DataProvider('shutdownRetryCases')]
+    public function testExplicitShutdownRetryPropagatesApplicationThrowable(
+        string $failure,
+        string $throwableClass
+    ): void {
+        $output = $this->runScript('client', $failure, $throwableClass, 'shutdown-retry');
+
+        $this->assertStringContainsString("exception-propagated\n", $output);
+        $this->assertSame(1, substr_count($output, 'cache-cleaned'));
+        $this->assertLessThan(strpos($output, 'exception-propagated'), strpos($output, 'cache-cleaned'));
+        $this->assertStringContainsString("shutdown-complete\n", $output);
+    }
+
+    #[DataProvider('shutdownRetryCases')]
+    public function testAutomaticShutdownRetryContainsApplicationThrowable(
+        string $failure,
+        string $throwableClass
+    ): void {
+        $output = $this->runScript('client', $failure, $throwableClass, 'automatic-retry');
+
+        $this->assertStringContainsString("application-finished\n", $output);
+        $this->assertSame(1, substr_count($output, 'cache-cleaned'));
+        $marker = $failure === 'serializer' ? 'serialization-attempted' : 'error-handler-called';
+        $this->assertGreaterThanOrEqual(2, substr_count($output, $marker));
+    }
+
+    public static function retryResults(): array
+    {
+        return ['retry succeeds' => [true], 'retry fails' => [false]];
+    }
+
+    #[DataProvider('retryResults')]
+    public function testShutdownPreservesRetryCountAndFirstFlushResult(bool $retrySucceeds): void
+    {
+        $http = new class ($retrySucceeds) extends HttpClient {
+            public int $attempts = 0;
+
+            public function __construct(private bool $retrySucceeds)
+            {
+            }
+
+            public function sendRequest(
+                string $path,
+                ?string $payload,
+                array $extraHeaders = [],
+                array $requestOptions = []
+            ): HttpResponse {
+                ++$this->attempts;
+                if ($this->attempts > 2 || ($this->attempts === 2 && $this->retrySucceeds)) {
+                    return new HttpResponse('{}', 200);
+                }
+                return new HttpResponse(false, 0, null, CURLE_COULDNT_CONNECT);
+            }
+        };
+        $client = new Client('test-key', [], $http, loadFeatureFlags: false);
+        $client->capture(['event' => 'shutdown retry', 'distinctId' => 'user']);
+
+        $this->assertFalse($client->shutdown());
+        $this->assertSame(2, $http->attempts);
+        $this->assertTrue($client->shutdown());
+        $this->assertSame(2, $http->attempts);
+    }
+
+    public function testShutdownPreservesTheInitialFlushException(): void
+    {
+        $first = new RuntimeException('initial flush failure');
+        $http = new class ($first) extends HttpClient {
+            private bool $attempted = false;
+
+            public function __construct(private RuntimeException $first)
+            {
+            }
+
+            public function sendRequest(
+                string $path,
+                ?string $payload,
+                array $extraHeaders = [],
+                array $requestOptions = []
+            ): HttpResponse {
+                if (!$this->attempted) {
+                    $this->attempted = true;
+                    throw $this->first;
+                }
+                throw new RuntimeException('later flush failure');
+            }
+        };
+        $client = new Client('test-key', [], $http, loadFeatureFlags: false);
+        $client->capture(['event' => 'shutdown failure', 'distinctId' => 'user']);
+
+        try {
+            $client->shutdown();
+            $this->fail('Explicit shutdown must propagate the initial failure');
+        } catch (RuntimeException $caught) {
+            $this->assertSame($first, $caught);
+        }
+        $this->assertTrue($client->shutdown());
     }
 
     public function testShutdownClosesFileResourceEvenWhenFlushThrows(): void

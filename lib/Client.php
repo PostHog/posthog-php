@@ -414,10 +414,19 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         try {
-            $flushed = $this->flush();
+            try {
+                $flushed = $this->flush();
+            } finally {
+                $this->shutdownFlagDefinitionCacheProvider();
+            }
+            if ($this->consumer instanceof QueueConsumer) {
+                // Explicit shutdown retries must bypass the destructor's exception suppression.
+                $this->consumer->flush();
+            }
         } finally {
-            $this->shutdownFlagDefinitionCacheProvider();
-            $this->consumer->__destruct();
+            if (!($this->consumer instanceof QueueConsumer)) {
+                $this->consumer->__destruct();
+            }
             // Release the per-client feature-flag-called dedupe cache once the client is shut down.
             $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(self::SIZE_LIMIT);
             $this->shutdownComplete = true;
