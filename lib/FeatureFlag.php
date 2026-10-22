@@ -201,6 +201,29 @@ class FeatureFlag
         $distinctId = null,
         $propertyMatchingVersion = 1
     ) {
+        return FeatureFlag::matchCohortForIdentity(
+            $property,
+            $propertyValues,
+            $cohortProperties,
+            $flagsByKey,
+            $evaluationCache,
+            $distinctId,
+            $propertyMatchingVersion,
+            false
+        );
+    }
+
+    /** @param int|string|null|false $identityAggregation See evaluateFlagDependencyForIdentity(). */
+    private static function matchCohortForIdentity(
+        $property,
+        $propertyValues,
+        $cohortProperties,
+        $flagsByKey,
+        $evaluationCache,
+        $distinctId,
+        $propertyMatchingVersion,
+        $identityAggregation
+    ) {
         $cohortId = strval($property["value"]);
         if (!array_key_exists($cohortId, $cohortProperties)) {
             throw new RequiresServerEvaluationException(
@@ -210,14 +233,15 @@ class FeatureFlag
         }
 
         $propertyGroup = $cohortProperties[$cohortId];
-        return FeatureFlag::matchPropertyGroup(
+        return FeatureFlag::matchPropertyGroupForIdentity(
             $propertyGroup,
             $propertyValues,
             $cohortProperties,
             $flagsByKey,
             $evaluationCache,
             $distinctId,
-            $propertyMatchingVersion
+            $propertyMatchingVersion,
+            $identityAggregation
         );
     }
 
@@ -244,6 +268,29 @@ class FeatureFlag
         $distinctId = null,
         $propertyMatchingVersion = 1
     ) {
+        return FeatureFlag::matchPropertyGroupForIdentity(
+            $propertyGroup,
+            $propertyValues,
+            $cohortProperties,
+            $flagsByKey,
+            $evaluationCache,
+            $distinctId,
+            $propertyMatchingVersion,
+            false
+        );
+    }
+
+    /** @param int|string|null|false $identityAggregation See evaluateFlagDependencyForIdentity(). */
+    private static function matchPropertyGroupForIdentity(
+        $propertyGroup,
+        $propertyValues,
+        $cohortProperties,
+        $flagsByKey,
+        $evaluationCache,
+        $distinctId,
+        $propertyMatchingVersion,
+        $identityAggregation
+    ) {
         if (!$propertyGroup) {
             return true;
         }
@@ -262,14 +309,15 @@ class FeatureFlag
             // a nested property group
             foreach ($properties as $prop) {
                 try {
-                    $matches = FeatureFlag::matchPropertyGroup(
+                    $matches = FeatureFlag::matchPropertyGroupForIdentity(
                         $prop,
                         $propertyValues,
                         $cohortProperties,
                         $flagsByKey,
                         $evaluationCache,
                         $distinctId,
-                        $propertyMatchingVersion
+                        $propertyMatchingVersion,
+                        $identityAggregation
                     );
                     if ($propertyGroupType === 'AND') {
                         if (!$matches) {
@@ -300,24 +348,26 @@ class FeatureFlag
                     $matches = false;
                     $propType = $prop["type"] ?? null;
                     if ($propType === 'cohort') {
-                        $matches = FeatureFlag::matchCohort(
+                        $matches = FeatureFlag::matchCohortForIdentity(
                             $prop,
                             $propertyValues,
                             $cohortProperties,
                             $flagsByKey,
                             $evaluationCache,
                             $distinctId,
-                            $propertyMatchingVersion
+                            $propertyMatchingVersion,
+                            $identityAggregation
                         );
                     } elseif ($propType === 'flag') {
-                        $matches = FeatureFlag::evaluateFlagDependency(
+                        $matches = FeatureFlag::evaluateFlagDependencyForIdentity(
                             $prop,
                             $flagsByKey,
                             $evaluationCache,
                             $distinctId,
                             $propertyValues,
                             $cohortProperties,
-                            $propertyMatchingVersion
+                            $propertyMatchingVersion,
+                            $identityAggregation
                         );
                     } else {
                         $matches = FeatureFlag::matchProperty($prop, $propertyValues, $propertyMatchingVersion);
@@ -1134,14 +1184,15 @@ class FeatureFlag
                 $matches = false;
                 $propertyType = $property['type'] ?? null;
                 if ($propertyType == 'cohort') {
-                    $matches = FeatureFlag::matchCohort(
+                    $matches = FeatureFlag::matchCohortForIdentity(
                         $property,
                         $properties,
                         $cohorts,
                         $flagsByKey,
                         $evaluationCache,
                         $distinctId,
-                        $propertyMatchingVersion
+                        $propertyMatchingVersion,
+                        $identityAggregation
                     );
                 } elseif ($propertyType == 'flag') {
                     $matches = FeatureFlag::evaluateFlagDependencyForIdentity(
