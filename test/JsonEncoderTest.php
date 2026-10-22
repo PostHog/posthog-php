@@ -14,17 +14,72 @@ class JsonEncoderTest extends TestCase
             'reference' => &$number,
             'date' => new \DateTimeImmutable('2024-01-01T00:00:00Z'),
             'arrayObject' => new \ArrayObject(['number' => NAN]),
+            'dateSubclass' => new class ('2024-01-01T00:00:00Z') extends \DateTimeImmutable {
+                public string $label = 'kept';
+            },
+            'arrayObjectSubclass' => new class (['number' => INF]) extends \ArrayObject {
+                public string $ignored = 'ignored';
+            },
             'emptyObject' => new \stdClass(),
             'emptyArray' => [],
             'sparseArray' => [2 => INF, 4 => 'kept'],
         ];
         self::assertSame(
             '{"reference":null,"date":{"date":"2024-01-01 00:00:00.000000","timezone_type":2,"timezone":"Z"}'
-            . ',"arrayObject":{"number":null},"emptyObject":{},"emptyArray":[]'
+            . ',"arrayObject":{"number":null}'
+            . ',"dateSubclass":{"label":"kept","date":"2024-01-01 00:00:00.000000","timezone_type":2,"timezone":"Z"}'
+            . ',"arrayObjectSubclass":{"number":null},"emptyObject":{},"emptyArray":[]'
             . ',"sparseArray":{"2":null,"4":"kept"}}',
             JsonEncoder::encode($input)
         );
         self::assertSame(INF, $number);
+    }
+
+    public function testPropertyHooksControlTheSerializedPublicView(): void
+    {
+        if (PHP_VERSION_ID < 80400) {
+            self::markTestSkipped('Property hooks require PHP 8.4.');
+        }
+        $object = eval(<<<'PHP'
+        return new class {
+            public string $value = 'private fixture' {
+                get => $this->value === '' ? '' : 'filtered';
+            }
+            public string $virtual {
+                get => 'visible';
+            }
+        };
+        PHP);
+        $native = json_decode(json_encode($object), true, 512, JSON_THROW_ON_ERROR);
+        self::assertTrue($native === ['value' => 'filtered', 'virtual' => 'visible']);
+        $encoded = json_decode(
+            JsonEncoder::encode(['number' => NAN, 'object' => $object]),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        self::assertTrue(
+            $encoded['object'] === ['value' => 'filtered', 'virtual' => 'visible'],
+            'Serialization must use the public property getters, not backing storage.'
+        );
+        self::assertNull($encoded['number']);
+    }
+
+    public function testPropertyGetterExceptionsAreNotSwallowed(): void
+    {
+        if (PHP_VERSION_ID < 80400) {
+            self::markTestSkipped('Property hooks require PHP 8.4.');
+        }
+        $object = eval(<<<'PHP'
+        return new class {
+            public string $value {
+                get => throw new LogicException('unsupported getter');
+            }
+        };
+        PHP);
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('unsupported getter');
+        JsonEncoder::encode($object);
     }
 
     public function testUnsupportedValuesStillFailEncoding(): void
@@ -78,6 +133,19 @@ class JsonEncoderTest extends TestCase
         }
         if (PostHog\JsonEncoder::encode($first) !== false || json_last_error() !== JSON_ERROR_RECURSION) {
             exit(3);
+        }
+        $wideObject = new stdClass();
+        $wideArray = [];
+        for ($i = 0; $i < 10000; ++$i) {
+            $wideObject->{'p' . $i} = $i;
+            $wideArray['p' . $i] = $i;
+        }
+        $wideObject->self = $wideObject;
+        $wideArray['self'] = &$wideArray;
+        foreach ([$wideObject, $wideArray] as $value) {
+            if (PostHog\JsonEncoder::encode($value) !== false || json_last_error() !== JSON_ERROR_RECURSION) {
+                exit(4);
+            }
         }
         $deep = ['number' => INF];
         for ($i = 0; $i < 513; ++$i) {
