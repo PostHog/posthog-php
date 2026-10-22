@@ -61,6 +61,53 @@ class NonFinitePropertiesTest extends TestCase
         }
     }
 
+    public function testCapturePreservesClosuresAlongsideNonFiniteNumbersAndNeighbor(): void
+    {
+        $invoked = false;
+        $callback = static function () use (&$invoked): void {
+            $invoked = true;
+        };
+        $properties = [
+            'callback' => $callback,
+            'numbers' => [NAN, INF, -INF],
+            'finite' => 2.5,
+            'enabled' => false,
+            'literal' => 'NaN',
+        ];
+        $httpClient = new MockedHttpClient('unused.invalid');
+        $client = new Client('test-key', [
+            'batch_size' => 10,
+            'flush_interval_seconds' => 3600,
+        ], $httpClient);
+        try {
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'callback-event', 'properties' => $properties,
+            ]));
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'neighbor', 'properties' => ['finite' => 7],
+            ]));
+            self::assertTrue($client->flush());
+            self::assertCount(1, $httpClient->calls);
+            $payload = json_decode($httpClient->calls[0]['payload'], false, 512, JSON_THROW_ON_ERROR);
+            self::assertSame(['callback-event', 'neighbor'], array_column($payload->batch, 'event'));
+            $actual = $payload->batch[0]->properties;
+            self::assertInstanceOf(\stdClass::class, $actual->callback);
+            self::assertSame([], (array) $actual->callback);
+            self::assertSame([null, null, null], $actual->numbers);
+            self::assertSame(2.5, $actual->finite);
+            self::assertFalse($actual->enabled);
+            self::assertSame('NaN', $actual->literal);
+            self::assertSame(7, $payload->batch[1]->properties->finite);
+            self::assertSame($callback, $properties['callback']);
+            self::assertNan($properties['numbers'][0]);
+            self::assertSame(INF, $properties['numbers'][1]);
+            self::assertSame(-INF, $properties['numbers'][2]);
+            self::assertFalse($invoked);
+        } finally {
+            $client->shutdown();
+        }
+    }
+
     public function testCapturePreservesStdClassSubclassPropertyHooks(): void
     {
         if (PHP_VERSION_ID < 80400) {

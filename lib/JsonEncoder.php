@@ -3,6 +3,7 @@
 namespace PostHog;
 
 use ArrayObject;
+use Closure;
 use JsonSerializable;
 use ReflectionClass;
 use ReflectionReference;
@@ -46,7 +47,7 @@ final class JsonEncoder implements JsonSerializable
         if (
             is_array($value)
             || $value instanceof JsonSerializable
-            || (is_object($value) && !$value instanceof UnitEnum)
+            || (is_object($value) && !$value instanceof UnitEnum && !$value instanceof Closure)
         ) {
             $identity = is_object($value) ? 'object:' . spl_object_id($value) : $referenceId;
             if ($identity !== null && isset($wrappers[$identity])) {

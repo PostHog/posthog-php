@@ -37,6 +37,21 @@ class JsonEncoderTest extends TestCase
         self::assertSame(INF, $number);
     }
 
+    public function testClosuresKeepTheirNativeEmptyObjectRepresentation(): void
+    {
+        $invoked = false;
+        $callback = static function () use (&$invoked): void {
+            $invoked = true;
+        };
+        $input = ['callback' => $callback];
+        $expected = '{"callback":{}}';
+
+        self::assertSame($expected, json_encode($input));
+        self::assertSame($expected, JsonEncoder::encode($input));
+        self::assertSame($callback, $input['callback']);
+        self::assertFalse($invoked);
+    }
+
     public function testPreservesPublicPropertyNamesContainingEmbeddedNullBytes(): void
     {
         $object = (object) ["a\0b" => 1];
