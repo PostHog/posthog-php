@@ -1,3 +1,13 @@
+## 4.16.3
+
+### Patch Changes
+
+- Fix socket retries failing after reconnecting or crashing when reconnection fails.
+
+- Contain application failures during automatic SDK destruction without suppressing explicit shutdown retry exceptions, and finish cleanup after flush failures.
+
+- Honor configured ingestion timeouts in the libcurl and forked curl transports, rounding positive fractional milliseconds up so they remain bounded.
+
 ## 4.16.2
 
 ### Patch Changes

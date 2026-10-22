@@ -74,3 +74,9 @@ posthog-php@4.16.2:
   dir: ""
   intents:
     - tough-pianos-walk
+posthog-php@4.16.3:
+  dir: ""
+  intents:
+    - olive-vans-throw
+    - twenty-clocks-smash
+    - wet-rings-notice
