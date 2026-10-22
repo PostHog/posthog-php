@@ -89,7 +89,9 @@ final class JsonEncoder implements JsonSerializable
             while (!$class->isInternal() && ($parent = $class->getParentClass()) !== false) {
                 $class = $parent;
             }
-            $properties = $class->isInternal() ? (array) $value : get_object_vars($value);
+            $properties = $class->isInternal() && $class->getName() !== stdClass::class
+                ? (array) $value
+                : get_object_vars($value);
             foreach ($properties as $key => $item) {
                 if (!str_starts_with((string) $key, "\0")) {
                     $result->{(string) $key} = self::prepare($item, $this->depth + 1, $this->wrappers);

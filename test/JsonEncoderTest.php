@@ -2,6 +2,7 @@
 
 namespace PostHog\Test;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\JsonEncoder;
 
@@ -46,13 +47,22 @@ class JsonEncoderTest extends TestCase
         self::assertSame(1, $object->{"a\0b"});
     }
 
-    public function testPropertyHooksControlTheSerializedPublicView(): void
+    public static function propertyHookParents(): array
+    {
+        return [
+            'ordinary class' => [''],
+            'stdClass subclass' => [' extends \\stdClass'],
+        ];
+    }
+
+    #[DataProvider('propertyHookParents')]
+    public function testPropertyHooksControlTheSerializedPublicView(string $parentDeclaration): void
     {
         if (PHP_VERSION_ID < 80400) {
             self::markTestSkipped('Property hooks require PHP 8.4.');
         }
-        $object = eval(<<<'PHP'
-        return new class {
+        $object = eval(sprintf(<<<'PHP'
+        return new class%s {
             public string $value = 'private fixture' {
                 get => $this->value === '' ? '' : 'filtered';
             }
@@ -60,7 +70,7 @@ class JsonEncoderTest extends TestCase
                 get => 'visible';
             }
         };
-        PHP);
+        PHP, $parentDeclaration));
         $native = json_decode(json_encode($object), true, 512, JSON_THROW_ON_ERROR);
         self::assertTrue($native === ['value' => 'filtered', 'virtual' => 'visible']);
         $encoded = json_decode(
@@ -76,18 +86,19 @@ class JsonEncoderTest extends TestCase
         self::assertNull($encoded['number']);
     }
 
-    public function testPropertyGetterExceptionsAreNotSwallowed(): void
+    #[DataProvider('propertyHookParents')]
+    public function testPropertyGetterExceptionsAreNotSwallowed(string $parentDeclaration): void
     {
         if (PHP_VERSION_ID < 80400) {
             self::markTestSkipped('Property hooks require PHP 8.4.');
         }
-        $object = eval(<<<'PHP'
-        return new class {
+        $object = eval(sprintf(<<<'PHP'
+        return new class%s {
             public string $value {
                 get => throw new LogicException('unsupported getter');
             }
         };
-        PHP);
+        PHP, $parentDeclaration));
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('unsupported getter');
         JsonEncoder::encode($object);

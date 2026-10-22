@@ -61,6 +61,54 @@ class NonFinitePropertiesTest extends TestCase
         }
     }
 
+    public function testCapturePreservesStdClassSubclassPropertyHooks(): void
+    {
+        if (PHP_VERSION_ID < 80400) {
+            self::markTestSkipped('Property hooks require PHP 8.4.');
+        }
+        $object = eval(<<<'PHP'
+        return new class extends stdClass {
+            public string $value = 'private fixture' {
+                get => $this->value === '' ? '' : 'filtered';
+            }
+            public string $virtual {
+                get => 'visible';
+            }
+            public float $finite = 2.5;
+        };
+        PHP);
+        $expected = ['value' => 'filtered', 'virtual' => 'visible', 'finite' => 2.5];
+        self::assertTrue(json_decode(json_encode($object), true, 512, JSON_THROW_ON_ERROR) === $expected);
+        $httpClient = new MockedHttpClient('unused.invalid');
+        $client = new Client('test-key', [
+            'batch_size' => 10,
+            'flush_interval_seconds' => 3600,
+        ], $httpClient);
+        try {
+            self::assertTrue($client->capture([
+                'distinctId' => 'user',
+                'event' => 'hooked-subclass',
+                'properties' => ['object' => $object, 'number' => NAN],
+            ]));
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'neighbor', 'properties' => ['finite' => 7],
+            ]));
+            self::assertTrue($client->flush());
+            self::assertCount(1, $httpClient->calls);
+            $payload = json_decode($httpClient->calls[0]['payload'], true, 512, JSON_THROW_ON_ERROR);
+            self::assertSame(['hooked-subclass', 'neighbor'], array_column($payload['batch'], 'event'));
+            self::assertTrue(
+                $payload['batch'][0]['properties']['object'] === $expected,
+                'Wire serialization must preserve the filtered public property view.'
+            );
+            self::assertNull($payload['batch'][0]['properties']['number']);
+            self::assertSame(7, $payload['batch'][1]['properties']['finite']);
+            self::assertTrue(((array) $object)['value'] === 'private fixture');
+        } finally {
+            $client->shutdown();
+        }
+    }
+
     #[DataProvider('nonFiniteValues')]
     public function testCaptureSerializesNonFinitePropertiesAsNull(string $consumer, float $number): void
     {
