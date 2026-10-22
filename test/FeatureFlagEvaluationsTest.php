@@ -555,6 +555,91 @@ class FeatureFlagEvaluationsTest extends TestCase
         yield 'invalid filter and actual' => ['gt', 'bad', ['number' => null], 'remote-value', true];
     }
 
+    #[DataProvider('regexCompatibilityFallbackProvider')]
+    public function testRegexCompatibilityLocalEvaluationAndFallback(
+        string $operator,
+        string $mode,
+        string $pattern,
+        array $properties,
+        bool $fallback,
+        bool $matched
+    ): void {
+        $leaf = ['key' => 'k', 'type' => 'person', 'operator' => $operator, 'value' => $pattern];
+        $cohorts = [];
+        $condition = $leaf;
+        if ($mode !== 'direct') {
+            $leaf['negation'] = $mode === 'negated cohort leaf';
+            $cohorts['1'] = ['type' => 'AND', 'values' => [$leaf]];
+            $condition = ['key' => 'id', 'type' => 'cohort', 'value' => '1'];
+        }
+        $this->makeClient(
+            personalApiKey: 'test-personal-key',
+            flagsEndpointResponse: [
+                'flags' => ['regex-flag' => ['enabled' => true, 'variant' => 'remote-value']],
+            ],
+            localEvaluationResponse: [
+                'flags' => [[
+                    'id' => 1,
+                    'key' => 'regex-flag',
+                    'active' => true,
+                    'filters' => ['groups' => [['properties' => [$condition], 'rollout_percentage' => 100]]],
+                ]],
+                'group_type_mapping' => [],
+                'cohorts' => $cohorts,
+            ],
+        );
+        $expected = $operator === 'regex' ? $matched : !$matched;
+        if ($mode === 'negated cohort leaf') {
+            $expected = !$expected;
+        }
+        $snapshot = $this->client->evaluateFlags('user-1', personProperties: $properties);
+        $this->assertSame($fallback ? 'remote-value' : $expected, $snapshot->getFlag('regex-flag'));
+        $this->assertSame($fallback ? 1 : 0, $this->flagsRequestCount());
+
+        $localSnapshot = $this->client->evaluateFlags(
+            'user-1',
+            personProperties: $properties,
+            onlyEvaluateLocally: true
+        );
+        $this->assertSame($fallback ? [] : ['regex-flag'], $localSnapshot->getKeys());
+        $this->assertSame($fallback ? 1 : 0, $this->flagsRequestCount());
+    }
+
+    public static function regexCompatibilityFallbackProvider(): iterable
+    {
+        $cases = [
+            'unbounded lookbehind' => ['(?<=a+)b', ['k' => 'aab'], true, true],
+            'POSIX class' => ['^[[:alpha:]]+$', ['k' => 'é'], true, false],
+            'set intersection' => ['^[a-z&&[^aeiou]]+$', ['k' => 'bcdf'], true, true],
+            'word boundary budget' => ['.*\\bbot\\b.*', ['k' => str_repeat('a', 140)], true, false],
+            'execution failure' => ['x', ['k' => "\xff"], true, false],
+            'missing property control' => ['x', [], true, false],
+            'final newline' => ['^foo$', ['k' => "foo\n"], false, false],
+            'portable match control' => ['^pro$', ['k' => 'pro'], false, true],
+            'portable mismatch control' => ['^pro$', ['k' => 'free'], false, false],
+            'Unicode scalar control' => ['^.$', ['k' => '😀'], false, true],
+        ];
+        foreach (['\\w', '\\W', '[\\w]', '[\\W]', '[^\\w]', '[^\\W]'] as $atom) {
+            foreach (["\u{200C}", "\u{200D}", "\u{0903}", "\u{20DD}", "\u{00B2}", "\u{24B6}"] as $index => $input) {
+                $cases["uncertain word class $atom $index"] = ['^' . $atom . '$', ['k' => $input], true, false];
+            }
+        }
+        foreach (['\\w' => true, '\\W' => false, '[\\w]' => true, '[^\\w]' => false] as $atom => $matched) {
+            foreach (['a_1', 'éα', '١𝟙'] as $index => $input) {
+                $cases["safe word class $atom $index"] = ['^' . $atom . '+$', ['k' => $input], false, $matched];
+            }
+        }
+        $cases['join control without word class'] = ['^.$', ['k' => "\u{200C}"], false, true];
+        $cases['escaped word marker'] = ['^\\\\w.$', ['k' => "\\w\u{200C}"], false, true];
+        foreach (['regex', 'not_regex'] as $operator) {
+            foreach (['direct', 'cohort', 'negated cohort leaf'] as $mode) {
+                foreach ($cases as $name => $case) {
+                    yield "$operator $mode $name" => [$operator, $mode, ...$case];
+                }
+            }
+        }
+    }
+
     public function testLocalEvaluationResolvesPayloads(): void
     {
         // Local definitions carry `filters.payloads`, keyed by "true" for boolean flags and by
