@@ -113,14 +113,15 @@ class Socket extends QueueConsumer
      */
     private function makeRequest($socket, $req, $retry = true)
     {
-        $bytes_written = 0;
         $bytes_total = strlen($req);
-        $closed = false;
 
         // Retries with exponential backoff until success
         $backoff = 100;   // Set initial waiting time to 100ms
 
         while (true) {
+            $bytes_written = 0;
+            $closed = false;
+
             // Send request to server
             while (!$closed && $bytes_written < $bytes_total) {
                 try {
@@ -173,6 +174,9 @@ class Socket extends QueueConsumer
             // Retry uploading...
             $backoff *= 2;
             $socket = $this->createSocket();
+            if (!$socket) {
+                return false;
+            }
         }
 
         return false;
