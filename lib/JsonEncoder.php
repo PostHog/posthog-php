@@ -13,8 +13,11 @@ use UnitEnum;
  */
 final class JsonEncoder implements JsonSerializable
 {
-    private function __construct(private mixed $value, private int $depth)
-    {
+    private function __construct(
+        private mixed $value,
+        private int $depth,
+        private int $serializerHops
+    ) {
     }
 
     public static function encode(mixed $value): string|false
@@ -22,14 +25,14 @@ final class JsonEncoder implements JsonSerializable
         return json_encode(self::prepare($value, 0));
     }
 
-    private static function prepare(mixed $value, int $depth): mixed
+    private static function prepare(mixed $value, int $depth, int $serializerHops = 0): mixed
     {
         if (is_float($value) && !is_finite($value)) {
             return null;
         }
 
         if (is_array($value) || (is_object($value) && !$value instanceof UnitEnum)) {
-            return $depth < 512 ? new self($value, $depth) : $value;
+            return $depth < 512 && $serializerHops < 512 ? new self($value, $depth, $serializerHops) : $value;
         }
 
         return $value;
@@ -41,11 +44,11 @@ final class JsonEncoder implements JsonSerializable
         if ($value instanceof JsonSerializable) {
             $serialized = $value->jsonSerialize();
             if ($serialized !== $value) {
-                return self::prepare($serialized, $this->depth);
+                return self::prepare($serialized, $this->depth, $this->serializerHops + 1);
             }
         }
 
-        // Leave over-depth input to json_encode so recursive arrays and objects still fail safely.
+        // Container depth and serializer hops are bounded before handing recursive input to json_encode.
         if (is_array($value)) {
             $result = [];
             foreach ($value as $key => $item) {

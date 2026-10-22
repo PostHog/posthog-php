@@ -62,6 +62,23 @@ class JsonEncoderTest extends TestCase
         $array['again'] = &$array;
         $object = new stdClass();
         $object->self = $object;
+        $first = new class implements JsonSerializable {
+            public object $next;
+
+            public function jsonSerialize(): mixed
+            {
+                return $this->next;
+            }
+        };
+        $second = clone $first;
+        $first->next = $second;
+        $second->next = $first;
+        if (json_encode($first) !== false || json_last_error() !== JSON_ERROR_RECURSION) {
+            exit(2);
+        }
+        if (PostHog\JsonEncoder::encode($first) !== false || json_last_error() !== JSON_ERROR_RECURSION) {
+            exit(3);
+        }
         $deep = ['number' => INF];
         for ($i = 0; $i < 513; ++$i) {
             $deep = [$deep];
