@@ -80,3 +80,7 @@ posthog-php@4.16.3:
     - olive-vans-throw
     - twenty-clocks-smash
     - wet-rings-notice
+posthog-php@4.17.0:
+  dir: ""
+  intents:
+    - local-flag-holdouts
