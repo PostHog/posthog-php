@@ -383,7 +383,7 @@ class FeatureFlagHoldoutTest extends TestCase
         return self::checkoutBanner([['key' => 'id', 'type' => 'cohort', 'value' => 42]]);
     }
 
-    private static function matchBannerAgainstHoldoutCohort(array $banner)
+    private static function matchBannerAgainstHoldoutCohort(array $banner, ?array $cohorts = null)
     {
         $checkout = self::groupCheckout(['id' => 727, 'exclusion_percentage' => 20]);
         $cache = [];
@@ -392,7 +392,7 @@ class FeatureFlagHoldoutTest extends TestCase
             $banner,
             'user-1',
             [],
-            self::checkoutCohort('holdout-727'),
+            $cohorts ?? self::checkoutCohort('holdout-727'),
             ['checkout' => $checkout, 'checkout-banner' => $banner],
             $cache
         );
@@ -412,6 +412,25 @@ class FeatureFlagHoldoutTest extends TestCase
 
         // The company key "user-1" buckets into the holdout.
         self::assertTrue(self::matchBannerAgainstHoldoutCohort($banner));
+    }
+
+    public function testNestedPropertyGroupInCohortKeepsTheIdentityAggregation(): void
+    {
+        $dependency = self::checkoutDependencyProperty('holdout-727');
+        $cohorts = [42 => ['type' => 'AND', 'values' => [['type' => 'OR', 'values' => [$dependency]]]]];
+
+        $this->expectException(InconclusiveMatchException::class);
+        self::matchBannerAgainstHoldoutCohort(self::bannerTargetingCheckoutCohort(), $cohorts);
+    }
+
+    public function testNestedCohortKeepsTheIdentityAggregation(): void
+    {
+        $cohorts = self::checkoutCohort('holdout-727');
+        $cohorts[43] = $cohorts[42];
+        $cohorts[42] = ['type' => 'AND', 'values' => [['key' => 'id', 'type' => 'cohort', 'value' => 43]]];
+
+        $this->expectException(InconclusiveMatchException::class);
+        self::matchBannerAgainstHoldoutCohort(self::bannerTargetingCheckoutCohort(), $cohorts);
     }
 
     public function testCohortDependencyWithHoldoutAggregatedDifferentlyFallsBackToRemoteEvaluation(): void
