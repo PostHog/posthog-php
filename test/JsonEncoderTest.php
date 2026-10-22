@@ -15,6 +15,8 @@ class JsonEncoderTest extends TestCase
             'reference' => &$number,
             'date' => new \DateTimeImmutable('2024-01-01T00:00:00Z'),
             'arrayObject' => new \ArrayObject(['number' => NAN]),
+            'arrayIterator' => new \ArrayIterator(['number' => INF]),
+            'timezone' => new \DateTimeZone('UTC'),
             'dateSubclass' => new class ('2024-01-01T00:00:00Z') extends \DateTimeImmutable {
                 public string $label = 'kept';
                 private float $hidden = INF;
@@ -28,7 +30,8 @@ class JsonEncoderTest extends TestCase
         ];
         self::assertSame(
             '{"reference":null,"date":{"date":"2024-01-01 00:00:00.000000","timezone_type":2,"timezone":"Z"}'
-            . ',"arrayObject":{"number":null}'
+            . ',"arrayObject":{"number":null},"arrayIterator":{"number":null}'
+            . ',"timezone":{"timezone_type":3,"timezone":"UTC"}'
             . ',"dateSubclass":{"label":"kept","date":"2024-01-01 00:00:00.000000","timezone_type":2,"timezone":"Z"}'
             . ',"arrayObjectSubclass":{"number":null},"emptyObject":{},"emptyArray":[]'
             . ',"sparseArray":{"2":null,"4":"kept"}}',
@@ -67,6 +70,11 @@ class JsonEncoderTest extends TestCase
         return [
             'ordinary class' => [''],
             'stdClass subclass' => [' extends \\stdClass'],
+            'Exception subclass' => [' extends \\Exception'],
+            'Error subclass' => [' extends \\Error'],
+            'SplObjectStorage subclass' => [' extends \\SplObjectStorage'],
+            'ArrayObject with standard properties' => [' extends \\ArrayObject'],
+            'ArrayIterator with standard properties' => [' extends \\ArrayIterator'],
         ];
     }
 
@@ -86,6 +94,9 @@ class JsonEncoderTest extends TestCase
             }
         };
         PHP, $parentDeclaration));
+        if ($object instanceof \ArrayObject || $object instanceof \ArrayIterator) {
+            $object->setFlags(\ArrayObject::STD_PROP_LIST);
+        }
         $native = json_decode(json_encode($object), true, 512, JSON_THROW_ON_ERROR);
         self::assertTrue($native === ['value' => 'filtered', 'virtual' => 'visible']);
         $encoded = json_decode(
@@ -114,6 +125,9 @@ class JsonEncoderTest extends TestCase
             }
         };
         PHP, $parentDeclaration));
+        if ($object instanceof \ArrayObject || $object instanceof \ArrayIterator) {
+            $object->setFlags(\ArrayObject::STD_PROP_LIST);
+        }
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('unsupported getter');
         JsonEncoder::encode($object);
@@ -143,6 +157,43 @@ class JsonEncoderTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('unsupported serialization');
         JsonEncoder::encode($value);
+    }
+
+    public function testTemporarySerializedObjectsFitWithinMemoryLimit(): void
+    {
+        $code = <<<'PHP'
+        require $argv[1];
+        $event = new class implements JsonSerializable {
+            public function jsonSerialize(): mixed
+            {
+                $items = [];
+                for ($i = 0; $i < 1000; ++$i) {
+                    $items[] = (object) ['value' => $i];
+                }
+                return $items;
+            }
+        };
+        $batch = array_fill(0, 100, $event);
+        $native = json_encode($batch);
+        if ($native === false || PostHog\JsonEncoder::encode($batch) !== $native) {
+            exit(1);
+        }
+        echo 'encoded';
+        PHP;
+        $process = proc_open(
+            [PHP_BINARY, '-d', 'memory_limit=64M', '-d', 'max_execution_time=10', '-r', $code,
+                __DIR__ . '/../vendor/autoload.php'],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        self::assertIsResource($process);
+        fclose($pipes[0]);
+        $output = stream_get_contents($pipes[1]);
+        $errors = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        self::assertSame(0, proc_close($process), $errors);
+        self::assertSame('encoded', $output);
     }
 
     public function testRecursiveAndOverDepthInputFailsInBoundedSubprocess(): void

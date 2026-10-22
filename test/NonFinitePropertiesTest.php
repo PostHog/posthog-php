@@ -108,13 +108,22 @@ class NonFinitePropertiesTest extends TestCase
         }
     }
 
-    public function testCapturePreservesStdClassSubclassPropertyHooks(): void
+    public static function propertyHookParents(): array
+    {
+        return [
+            'stdClass subclass' => ['stdClass'],
+            'Exception subclass' => ['Exception'],
+        ];
+    }
+
+    #[DataProvider('propertyHookParents')]
+    public function testCapturePreservesSubclassPropertyHooks(string $parent): void
     {
         if (PHP_VERSION_ID < 80400) {
             self::markTestSkipped('Property hooks require PHP 8.4.');
         }
-        $object = eval(<<<'PHP'
-        return new class extends stdClass {
+        $object = eval(sprintf(<<<'PHP'
+        return new class extends %s {
             public string $value = 'private fixture' {
                 get => $this->value === '' ? '' : 'filtered';
             }
@@ -123,7 +132,7 @@ class NonFinitePropertiesTest extends TestCase
             }
             public float $finite = 2.5;
         };
-        PHP);
+        PHP, $parent));
         $expected = ['value' => 'filtered', 'virtual' => 'visible', 'finite' => 2.5];
         self::assertTrue(json_decode(json_encode($object), true, 512, JSON_THROW_ON_ERROR) === $expected);
         $httpClient = new MockedHttpClient('unused.invalid');

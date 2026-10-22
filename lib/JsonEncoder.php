@@ -2,13 +2,16 @@
 
 namespace PostHog;
 
+use ArrayIterator;
 use ArrayObject;
 use Closure;
+use DateTimeInterface;
+use DateTimeZone;
 use JsonSerializable;
-use ReflectionClass;
 use ReflectionReference;
 use stdClass;
 use UnitEnum;
+use WeakReference;
 
 /**
  * Encodes event payloads with non-finite numbers represented as null.
@@ -51,14 +54,17 @@ final class JsonEncoder implements JsonSerializable
         ) {
             $identity = is_object($value) ? 'object:' . spl_object_id($value) : $referenceId;
             if ($identity !== null && isset($wrappers[$identity])) {
-                return $wrappers[$identity];
+                $wrapper = $wrappers[$identity]->get();
+                if ($wrapper !== null) {
+                    return $wrapper;
+                }
             }
             if ($depth >= 512) {
                 return $value;
             }
             $wrapper = new self($value, $depth, $wrappers);
             if ($identity !== null) {
-                $wrappers[$identity] = $wrapper;
+                $wrappers[$identity] = WeakReference::create($wrapper);
             }
             return $wrapper;
         }
@@ -86,13 +92,12 @@ final class JsonEncoder implements JsonSerializable
             }
         } else {
             $result = new stdClass();
-            $class = new ReflectionClass($value);
-            while (!$class->isInternal() && ($parent = $class->getParentClass()) !== false) {
-                $class = $parent;
-            }
-            $properties = $class->isInternal() && $class->getName() !== stdClass::class
-                ? (array) $value
-                : get_object_vars($value);
+            // These native JSON handlers expose storage rather than the standard public property view.
+            $usesStorage = $value instanceof DateTimeInterface
+                || $value instanceof DateTimeZone
+                || (($value instanceof ArrayObject || $value instanceof ArrayIterator)
+                    && !($value->getFlags() & ArrayObject::STD_PROP_LIST));
+            $properties = $usesStorage ? (array) $value : get_object_vars($value);
             foreach ($properties as $key => $item) {
                 if (!str_starts_with((string) $key, "\0")) {
                     $result->{(string) $key} = self::prepare($item, $this->depth + 1, $this->wrappers);
