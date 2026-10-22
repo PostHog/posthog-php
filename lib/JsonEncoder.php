@@ -43,7 +43,11 @@ final class JsonEncoder implements JsonSerializable
             return null;
         }
 
-        if (is_array($value) || (is_object($value) && !$value instanceof UnitEnum)) {
+        if (
+            is_array($value)
+            || $value instanceof JsonSerializable
+            || (is_object($value) && !$value instanceof UnitEnum)
+        ) {
             $identity = is_object($value) ? 'object:' . spl_object_id($value) : $referenceId;
             if ($identity !== null && isset($wrappers[$identity])) {
                 return $wrappers[$identity];
@@ -87,7 +91,7 @@ final class JsonEncoder implements JsonSerializable
             }
             $properties = $class->isInternal() ? (array) $value : get_object_vars($value);
             foreach ($properties as $key => $item) {
-                if (!str_contains((string) $key, "\0")) {
+                if (!str_starts_with((string) $key, "\0")) {
                     $result->{(string) $key} = self::prepare($item, $this->depth + 1, $this->wrappers);
                 }
             }

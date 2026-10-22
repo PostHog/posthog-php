@@ -16,6 +16,7 @@ class JsonEncoderTest extends TestCase
             'arrayObject' => new \ArrayObject(['number' => NAN]),
             'dateSubclass' => new class ('2024-01-01T00:00:00Z') extends \DateTimeImmutable {
                 public string $label = 'kept';
+                private float $hidden = INF;
             },
             'arrayObjectSubclass' => new class (['number' => INF]) extends \ArrayObject {
                 public string $ignored = 'ignored';
@@ -33,6 +34,16 @@ class JsonEncoderTest extends TestCase
             JsonEncoder::encode($input)
         );
         self::assertSame(INF, $number);
+    }
+
+    public function testPreservesPublicPropertyNamesContainingEmbeddedNullBytes(): void
+    {
+        $object = (object) ["a\0b" => 1];
+        $expected = '{"a\u0000b":1}';
+
+        self::assertSame($expected, json_encode($object));
+        self::assertSame($expected, JsonEncoder::encode($object));
+        self::assertSame(1, $object->{"a\0b"});
     }
 
     public function testPropertyHooksControlTheSerializedPublicView(): void

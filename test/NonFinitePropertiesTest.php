@@ -20,6 +20,47 @@ class NonFinitePropertiesTest extends TestCase
         ];
     }
 
+    public static function serializableEnums(): array
+    {
+        return [
+            'NaN' => [NonFiniteJsonSerializableEnum::NotANumber],
+            'positive infinity' => [NonFiniteJsonSerializableEnum::PositiveInfinity],
+            'negative infinity' => [NonFiniteJsonSerializableEnum::NegativeInfinity],
+        ];
+    }
+
+    #[DataProvider('serializableEnums')]
+    public function testCaptureNormalizesNonFiniteJsonSerializableEnums(NonFiniteJsonSerializableEnum $enum): void
+    {
+        $httpClient = new MockedHttpClient('unused.invalid');
+        $client = new Client('test-key', [
+            'batch_size' => 10,
+            'flush_interval_seconds' => 3600,
+        ], $httpClient);
+        $properties = ['enum' => $enum, 'enabled' => false];
+        try {
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'enum-event', 'properties' => $properties,
+            ]));
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'neighbor', 'properties' => ['finite' => 7],
+            ]));
+            self::assertTrue($client->flush());
+            self::assertCount(1, $httpClient->calls);
+            $payload = json_decode($httpClient->calls[0]['payload'], true, 512, JSON_THROW_ON_ERROR);
+            self::assertSame(['enum-event', 'neighbor'], array_column($payload['batch'], 'event'));
+            self::assertSame(
+                ['number' => null, 'finite' => 2.5, 'literal' => 'NaN'],
+                $payload['batch'][0]['properties']['enum']
+            );
+            self::assertFalse($payload['batch'][0]['properties']['enabled']);
+            self::assertSame(7, $payload['batch'][1]['properties']['finite']);
+            self::assertSame(['enum' => $enum, 'enabled' => false], $properties);
+        } finally {
+            $client->shutdown();
+        }
+    }
+
     #[DataProvider('nonFiniteValues')]
     public function testCaptureSerializesNonFinitePropertiesAsNull(string $consumer, float $number): void
     {
