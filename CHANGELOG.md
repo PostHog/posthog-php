@@ -1,3 +1,9 @@
+## 4.17.0
+
+### Minor Changes
+
+- Honor experiment holdouts when evaluating feature flags locally, so a held-out identifier resolves to `holdout-<id>` instead of an ordinary variant.
+
 ## 4.16.3
 
 ### Patch Changes
