@@ -10,6 +10,7 @@ use DateTimeImmutable;
 use DateTimeInterface;
 use DateTimeZone;
 use JsonSerializable;
+use ReflectionClass;
 use ReflectionMethod;
 use ReflectionReference;
 use SplObjectStorage;
@@ -24,20 +25,24 @@ use WeakReference;
  */
 final class JsonEncoder implements JsonSerializable
 {
+    private const MAX_PREPARE_STEPS = 1000000;
+
     private function __construct(
         private mixed $value,
         private int $depth,
         private ArrayObject $wrappers,
         private bool $plainData,
-        private ?string $readReferenceId = null
+        private ?string $readReferenceId = null,
+        private ?string $readProperty = null
     ) {
     }
 
     public static function encode(mixed $value): string|false
     {
-        $wrappers = new ArrayObject();
+        $wrappers = new ArrayObject(['remaining' => self::MAX_PREPARE_STEPS]);
         try {
-            $plainData = self::isPlainData($value, 0, new SplObjectStorage());
+            $remaining = self::MAX_PREPARE_STEPS;
+            $plainData = self::isPlainData($value, 0, new SplObjectStorage(), $remaining);
             return json_encode(self::prepare($value, 0, $wrappers, $plainData));
         } finally {
             $wrappers->exchangeArray([]);
@@ -46,9 +51,14 @@ final class JsonEncoder implements JsonSerializable
 
     // Original objects are safe to reuse only when no callback can mutate a later sibling.
     // References and unknown/callback-capable types conservatively retain deferred preparation.
-    private static function isPlainData(mixed $value, int $depth, SplObjectStorage $active): bool
-    {
-        if ($depth >= 512) {
+    private static function isPlainData(
+        mixed $value,
+        int $depth,
+        SplObjectStorage $active,
+        int &$remaining
+    ): bool {
+        // Bounded lookahead must yield to native encoding before expanding a shared graph.
+        if (--$remaining < 0 || $depth >= 512) {
             return false;
         }
         if (is_object($value)) {
@@ -63,7 +73,7 @@ final class JsonEncoder implements JsonSerializable
             }
             $active[$value] = true;
             try {
-                return self::isPlainData(self::nativeProperties($value), $depth + 1, $active);
+                return self::isPlainData(self::nativeProperties($value), $depth + 1, $active, $remaining);
             } finally {
                 unset($active[$value]);
             }
@@ -73,7 +83,7 @@ final class JsonEncoder implements JsonSerializable
                 if (
                     ReflectionReference::fromArrayElement($value, $key) !== null
                     || (is_string($key) && str_starts_with($key, "\0"))
-                    || !self::isPlainData($item, $depth + 1, $active)
+                    || !self::isPlainData($item, $depth + 1, $active, $remaining)
                 ) {
                     return false;
                 }
@@ -100,7 +110,8 @@ final class JsonEncoder implements JsonSerializable
             return $value;
         }
 
-        if (is_array($value) && $referenceId === null) {
+        $eager = $wrappers['remaining']-- > 0;
+        if ($eager && is_array($value) && $referenceId === null) {
             $hasReferences = false;
             foreach ($value as $key => $item) {
                 if (ReflectionReference::fromArrayElement($value, $key) !== null) {
@@ -112,7 +123,7 @@ final class JsonEncoder implements JsonSerializable
                 return self::prepareArray($value, $depth, $wrappers, $plainData, $changed);
             }
         }
-        if ($plainData && is_object($value) && get_class($value) === stdClass::class) {
+        if ($eager && $plainData && is_object($value) && get_class($value) === stdClass::class) {
             $properties = self::prepareArray(get_object_vars($value), $depth, $wrappers, true, $changed);
             return $changed ? (object) $properties : $value;
         }
@@ -197,11 +208,36 @@ final class JsonEncoder implements JsonSerializable
 
     private static function nativeProperties(object $value): array
     {
-        $usesStorage = $value instanceof DateTimeInterface
+        return self::usesStorage($value) ? (array) $value : get_object_vars($value);
+    }
+
+    private static function livePropertyNames(object $value): array
+    {
+        if (self::usesStorage($value)) {
+            return [];
+        }
+        $names = [];
+        $class = new ReflectionClass($value);
+        do {
+            foreach ($class->getProperties() as $property) {
+                // Native encoding snapshots all property hooks before invoking child serializers.
+                if (PHP_VERSION_ID >= 80400 && $property->hasHooks()) {
+                    return [];
+                }
+                if ($property->isPublic() && !$property->isStatic()) {
+                    $names[$property->getName()] = true;
+                }
+            }
+        } while (($class = $class->getParentClass()) !== false);
+        return $names;
+    }
+
+    private static function usesStorage(object $value): bool
+    {
+        return $value instanceof DateTimeInterface
             || $value instanceof DateTimeZone
             || (($value instanceof ArrayObject || $value instanceof ArrayIterator)
                 && !(self::nativeArrayFlags($value) & ArrayObject::STD_PROP_LIST));
-        return $usesStorage ? (array) $value : get_object_vars($value);
     }
 
     private static function nativeArrayFlags(ArrayObject|ArrayIterator $value): int
@@ -212,6 +248,14 @@ final class JsonEncoder implements JsonSerializable
 
     public function jsonSerialize(): mixed
     {
+        if ($this->readProperty !== null) {
+            return self::prepare(
+                $this->value->{$this->readProperty},
+                $this->depth,
+                $this->wrappers,
+                $this->plainData
+            );
+        }
         if ($this->readReferenceId !== null) {
             return self::prepare(
                 $this->value,
@@ -248,8 +292,20 @@ final class JsonEncoder implements JsonSerializable
         } else {
             $result = new stdClass();
             $properties = self::nativeProperties($value);
+            $liveProperties = self::livePropertyNames($value);
             foreach ($properties as $key => $item) {
                 if (!str_starts_with((string) $key, "\0")) {
+                    if (isset($liveProperties[$key])) {
+                        $result->{(string) $key} = new self(
+                            $value,
+                            $this->depth + 1,
+                            $this->wrappers,
+                            $this->plainData,
+                            null,
+                            (string) $key
+                        );
+                        continue;
+                    }
                     $reference = ReflectionReference::fromArrayElement($properties, $key);
                     $result->{(string) $key} = $reference !== null
                         ? self::prepareReference(

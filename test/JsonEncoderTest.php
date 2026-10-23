@@ -149,6 +149,60 @@ class JsonEncoderTest extends TestCase
         self::assertSame(1, $calls->count);
     }
 
+    public static function declaredPropertyChanges(): array
+    {
+        return [
+            'ordinary class redaction' => ['', 'redacted'],
+            'stdClass subclass redaction' => [' extends \\stdClass', 'redacted'],
+            'Exception subclass redaction' => [' extends \\Exception', 'redacted'],
+            'ordinary class non-finite update' => ['', NAN],
+        ];
+    }
+
+    #[DataProvider('declaredPropertyChanges')]
+    public function testDeclaredPropertyIsReadAfterEarlierSerializer(string $parent, mixed $next): void
+    {
+        $make = static function () use ($parent, $next): object {
+            $object = eval(sprintf(<<<'PHP'
+            return new class%s {
+                public mixed $mutator;
+                public mixed $value = 'secret';
+            };
+            PHP, $parent));
+            $object->mutator = new class ($object, $next) implements \JsonSerializable {
+                public int $calls = 0;
+
+                public function __construct(private object $parent, private mixed $next)
+                {
+                }
+
+                public function jsonSerialize(): mixed
+                {
+                    ++$this->calls;
+                    $this->parent->value = $this->next;
+                    return 'done';
+                }
+            };
+            return $object;
+        };
+        $native = json_encode($make());
+        if (is_float($next)) {
+            self::assertFalse($native);
+            self::assertSame(JSON_ERROR_INF_OR_NAN, json_last_error());
+            $expected = '{"mutator":"done","value":null}';
+        } else {
+            $expected = '{"mutator":"done","value":"redacted"}';
+            self::assertSame($expected, $native);
+        }
+        $object = $make();
+        self::assertTrue(
+            JsonEncoder::encode($object) === $expected,
+            'Declared properties must be read after earlier serializers have run.'
+        );
+        self::assertSame(1, $object->mutator->calls);
+        self::assertNull(\ReflectionReference::fromArrayElement((array) $object, 'value'));
+    }
+
     public static function referencedScalarChanges(): array
     {
         $changes = [
@@ -540,6 +594,38 @@ class JsonEncoderTest extends TestCase
         fclose($pipes[2]);
         self::assertSame(0, proc_close($process), $errors);
         self::assertSame('encoded', $output);
+    }
+
+    public function testSharedInvalidArrayGraphIsRejectedWithoutEagerExpansion(): void
+    {
+        $code = <<<'PHP'
+        require $argv[1];
+        $value = ["\xB1"];
+        for ($i = 0; $i < 24; ++$i) {
+            $value = [$value, $value];
+        }
+        if (json_encode($value) !== false || json_last_error() !== JSON_ERROR_UTF8) {
+            exit(1);
+        }
+        if (PostHog\JsonEncoder::encode($value) !== false || json_last_error() !== JSON_ERROR_UTF8) {
+            exit(2);
+        }
+        echo 'rejected';
+        PHP;
+        $process = proc_open(
+            [PHP_BINARY, '-d', 'memory_limit=32M', '-d', 'max_execution_time=2', '-r', $code,
+                __DIR__ . '/../vendor/autoload.php'],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        self::assertIsResource($process);
+        fclose($pipes[0]);
+        $output = stream_get_contents($pipes[1]);
+        $errors = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        self::assertSame(0, proc_close($process), $errors);
+        self::assertSame('rejected', $output);
     }
 
     public function testRecursiveAndOverDepthInputFailsInBoundedSubprocess(): void
