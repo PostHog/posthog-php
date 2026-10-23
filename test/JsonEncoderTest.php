@@ -203,6 +203,63 @@ class JsonEncoderTest extends TestCase
         self::assertNull(\ReflectionReference::fromArrayElement((array) $object, 'value'));
     }
 
+    public static function declaredPropertyPresenceChanges(): array
+    {
+        return [
+            'remove' => [false, false],
+            'remove with magic getter' => [false, true],
+            'initialize' => [true, false],
+            'initialize with magic getter' => [true, true],
+        ];
+    }
+
+    #[DataProvider('declaredPropertyPresenceChanges')]
+    public function testDeclaredPropertyPresenceMatchesNativeEncoding(bool $initialize, bool $magic): void
+    {
+        $make = static function () use ($initialize, $magic): object {
+            $getter = $magic
+                ? 'public function __get(string $name): mixed { throw new LogicException("magic read"); }'
+                : '';
+            $object = eval(sprintf(<<<'PHP'
+            return new class {
+                public mixed $mutator;
+                public string $value;
+                public int $after = 7;
+                %s
+            };
+            PHP, $getter));
+            if (!$initialize) {
+                $object->value = 'before';
+            }
+            $object->mutator = new class ($object, $initialize) implements \JsonSerializable {
+                public int $calls = 0;
+
+                public function __construct(private object $parent, private bool $initialize)
+                {
+                }
+
+                public function jsonSerialize(): mixed
+                {
+                    ++$this->calls;
+                    if ($this->initialize) {
+                        $this->parent->value = 'ready';
+                    } else {
+                        unset($this->parent->value);
+                    }
+                    return 'done';
+                }
+            };
+            return $object;
+        };
+        $expected = $initialize
+            ? '{"mutator":"done","value":"ready","after":7}'
+            : '{"mutator":"done","after":7}';
+        self::assertSame($expected, json_encode($make()));
+        $object = $make();
+        self::assertSame($expected, JsonEncoder::encode($object));
+        self::assertSame(1, $object->mutator->calls);
+    }
+
     public static function referencedScalarChanges(): array
     {
         $changes = [
@@ -367,6 +424,30 @@ class JsonEncoderTest extends TestCase
         self::assertSame([-INF, 0], $object->items);
     }
 
+    public function testInheritedNativePublicPropertiesKeepTheirWireOrder(): void
+    {
+        if (!class_exists(\PDOException::class)) {
+            self::markTestSkipped('PDOException requires the PDO extension.');
+        }
+        $value = new class extends \PDOException {
+            public string $value = 'kept';
+        };
+        $value->errorInfo = ['HY000'];
+        $expected = '{"errorInfo":["HY000"],"value":"kept"}';
+        self::assertSame($expected, json_encode($value));
+        self::assertSame($expected, JsonEncoder::encode($value));
+    }
+
+    public function testNativeVirtualPropertyHandlersArePreserved(): void
+    {
+        if (!class_exists(\BcMath\Number::class)) {
+            self::markTestSkipped('BcMath Number requires PHP 8.4 and the bcmath extension.');
+        }
+        $value = new \BcMath\Number('1.23');
+        self::assertSame('{"value":"1.23","scale":2}', json_encode($value));
+        self::assertSame(json_encode($value), JsonEncoder::encode($value));
+    }
+
     public function testClosuresKeepTheirNativeEmptyObjectRepresentation(): void
     {
         $invoked = false;
@@ -470,6 +551,90 @@ class JsonEncoderTest extends TestCase
         JsonEncoder::encode($object);
     }
 
+    public function testHookedPropertyIsReadAfterEarlierSerializer(): void
+    {
+        if (PHP_VERSION_ID < 80400) {
+            self::markTestSkipped('Property hooks require PHP 8.4.');
+        }
+        $make = static function (): object {
+            $object = eval(<<<'PHP'
+            return new class {
+                public mixed $mutator;
+                public string $value = 'before' {
+                    get => strtoupper($this->value);
+                }
+            };
+            PHP);
+            $object->mutator = new class ($object) implements \JsonSerializable {
+                public function __construct(private object $parent)
+                {
+                }
+
+                public function jsonSerialize(): mixed
+                {
+                    $this->parent->value = 'after';
+                    return 'done';
+                }
+            };
+            return $object;
+        };
+        $expected = '{"mutator":"done","value":"AFTER"}';
+        self::assertSame($expected, json_encode($make()));
+        $object = $make();
+        self::assertSame($expected, JsonEncoder::encode($object));
+        self::assertSame('AFTER', $object->value);
+    }
+
+    public function testScalarEncodingDoesNotResetErrorStateSeenByCallbacks(): void
+    {
+        $serializer = new class implements \JsonSerializable {
+            public function jsonSerialize(): mixed
+            {
+                return json_last_error();
+            }
+        };
+        json_decode('{');
+        $expected = json_encode(['serializer' => $serializer]);
+        json_decode('{');
+        self::assertSame($expected, JsonEncoder::encode(['serializer' => $serializer]));
+        self::assertSame(JSON_ERROR_NONE, json_last_error());
+    }
+
+    public function testMalformedKeysRetainErrorsAndNativeCallbackOrdering(): void
+    {
+        $serializer = new class implements \JsonSerializable {
+            public int $calls = 0;
+
+            public function jsonSerialize(): mixed
+            {
+                ++$this->calls;
+                return 7;
+            }
+        };
+        self::assertFalse(json_encode(["\xB1" => $serializer]));
+        self::assertSame(JSON_ERROR_UTF8, json_last_error());
+        self::assertSame(1, $serializer->calls);
+        self::assertFalse(JsonEncoder::encode(["\xB1" => $serializer]));
+        self::assertSame(JSON_ERROR_UTF8, json_last_error());
+        self::assertSame(2, $serializer->calls);
+        self::assertSame('7', JsonEncoder::encode(7));
+        self::assertSame(JSON_ERROR_NONE, json_last_error());
+    }
+
+    public function testDepthBoundariesMatchNativeErrors(): void
+    {
+        foreach ([511, 512, 513] as $depth) {
+            $value = 0;
+            for ($i = 0; $i < $depth; ++$i) {
+                $value = [$value];
+            }
+            $expected = json_encode($value);
+            $error = json_last_error();
+            self::assertSame($expected, JsonEncoder::encode($value));
+            self::assertSame($error, json_last_error());
+        }
+    }
+
     public function testUnsupportedValuesStillFailEncoding(): void
     {
         $resource = fopen('php://memory', 'r');
@@ -493,6 +658,19 @@ class JsonEncoderTest extends TestCase
         };
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('unsupported serialization');
+        JsonEncoder::encode($value);
+    }
+
+    public function testUserJsonExceptionsAreNotConvertedIntoEncodingFailures(): void
+    {
+        $value = new class implements \JsonSerializable {
+            public function jsonSerialize(): mixed
+            {
+                throw new \JsonException('user serialization exception');
+            }
+        };
+        $this->expectException(\JsonException::class);
+        $this->expectExceptionMessage('user serialization exception');
         JsonEncoder::encode($value);
     }
 
@@ -557,6 +735,33 @@ class JsonEncoderTest extends TestCase
         fclose($pipes[1]);
         fclose($pipes[2]);
         return ['exit' => proc_close($process), 'stdout' => $output, 'stderr' => $errors];
+    }
+
+    public static function largePayloadShapes(): array
+    {
+        return ['sibling allocation' => ['siblings', 10], 'reference traversal' => ['references', 5]];
+    }
+
+    #[DataProvider('largePayloadShapes')]
+    public function testLargePayloadEncodingMatchesNativeWithinResourceLimits(string $shape, int $seconds): void
+    {
+        $outputs = [];
+        foreach (['native', 'sdk'] as $mode) {
+            $process = proc_open(
+                [PHP_BINARY, '-d', 'memory_limit=128M', '-d', 'max_execution_time=' . $seconds,
+                    __DIR__ . '/fixtures/json-encoder-scale.php', __DIR__ . '/../vendor/autoload.php', $shape, $mode],
+                [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes
+            );
+            self::assertIsResource($process);
+            fclose($pipes[0]);
+            $outputs[$mode] = stream_get_contents($pipes[1]);
+            $errors = stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            self::assertSame(0, proc_close($process), $mode . ': ' . $errors);
+        }
+        self::assertSame($outputs['native'], $outputs['sdk']);
     }
 
     public function testTemporarySerializedObjectsFitWithinMemoryLimit(): void

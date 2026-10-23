@@ -3409,9 +3409,7 @@
             "final": true,
             "readonly": false,
             "extends": null,
-            "implements": [
-                "JsonSerializable"
-            ],
+            "implements": [],
             "constants": [],
             "properties": [],
             "methods": {
@@ -3432,13 +3430,6 @@
                             "hasDefault": false
                         }
                     ]
-                },
-                "jsonSerialize": {
-                    "static": false,
-                    "abstract": false,
-                    "final": false,
-                    "returnType": "mixed",
-                    "parameters": []
                 }
             }
         },
