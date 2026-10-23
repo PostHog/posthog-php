@@ -596,6 +596,25 @@ class JsonEncoderTest extends TestCase
         self::assertSame('encoded', $output);
     }
 
+    public function testInvalidUtf8DoesNotChangeSerializerInvocationOrder(): void
+    {
+        $serializer = new class implements \JsonSerializable {
+            public int $calls = 0;
+
+            public function jsonSerialize(): mixed
+            {
+                ++$this->calls;
+                return 'kept';
+            }
+        };
+        self::assertFalse(JsonEncoder::encode(['invalid' => "\xB1", 'serializer' => $serializer]));
+        self::assertSame(JSON_ERROR_UTF8, json_last_error());
+        self::assertSame(0, $serializer->calls);
+        self::assertFalse(JsonEncoder::encode(['serializer' => $serializer, 'invalid' => "\xB1"]));
+        self::assertSame(JSON_ERROR_UTF8, json_last_error());
+        self::assertSame(1, $serializer->calls);
+    }
+
     public function testSharedInvalidArrayGraphIsRejectedWithoutEagerExpansion(): void
     {
         $code = <<<'PHP'

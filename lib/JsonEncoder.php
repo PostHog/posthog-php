@@ -43,6 +43,9 @@ final class JsonEncoder implements JsonSerializable
         try {
             $remaining = self::MAX_PREPARE_STEPS;
             $plainData = self::isPlainData($value, 0, new SplObjectStorage(), $remaining);
+            if ($plainData === null) {
+                return false;
+            }
             return json_encode(self::prepare($value, 0, $wrappers, $plainData));
         } finally {
             $wrappers->exchangeArray([]);
@@ -56,7 +59,7 @@ final class JsonEncoder implements JsonSerializable
         int $depth,
         SplObjectStorage $active,
         int &$remaining
-    ): bool {
+    ): ?bool {
         // Bounded lookahead must yield to native encoding before expanding a shared graph.
         if (--$remaining < 0 || $depth >= 512) {
             return false;
@@ -83,12 +86,20 @@ final class JsonEncoder implements JsonSerializable
                 if (
                     ReflectionReference::fromArrayElement($value, $key) !== null
                     || (is_string($key) && str_starts_with($key, "\0"))
-                    || !self::isPlainData($item, $depth + 1, $active, $remaining)
                 ) {
                     return false;
                 }
+                $plainData = self::isPlainData($item, $depth + 1, $active, $remaining);
+                if ($plainData !== true) {
+                    return $plainData;
+                }
             }
             return true;
+        }
+        if (is_string($value) && preg_match('//u', $value) !== 1) {
+            // Preserve the native error without expanding a graph that is already invalid.
+            json_encode($value);
+            return null;
         }
         return $value === null || is_scalar($value);
     }
