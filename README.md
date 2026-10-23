@@ -12,6 +12,7 @@ SDK usage examples and code snippets live in the official documentation so they 
 - [PHP library docs](https://posthog.com/docs/libraries/php)
 - [Laravel integration docs](https://posthog.com/docs/libraries/laravel)
 - [Upgrade notes](UPGRADING.md), including GeoIP configuration and compatibility
+- [Event JSON encoding](docs/json-serialization.md), including non-finite repair and native fallback
 
 ## Questions?
 

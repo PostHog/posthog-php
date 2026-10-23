@@ -8,36 +8,42 @@ use PostHog\JsonEncoder;
 
 class JsonEncoderTest extends TestCase
 {
-    public function testSupportedObjectRepresentationsAndReferencesArePreserved(): void
+    public static function supportedObjectModes(): array
     {
-        $number = INF;
+        return ['finite values' => [false], 'original non-finite values' => [true]];
+    }
+
+    #[DataProvider('supportedObjectModes')]
+    public function testSupportedObjectRepresentationsAndReferencesArePreserved(bool $nonFinite): void
+    {
+        $number = $nonFinite ? INF : 2.5;
         $input = [
             'reference' => &$number,
             'date' => new \DateTimeImmutable('2024-01-01T00:00:00Z'),
-            'arrayObject' => new \ArrayObject(['number' => NAN]),
-            'arrayIterator' => new \ArrayIterator(['number' => INF]),
+            'arrayObject' => new \ArrayObject(['number' => $nonFinite ? NAN : $number]),
+            'arrayIterator' => new \ArrayIterator(['number' => $number]),
             'timezone' => new \DateTimeZone('UTC'),
             'dateSubclass' => new class ('2024-01-01T00:00:00Z') extends \DateTimeImmutable {
                 public string $label = 'kept';
                 private float $hidden = INF;
             },
-            'arrayObjectSubclass' => new class (['number' => INF]) extends \ArrayObject {
+            'arrayObjectSubclass' => new class (['number' => $number]) extends \ArrayObject {
                 public string $ignored = 'ignored';
             },
             'emptyObject' => new \stdClass(),
             'emptyArray' => [],
-            'sparseArray' => [2 => INF, 4 => 'kept'],
+            'sparseArray' => [2 => $number, 4 => 'kept'],
         ];
-        self::assertSame(
-            '{"reference":null,"date":{"date":"2024-01-01 00:00:00.000000","timezone_type":2,"timezone":"Z"}'
-            . ',"arrayObject":{"number":null},"arrayIterator":{"number":null}'
-            . ',"timezone":{"timezone_type":3,"timezone":"UTC"}'
-            . ',"dateSubclass":{"label":"kept","date":"2024-01-01 00:00:00.000000","timezone_type":2,"timezone":"Z"}'
-            . ',"arrayObjectSubclass":{"number":null},"emptyObject":{},"emptyArray":[]'
-            . ',"sparseArray":{"2":null,"4":"kept"}}',
-            JsonEncoder::encode($input)
-        );
-        self::assertSame(INF, $number);
+        $expected = json_encode($input);
+        $error = json_last_error();
+        if ($nonFinite) {
+            self::assertFalse($expected);
+        } else {
+            self::assertIsString($expected);
+        }
+        self::assertSame($expected, JsonEncoder::encode($input));
+        self::assertSame($error, json_last_error());
+        self::assertSame($nonFinite ? INF : 2.5, $number);
     }
 
     public static function nativeArrayFlagOverrides(): array
@@ -113,11 +119,14 @@ class JsonEncoderTest extends TestCase
         );
     }
 
-    public function testReferencedNonFiniteArraySlotDoesNotMutateCallerOrReorderList(): void
+    public function testReferencedNonFiniteArraySlotKeepsNativeFailureWithoutMutatingCaller(): void
     {
         $number = INF;
         $input = ['prefix' => 1, 'items' => [0, &$number, 2], 'suffix' => false];
-        self::assertSame('{"prefix":1,"items":[0,null,2],"suffix":false}', JsonEncoder::encode($input));
+        self::assertFalse(json_encode($input));
+        $error = json_last_error();
+        self::assertFalse(JsonEncoder::encode($input));
+        self::assertSame($error, json_last_error());
         self::assertSame(INF, $number);
         self::assertSame([0, INF, 2], $input['items']);
     }
@@ -144,9 +153,14 @@ class JsonEncoderTest extends TestCase
         [$nativeInput, $nativeCalls] = $createInput(4);
         self::assertSame('{"mutator":"done","object":{"number":4}}', json_encode($nativeInput));
         self::assertSame(1, $nativeCalls->count);
+        [$finiteInput, $finiteCalls] = $createInput(4);
+        self::assertSame('{"mutator":"done","object":{"number":4}}', JsonEncoder::encode($finiteInput));
+        self::assertSame(1, $finiteCalls->count);
         [$input, $calls] = $createInput(NAN);
-        self::assertSame('{"mutator":"done","object":{"number":null}}', JsonEncoder::encode($input));
+        self::assertFalse(JsonEncoder::encode($input));
+        self::assertSame(JSON_ERROR_INF_OR_NAN, json_last_error());
         self::assertSame(1, $calls->count);
+        self::assertNan($input['object']->number);
     }
 
     public static function declaredPropertyChanges(): array
@@ -189,7 +203,7 @@ class JsonEncoderTest extends TestCase
         if (is_float($next)) {
             self::assertFalse($native);
             self::assertSame(JSON_ERROR_INF_OR_NAN, json_last_error());
-            $expected = '{"mutator":"done","value":null}';
+            $expected = false;
         } else {
             $expected = '{"mutator":"done","value":"redacted"}';
             self::assertSame($expected, $native);
@@ -264,9 +278,9 @@ class JsonEncoderTest extends TestCase
     {
         $changes = [
             'finite to finite' => [1, 2, '2'],
-            'finite to NaN' => [1, NAN, 'null'],
-            'finite to positive infinity' => [1, INF, 'null'],
-            'finite to negative infinity' => [1, -INF, 'null'],
+            'finite to NaN' => [1, NAN, null],
+            'finite to positive infinity' => [1, INF, null],
+            'finite to negative infinity' => [1, -INF, null],
             'NaN to finite' => [NAN, 2, '2'],
             'positive infinity to finite' => [INF, 2, '2'],
             'negative infinity to finite' => [-INF, 2, '2'],
@@ -285,7 +299,7 @@ class JsonEncoderTest extends TestCase
         string $container,
         int|float $initial,
         int|float $next,
-        string $expectedNumber
+        ?string $expectedNumber
     ): void {
         $encode = static function (bool $native) use ($container, $initial, $next): array {
             $number = $initial;
@@ -347,8 +361,14 @@ class JsonEncoderTest extends TestCase
             self::assertFalse($native);
             self::assertSame(JSON_ERROR_INF_OR_NAN, $error);
         }
-        [$actual] = $encode(false);
-        self::assertSame('{"mutator":null,"n":' . $expectedNumber . ',"after":7}', $actual);
+        [$actual, $actualError] = $encode(false);
+        self::assertSame($native, $actual);
+        self::assertSame($error, $actualError);
+        if ($expectedNumber === null) {
+            self::assertFalse($actual);
+        } else {
+            self::assertSame('{"mutator":null,"n":' . $expectedNumber . ',"after":7}', $actual);
+        }
     }
 
     public function testSharedReferenceIsReadAtEachWirePosition(): void
@@ -399,14 +419,13 @@ class JsonEncoderTest extends TestCase
                 throw new \LogicException('must not dispatch');
             }
         };
-        self::assertSame(
-            '{"mutator":"done","object":{"number":null}}',
-            JsonEncoder::encode(['mutator' => $serializer, 'object' => $object])
-        );
+        self::assertFalse(JsonEncoder::encode(['mutator' => $serializer, 'object' => $object]));
+        self::assertSame(JSON_ERROR_INF_OR_NAN, json_last_error());
         self::assertSame(1, $calls->count);
+        self::assertNan($object->number);
     }
 
-    public function testPlainDataObjectsNormalizeNestedNumbersWithoutMutatingInput(): void
+    public function testOpaqueDataObjectsKeepNativeFailureWithoutMutatingInput(): void
     {
         $object = (object) [
             'number' => NAN,
@@ -415,10 +434,10 @@ class JsonEncoderTest extends TestCase
             'finite' => 2.5,
             'literal' => 'NaN',
         ];
-        self::assertSame(
-            '{"number":null,"nested":{"number":null},"items":[null,0],"finite":2.5,"literal":"NaN"}',
-            JsonEncoder::encode($object)
-        );
+        self::assertFalse(json_encode($object));
+        $error = json_last_error();
+        self::assertFalse(JsonEncoder::encode($object));
+        self::assertSame($error, json_last_error());
         self::assertNan($object->number);
         self::assertSame(INF, $object->nested->number);
         self::assertSame([-INF, 0], $object->items);
@@ -577,8 +596,18 @@ class JsonEncoderTest extends TestCase
         ];
     }
 
-    #[DataProvider('propertyHookParents')]
-    public function testPropertyHooksControlTheSerializedPublicView(string $parentDeclaration): void
+    public static function propertyHookPayloads(): array
+    {
+        $cases = [];
+        foreach (self::propertyHookParents() as $name => [$parent]) {
+            $cases[$name . ' finite'] = [$parent, false];
+            $cases[$name . ' original non-finite'] = [$parent, true];
+        }
+        return $cases;
+    }
+
+    #[DataProvider('propertyHookPayloads')]
+    public function testPropertyHooksControlTheSerializedPublicView(string $parentDeclaration, bool $nonFinite): void
     {
         if (PHP_VERSION_ID < 80400) {
             self::markTestSkipped('Property hooks require PHP 8.4.');
@@ -607,17 +636,18 @@ class JsonEncoderTest extends TestCase
         $native = json_decode(json_encode($object), true, 512, JSON_THROW_ON_ERROR);
         self::assertTrue($native === ['value' => 'filtered', 'virtual' => 'visible']);
         self::assertSame(1, $object->getterCalls());
-        $encoded = json_decode(
-            JsonEncoder::encode(['number' => NAN, 'object' => $object]),
-            true,
-            512,
-            JSON_THROW_ON_ERROR
-        );
-        self::assertTrue(
-            $encoded['object'] === ['value' => 'filtered', 'virtual' => 'visible'],
-            'Serialization must use the public property getters, not backing storage.'
-        );
-        self::assertNull($encoded['number']);
+        $encoded = JsonEncoder::encode(['number' => $nonFinite ? NAN : 2.5, 'object' => $object]);
+        if ($nonFinite) {
+            self::assertFalse($encoded);
+            self::assertSame(JSON_ERROR_INF_OR_NAN, json_last_error());
+        } else {
+            $decoded = json_decode($encoded, true, 512, JSON_THROW_ON_ERROR);
+            self::assertTrue(
+                $decoded['object'] === ['value' => 'filtered', 'virtual' => 'visible'],
+                'Serialization must use the public property getters, not backing storage.'
+            );
+            self::assertSame(2.5, $decoded['number']);
+        }
         self::assertSame(2, $object->getterCalls());
     }
 
@@ -767,7 +797,7 @@ class JsonEncoderTest extends TestCase
 
     public static function siblingContainers(): array
     {
-        return [
+        $cases = [
             'empty arrays' => ['empty-arrays', 300000, false],
             'shared finite scalar arrays' => ['shared-scalar-arrays', 200000, false],
             'distinct finite scalar arrays' => ['distinct-scalar-arrays', 100000, false],
@@ -786,6 +816,13 @@ class JsonEncoderTest extends TestCase
             'ArrayObject public sibling' => ['distinct-empty-objects', 200000, true, 'ArrayObject-properties'],
             'ArrayIterator public sibling' => ['distinct-empty-objects', 200000, true, 'ArrayIterator-properties'],
         ];
+        foreach ($cases as $name => $case) {
+            if (isset($case[3])) {
+                $case[2] = false;
+                $cases[$name . ' finite'] = $case;
+            }
+        }
+        return $cases;
     }
 
     #[DataProvider('siblingContainers')]
@@ -803,7 +840,11 @@ class JsonEncoderTest extends TestCase
         $encodedLines = explode("\n", trim($encoded['stdout']));
         $expected = json_decode(end($nativeLines), true, 512, JSON_THROW_ON_ERROR);
         $actual = json_decode(end($encodedLines), true, 512, JSON_THROW_ON_ERROR);
-        self::assertLessThan(1024 * 1024, $expected['bytes']);
+        if ($includeNonFinite) {
+            self::assertSame(['error' => JSON_ERROR_INF_OR_NAN], $expected);
+        } else {
+            self::assertLessThan(1024 * 1024, $expected['bytes']);
+        }
         self::assertSame($expected, $actual);
     }
 

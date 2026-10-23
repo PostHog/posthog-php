@@ -65,16 +65,17 @@ if ($nativeType !== '') {
 $batch = [['event' => 'memory', 'distinct_id' => 'u', 'properties' => $properties]];
 echo "prepared\n";
 if ($mode === 'native') {
-    $expectedBatch = $batch;
-    if ($includeNonFinite) {
-        $expectedBatch[0]['properties']['numbers'] = [null, null, null];
-    }
-    $encoded = json_encode(['batch' => $expectedBatch, 'api_key' => 'test-key']);
+    $encoded = json_encode(['batch' => $batch, 'api_key' => 'test-key']);
 } else {
     $consumer = new PostHog\Test\QueueConsumerTestConsumer([]);
     $encoded = $consumer->encodedBatchPayload($batch);
 }
-if ($encoded === false) {
+$error = json_last_error();
+if ($includeNonFinite) {
+    if ($encoded !== false || $error !== JSON_ERROR_INF_OR_NAN) {
+        exit(1);
+    }
+} elseif ($encoded === false) {
     exit(1);
 }
 if ($includeNonFinite) {
@@ -86,7 +87,7 @@ if ($includeNonFinite) {
         exit(2);
     }
 }
-echo json_encode([
+echo json_encode($includeNonFinite ? ['error' => $error] : [
     'bytes' => strlen($encoded),
     'sha256' => hash('sha256', $encoded),
 ], JSON_THROW_ON_ERROR), "\n";

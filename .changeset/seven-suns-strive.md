@@ -2,4 +2,4 @@
 "posthog-php": patch
 ---
 
-Serialize non-finite event property numbers as null so they do not discard events or batches.
+Normalize NaN and infinity to null in bounded data-only JSON payloads, while preserving native encoding for objects, references and out-of-budget payloads.
