@@ -6,6 +6,7 @@ $shape = $argv[2];
 $count = (int) $argv[3];
 $mode = $argv[4];
 $includeNonFinite = ($argv[5] ?? '0') === '1';
+$nativeType = $argv[6] ?? '';
 $items = [];
 switch ($shape) {
     case 'empty-arrays':
@@ -38,6 +39,20 @@ if ($includeNonFinite) {
     $properties['numbers'] = [NAN, INF, -INF];
     $properties['finite'] = 2.5;
     $properties['literal'] = 'NaN';
+}
+if ($nativeType !== '') {
+    $native = match ($nativeType) {
+        'DateTime' => new DateTime('2024-01-01T00:00:00Z'),
+        'DateTimeImmutable' => new DateTimeImmutable('2024-01-01T00:00:00Z'),
+        'DateTimeZone' => new DateTimeZone('UTC'),
+        'ArrayObject', 'ArrayObject-properties' => new ArrayObject(['stored' => 7]),
+        'ArrayIterator', 'ArrayIterator-properties' => new ArrayIterator(['stored' => 7]),
+    };
+    if (str_ends_with($nativeType, '-properties')) {
+        $native->setFlags(ArrayObject::STD_PROP_LIST);
+        $native->visible = 7;
+    }
+    $properties['native'] = $native;
 }
 $batch = [['event' => 'memory', 'distinct_id' => 'u', 'properties' => $properties]];
 echo "prepared\n";

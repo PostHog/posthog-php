@@ -149,6 +149,152 @@ class JsonEncoderTest extends TestCase
         self::assertSame(1, $calls->count);
     }
 
+    public static function referencedScalarChanges(): array
+    {
+        $changes = [
+            'finite to finite' => [1, 2, '2'],
+            'finite to NaN' => [1, NAN, 'null'],
+            'finite to positive infinity' => [1, INF, 'null'],
+            'finite to negative infinity' => [1, -INF, 'null'],
+            'NaN to finite' => [NAN, 2, '2'],
+            'positive infinity to finite' => [INF, 2, '2'],
+            'negative infinity to finite' => [-INF, 2, '2'],
+        ];
+        $cases = [];
+        foreach (['array', 'stdClass', 'ArrayObject', 'ArrayObject public view'] as $container) {
+            foreach ($changes as $label => $values) {
+                $cases[$container . ' ' . $label] = [$container, ...$values];
+            }
+        }
+        return $cases;
+    }
+
+    #[DataProvider('referencedScalarChanges')]
+    public function testReferencedScalarIsReadAfterEarlierSerializer(
+        string $container,
+        int|float $initial,
+        int|float $next,
+        string $expectedNumber
+    ): void {
+        $encode = static function (bool $native) use ($container, $initial, $next): array {
+            $number = $initial;
+            $calls = 0;
+            $serializer = new class ($number, $calls, $next) implements \JsonSerializable {
+                private int|float $number;
+                private int $calls;
+
+                public function __construct(int|float &$number, int &$calls, private int|float $next)
+                {
+                    $this->number = &$number;
+                    $this->calls = &$calls;
+                }
+
+                public function jsonSerialize(): mixed
+                {
+                    ++$this->calls;
+                    $this->number = $this->next;
+                    return null;
+                }
+            };
+            $fields = ['mutator' => $serializer, 'n' => &$number, 'after' => 7];
+            $input = match ($container) {
+                'array' => $fields,
+                'stdClass' => (object) $fields,
+                'ArrayObject' => new \ArrayObject($fields),
+                'ArrayObject public view' => new class extends \ArrayObject {
+                    public mixed $mutator;
+                    public mixed $n;
+                    public int $after = 7;
+                },
+            };
+            if ($container === 'ArrayObject public view') {
+                $input->setFlags(\ArrayObject::STD_PROP_LIST);
+                $input->mutator = $serializer;
+                $input->n = &$number;
+            }
+            $before = is_array($input) ? $input : (array) $input;
+            $referenceId = \ReflectionReference::fromArrayElement($before, 'n')->getId();
+            $json = $native ? json_encode($input) : JsonEncoder::encode($input);
+            $error = json_last_error();
+            $after = is_array($input) ? $input : (array) $input;
+            self::assertSame(['mutator', 'n', 'after'], array_keys($after));
+            self::assertSame($referenceId, \ReflectionReference::fromArrayElement($after, 'n')->getId());
+            self::assertNull(\ReflectionReference::fromArrayElement($after, 'mutator'));
+            self::assertNull(\ReflectionReference::fromArrayElement($after, 'after'));
+            self::assertSame(1, $calls);
+            if (is_nan($next)) {
+                self::assertNan($number);
+            } else {
+                self::assertSame($next, $number);
+            }
+            return [$json, $error];
+        };
+        [$native, $error] = $encode(true);
+        if (is_finite($next)) {
+            self::assertSame('{"mutator":null,"n":2,"after":7}', $native);
+        } else {
+            self::assertFalse($native);
+            self::assertSame(JSON_ERROR_INF_OR_NAN, $error);
+        }
+        [$actual] = $encode(false);
+        self::assertSame('{"mutator":null,"n":' . $expectedNumber . ',"after":7}', $actual);
+    }
+
+    public function testSharedReferenceIsReadAtEachWirePosition(): void
+    {
+        $number = 1;
+        $serializer = new class ($number) implements \JsonSerializable {
+            private int $number;
+
+            public function __construct(int &$number)
+            {
+                $this->number = &$number;
+            }
+
+            public function jsonSerialize(): mixed
+            {
+                $this->number = 2;
+                return null;
+            }
+        };
+        $input = ['first' => &$number, 'mutator' => $serializer, 'last' => &$number];
+        self::assertSame('{"first":1,"mutator":null,"last":2}', JsonEncoder::encode($input));
+        self::assertSame(2, $number);
+        self::assertSame(
+            \ReflectionReference::fromArrayElement($input, 'first')->getId(),
+            \ReflectionReference::fromArrayElement($input, 'last')->getId()
+        );
+    }
+
+    public function testNativeSubclassSerializerRemainsDeferred(): void
+    {
+        $object = (object) ['number' => 1];
+        $calls = (object) ['count' => 0];
+        $serializer = new class ($object, $calls) extends \ArrayObject implements \JsonSerializable {
+            public function __construct(private object $object, private object $calls)
+            {
+                parent::__construct(['stored' => 7]);
+            }
+
+            public function jsonSerialize(): mixed
+            {
+                ++$this->calls->count;
+                $this->object->number = NAN;
+                return 'done';
+            }
+
+            public function getFlags(): int
+            {
+                throw new \LogicException('must not dispatch');
+            }
+        };
+        self::assertSame(
+            '{"mutator":"done","object":{"number":null}}',
+            JsonEncoder::encode(['mutator' => $serializer, 'object' => $object])
+        );
+        self::assertSame(1, $calls->count);
+    }
+
     public function testPlainDataObjectsNormalizeNestedNumbersWithoutMutatingInput(): void
     {
         $object = (object) [
@@ -307,6 +453,13 @@ class JsonEncoderTest extends TestCase
             'distinct finite scalar objects' => ['distinct-scalar-objects', 50000, false],
             'dense arrays with non-finite sibling' => ['shared-scalar-arrays', 200000, true],
             'dense objects with non-finite sibling' => ['distinct-empty-objects', 200000, true],
+            'dense objects with DateTime' => ['distinct-empty-objects', 200000, true, 'DateTime'],
+            'dense objects with DateTimeImmutable' => ['distinct-empty-objects', 200000, true, 'DateTimeImmutable'],
+            'dense objects with DateTimeZone' => ['distinct-empty-objects', 200000, true, 'DateTimeZone'],
+            'dense objects with ArrayObject storage' => ['distinct-empty-objects', 200000, true, 'ArrayObject'],
+            'dense objects with ArrayIterator storage' => ['distinct-empty-objects', 200000, true, 'ArrayIterator'],
+            'ArrayObject public sibling' => ['distinct-empty-objects', 200000, true, 'ArrayObject-properties'],
+            'ArrayIterator public sibling' => ['distinct-empty-objects', 200000, true, 'ArrayIterator-properties'],
         ];
     }
 
@@ -314,11 +467,12 @@ class JsonEncoderTest extends TestCase
     public function testSiblingContainersFitWithinNativeMemoryLimit(
         string $shape,
         int $count,
-        bool $includeNonFinite
+        bool $includeNonFinite,
+        string $nativeType = ''
     ): void {
-        $native = $this->runSiblingMemoryProbe($shape, $count, 'native', $includeNonFinite);
+        $native = $this->runSiblingMemoryProbe($shape, $count, 'native', $includeNonFinite, $nativeType);
         self::assertSame(0, $native['exit'], 'Native baseline failed: ' . $native['stderr']);
-        $encoded = $this->runSiblingMemoryProbe($shape, $count, 'sdk', $includeNonFinite);
+        $encoded = $this->runSiblingMemoryProbe($shape, $count, 'sdk', $includeNonFinite, $nativeType);
         self::assertSame(0, $encoded['exit'], 'SDK encoding failed: ' . $encoded['stderr']);
         $nativeLines = explode("\n", trim($native['stdout']));
         $encodedLines = explode("\n", trim($encoded['stdout']));
@@ -328,12 +482,17 @@ class JsonEncoderTest extends TestCase
         self::assertSame($expected, $actual);
     }
 
-    private function runSiblingMemoryProbe(string $shape, int $count, string $mode, bool $includeNonFinite): array
-    {
+    private function runSiblingMemoryProbe(
+        string $shape,
+        int $count,
+        string $mode,
+        bool $includeNonFinite,
+        string $nativeType
+    ): array {
         $process = proc_open(
             [PHP_BINARY, '-d', 'memory_limit=32M', '-d', 'max_execution_time=10',
                 __DIR__ . '/fixtures/json-encoder-siblings.php', __DIR__ . '/../vendor/autoload.php',
-                $shape, (string) $count, $mode, $includeNonFinite ? '1' : '0'],
+                $shape, (string) $count, $mode, $includeNonFinite ? '1' : '0', $nativeType],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
             $pipes
         );
