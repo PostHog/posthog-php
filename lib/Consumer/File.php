@@ -4,6 +4,7 @@ namespace PostHog\Consumer;
 
 use Exception;
 use PostHog\Consumer;
+use PostHog\Internal\JsonEncoder;
 
 /**
  * Consumer that writes analytics messages to a local file.
@@ -101,7 +102,7 @@ class File extends Consumer
             return false;
         }
 
-        $content = json_encode($body);
+        $content = JsonEncoder::encode($body);
         $content .= "\n";
 
         return fwrite($this->file_handle, $content) == strlen($content);

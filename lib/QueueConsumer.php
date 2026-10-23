@@ -2,6 +2,7 @@
 
 namespace PostHog;
 
+use PostHog\Internal\JsonEncoder;
 use Symfony\Component\Clock\Clock;
 use Throwable;
 
@@ -213,7 +214,7 @@ abstract class QueueConsumer extends Consumer
      */
     protected function encodeBatchPayload($batch)
     {
-        $payload = json_encode($this->payload($batch));
+        $payload = JsonEncoder::encode($this->payload($batch));
         if (false === $payload) {
             $this->handleError(json_last_error(), "Failed to encode batch payload: " . json_last_error_msg());
             return false;

@@ -1,0 +1,333 @@
+<?php
+
+namespace PostHog\Test;
+
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
+use PostHog\Client;
+
+class NonFinitePropertiesTest extends TestCase
+{
+    public static function nonFiniteValues(): array
+    {
+        return [
+            'batch NaN' => ['lib_curl', NAN],
+            'batch positive infinity' => ['lib_curl', INF],
+            'batch negative infinity' => ['lib_curl', -INF],
+            'file NaN' => ['file', NAN],
+            'file positive infinity' => ['file', INF],
+            'file negative infinity' => ['file', -INF],
+        ];
+    }
+
+    public static function serializableEnums(): array
+    {
+        return [
+            'NaN' => [NonFiniteJsonSerializableEnum::NotANumber],
+            'positive infinity' => [NonFiniteJsonSerializableEnum::PositiveInfinity],
+            'negative infinity' => [NonFiniteJsonSerializableEnum::NegativeInfinity],
+        ];
+    }
+
+    #[DataProvider('serializableEnums')]
+    public function testCaptureKeepsNativeFailureForNonFiniteSerializableEnums(
+        NonFiniteJsonSerializableEnum $enum
+    ): void {
+        $httpClient = new MockedHttpClient('unused.invalid');
+        $client = new Client('test-key', ['batch_size' => 10, 'flush_interval_seconds' => 3600], $httpClient);
+        $properties = ['enum' => $enum, 'enabled' => false];
+        try {
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'enum-event', 'properties' => $properties,
+            ]));
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'neighbor', 'properties' => ['finite' => 7],
+            ]));
+            json_encode(null);
+            self::assertFalse($client->flush());
+            self::assertSame(JSON_ERROR_INF_OR_NAN, json_last_error());
+            self::assertNull($httpClient->calls);
+            self::assertSame(['enum' => $enum, 'enabled' => false], $properties);
+        } finally {
+            $client->shutdown();
+        }
+    }
+
+    public static function closureModes(): array
+    {
+        return ['finite numbers' => [false], 'original non-finite numbers' => [true]];
+    }
+
+    #[DataProvider('closureModes')]
+    public function testCaptureKeepsNativeClosureBehavior(bool $nonFinite): void
+    {
+        $invoked = false;
+        $callback = static function () use (&$invoked): void {
+            $invoked = true;
+        };
+        $numbers = $nonFinite ? [NAN, INF, -INF] : [1.5, 2.5, -2.5];
+        $properties = [
+            'callback' => $callback,
+            'numbers' => $numbers,
+            'finite' => 2.5,
+            'enabled' => false,
+            'literal' => 'NaN',
+        ];
+        $httpClient = new MockedHttpClient('unused.invalid');
+        $client = new Client('test-key', ['batch_size' => 10, 'flush_interval_seconds' => 3600], $httpClient);
+        try {
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'callback-event', 'properties' => $properties,
+            ]));
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'neighbor', 'properties' => ['finite' => 7],
+            ]));
+            if ($nonFinite) {
+                json_encode(null);
+                self::assertFalse($client->flush());
+                self::assertSame(JSON_ERROR_INF_OR_NAN, json_last_error());
+                self::assertNull($httpClient->calls);
+                self::assertNan($properties['numbers'][0]);
+                self::assertSame(INF, $properties['numbers'][1]);
+                self::assertSame(-INF, $properties['numbers'][2]);
+            } else {
+                self::assertTrue($client->flush());
+                self::assertCount(1, $httpClient->calls);
+                $payload = json_decode($httpClient->calls[0]['payload'], false, 512, JSON_THROW_ON_ERROR);
+                self::assertSame(['callback-event', 'neighbor'], array_column($payload->batch, 'event'));
+                $actual = $payload->batch[0]->properties;
+                self::assertInstanceOf(\stdClass::class, $actual->callback);
+                self::assertSame([], (array) $actual->callback);
+                self::assertSame($numbers, $actual->numbers);
+                self::assertSame(2.5, $actual->finite);
+                self::assertFalse($actual->enabled);
+                self::assertSame('NaN', $actual->literal);
+                self::assertSame(7, $payload->batch[1]->properties->finite);
+            }
+            self::assertSame($callback, $properties['callback']);
+            self::assertFalse($invoked);
+        } finally {
+            $client->shutdown();
+        }
+    }
+
+    public static function propertyHookParents(): array
+    {
+        return [
+            'stdClass finite' => ['stdClass', false],
+            'stdClass original non-finite' => ['stdClass', true],
+            'Exception finite' => ['Exception', false],
+            'Exception original non-finite' => ['Exception', true],
+        ];
+    }
+
+    #[DataProvider('propertyHookParents')]
+    public function testCapturePreservesSubclassPropertyHooks(string $parent, bool $nonFinite): void
+    {
+        if (PHP_VERSION_ID < 80400) {
+            self::markTestSkipped('Property hooks require PHP 8.4.');
+        }
+        $object = eval(sprintf(<<<'PHP'
+        return new class extends %s {
+            public string $value = 'private fixture' {
+                get => $this->value === '' ? '' : 'filtered';
+            }
+            public string $virtual {
+                get => 'visible';
+            }
+            public float $finite = 2.5;
+        };
+        PHP, $parent));
+        $expected = ['value' => 'filtered', 'virtual' => 'visible', 'finite' => 2.5];
+        self::assertTrue(json_decode(json_encode($object), true, 512, JSON_THROW_ON_ERROR) === $expected);
+        $httpClient = new MockedHttpClient('unused.invalid');
+        $client = new Client('test-key', ['batch_size' => 10, 'flush_interval_seconds' => 3600], $httpClient);
+        try {
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'hooked-subclass',
+                'properties' => ['object' => $object, 'number' => $nonFinite ? NAN : 2.5],
+            ]));
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'neighbor', 'properties' => ['finite' => 7],
+            ]));
+            if ($nonFinite) {
+                json_encode(null);
+                self::assertFalse($client->flush());
+                self::assertSame(JSON_ERROR_INF_OR_NAN, json_last_error());
+                self::assertNull($httpClient->calls);
+            } else {
+                self::assertTrue($client->flush());
+                self::assertCount(1, $httpClient->calls);
+                $payload = json_decode($httpClient->calls[0]['payload'], true, 512, JSON_THROW_ON_ERROR);
+                self::assertSame(['hooked-subclass', 'neighbor'], array_column($payload['batch'], 'event'));
+                self::assertTrue(
+                    $payload['batch'][0]['properties']['object'] === $expected,
+                    'Wire serialization must preserve the filtered public property view.'
+                );
+                self::assertSame(2.5, $payload['batch'][0]['properties']['number']);
+                self::assertSame(7, $payload['batch'][1]['properties']['finite']);
+            }
+            self::assertTrue(((array) $object)['value'] === 'private fixture');
+        } finally {
+            $client->shutdown();
+        }
+    }
+
+    #[DataProvider('nonFiniteValues')]
+    public function testCaptureSerializesDataOnlyNonFinitePropertiesAsNull(string $consumer, float $number): void
+    {
+        $filename = tempnam(sys_get_temp_dir(), 'posthog-nonfinite-');
+        $httpClient = new MockedHttpClient('unused.invalid');
+        $client = new Client('test-key', [
+            'consumer' => $consumer, 'filename' => $filename,
+            'batch_size' => 10, 'flush_interval_seconds' => 3600,
+        ], $httpClient);
+        $properties = [
+            'number' => $number,
+            'nested' => ['number' => $number],
+            'items' => [1, $number, [], 3],
+            'sparse' => [2 => $number, 4 => 'kept'],
+            'finite' => 2.5,
+            'zero' => 0,
+            'enabled' => false,
+            'nullable' => null,
+            'strings' => ['NaN', 'Infinity', '-Infinity'],
+        ];
+        try {
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'non-finite', 'properties' => $properties,
+            ]));
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'neighbor', 'properties' => ['finite' => 7],
+            ]));
+            self::assertTrue($client->flush());
+            if ($consumer === 'file') {
+                self::assertNull($httpClient->calls);
+                $events = array_map(
+                    static fn(string $line): array => json_decode($line, true, 512, JSON_THROW_ON_ERROR),
+                    file($filename, FILE_IGNORE_NEW_LINES)
+                );
+            } else {
+                self::assertCount(1, $httpClient->calls);
+                self::assertSame('/batch/', $httpClient->calls[0]['path']);
+                $payload = json_decode($httpClient->calls[0]['payload'], true, 512, JSON_THROW_ON_ERROR);
+                self::assertSame('test-key', $payload['api_key']);
+                $events = $payload['batch'];
+            }
+            self::assertSame(['non-finite', 'neighbor'], array_column($events, 'event'));
+            self::assertSame([
+                'number' => null,
+                'nested' => ['number' => null],
+                'items' => [1, null, [], 3],
+                'sparse' => [2 => null, 4 => 'kept'],
+                'finite' => 2.5,
+                'zero' => 0,
+                'enabled' => false,
+                'nullable' => null,
+                'strings' => ['NaN', 'Infinity', '-Infinity'],
+            ], array_intersect_key($events[0]['properties'], $properties));
+            self::assertSame(7, $events[1]['properties']['finite']);
+            if (is_nan($number)) {
+                self::assertNan($properties['number']);
+                self::assertNan($properties['nested']['number']);
+                self::assertNan($properties['items'][1]);
+                self::assertNan($properties['sparse'][2]);
+            } else {
+                self::assertSame($number, $properties['number']);
+                self::assertSame($number, $properties['nested']['number']);
+                self::assertSame($number, $properties['items'][1]);
+                self::assertSame($number, $properties['sparse'][2]);
+            }
+        } finally {
+            $client->shutdown();
+            unlink($filename);
+        }
+    }
+
+    #[DataProvider('nonFiniteValues')]
+    public function testOpaqueNonFinitePropertiesKeepNativeFailureAndCallerState(string $consumer, float $number): void
+    {
+        $filename = tempnam(sys_get_temp_dir(), 'posthog-nonfinite-');
+        $httpClient = new MockedHttpClient('unused.invalid');
+        $client = new Client('test-key', [
+            'consumer' => $consumer, 'filename' => $filename,
+            'batch_size' => 10, 'flush_interval_seconds' => 3600,
+        ], $httpClient);
+        $object = (object) ['number' => $number, 'finite' => 4.5];
+        $typedObject = new class ($number) {
+            private float $hidden = INF;
+
+            public function __construct(public readonly float $number)
+            {
+            }
+        };
+        $serializable = new class ($object) implements \JsonSerializable {
+            public function __construct(private object $value)
+            {
+            }
+
+            public function jsonSerialize(): mixed
+            {
+                return ['visible' => $this->value];
+            }
+        };
+        $properties = [
+            'number' => $number,
+            'nested' => ['number' => $number, 'object' => $object],
+            'items' => [1, $number, $object, 3],
+            'finite' => 2.5,
+            'zero' => 0,
+            'enabled' => false,
+            'nullable' => null,
+            'strings' => ['NaN', 'Infinity', '-Infinity'],
+            'typed' => $typedObject,
+            'serializable' => $serializable,
+        ];
+        try {
+            self::assertFalse(json_encode($properties));
+            self::assertSame(JSON_ERROR_INF_OR_NAN, json_last_error());
+            json_encode(null);
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'non-finite', 'properties' => $properties,
+            ]));
+            if ($consumer === 'file') {
+                self::assertSame(JSON_ERROR_INF_OR_NAN, json_last_error());
+            }
+            self::assertTrue($client->capture([
+                'distinctId' => 'user', 'event' => 'neighbor', 'properties' => ['finite' => 7],
+            ]));
+            if ($consumer === 'file') {
+                self::assertTrue($client->flush());
+                $lines = file($filename, FILE_IGNORE_NEW_LINES);
+                self::assertCount(2, $lines);
+                self::assertSame('', $lines[0]);
+                $neighbor = json_decode($lines[1], true, 512, JSON_THROW_ON_ERROR);
+                self::assertSame('neighbor', $neighbor['event']);
+                self::assertSame(7, $neighbor['properties']['finite']);
+            } else {
+                json_encode(null);
+                self::assertFalse($client->flush());
+                self::assertSame(JSON_ERROR_INF_OR_NAN, json_last_error());
+            }
+            self::assertNull($httpClient->calls);
+            self::assertSame($object, $properties['nested']['object']);
+            self::assertSame($object, $properties['items'][2]);
+            if (is_nan($number)) {
+                self::assertNan($properties['number']);
+                self::assertNan($properties['nested']['number']);
+                self::assertNan($properties['items'][1]);
+                self::assertNan($object->number);
+                self::assertNan($typedObject->number);
+            } else {
+                self::assertSame($number, $properties['number']);
+                self::assertSame($number, $properties['nested']['number']);
+                self::assertSame($number, $properties['items'][1]);
+                self::assertSame($number, $object->number);
+                self::assertSame($number, $typedObject->number);
+            }
+        } finally {
+            $client->shutdown();
+            unlink($filename);
+        }
+    }
+}

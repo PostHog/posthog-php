@@ -74,7 +74,10 @@ final class PublicApiSnapshot
 
         $symbols = [];
         foreach (array_merge(get_declared_interfaces(), get_declared_traits(), get_declared_classes()) as $name) {
-            if (!str_starts_with($name, $namespacePrefix)) {
+            if (
+                !str_starts_with($name, $namespacePrefix)
+                || str_starts_with($name, $namespacePrefix . 'Internal\\')
+            ) {
                 continue;
             }
 
