@@ -40,6 +40,133 @@ class JsonEncoderTest extends TestCase
         self::assertSame(INF, $number);
     }
 
+    public static function nativeArrayFlagOverrides(): array
+    {
+        return [
+            'ArrayObject wrong flags' => ['ArrayObject', 'return self::STD_PROP_LIST;'],
+            'ArrayIterator wrong flags' => ['ArrayIterator', 'return self::STD_PROP_LIST;'],
+            'ArrayObject throwing flags' => ['ArrayObject', 'throw new LogicException("unexpected override");'],
+            'ArrayIterator throwing flags' => ['ArrayIterator', 'throw new LogicException("unexpected override");'],
+        ];
+    }
+
+    #[DataProvider('nativeArrayFlagOverrides')]
+    public function testNativeArrayFlagOverridesAreNotInvoked(string $parent, string $override): void
+    {
+        $object = eval(sprintf(<<<'PHP'
+        return new class (['stored' => 7]) extends %s {
+            public string $excluded = 'private fixture';
+            private int $overrideCalls = 0;
+
+            public function getFlags(): int
+            {
+                ++$this->overrideCalls;
+                %s
+            }
+
+            public function overrideCalls(): int
+            {
+                return $this->overrideCalls;
+            }
+        };
+        PHP, $parent, $override));
+        self::assertSame('{"stored":7}', json_encode($object));
+        self::assertSame(0, $object->overrideCalls());
+        self::assertTrue(
+            JsonEncoder::encode($object) === '{"stored":7}',
+            'Native flags must preserve storage and exclude ignored public properties.'
+        );
+        self::assertSame(0, $object->overrideCalls());
+    }
+
+    public static function nativeArrayParents(): array
+    {
+        return ['ArrayObject' => ['ArrayObject'], 'ArrayIterator' => ['ArrayIterator']];
+    }
+
+    #[DataProvider('nativeArrayParents')]
+    public function testNativeStandardPropertyFlagsPreserveHooksDespiteOverride(string $parent): void
+    {
+        if (PHP_VERSION_ID < 80400) {
+            self::markTestSkipped('Property hooks require PHP 8.4.');
+        }
+        $object = eval(sprintf(<<<'PHP'
+        return new class (['stored' => 7]) extends %s {
+            public string $value = 'private fixture' {
+                get => $this->value === '' ? '' : 'filtered';
+            }
+            public string $virtual {
+                get => 'visible';
+            }
+            public function getFlags(): int
+            {
+                return 0;
+            }
+        };
+        PHP, $parent));
+        $object->setFlags(\ArrayObject::STD_PROP_LIST);
+        $expected = ['value' => 'filtered', 'virtual' => 'visible'];
+        self::assertTrue(json_decode(json_encode($object), true, 512, JSON_THROW_ON_ERROR) === $expected);
+        self::assertTrue(
+            json_decode(JsonEncoder::encode($object), true, 512, JSON_THROW_ON_ERROR) === $expected,
+            'Genuine native STD_PROP_LIST must retain the getter-filtered public view.'
+        );
+    }
+
+    public function testReferencedNonFiniteArraySlotDoesNotMutateCallerOrReorderList(): void
+    {
+        $number = INF;
+        $input = ['prefix' => 1, 'items' => [0, &$number, 2], 'suffix' => false];
+        self::assertSame('{"prefix":1,"items":[0,null,2],"suffix":false}', JsonEncoder::encode($input));
+        self::assertSame(INF, $number);
+        self::assertSame([0, INF, 2], $input['items']);
+    }
+
+    public function testCustomSerializerRunsOnceBeforeLaterObjectValuesAreRead(): void
+    {
+        $createInput = static function (float $next): array {
+            $object = (object) ['number' => 1];
+            $calls = (object) ['count' => 0];
+            $serializer = new class ($object, $calls, $next) implements \JsonSerializable {
+                public function __construct(private object $object, private object $calls, private float $next)
+                {
+                }
+
+                public function jsonSerialize(): mixed
+                {
+                    ++$this->calls->count;
+                    $this->object->number = $this->next;
+                    return 'done';
+                }
+            };
+            return [['mutator' => $serializer, 'object' => $object], $calls];
+        };
+        [$nativeInput, $nativeCalls] = $createInput(4);
+        self::assertSame('{"mutator":"done","object":{"number":4}}', json_encode($nativeInput));
+        self::assertSame(1, $nativeCalls->count);
+        [$input, $calls] = $createInput(NAN);
+        self::assertSame('{"mutator":"done","object":{"number":null}}', JsonEncoder::encode($input));
+        self::assertSame(1, $calls->count);
+    }
+
+    public function testPlainDataObjectsNormalizeNestedNumbersWithoutMutatingInput(): void
+    {
+        $object = (object) [
+            'number' => NAN,
+            'nested' => (object) ['number' => INF],
+            'items' => [-INF, 0],
+            'finite' => 2.5,
+            'literal' => 'NaN',
+        ];
+        self::assertSame(
+            '{"number":null,"nested":{"number":null},"items":[null,0],"finite":2.5,"literal":"NaN"}',
+            JsonEncoder::encode($object)
+        );
+        self::assertNan($object->number);
+        self::assertSame(INF, $object->nested->number);
+        self::assertSame([-INF, 0], $object->items);
+    }
+
     public function testClosuresKeepTheirNativeEmptyObjectRepresentation(): void
     {
         $invoked = false;
@@ -86,11 +213,19 @@ class JsonEncoderTest extends TestCase
         }
         $object = eval(sprintf(<<<'PHP'
         return new class%s {
+            private int $getterCalls = 0;
             public string $value = 'private fixture' {
-                get => $this->value === '' ? '' : 'filtered';
+                get {
+                    ++$this->getterCalls;
+                    return $this->value === '' ? '' : 'filtered';
+                }
             }
             public string $virtual {
                 get => 'visible';
+            }
+            public function getterCalls(): int
+            {
+                return $this->getterCalls;
             }
         };
         PHP, $parentDeclaration));
@@ -99,6 +234,7 @@ class JsonEncoderTest extends TestCase
         }
         $native = json_decode(json_encode($object), true, 512, JSON_THROW_ON_ERROR);
         self::assertTrue($native === ['value' => 'filtered', 'virtual' => 'visible']);
+        self::assertSame(1, $object->getterCalls());
         $encoded = json_decode(
             JsonEncoder::encode(['number' => NAN, 'object' => $object]),
             true,
@@ -110,6 +246,7 @@ class JsonEncoderTest extends TestCase
             'Serialization must use the public property getters, not backing storage.'
         );
         self::assertNull($encoded['number']);
+        self::assertSame(2, $object->getterCalls());
     }
 
     #[DataProvider('propertyHookParents')]
@@ -157,6 +294,56 @@ class JsonEncoderTest extends TestCase
         $this->expectException(\LogicException::class);
         $this->expectExceptionMessage('unsupported serialization');
         JsonEncoder::encode($value);
+    }
+
+    public static function siblingContainers(): array
+    {
+        return [
+            'empty arrays' => ['empty-arrays', 300000, false],
+            'shared finite scalar arrays' => ['shared-scalar-arrays', 200000, false],
+            'distinct finite scalar arrays' => ['distinct-scalar-arrays', 100000, false],
+            'shared empty object' => ['shared-empty-object', 300000, false],
+            'distinct empty objects' => ['distinct-empty-objects', 200000, false],
+            'distinct finite scalar objects' => ['distinct-scalar-objects', 50000, false],
+            'dense arrays with non-finite sibling' => ['shared-scalar-arrays', 200000, true],
+            'dense objects with non-finite sibling' => ['distinct-empty-objects', 200000, true],
+        ];
+    }
+
+    #[DataProvider('siblingContainers')]
+    public function testSiblingContainersFitWithinNativeMemoryLimit(
+        string $shape,
+        int $count,
+        bool $includeNonFinite
+    ): void {
+        $native = $this->runSiblingMemoryProbe($shape, $count, 'native', $includeNonFinite);
+        self::assertSame(0, $native['exit'], 'Native baseline failed: ' . $native['stderr']);
+        $encoded = $this->runSiblingMemoryProbe($shape, $count, 'sdk', $includeNonFinite);
+        self::assertSame(0, $encoded['exit'], 'SDK encoding failed: ' . $encoded['stderr']);
+        $nativeLines = explode("\n", trim($native['stdout']));
+        $encodedLines = explode("\n", trim($encoded['stdout']));
+        $expected = json_decode(end($nativeLines), true, 512, JSON_THROW_ON_ERROR);
+        $actual = json_decode(end($encodedLines), true, 512, JSON_THROW_ON_ERROR);
+        self::assertLessThan(1024 * 1024, $expected['bytes']);
+        self::assertSame($expected, $actual);
+    }
+
+    private function runSiblingMemoryProbe(string $shape, int $count, string $mode, bool $includeNonFinite): array
+    {
+        $process = proc_open(
+            [PHP_BINARY, '-d', 'memory_limit=32M', '-d', 'max_execution_time=10',
+                __DIR__ . '/fixtures/json-encoder-siblings.php', __DIR__ . '/../vendor/autoload.php',
+                $shape, (string) $count, $mode, $includeNonFinite ? '1' : '0'],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        self::assertIsResource($process);
+        fclose($pipes[0]);
+        $output = stream_get_contents($pipes[1]);
+        $errors = stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return ['exit' => proc_close($process), 'stdout' => $output, 'stderr' => $errors];
     }
 
     public function testTemporarySerializedObjectsFitWithinMemoryLimit(): void
