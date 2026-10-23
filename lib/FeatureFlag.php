@@ -75,12 +75,20 @@ class FeatureFlag
         }
 
         if (in_array($operator, ["regex", "not_regex"])) {
-            $regexValue = FeatureFlag::prepareValueForRegex(FeatureFlag::valueToString($value));
+            $pattern = FeatureFlag::valueToString($value);
+            $usesWordClass = FeatureFlag::assertPortableRegex($pattern);
+            $regexValue = FeatureFlag::prepareValueForRegex($pattern);
             if (!FeatureFlag::isRegularExpression($regexValue)) {
                 return false;
             }
 
-            $matched = preg_match($regexValue, FeatureFlag::valueToString($overrideValue));
+            $input = FeatureFlag::valueToString($overrideValue);
+            // Rust and PCRE disagree on word membership for join controls, marks, numbers and symbols.
+            if ($usesWordClass && preg_match('/[^\x00-\x7f\p{L}\p{Nd}]/u', $input) === 1) {
+                throw new InconclusiveMatchException("Regex Unicode word class requires server evaluation");
+            }
+
+            $matched = preg_match($regexValue, $input);
             if ($matched === false) {
                 throw new InconclusiveMatchException("Regex execution failed: " . preg_last_error_msg());
             }
@@ -1233,8 +1241,117 @@ class FeatureFlag
         set_error_handler(function () {
         }, E_WARNING);
         $isRegularExpression = preg_match($string, "") !== false;
+        $error = preg_last_error();
+        $errorMessage = preg_last_error_msg();
         restore_error_handler();
+        if (!$isRegularExpression && $error !== PREG_INTERNAL_ERROR) {
+            // Preflight also executes the pattern; execution limits do not mean invalid syntax.
+            throw new InconclusiveMatchException("Regex execution failed: " . $errorMessage);
+        }
         return $isRegularExpression;
+    }
+
+    /** @return bool Whether the admitted pattern uses a word-character shorthand. */
+    private static function assertPortableRegex(string $pattern): bool
+    {
+        $usesWordClass = false;
+        $inClass = false;
+        $classStart = 0;
+        $previousToken = '';
+        for ($index = 0; $index < strlen($pattern); $index++) {
+            $character = $pattern[$index];
+            if ($character === '\\') {
+                $escaped = $pattern[++$index] ?? '';
+                if ($escaped === '') {
+                    break;
+                }
+                if ($escaped === 'x') {
+                    if (!preg_match('/^[0-9a-fA-F]{2}$/D', substr($pattern, $index + 1, 2))) {
+                        throw new InconclusiveMatchException('Regex escape requires server evaluation');
+                    }
+                    $index += 2;
+                } elseif (
+                    !str_contains('dDsSwWfnrt', $escaped)
+                    && !($escaped === 'b' && $inClass)
+                    && !(!$inClass && str_contains('Az', $escaped))
+                    && !preg_match('/^[\x20-\x2f:;=?@\x5b-\x60\x7b-\x7e]$/D', $escaped)
+                ) {
+                    // In particular, word boundaries can exhaust the service's 10,000-step budget.
+                    throw new InconclusiveMatchException('Regex escape requires server evaluation');
+                }
+                if (
+                    $inClass
+                    && !str_contains('dDsSwWbfnrtx\\^-[]', $escaped)
+                ) {
+                    throw new InconclusiveMatchException('Regex class escape requires server evaluation');
+                }
+                if (
+                    $inClass && str_contains('dDsSwW', $escaped)
+                    && (($pattern[$index - 2] ?? '') === '-'
+                        || (($pattern[$index + 1] ?? '') === '-' && ($pattern[$index + 2] ?? '') !== ']'))
+                ) {
+                    throw new InconclusiveMatchException('Regex class range requires server evaluation');
+                }
+                if ($escaped === 'w' || $escaped === 'W') {
+                    $usesWordClass = true;
+                }
+                $previousToken = !$inClass && str_contains('Az', $escaped) ? '^' : 'literal';
+                continue;
+            }
+
+            if ($character === '[') {
+                // PCRE accepts POSIX/nested/set classes with semantics different from Rust's.
+                if ($inClass) {
+                    throw new InconclusiveMatchException('Regex nested class requires server evaluation');
+                }
+                $inClass = true;
+                $classStart = $index + (($pattern[$index + 1] ?? '') === '^' ? 2 : 1);
+            } elseif ($character === ']' && $inClass) {
+                if ($index === $classStart) {
+                    throw new InconclusiveMatchException('Regex empty class requires server evaluation');
+                }
+                $inClass = false;
+                $previousToken = 'literal';
+                continue;
+            } elseif ($inClass) {
+                if (in_array(substr($pattern, $index, 2), ['&&', '--', '~~'], true)) {
+                    throw new InconclusiveMatchException('Regex set operation requires server evaluation');
+                }
+                continue;
+            } elseif ($character === '(' && ($pattern[$index + 1] ?? '') === '?') {
+                if (($pattern[$index + 2] ?? '') === ':') {
+                    $index += 2;
+                } elseif (substr($pattern, $index, 4) === '(?i)') {
+                    $index += 3;
+                    continue;
+                } else {
+                    throw new InconclusiveMatchException('Regex group requires server evaluation');
+                }
+            } elseif ($character === '(' && ($pattern[$index + 1] ?? '') === '*') {
+                throw new InconclusiveMatchException('Regex verb requires server evaluation');
+            } elseif ($character === '{') {
+                if (
+                    !preg_match('/^\{(\d+)(?:,(\d*))?\}/', substr($pattern, $index), $repetition)
+                    || in_array($previousToken, ['', '|', '('], true)
+                    || (float) $repetition[1] > 65535
+                    || (isset($repetition[2]) && (float) $repetition[2] > 65535)
+                ) {
+                    // PCRE's repetition count limit is smaller than the service's.
+                    throw new InconclusiveMatchException('Regex repetition requires server evaluation');
+                }
+            } elseif (
+                str_contains('*+?}', $character)
+                && in_array($pattern[$index + 1] ?? '', ['+', '{'], true)
+            ) {
+                throw new InconclusiveMatchException('Regex stacked repetition requires server evaluation');
+            }
+            if (str_contains('*+?{', $character) && in_array($previousToken, ['^', '$', 'empty group'], true)) {
+                throw new InconclusiveMatchException('Regex assertion repetition requires server evaluation');
+            }
+            $previousToken = $character === ')' && in_array($previousToken, ['(', 'empty group'], true)
+                ? 'empty group' : $character;
+        }
+        return $usesWordClass;
     }
 
     private static function prepareValueForRegex(string $pattern): string
@@ -1242,7 +1359,8 @@ class FeatureFlag
         // Escape each delimiter slash that is not already escaped by an odd run of backslashes.
         $escaped = preg_replace('~(?<!\\\\)((?:\\\\\\\\)*)/~', '$1\\\\/', $pattern);
 
-        return "/" . $escaped . "/u";
+        // Rust's default $ is strict, unlike PCRE's match before a final newline.
+        return "/" . $escaped . "/uD";
     }
 
     /**
