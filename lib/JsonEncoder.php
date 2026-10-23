@@ -23,6 +23,8 @@ use UnitEnum;
  */
 final class JsonEncoder
 {
+    private const MAX_REFERENCE_SCAN_STEPS = 1000000;
+
     private string $output = '';
     private int $error = JSON_ERROR_NONE;
     private mixed $errorValue = null;
@@ -53,8 +55,13 @@ final class JsonEncoder
         }
         if (is_array($value)) {
             if ($referenceId !== null && isset($this->references[$referenceId])) {
-                $this->error = JSON_ERROR_RECURSION;
-                return false;
+                $references = [$referenceId => true];
+                $remaining = self::MAX_REFERENCE_SCAN_STEPS;
+                $cycle = self::hasArrayCycle($value, $references, $remaining, 0);
+                if ($cycle !== false) {
+                    $this->error = $cycle === true ? JSON_ERROR_RECURSION : JSON_ERROR_DEPTH;
+                    return false;
+                }
             }
             if ($depth >= 512) {
                 $this->error = JSON_ERROR_DEPTH;
@@ -65,12 +72,12 @@ final class JsonEncoder
                 return true;
             }
             if ($referenceId !== null) {
-                $this->references[$referenceId] = true;
+                $this->references[$referenceId] = ($this->references[$referenceId] ?? 0) + 1;
             }
             try {
                 return $this->writeArray($value, $depth);
             } finally {
-                if ($referenceId !== null) {
+                if ($referenceId !== null && --$this->references[$referenceId] === 0) {
                     unset($this->references[$referenceId]);
                 }
             }
@@ -87,6 +94,37 @@ final class JsonEncoder
         }
         $this->output .= $encoded;
         return true;
+    }
+
+    private static function hasArrayCycle(array $value, array &$references, int &$remaining, int $depth): ?bool
+    {
+        // Unlike encoding, this bounded scan invokes no callbacks, so reference cells cannot be reassigned mid-scan.
+        if ($depth >= 512) {
+            return null;
+        }
+        foreach ($value as $key => $item) {
+            if (--$remaining < 0) {
+                return null;
+            }
+            if (!is_array($item)) {
+                continue;
+            }
+            $id = ReflectionReference::fromArrayElement($value, $key)?->getId();
+            if ($id !== null && isset($references[$id])) {
+                return true;
+            }
+            if ($id !== null) {
+                $references[$id] = true;
+            }
+            $cycle = self::hasArrayCycle($item, $references, $remaining, $depth + 1);
+            if ($id !== null) {
+                unset($references[$id]);
+            }
+            if ($cycle !== false) {
+                return $cycle;
+            }
+        }
+        return false;
     }
 
     private function writeArray(array $value, int $depth, bool $object = false): bool
@@ -160,8 +198,8 @@ final class JsonEncoder
                 return $this->writeArray(get_object_vars($value), $depth, true);
             }
             $layout = $this->propertyLayout($value);
-            // Snapshot dynamic members without invoking declared getters ahead of their wire position.
-            $properties = get_mangled_object_vars($value);
+            // Casting avoids permanent property tables and does not invoke declared getters ahead of their slot.
+            $properties = (array) $value;
             $this->output .= '{';
             $first = true;
             foreach ($layout as $name => $property) {
@@ -234,7 +272,11 @@ final class JsonEncoder
 
     private static function usesStorage(object $value): bool
     {
-        if ($value instanceof DateTimeInterface || $value instanceof DateTimeZone) {
+        if (
+            $value instanceof DateTimeInterface
+            || $value instanceof DateTimeZone
+            || $value instanceof \SimpleXMLElement
+        ) {
             return true;
         }
         if ($value instanceof ArrayObject || $value instanceof ArrayIterator) {

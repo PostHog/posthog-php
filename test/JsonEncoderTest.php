@@ -448,6 +448,97 @@ class JsonEncoderTest extends TestCase
         self::assertSame(json_encode($value), JsonEncoder::encode($value));
     }
 
+    public function testSimpleXmlSubclassesKeepTheirNativePropertyView(): void
+    {
+        if (!class_exists(\SimpleXMLElement::class)) {
+            self::markTestSkipped('SimpleXML extension is required.');
+        }
+        $object = new class ('<root><label>A</label></root>') extends \SimpleXMLElement {
+            public string $label;
+        };
+        self::assertSame('{"label":"A"}', json_encode($object));
+        self::assertSame('{"label":"A"}', JsonEncoder::encode($object));
+    }
+
+    public static function replacementArrays(): array
+    {
+        return [
+            'map' => [['safe' => 3]],
+            'empty list' => [[]],
+            'nested list' => [[['safe' => 3]]],
+        ];
+    }
+
+    #[DataProvider('replacementArrays')]
+    public function testReplacedReferencedArrayIsNotTreatedAsTheActiveArray(array $replacement): void
+    {
+        $make = static function () use ($replacement): array {
+            $root = [];
+            $serializer = new class ($root, $replacement) implements \JsonSerializable {
+                private array $root;
+                public int $calls = 0;
+
+                public function __construct(array &$root, private array $replacement)
+                {
+                    $this->root = &$root;
+                }
+
+                public function jsonSerialize(): mixed
+                {
+                    ++$this->calls;
+                    $this->root = $this->replacement;
+                    return 'done';
+                }
+            };
+            $root = ['mutator' => $serializer, 'later' => &$root];
+            return [['root' => &$root], $serializer];
+        };
+        [$native] = $make();
+        $expected = json_encode($native);
+        self::assertIsString($expected);
+        [$input, $serializer] = $make();
+        self::assertSame($expected, JsonEncoder::encode($input));
+        self::assertSame(JSON_ERROR_NONE, json_last_error());
+        self::assertSame(1, $serializer->calls);
+        self::assertSame($replacement, $input['root']);
+    }
+
+    public function testOuterReferenceRemainsActiveAfterTemporaryReplacement(): void
+    {
+        $make = static function (): array {
+            $root = [];
+            $replace = new class ($root) implements \JsonSerializable {
+                private array $root;
+                public array $replacement = ['safe' => 3];
+                public int $calls = 0;
+
+                public function __construct(array &$root)
+                {
+                    $this->root = &$root;
+                }
+
+                public function jsonSerialize(): mixed
+                {
+                    ++$this->calls;
+                    $this->root = $this->replacement;
+                    return 'done';
+                }
+            };
+            $restore = clone $replace;
+            $root = ['replace' => $replace, 'first' => &$root, 'restore' => $restore, 'last' => &$root];
+            $restore->replacement = $root;
+            return [['root' => &$root], $replace, $restore];
+        };
+        [$native] = $make();
+        self::assertFalse(json_encode($native));
+        self::assertSame(JSON_ERROR_RECURSION, json_last_error());
+        [$input, $replace, $restore] = $make();
+        self::assertFalse(JsonEncoder::encode($input));
+        self::assertSame(JSON_ERROR_RECURSION, json_last_error());
+        self::assertSame(1, $replace->calls);
+        self::assertSame(1, $restore->calls);
+    }
+
     public function testClosuresKeepTheirNativeEmptyObjectRepresentation(): void
     {
         $invoked = false;
@@ -683,6 +774,8 @@ class JsonEncoderTest extends TestCase
             'shared empty object' => ['shared-empty-object', 300000, false],
             'distinct empty objects' => ['distinct-empty-objects', 200000, false],
             'distinct finite scalar objects' => ['distinct-scalar-objects', 50000, false],
+            'declared-only objects' => ['declared-scalar-objects', 100000, false],
+            'declared objects with non-finite sibling' => ['declared-scalar-objects', 100000, true],
             'dense arrays with non-finite sibling' => ['shared-scalar-arrays', 200000, true],
             'dense objects with non-finite sibling' => ['distinct-empty-objects', 200000, true],
             'dense objects with DateTime' => ['distinct-empty-objects', 200000, true, 'DateTime'],

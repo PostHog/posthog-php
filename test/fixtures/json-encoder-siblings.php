@@ -28,6 +28,14 @@ switch ($shape) {
             $items[] = new stdClass();
         }
         break;
+    case 'declared-scalar-objects':
+        $prototype = new class {
+            public int $n = 1;
+        };
+        for ($i = 0; $i < $count; ++$i) {
+            $items[] = clone $prototype;
+        }
+        break;
     case 'distinct-scalar-objects':
         for ($i = 0; $i < $count; ++$i) {
             $items[] = (object) ['n' => $i % 10];
