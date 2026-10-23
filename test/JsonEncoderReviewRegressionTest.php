@@ -4,7 +4,7 @@ namespace PostHog\Test;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use PostHog\JsonEncoder;
+use PostHog\Internal\JsonEncoder;
 
 class JsonEncoderReviewRegressionTest extends TestCase
 {

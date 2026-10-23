@@ -4,7 +4,7 @@ namespace PostHog\Test;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use PostHog\JsonEncoder;
+use PostHog\Internal\JsonEncoder;
 
 class JsonEncoderTest extends TestCase
 {
@@ -914,7 +914,7 @@ class JsonEncoderTest extends TestCase
         };
         $batch = array_fill(0, 100, $event);
         $native = json_encode($batch);
-        if ($native === false || PostHog\JsonEncoder::encode($batch) !== $native) {
+        if ($native === false || PostHog\Internal\JsonEncoder::encode($batch) !== $native) {
             exit(1);
         }
         echo 'encoded';
@@ -965,7 +965,7 @@ class JsonEncoderTest extends TestCase
         if (json_encode($value) !== false || json_last_error() !== JSON_ERROR_UTF8) {
             exit(1);
         }
-        if (PostHog\JsonEncoder::encode($value) !== false || json_last_error() !== JSON_ERROR_UTF8) {
+        if (PostHog\Internal\JsonEncoder::encode($value) !== false || json_last_error() !== JSON_ERROR_UTF8) {
             exit(2);
         }
         echo 'rejected';
@@ -1009,7 +1009,7 @@ class JsonEncoderTest extends TestCase
         if (json_encode($first) !== false || json_last_error() !== JSON_ERROR_RECURSION) {
             exit(2);
         }
-        if (PostHog\JsonEncoder::encode($first) !== false || json_last_error() !== JSON_ERROR_RECURSION) {
+        if (PostHog\Internal\JsonEncoder::encode($first) !== false || json_last_error() !== JSON_ERROR_RECURSION) {
             exit(3);
         }
         $wideObject = new stdClass();
@@ -1021,7 +1021,7 @@ class JsonEncoderTest extends TestCase
         $wideObject->self = $wideObject;
         $wideArray['self'] = &$wideArray;
         foreach ([$wideObject, $wideArray] as $value) {
-            if (PostHog\JsonEncoder::encode($value) !== false || json_last_error() !== JSON_ERROR_RECURSION) {
+            if (PostHog\Internal\JsonEncoder::encode($value) !== false || json_last_error() !== JSON_ERROR_RECURSION) {
                 exit(4);
             }
         }
@@ -1030,7 +1030,7 @@ class JsonEncoderTest extends TestCase
             $deep = [$deep];
         }
         foreach ([$array, $object, $deep] as $value) {
-            if (PostHog\JsonEncoder::encode($value) !== false) {
+            if (PostHog\Internal\JsonEncoder::encode($value) !== false) {
                 exit(1);
             }
         }

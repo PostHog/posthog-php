@@ -15,7 +15,7 @@ $batch = [['event' => 'scale', 'properties' => ['items' => $items]]];
 if ($argv[3] === 'native') {
     $encoded = json_encode(['batch' => $batch, 'api_key' => 'test-key']);
 } else {
-    $encoded = PostHog\JsonEncoder::encode(['batch' => $batch, 'api_key' => 'test-key']);
+    $encoded = PostHog\Internal\JsonEncoder::encode(['batch' => $batch, 'api_key' => 'test-key']);
     $consumer = new PostHog\Test\QueueConsumerTestConsumer([]);
     $payload = $consumer->encodedBatchPayload($batch);
     $expectedPayload = $argv[2] === 'siblings' ? false : $encoded;

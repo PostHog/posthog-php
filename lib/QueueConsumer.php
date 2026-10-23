@@ -2,6 +2,7 @@
 
 namespace PostHog;
 
+use PostHog\Internal\JsonEncoder;
 use Symfony\Component\Clock\Clock;
 use Throwable;
 

@@ -4,7 +4,7 @@ namespace PostHog\Consumer;
 
 use Exception;
 use PostHog\Consumer;
-use PostHog\JsonEncoder;
+use PostHog\Internal\JsonEncoder;
 
 /**
  * Consumer that writes analytics messages to a local file.

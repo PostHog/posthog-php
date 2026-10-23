@@ -1,6 +1,6 @@
 <?php
 
-namespace PostHog;
+namespace PostHog\Internal;
 
 use JsonException;
 use ReflectionReference;

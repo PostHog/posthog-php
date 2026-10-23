@@ -4,7 +4,7 @@ require $argv[1];
 
 $batch = [['event' => 'large-string', 'properties' => ['value' => str_repeat('A', 12 * 1024 * 1024)]]];
 $payload = ['batch' => $batch, 'api_key' => 'test-key'];
-$encoded = $argv[2] === 'native' ? json_encode($payload) : PostHog\JsonEncoder::encode($payload);
+$encoded = $argv[2] === 'native' ? json_encode($payload) : PostHog\Internal\JsonEncoder::encode($payload);
 if ($encoded === false) {
     exit(1);
 }

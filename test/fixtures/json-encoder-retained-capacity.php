@@ -19,7 +19,7 @@ if ($shape === 'high-key') {
 $number = $shape === 'siblings' ? INF : NAN;
 $items[$index] = $mode === 'native-null' ? null : $number;
 $input = $shape === 'siblings' ? ['items' => array_fill(0, 16, $items)] : $items;
-$encoded = $mode === 'sdk' ? PostHog\JsonEncoder::encode($input) : json_encode($input);
+$encoded = $mode === 'sdk' ? PostHog\Internal\JsonEncoder::encode($input) : json_encode($input);
 if ($mode === 'native-error') {
     if ($encoded !== false || json_last_error() !== JSON_ERROR_INF_OR_NAN) {
         exit(1);

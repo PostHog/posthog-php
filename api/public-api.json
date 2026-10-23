@@ -3403,36 +3403,6 @@
                 }
             }
         },
-        "PostHog\\JsonEncoder": {
-            "type": "class",
-            "abstract": false,
-            "final": true,
-            "readonly": false,
-            "extends": null,
-            "implements": [],
-            "constants": [],
-            "properties": [],
-            "methods": {
-                "encode": {
-                    "static": true,
-                    "abstract": false,
-                    "final": false,
-                    "returnType": "string|false",
-                    "parameters": [
-                        {
-                            "name": "value",
-                            "type": "mixed",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": false,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": false
-                        }
-                    ]
-                }
-            }
-        },
         "PostHog\\PostHog": {
             "type": "class",
             "abstract": false,
