@@ -85,16 +85,14 @@ final class JsonEncoder
         if (!is_array($value)) {
             return $value;
         }
-        $result = $value;
-        foreach ($value as $key => $item) {
+        // Compact retained storage first; array_map also preserves numeric-string keys without PHP key coercion.
+        $compact = array_slice($value, 0, null, true);
+        $result = array_map(static function (mixed $item) use (&$changed): mixed {
             $childChanged = false;
             $normalized = self::normalize($item, $childChanged);
-            if ($childChanged) {
-                // Eligibility excludes reference cells, so copy-on-write cannot alter caller values.
-                $result[$key] = $normalized;
-                $changed = true;
-            }
-        }
-        return $result;
+            $changed = $changed || $childChanged;
+            return $normalized;
+        }, $compact);
+        return $changed ? $result : $value;
     }
 }

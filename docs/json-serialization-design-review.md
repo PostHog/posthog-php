@@ -161,7 +161,7 @@ The large-string fixture compares independent native/SDK processes, frees the fi
 
 ## Approved implementation and coverage changes
 
-The custom writer, native-handler cases, property-layout reconstruction, active-reference maps and synthetic error restoration were removed. The encoder now has a read-only eligibility pass (10,000 values, 64 array levels, 1 MiB raw string/key bytes), a copy-on-change data normalizer, and one final native payload encoding. Opaque values, references, malformed strings and exhausted budgets cause unchanged native delegation, not a new encoding rejection. Primitive string validation uses `JSON_THROW_ON_ERROR` so it does not reset JSON error state seen by user callbacks.
+The custom writer, native-handler cases, property-layout reconstruction, active-reference maps and synthetic error restoration were removed. The encoder now has a read-only eligibility pass (10,000 values, 64 array levels, 1 MiB raw string/key bytes), a compact data normalizer with unchanged-subtree reuse, and one final native payload encoding. Opaque values, references, malformed strings and exhausted budgets cause unchanged native delegation, not a new encoding rejection. Primitive string validation uses `JSON_THROW_ON_ERROR` so it does not reset JSON error state seen by user callbacks.
 
 No concrete reported reproduction was deleted or skipped. The five new finite/native-parity tests in `JsonEncoderReviewRegressionTest.php` pass without changing their expectations. The following feature expectations changed only because the user approved narrowing the normalization domain:
 
@@ -186,7 +186,7 @@ The approved contract deliberately does not isolate mixed batches event by event
 5. Retain batch/File integration coverage and demonstrate healthy-neighbor behavior for the explicitly supported domain. Do not assume isolated event encoding preserves all whole-batch callback semantics.
 6. Review the design's state/ownership/resource invariants before requesting another automatic review. Another passing test count alone is not the exit criterion.
 
-## Approved revision validation
+## First approved revision validation (`d16a8b1`)
 
 Local validation of the approved data-only implementation on PHP 8.5.10:
 
@@ -197,6 +197,18 @@ Local validation of the approved data-only implementation on PHP 8.5.10:
 - The five newest native-parity regressions pass with their original expectations. No reported reproduction was deleted or skipped to obtain this result.
 - New 32 MiB probes compare eligible dense non-finite arrays and escaped strings with independently constructed native-null payloads. Oversized finite strings and finite payloads outside each repair budget retain native success.
 
-The design invariant review checks that copying happens only after full eligibility, that no eligible graph can run a user serializer/getter or contain reference cells, that unchanged and ineligible payloads use their original native graph, and that string validation cannot overwrite the JSON error state seen by native callbacks. Resource bounds limit both inspection work and potential normalization allocations; reaching a bound falls back rather than building a wrapper graph or inventing an encoding error.
+The design invariant review checks that copying happens only after full eligibility, that no eligible graph can run a user serializer/getter or contain reference cells, that unchanged and ineligible payloads use their original native graph, and that string validation cannot overwrite the JSON error state seen by native callbacks. The initial allocation review incorrectly assumed that copy-on-write storage was bounded by live entries; the correction below records the counterexample and removes that assumption. Budget exhaustion still falls back rather than inventing an encoding error.
 
 PHP 8.2-8.5 CI is required as the cross-version acceptance gate; local results alone are not a matrix-wide validation.
+
+## Retained-capacity correction
+
+Two subsequent reviews reported the same allocation defect: [4359164748](https://github.com/PostHog/posthog-php/pull/276#discussion_r4359164748) and [4359218233](https://github.com/PostHog/posthog-php/pull/276#discussion_r4359218233). A million-slot array pruned to one live non-finite value passes the value budget, but PHP copy-on-write duplicates its retained 16 MiB backing allocation. The repeated-child example amplifies the same defect. This invalidated the first revision's allocation argument without changing the approved eligibility/serialization contract.
+
+Three retained-capacity tests were red on `d16a8b1`: the reported million-slot root, 16 repeated pruned children, and a sparse high live key. Under the same 32 MiB limit, each native non-finite baseline returned its normal error and each equivalent native-null baseline encoded successfully; SDK encoding fatally attempted an extra 16 MiB allocation. The tests and fixture remain in `JsonEncoderDataOnlyTest.php` and `test/fixtures/json-encoder-retained-capacity.php`.
+
+Normalization now compacts live entries with key-preserving `array_slice` before mapping values. It never writes into a copy seeded from the original table. Compaction must precede mapping: `array_map` alone can retain a high packed index extent. Mapping also preserves genuine numeric-string keys from symbol tables; ordinary PHP keyed assignment coerces them to integers and can change an object-shaped JSON value into a list. A separate red/green test protects this behavior, and a prefix/sparse-key test protects unchanged values and insertion order.
+
+The revised allocation invariant concerns newly allocated storage, not the caller's existing capacity: candidate tables are constructed from live entries, unchanged subtrees are reused without writes, and each repeated changed occurrence receives compact storage. Budgets cap recursive value visits and string validation. PHP iteration over holes can still reflect existing backing extent, so live-entry counts alone are not a bound on every internal scan.
+
+Local validation of the correction on PHP 8.5.10: 164 focused tests / 1,216 assertions; 1,594 full tests / 8,345 assertions with Xdebug 3.5.3 coverage; 16 adapter tests; changed-file PHP_CodeSniffer, API snapshot, strict Composer and whitespace checks pass. The original five latest native-parity regressions remain unchanged and green. Existing deprecation counts remain 27 and 42. The PHP 8.2-8.5 matrix must also pass before thread resolution.

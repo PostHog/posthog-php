@@ -181,6 +181,75 @@ class JsonEncoderDataOnlyTest extends TestCase
         self::assertSame($outputs['native'], $outputs['sdk']);
     }
 
+    public function testRepairPreservesUnchangedPrefixesAndSparseKeys(): void
+    {
+        $input = [
+            'before' => ['nested' => [2.5]],
+            2 => 'kept',
+            "\0name" => 0,
+            5 => ['unchanged' => [], 'bad' => NAN, 'suffix' => false],
+            'after' => [0, INF],
+        ];
+        $expected = $input;
+        $expected[5]['bad'] = null;
+        $expected['after'][1] = null;
+        self::assertSame(json_encode($expected), JsonEncoder::encode($input));
+        self::assertNan($input[5]['bad']);
+        self::assertSame(INF, $input['after'][1]);
+    }
+
+    public function testRepairPreservesNumericStringKeysFromSymbolTables(): void
+    {
+        $input = (static function (): array {
+            ${'0'} = NAN;
+            ${'1'} = INF;
+            return get_defined_vars();
+        })();
+        $expected = (static function (): array {
+            ${'0'} = null;
+            ${'1'} = null;
+            return get_defined_vars();
+        })();
+        self::assertSame(['0', '1'], array_keys($input));
+        self::assertSame('{"0":null,"1":null}', json_encode($expected));
+        self::assertSame(json_encode($expected), JsonEncoder::encode($input));
+        self::assertSame(['0', '1'], array_keys($input));
+        self::assertNan(array_values($input)[0]);
+        self::assertSame(INF, array_values($input)[1]);
+    }
+
+    public static function retainedCapacityShapes(): array
+    {
+        return ['pruned root' => ['root'], 'repeated children' => ['siblings'], 'sparse high key' => ['high-key']];
+    }
+
+    #[DataProvider('retainedCapacityShapes')]
+    public function testRetainedArrayCapacityDoesNotExpandRepairAllocations(string $shape): void
+    {
+        $outputs = [];
+        foreach (['native-error', 'native-null', 'sdk'] as $mode) {
+            $process = proc_open(
+                [PHP_BINARY, '-d', 'memory_limit=32M', '-d', 'max_execution_time=10',
+                    __DIR__ . '/fixtures/json-encoder-retained-capacity.php',
+                    __DIR__ . '/../vendor/autoload.php', $shape, $mode],
+                [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes
+            );
+            self::assertIsResource($process);
+            fclose($pipes[0]);
+            $output = stream_get_contents($pipes[1]);
+            $errors = stream_get_contents($pipes[2]);
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+            self::assertSame(0, proc_close($process), $mode . ': ' . $errors);
+            $outputs[$mode] = json_decode($output, true, 512, JSON_THROW_ON_ERROR);
+            if ($mode === 'native-error') {
+                self::assertSame(['error' => JSON_ERROR_INF_OR_NAN], $outputs[$mode]);
+            }
+        }
+        self::assertSame($outputs['native-null'], $outputs['sdk']);
+    }
+
     public static function depthBudgets(): array
     {
         return ['within budget' => [64, true], 'over budget' => [65, false]];

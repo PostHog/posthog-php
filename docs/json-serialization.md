@@ -10,7 +10,7 @@ An eligible payload contains only PHP arrays, strings, numbers, booleans and nul
 | 64 array levels | The complete payload, not just custom properties |
 | 1 MiB of string bytes | Combined raw bytes of string values and string keys, before JSON escaping |
 
-The inspection is read-only and invokes no getters or serializers. Repair starts only after the entire payload qualifies, and copies only containers containing changed values. Individual strings are validated without resetting the JSON error state seen by callbacks.
+The inspection is read-only and invokes no getters or serializers. Repair starts only after the entire payload qualifies. It builds compact candidate arrays from live entries, preserving key types and order, and reuses unchanged subtrees. It never seeds a writable copy from the caller's array, whose retained backing capacity can greatly exceed its live entry count. Individual strings are validated without resetting the JSON error state seen by callbacks.
 
 ## Native fallback
 
