@@ -1,3 +1,9 @@
+## 4.17.1
+
+### Patch Changes
+
+- Keep local regex evaluation compatible with the flags service by using strict end anchors and falling back for unsupported regex syntax.
+
 ## 4.17.0
 
 ### Minor Changes

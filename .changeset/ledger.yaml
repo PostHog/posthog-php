@@ -84,3 +84,7 @@ posthog-php@4.17.0:
   dir: ""
   intents:
     - local-flag-holdouts
+posthog-php@4.17.1:
+  dir: ""
+  intents:
+    - brave-bottles-ask
