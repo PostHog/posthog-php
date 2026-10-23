@@ -389,9 +389,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         self::assertTrue(FeatureFlag::matchProperty($exact, ["key" => $jsonSerializable]));
     }
 
-    /**
-     * @dataProvider presentPresenceOperatorValuesProvider
-     */
+    #[DataProvider('presentPresenceOperatorValuesProvider')]
     public function testMatchPropertyPresenceOperatorsTreatPresentValuesAsSet($value): void
     {
         foreach (["is_set" => true, "is_not_set" => false] as $operator => $expected) {
@@ -1845,9 +1843,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->assertEquals(PostHog::getFeatureFlag('group-flag', 'some-distinct-id', ["company" => "amazon"], [], ["company" => []]), 'decide-fallback-value');
     }
 
-    /**
-     * @dataProvider mixedTargetingProvider
-     */
+    #[DataProvider('mixedTargetingProvider')]
     public function testMixedTargetingLocalEvaluation(string $flagKey, array $opts, $expected, array $localFlags)
     {
         $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: $localFlags);
@@ -5348,9 +5344,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         return ["key" => "early-exit-flag", "filters" => $filters];
     }
 
-    /**
-     * @dataProvider earlyExitRolloutExclusionProvider
-     */
+    #[DataProvider('earlyExitRolloutExclusionProvider')]
     public function testEarlyExitRolloutExclusion($earlyExit, bool $expected): void
     {
         $flag = self::earlyExitFlag($earlyExit);

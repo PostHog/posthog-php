@@ -2,11 +2,13 @@
 
 namespace PostHog\Test;
 
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 
 class FlagDependencyIntegrationTest extends TestCase
 {
+    #[IgnoreDeprecations]
     public function testClientIntegrationWithFlagDependencies(): void
     {
         // Create a client with mock flags that have dependencies
