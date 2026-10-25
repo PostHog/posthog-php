@@ -3,6 +3,7 @@
 namespace PostHog;
 
 use Symfony\Component\Clock\Clock;
+use Throwable;
 
 /**
  * Base class for consumers that batch messages before delivery.
@@ -89,8 +90,11 @@ abstract class QueueConsumer extends Consumer
      */
     public function __destruct()
     {
-        // Flush our queue on destruction
-        $this->flush();
+        try {
+            $this->flush();
+        } catch (Throwable $throwable) {
+            error_log('[PostHog][' . $this->type . '] Flush failed during destruction: ' . $throwable->getMessage());
+        }
     }
 
     /**

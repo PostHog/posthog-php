@@ -62,3 +62,29 @@ posthog-php@4.15.0:
   dir: ""
   intents:
     - group-identify-disable-geoip
+posthog-php@4.16.0:
+  dir: ""
+  intents:
+    - ambient-exception-traces
+posthog-php@4.16.1:
+  dir: ""
+  intents:
+    - fix-numeric-string-ordering
+posthog-php@4.16.2:
+  dir: ""
+  intents:
+    - tough-pianos-walk
+posthog-php@4.16.3:
+  dir: ""
+  intents:
+    - olive-vans-throw
+    - twenty-clocks-smash
+    - wet-rings-notice
+posthog-php@4.17.0:
+  dir: ""
+  intents:
+    - local-flag-holdouts
+posthog-php@4.17.1:
+  dir: ""
+  intents:
+    - brave-bottles-ask

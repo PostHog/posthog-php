@@ -2,6 +2,8 @@
 
 namespace PostHog;
 
+use OpenTelemetry\API\Trace\Span;
+
 /**
  * Builds PostHog error tracking exception payloads.
  *
@@ -11,6 +13,33 @@ class ExceptionPayloadBuilder
 {
     private const CONTEXT_LINES = 5;
     private const DEFAULT_MAX_FRAMES = 20;
+
+    public static function getTraceProperties(): array
+    {
+        try {
+            if (!class_exists(Span::class)) {
+                return [];
+            }
+
+            $context = Span::getCurrent()->getContext();
+            if (!$context->isValid()) {
+                return [];
+            }
+
+            $traceId = $context->getTraceId();
+            $spanId = $context->getSpanId();
+            if (
+                !preg_match('/^[0-9a-f]{32}$/D', $traceId) || $traceId === str_repeat('0', 32)
+                || !preg_match('/^[0-9a-f]{16}$/D', $spanId) || $spanId === str_repeat('0', 16)
+            ) {
+                return [];
+            }
+
+            return ['$trace_id' => $traceId, '$span_id' => $spanId];
+        } catch (\Throwable $error) {
+            return [];
+        }
+    }
 
     /**
      * Build a parsed exception list from a Throwable or string.

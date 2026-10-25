@@ -6,6 +6,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\HttpClient;
 
+require_once __DIR__ . '/fixtures/usleep_mock.php';
+
 class RetryAfterHttpClient extends HttpClient
 {
     /** @param array<int, string> $headers */
@@ -115,6 +117,42 @@ class HttpClientTest extends TestCase
                 $this->assertSame($requests[0], $requests[1]);
             }
         } finally {
+            $server->stop();
+        }
+    }
+
+    public static function retryDelayCases(): array
+    {
+        return [
+            'large rate-limit delay capped' => [429, ['Retry-After' => '60'], [2500000, 2500000]],
+            'large service-unavailable delay capped' => [503, ['Retry-After' => '60'], [2500000, 2500000]],
+            'small delay honored' => [429, ['Retry-After' => '1'], [1000000, 1000000]],
+            'date delay capped' => [503, ['Retry-After' => 'Thu, 01 Jan 2099 00:00:00 GMT'], [2500000, 2500000]],
+            'no header uses exponential backoff' => [503, [], [100000, 200000]],
+        ];
+    }
+
+    #[DataProvider('retryDelayCases')]
+    public function testRetryDelay(int $status, array $headers, array $expectedDelays): void
+    {
+        global $httpClientSleepDurations;
+        $httpClientSleepDurations = [];
+        $server = new LocalHttpServer([
+            ['status' => $status, 'headers' => $headers],
+            ['status' => $status, 'headers' => $headers],
+            ['status' => 200, 'body' => 'delivered'],
+        ]);
+
+        try {
+            $client = new HttpClient($server->address(), useSsl: false, maximumBackoffDuration: 2500);
+            $response = $client->sendRequest('/batch/', '{"batch":[]}');
+
+            $this->assertSame($expectedDelays, $httpClientSleepDurations);
+            $this->assertSame(200, $response->getResponseCode());
+            $this->assertSame('delivered', $response->getResponse());
+            $this->assertCount(3, $server->requests());
+        } finally {
+            $httpClientSleepDurations = null;
             $server->stop();
         }
     }

@@ -2,6 +2,7 @@
 
 namespace PostHog\Test;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
 class ConsumerSocketTest extends ConsumerTransportTestCase
@@ -58,6 +59,64 @@ class ConsumerSocketTest extends ConsumerTransportTestCase
         self::assertTrue($client->flush());
         self::assertCount(1, $this->server->requests());
         self::assertSame(['[PostHog][Socket] invalid payload'], $errorMessages);
+    }
+
+    public static function retryCases(): array
+    {
+        return [
+            'server error' => [503, false],
+            'rate limited gzip' => [429, true],
+        ];
+    }
+
+    #[DataProvider('retryCases')]
+    public function testRetryResendsCompleteRequest(int $status, bool $compressed): void
+    {
+        $this->server->stop();
+        $this->server = new LocalHttpServer([['status' => $status], ['status' => 200]]);
+        $client = $this->client([
+            'maximum_backoff_duration' => 200,
+            'compress_request' => $compressed,
+        ]);
+        self::assertTrue($client->capture([
+            'distinctId' => 'some-user',
+            'event' => 'retried event',
+            'properties' => ['text' => str_repeat('retry payload ', 100)],
+        ]));
+
+        $previousTimeout = ini_set('default_socket_timeout', '1');
+        try {
+            self::assertTrue($client->flush());
+        } finally {
+            ini_set('default_socket_timeout', $previousTimeout);
+        }
+
+        $requests = $this->server->requests();
+        self::assertCount(2, $requests);
+        self::assertSame($requests[0], $requests[1]);
+        $payload = json_decode($requests[1]['body'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame('retried event', $payload['batch'][0]['event']);
+        self::assertSame(
+            $compressed ? 'gzip' : null,
+            $requests[1]['headers']['content-encoding'] ?? null
+        );
+        self::assertTrue($client->flush());
+        self::assertCount(2, $this->server->requests());
+    }
+
+    public function testFailedReconnectReturnsFalseWithoutInvalidStreamAccess(): void
+    {
+        $this->server->stop();
+        $this->server = new LocalHttpServer([['status' => 503, 'close_server' => true]]);
+        $client = $this->client([
+            'maximum_backoff_duration' => 200,
+            'timeout' => 0.05,
+            'debug' => false,
+        ]);
+        self::assertTrue($client->capture(['distinctId' => 'some-user', 'event' => 'failed retry']));
+        self::assertFalse($client->flush());
+        self::assertCount(1, $this->server->requests());
+        self::assertTrue($client->flush());
     }
 
     public function testConnectionError(): void

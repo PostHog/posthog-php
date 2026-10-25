@@ -2,6 +2,8 @@
 
 namespace PostHog\Test;
 
+use OpenTelemetry\API\Trace\Span;
+use OpenTelemetry\API\Trace\SpanContext;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\ExceptionCapture;
@@ -147,6 +149,10 @@ class ExceptionCaptureTest extends TestCase
         };
 
         set_exception_handler($previousExceptionHandler);
+        $scope = Span::wrap(SpanContext::create(
+            '0123456789abcdef0123456789abcdef',
+            '0123456789abcdef'
+        ))->activate();
 
         try {
             $this->buildClient(['error_tracking' => ['enabled' => true]]);
@@ -160,6 +166,8 @@ class ExceptionCaptureTest extends TestCase
             $event = $this->findExceptionEvent();
 
             $this->assertSame('$exception', $event['event']);
+            $this->assertSame('0123456789abcdef0123456789abcdef', $event['properties']['$trace_id']);
+            $this->assertSame('0123456789abcdef', $event['properties']['$span_id']);
             $this->assertFalse($event['properties']['$exception_handled']);
             $this->assertSame('php_exception_handler', $event['properties']['$exception_source']);
             $this->assertSame(
@@ -173,6 +181,7 @@ class ExceptionCaptureTest extends TestCase
                 $event['distinct_id']
             );
         } finally {
+            $scope->detach();
             ExceptionCapture::resetForTests();
             restore_exception_handler();
         }

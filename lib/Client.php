@@ -395,7 +395,11 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function __destruct()
     {
-        $this->shutdown();
+        try {
+            $this->shutdown();
+        } catch (Throwable $throwable) {
+            error_log('[PostHog][Client] Shutdown failed during destruction: ' . $throwable->getMessage());
+        }
     }
 
     /**
@@ -409,12 +413,24 @@ class Client implements FeatureFlagEvaluationsHost
             return true;
         }
 
-        $flushed = $this->flush();
-        $this->shutdownFlagDefinitionCacheProvider();
-        $this->consumer->__destruct();
-        // Release the per-client feature-flag-called dedupe cache once the client is shut down.
-        $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(self::SIZE_LIMIT);
-        $this->shutdownComplete = true;
+        try {
+            try {
+                $flushed = $this->flush();
+            } finally {
+                $this->shutdownFlagDefinitionCacheProvider();
+            }
+            if ($this->consumer instanceof QueueConsumer) {
+                // Explicit shutdown retries must bypass the destructor's exception suppression.
+                $this->consumer->flush();
+            }
+        } finally {
+            if (!($this->consumer instanceof QueueConsumer)) {
+                $this->consumer->__destruct();
+            }
+            // Release the per-client feature-flag-called dedupe cache once the client is shut down.
+            $this->distinctIdsFeatureFlagsReported = new SizeLimitedHash(self::SIZE_LIMIT);
+            $this->shutdownComplete = true;
+        }
 
         return $flushed;
     }
@@ -621,7 +637,12 @@ class Client implements FeatureFlagEvaluationsHost
             return false;
         }
 
+        $traceProperties = array_diff_key(
+            ExceptionPayloadBuilder::getTraceProperties(),
+            $this->getContext()['properties'] ?? []
+        );
         $properties = array_merge(
+            $traceProperties,
             $additionalProperties,
             [
                 '$exception_list' => $exceptionList,

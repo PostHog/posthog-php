@@ -1,3 +1,43 @@
+## 4.17.1
+
+### Patch Changes
+
+- Keep local regex evaluation compatible with the flags service by using strict end anchors and falling back for unsupported regex syntax.
+
+## 4.17.0
+
+### Minor Changes
+
+- Honor experiment holdouts when evaluating feature flags locally, so a held-out identifier resolves to `holdout-<id>` instead of an ordinary variant.
+
+## 4.16.3
+
+### Patch Changes
+
+- Fix socket retries failing after reconnecting or crashing when reconnection fails.
+
+- Contain application failures during automatic SDK destruction without suppressing explicit shutdown retry exceptions, and finish cleanup after flush failures.
+
+- Honor configured ingestion timeouts in the libcurl and forked curl transports, rounding positive fractional milliseconds up so they remain bounded.
+
+## 4.16.2
+
+### Patch Changes
+
+- Cap Retry-After delays at maximum_backoff_duration to bound synchronous retry waits.
+
+## 4.16.1
+
+### Patch Changes
+
+- Fix local feature flag `gt`, `gte`, `lt`, and `lte` comparisons to compare numeric strings numerically, which can change flag membership for numeric-string properties. Invalid property values no longer compare lexicographically; invalid numeric filters fall back to remote evaluation.
+
+## 4.16.0
+
+### Minor Changes
+
+- Add the active OpenTelemetry trace and span IDs to captured exception events when the application provides OpenTelemetry.
+
 ## 4.15.0
 
 ### Minor Changes

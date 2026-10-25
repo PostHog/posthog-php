@@ -162,10 +162,10 @@ class HttpClient
                 if ($shouldRetry === false) {
                     break;
                 } elseif ($this->isRetryableStatus($responseCode)) {
-                    // Retry transient failures. Honor Retry-After when provided, otherwise use
+                    // Retry transient failures. Honor Retry-After up to the maximum backoff, otherwise use
                     // exponential backoff starting at 100ms.
                     $retryAfterMs = $this->retryAfterMilliseconds($responseHeaders);
-                    usleep(($retryAfterMs ?? $backoff) * 1000);
+                    usleep(min($retryAfterMs ?? $backoff, $this->maximumBackoffDurationMs) * 1000);
                     $backoff *= 2;
                 } else {
                     // Do not retry non-transient responses (e.g. 400, 401, 403, 413,

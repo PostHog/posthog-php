@@ -2,6 +2,13 @@
 
 namespace PostHog\Test;
 
+use OpenTelemetry\API\Trace\Span;
+use OpenTelemetry\API\Trace\SpanContext;
+use OpenTelemetry\API\Trace\SpanContextInterface;
+use OpenTelemetry\API\Trace\TraceFlags;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\ExceptionPayloadBuilder;
@@ -427,6 +434,150 @@ PHP;
             $this->assertEquals('RuntimeException', $event['properties']['$exception_list'][0]['type']);
             $this->assertEquals('boom', $event['properties']['$exception_list'][0]['value']);
         });
+    }
+
+    public static function activeTraceCases(): array
+    {
+        return [
+            'sampled' => [TraceFlags::SAMPLED, '0123456789abcdef0123456789abcdef', '0123456789abcdef', []],
+            'unsampled' => [TraceFlags::DEFAULT, '0123456789abcdef0123456789abcdef', '0123456789abcdef', []],
+            'leading zeros' => [TraceFlags::DEFAULT, str_repeat('0', 31) . '3', str_repeat('0', 15) . '4', []],
+            'caller properties' => [TraceFlags::SAMPLED, '0123456789abcdef0123456789abcdef', '0123456789abcdef',
+                ['$trace_id' => 'caller-trace', '$span_id' => 'caller-span']],
+            'request trace ID' => [
+                TraceFlags::SAMPLED, '0123456789abcdef0123456789abcdef', '0123456789abcdef',
+                [], ['$trace_id' => 'request-trace'],
+            ],
+            'request span ID' => [
+                TraceFlags::SAMPLED, '0123456789abcdef0123456789abcdef', '0123456789abcdef',
+                [], ['$span_id' => 'request-span'],
+            ],
+            'event overrides request' => [
+                TraceFlags::SAMPLED, '0123456789abcdef0123456789abcdef', '0123456789abcdef',
+                ['$trace_id' => 'event-trace'], ['$trace_id' => 'request-trace', '$span_id' => 'request-span'],
+            ],
+            'empty request values' => [
+                TraceFlags::SAMPLED, '0123456789abcdef0123456789abcdef', '0123456789abcdef',
+                [], ['$trace_id' => '', '$span_id' => null],
+            ],
+        ];
+    }
+
+    #[DataProvider('activeTraceCases')]
+    public function testCaptureExceptionIncludesActiveTrace(
+        int $flags,
+        string $traceId,
+        string $spanId,
+        array $additionalProperties,
+        array $contextProperties = []
+    ): void {
+        $scope = Span::wrap(SpanContext::create($traceId, $spanId, $flags))->activate();
+        try {
+            $this->assertTrue($this->client->withContext(
+                ['properties' => $contextProperties],
+                fn (): bool => $this->client->captureException('example error', 'example-user', $additionalProperties)
+            ));
+        } finally {
+            $scope->detach();
+        }
+        PostHog::flush();
+
+        $payload = json_decode($this->findBatchCall()['payload'], true);
+        $event = $payload['batch'][0];
+        $this->assertSame('$exception', $event['event']);
+        $expected = array_merge(
+            ['$trace_id' => $traceId, '$span_id' => $spanId],
+            $contextProperties,
+            $additionalProperties
+        );
+        $this->assertSame($expected['$trace_id'], $event['properties']['$trace_id']);
+        $this->assertSame($expected['$span_id'], $event['properties']['$span_id']);
+
+        $this->httpClient->calls = [];
+        $this->client->captureException('outside span', 'example-user');
+        PostHog::flush();
+        $payload = json_decode($this->findBatchCall()['payload'], true);
+        $this->assertArrayNotHasKey('$trace_id', $payload['batch'][0]['properties']);
+        $this->assertArrayNotHasKey('$span_id', $payload['batch'][0]['properties']);
+    }
+
+    public static function invalidTraceCases(): array
+    {
+        return [
+            'zero trace' => [str_repeat('0', 32), '0123456789abcdef'],
+            'zero span' => ['0123456789abcdef0123456789abcdef', str_repeat('0', 16)],
+            'short trace' => ['1234', '0123456789abcdef'],
+            'non-hex span' => ['0123456789abcdef0123456789abcdef', 'not-a-hex-string!'],
+            'uppercase trace' => ['0123456789ABCDEF0123456789ABCDEF', '0123456789abcdef'],
+        ];
+    }
+
+    #[DataProvider('invalidTraceCases')]
+    public function testCaptureExceptionOmitsInvalidTrace(string $traceId, string $spanId): void
+    {
+        $context = $this->createMock(SpanContextInterface::class);
+        $context->method('isValid')->willReturn(true);
+        $context->method('getTraceId')->willReturn($traceId);
+        $context->method('getSpanId')->willReturn($spanId);
+        $scope = Span::wrap($context)->activate();
+        try {
+            $this->assertTrue($this->client->captureException('example error', 'example-user'));
+        } finally {
+            $scope->detach();
+        }
+        PostHog::flush();
+        $payload = json_decode($this->findBatchCall()['payload'], true);
+        $this->assertSame('$exception', $payload['batch'][0]['event']);
+        $this->assertArrayNotHasKey('$trace_id', $payload['batch'][0]['properties']);
+        $this->assertArrayNotHasKey('$span_id', $payload['batch'][0]['properties']);
+    }
+
+    public function testCaptureExceptionSurvivesTraceContextFailure(): void
+    {
+        $context = $this->createMock(SpanContextInterface::class);
+        $context->method('isValid')->willReturn(true);
+        $context->method('getTraceId')->willThrowException(new \Error('example context failure'));
+        $scope = Span::wrap($context)->activate();
+        try {
+            $this->assertTrue($this->client->captureException('example error', 'example-user'));
+        } finally {
+            $scope->detach();
+        }
+        PostHog::flush();
+        $payload = json_decode($this->findBatchCall()['payload'], true);
+        $this->assertSame('$exception', $payload['batch'][0]['event']);
+        $this->assertArrayNotHasKey('$trace_id', $payload['batch'][0]['properties']);
+        $this->assertArrayNotHasKey('$span_id', $payload['batch'][0]['properties']);
+    }
+
+    public static function unavailableTraceApiCases(): array
+    {
+        return ['not installed' => [false], 'autoload failure' => [true]];
+    }
+
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    #[DataProvider('unavailableTraceApiCases')]
+    public function testCaptureExceptionWithoutTraceApi(bool $autoloadFailure): void
+    {
+        $loader = require dirname(__DIR__) . '/vendor/autoload.php';
+        $loader->setPsr4('OpenTelemetry\\API\\', []);
+        if ($autoloadFailure) {
+            spl_autoload_register(static function (string $class): void {
+                if ($class === Span::class) {
+                    throw new \Error('example autoload failure');
+                }
+            }, true, true);
+        } else {
+            $this->assertFalse(class_exists(Span::class));
+        }
+
+        $this->assertTrue($this->client->captureException('example error', 'example-user'));
+        PostHog::flush();
+        $payload = json_decode($this->findBatchCall()['payload'], true);
+        $this->assertSame('$exception', $payload['batch'][0]['event']);
+        $this->assertArrayNotHasKey('$trace_id', $payload['batch'][0]['properties']);
+        $this->assertArrayNotHasKey('$span_id', $payload['batch'][0]['properties']);
     }
 
     public function testCaptureExceptionUsesOuterExceptionAsPrimaryForChains(): void
