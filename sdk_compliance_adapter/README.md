@@ -71,9 +71,9 @@ not SDK shutdown certification; `/flush` always calls the real public SDK method
 Socket and foreground ForkCurl retry transient HTTP failures, including 408,
 429, and server errors. Each attempt sends the same batch. Retry delays start at
 100 ms and double after each attempt, within the configured backoff limit.
-Valid Retry-After headers replace the delay for that attempt. These headers can
-contain a number of seconds or an HTTP date. Invalid headers use the normal
-backoff delay; past dates permit an immediate retry.
+Valid Retry-After headers replace the delay for that attempt, up to the backoff
+limit. These headers can contain a number of seconds or an HTTP date. Invalid
+headers use the normal backoff delay; past dates permit an immediate retry.
 
 HTTP 200 confirms delivery. Terminal HTTP errors make flush return false and
 remove the failed batch. Retry exhaustion on a retryable response or a network

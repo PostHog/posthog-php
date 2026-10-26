@@ -5,8 +5,6 @@ namespace PostHog;
 /** @internal */
 trait HttpRetryPolicy
 {
-    private const MAXIMUM_RETRY_AFTER_MILLISECONDS = 10000;
-
     protected function isRetryableStatus(int $responseCode): bool
     {
         return $responseCode === 408
@@ -17,11 +15,9 @@ trait HttpRetryPolicy
     /**
      * @param array<int, string> $headers
      */
-    protected function retryDelayMilliseconds(array $headers, int $backoff): int
+    protected function retryDelayMilliseconds(array $headers, int $backoff, int $maximumMilliseconds): int
     {
-        $retryAfter = $this->retryAfterMilliseconds($headers);
-
-        return $retryAfter === null ? $backoff : min($retryAfter, self::MAXIMUM_RETRY_AFTER_MILLISECONDS);
+        return min($this->retryAfterMilliseconds($headers) ?? $backoff, $maximumMilliseconds);
     }
 
     /**

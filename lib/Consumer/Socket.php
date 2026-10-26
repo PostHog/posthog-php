@@ -200,7 +200,8 @@ class Socket extends QueueConsumer
                 }
 
                 $responseHeaders = explode("\r\n", strstr($response, "\r\n\r\n", true) ?: '');
-                Clock::get()->sleep($this->retryDelayMilliseconds($responseHeaders, $backoff) / 1000);
+                $delay = $this->retryDelayMilliseconds($responseHeaders, $backoff, $this->maximum_backoff_duration);
+                Clock::get()->sleep($delay / 1000);
             } else {
                 if ($this->debug()) {
                     $this->handleError($res["status"], $res["message"]);
