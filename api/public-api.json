@@ -3403,6 +3403,234 @@
                 }
             }
         },
+        "PostHog\\Internal\\SpanContext": {
+            "type": "class",
+            "abstract": false,
+            "final": true,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "enrich": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "client",
+                            "type": "PostHog\\Client",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "span",
+                            "type": "OpenTelemetry\\API\\Trace\\SpanInterface",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "enrichCurrent": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "client",
+                            "type": "PostHog\\Client",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "register": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "client",
+                            "type": "PostHog\\Client",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "processor",
+                            "type": "object",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "unregister": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "client",
+                            "type": "PostHog\\Client",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "processor",
+                            "type": "object",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                }
+            }
+        },
+        "PostHog\\OpenTelemetry\\ContextSpanProcessor": {
+            "type": "class",
+            "abstract": false,
+            "final": true,
+            "readonly": false,
+            "extends": null,
+            "implements": [
+                "OpenTelemetry\\SDK\\Trace\\SpanProcessorInterface"
+            ],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "client",
+                            "type": "PostHog\\Client",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "forceFlush": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": [
+                        {
+                            "name": "cancellation",
+                            "type": "?OpenTelemetry\\SDK\\Common\\Future\\CancellationInterface",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "onEnd": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "span",
+                            "type": "OpenTelemetry\\SDK\\Trace\\ReadableSpanInterface",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "onStart": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "span",
+                            "type": "OpenTelemetry\\SDK\\Trace\\ReadWriteSpanInterface",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "parentContext",
+                            "type": "OpenTelemetry\\Context\\ContextInterface",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "shutdown": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": [
+                        {
+                            "name": "cancellation",
+                            "type": "?OpenTelemetry\\SDK\\Common\\Future\\CancellationInterface",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                }
+            }
+        },
         "PostHog\\PostHog": {
             "type": "class",
             "abstract": false,
