@@ -163,7 +163,7 @@ class Socket extends QueueConsumer
                 }
 
                 usleep($backoff * 1000);
-            } elseif ($statusCode >= 400) {
+            } else {
                 if ($this->debug()) {
                     $this->handleError($res["status"], $res["message"]);
                 }

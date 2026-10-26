@@ -104,6 +104,37 @@ class ConsumerSocketTest extends ConsumerTransportTestCase
         self::assertCount(2, $this->server->requests());
     }
 
+    public static function unsupportedResponseStatuses(): array
+    {
+        return [
+            'moved permanently' => [301],
+            'found' => [302],
+            'temporary redirect' => [307],
+            'permanent redirect' => [308],
+            'no content' => [204],
+        ];
+    }
+
+    #[DataProvider('unsupportedResponseStatuses')]
+    public function testUnsupportedResponseDropsBatchWithoutRetrying(int $status): void
+    {
+        $this->server->stop();
+        $this->server = new LocalHttpServer(array_fill(0, 4, ['status' => $status]));
+        $client = $this->client(['maximum_backoff_duration' => 200]);
+        self::assertTrue($client->capture(['distinctId' => 'some-user', 'event' => 'redirected']));
+
+        $previousTimeout = ini_set('default_socket_timeout', '1');
+        try {
+            self::assertFalse($client->flush());
+        } finally {
+            ini_set('default_socket_timeout', $previousTimeout);
+        }
+
+        self::assertCount(1, $this->server->requests());
+        self::assertTrue($client->flush());
+        self::assertCount(1, $this->server->requests());
+    }
+
     public function testFailedReconnectReturnsFalseWithoutInvalidStreamAccess(): void
     {
         $this->server->stop();
