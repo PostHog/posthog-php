@@ -2,6 +2,7 @@
 
 namespace PostHog\Test;
 
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\FeatureFlag;
@@ -426,6 +427,7 @@ class FlagDependencyTest extends TestCase
         $this->assertFalse(FeatureFlag::matchesDependencyValue("control", 123));
     }
 
+    #[IgnoreDeprecations]
     public function testProductionStyleMultivariateDependencyChain(): void
     {
         // Test production-style multivariate dependency chain:

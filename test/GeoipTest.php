@@ -3,6 +3,7 @@
 namespace PostHog\Test;
 
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\PostHog;
@@ -107,6 +108,7 @@ class GeoipTest extends TestCase
     }
 
     #[DataProvider('geoipCases')]
+    #[IgnoreDeprecations]
     public function testCaptureFlagEnrichmentOptions(array $clientOptions, array $callOptions, bool $disabled): void
     {
         $http = new MockedHttpClient('app.posthog.com');
@@ -136,6 +138,7 @@ class GeoipTest extends TestCase
         $this->assertArrayNotHasKey('$lib_consumer', $event['properties']);
     }
 
+    #[IgnoreDeprecations]
     public function testLegacyFlagEvaluationInheritsClientOption(): void
     {
         $http = new MockedHttpClient('app.posthog.com');

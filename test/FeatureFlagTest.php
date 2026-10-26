@@ -6,6 +6,8 @@ namespace PostHog\Test;
 require_once 'test/error_log_mock.php';
 
 use Exception;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\PostHog;
@@ -98,9 +100,7 @@ class FeatureFlagTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider retryableFlagsCurlErrors
-     */
+    #[DataProvider('retryableFlagsCurlErrors')]
     public function testFlagsRequestRetriesTransientCurlErrors(int $curlErrno): void
     {
         $this->http_client = new MockedHttpClient("app.posthog.com");
@@ -130,9 +130,7 @@ class FeatureFlagTest extends TestCase
         }
     }
 
-    /**
-     * @dataProvider retryableFlagsCurlErrors
-     */
+    #[DataProvider('retryableFlagsCurlErrors')]
     public function testFlagsRequestStopsAfterExhaustingTransientCurlErrorRetries(int $curlErrno): void
     {
         $this->http_client = new MockedHttpClient("app.posthog.com");
@@ -212,9 +210,7 @@ class FeatureFlagTest extends TestCase
         $this->assertCount(1, $this->http_client->calls);
     }
 
-    /**
-     * @dataProvider nonRetryableFlagsStatusCodes
-     */
+    #[DataProvider('nonRetryableFlagsStatusCodes')]
     public function testFlagsRequestDoesNotRetryHttpStatusErrors(int $statusCode): void
     {
         $this->http_client = new MockedHttpClient("app.posthog.com");
@@ -241,9 +237,7 @@ class FeatureFlagTest extends TestCase
         $this->assertSame('/flags/?v=2', $this->http_client->calls[0]['path']);
     }
 
-    /**
-     * @dataProvider retryableFlagsStatusCodes
-     */
+    #[DataProvider('retryableFlagsStatusCodes')]
     public function testFlagsRequestRetriesHttp502And504(int $statusCode): void
     {
         $this->http_client = new MockedHttpClient("app.posthog.com");
@@ -271,9 +265,7 @@ class FeatureFlagTest extends TestCase
         }
     }
 
-    /**
-     * @dataProvider retryableFlagsStatusCodes
-     */
+    #[DataProvider('retryableFlagsStatusCodes')]
     public function testFlagsRequestStopsAfterExhaustingHttp502And504Retries(int $statusCode): void
     {
         $this->http_client = new MockedHttpClient("app.posthog.com");
@@ -306,9 +298,7 @@ class FeatureFlagTest extends TestCase
         }
     }
 
-    /**
-     * @dataProvider retryableFlagsStatusCodes
-     */
+    #[DataProvider('retryableFlagsStatusCodes')]
     public function testFlagsRequestDoesNotRetryHttp502And504WhenConfiguredMaxRetriesIsZero(int $statusCode): void
     {
         $this->http_client = new MockedHttpClient("app.posthog.com");
@@ -335,9 +325,8 @@ class FeatureFlagTest extends TestCase
         $this->assertCount(1, $this->http_client->calls);
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testIsFeatureEnabled($response)
     {
         $this->setUp($response);
@@ -361,6 +350,7 @@ class FeatureFlagTest extends TestCase
         );
     }
 
+    #[IgnoreDeprecations]
     public function testIsFeatureEnabledCapturesFeatureFlagCalledEventWithAdditionalMetadata()
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
@@ -388,6 +378,7 @@ class FeatureFlagTest extends TestCase
         });
     }
 
+    #[IgnoreDeprecations]
     public function testWhitespacePersonalApiKeyFallsBackToFlagsEndpoint()
     {
         $this->setUp(MockedResponses::FLAGS_V2_RESPONSE, personalApiKey: " \n\t ");
@@ -405,9 +396,8 @@ class FeatureFlagTest extends TestCase
         );
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testIsFeatureEnabledGroups($response)
     {
         $this->setUp($response);
@@ -435,9 +425,8 @@ class FeatureFlagTest extends TestCase
         );
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlag($response)
     {
         $this->setUp($response);
@@ -461,6 +450,7 @@ class FeatureFlagTest extends TestCase
         );
     }
 
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagCapturesFeatureFlagCalledEventWithAdditionalMetadata()
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
@@ -499,9 +489,8 @@ class FeatureFlagTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider hasExperimentCases
-     */
+    #[DataProvider('hasExperimentCases')]
+    #[IgnoreDeprecations]
     public function testFeatureFlagCalledEventIncludesHasExperimentFromRemoteMetadata(?bool $reported)
     {
         $response = MockedResponses::FLAGS_V2_RESPONSE;
@@ -523,6 +512,7 @@ class FeatureFlagTest extends TestCase
         }
     }
 
+    #[IgnoreDeprecations]
     public function testMinimalFlagCalledEventKeepsOnlyAllowlistedProperties()
     {
         $response = MockedResponses::FLAGS_V2_RESPONSE;
@@ -553,6 +543,7 @@ class FeatureFlagTest extends TestCase
         $this->assertSame($expected, $properties);
     }
 
+    #[IgnoreDeprecations]
     public function testMinimalFlagCalledEventKeepsSessionAttributionProperties()
     {
         $response = MockedResponses::FLAGS_V2_RESPONSE;
@@ -619,9 +610,8 @@ class FeatureFlagTest extends TestCase
         ];
     }
 
-    /**
-     * @dataProvider fullFlagCalledEventCases
-     */
+    #[DataProvider('fullFlagCalledEventCases')]
+    #[IgnoreDeprecations]
     public function testFlagCalledEventStaysFullWithoutBothMinimalSignals(bool $gated, ?bool $hasExperiment)
     {
         $response = MockedResponses::FLAGS_V2_RESPONSE;
@@ -642,9 +632,8 @@ class FeatureFlagTest extends TestCase
         $this->assertSame('LibCurl', $properties['$lib_consumer']);
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagDefault($response)
     {
         $this->setUp($response);
@@ -653,9 +642,8 @@ class FeatureFlagTest extends TestCase
         $this->checkEmptyErrorLogs();
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagGroups($response)
     {
         $this->setUp($response);
@@ -686,9 +674,7 @@ class FeatureFlagTest extends TestCase
         );
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
     public function testfetchFeatureVariants($response)
     {
         $this->setUp($response);
@@ -698,9 +684,8 @@ class FeatureFlagTest extends TestCase
         $this->assertSame('variant-value', $flags['multivariate-test']);
     }
 
-     /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagPayloadHandlesJson($response): void
     {
         $this->setUp($response);
@@ -708,9 +693,8 @@ class FeatureFlagTest extends TestCase
         $this->assertSame(['key' => 'value'], PostHog::getFeatureFlagPayload('json-payload', 'some-distinct'));
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagPayloadHandlesIntegers($response): void
     {
         $this->setUp($response);
@@ -718,9 +702,8 @@ class FeatureFlagTest extends TestCase
         $this->assertSame(2500, PostHog::getFeatureFlagPayload('integer-payload', 'some-distinct'));
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagPayloadHandlesString($response): void
     {
         $this->setUp($response);
@@ -728,9 +711,8 @@ class FeatureFlagTest extends TestCase
         $this->assertSame('A String', PostHog::getFeatureFlagPayload('string-payload', 'some-distinct'));
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagPayloadHandlesArray($response): void
     {
         $this->setUp($response);
@@ -738,9 +720,8 @@ class FeatureFlagTest extends TestCase
         $this->assertSame([1, 2, 3], PostHog::getFeatureFlagPayload('array-payload', 'some-distinct'));
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagPayloadHandlesFlagDisabled($response): void
     {
         $this->setUp($response);
@@ -748,9 +729,8 @@ class FeatureFlagTest extends TestCase
         $this->assertNull(PostHog::getFeatureFlagPayload('disabled-flag', 'some-distinct'));
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagPayloadHandlesFlagNotInResults($response): void
     {
         $this->setUp($response);
@@ -758,9 +738,8 @@ class FeatureFlagTest extends TestCase
         $this->assertNull(PostHog::getFeatureFlagPayload('non-existent-flag', 'some-distinct'));
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagResult($response): void
     {
         $this->setUp($response);
@@ -775,9 +754,8 @@ class FeatureFlagTest extends TestCase
         $this->assertTrue($result->getValue());
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagResultWithMultivariateFlag($response): void
     {
         $this->setUp($response);
@@ -791,9 +769,8 @@ class FeatureFlagTest extends TestCase
         $this->assertEquals('variant-value', $result->getValue());
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagResultReturnsNullForMissingFlag($response): void
     {
         $this->setUp($response);
@@ -803,9 +780,8 @@ class FeatureFlagTest extends TestCase
         $this->assertNull($result);
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagResultForDisabledFlag($response): void
     {
         $this->setUp($response);
@@ -819,6 +795,7 @@ class FeatureFlagTest extends TestCase
         $this->assertFalse($result->getValue());
     }
 
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagResultSendsEvent(): void
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
@@ -850,9 +827,8 @@ class FeatureFlagTest extends TestCase
         });
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagResultWithMultivariateFlagAndPayload($response): void
     {
         $this->setUp($response);
@@ -867,6 +843,7 @@ class FeatureFlagTest extends TestCase
         $this->assertEquals('some string payload', $result->getPayload());
     }
 
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagPayloadDoesNotSendEvent(): void
     {
         $this->setUp(MockedResponses::FLAGS_V2_RESPONSE, personalApiKey: null);
@@ -887,9 +864,8 @@ class FeatureFlagTest extends TestCase
         $this->assertNull($batchCall, 'Expected no batch call to be made for getFeatureFlagPayload');
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagResultForDisabledFlagWithPayload($response): void
     {
         $this->setUp($response);
@@ -904,6 +880,7 @@ class FeatureFlagTest extends TestCase
         $this->assertEquals(['disabled' => true], $result->getPayload());
     }
 
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagResultWithLocalEvaluationOnly(): void
     {
         // For local evaluation, we need to set flagEndpointResponse (not flagsEndpointResponse)
@@ -939,6 +916,7 @@ class FeatureFlagTest extends TestCase
         }
     }
 
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagResultReturnsNullForLocalEvaluationWhenFlagCannotBeEvaluatedLocally(): void
     {
         // Use a flag config that requires cohorts which can't be evaluated locally
@@ -973,9 +951,8 @@ class FeatureFlagTest extends TestCase
         }
     }
 
-    /**
-     * @dataProvider decideResponseCases
-     */
+    #[DataProvider('decideResponseCases')]
+    #[IgnoreDeprecations]
     public function testGetFeatureFlagResultWithGroups($response): void
     {
         $this->setUp($response);
