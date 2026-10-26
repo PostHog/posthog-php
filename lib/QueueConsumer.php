@@ -150,9 +150,9 @@ abstract class QueueConsumer extends Consumer
             $result = $this->flushBatch($batch);
             $success = true === $result;
 
-            if (self::FLUSH_BATCH_RETRYABLE_FAILURE === $result) {
-                $this->retry_cooldown_until = $this->now() + $this->maximum_backoff_duration / 1000;
-            }
+            $this->retry_cooldown_until = self::FLUSH_BATCH_RETRYABLE_FAILURE === $result
+                ? $this->now() + $this->maximum_backoff_duration / 1000
+                : null;
 
             if ($success || self::FLUSH_BATCH_RETRYABLE_FAILURE !== $result) {
                 array_splice($this->queue, 0, $batchSize);
@@ -174,6 +174,11 @@ abstract class QueueConsumer extends Consumer
     public function enqueue($item)
     {
         $count = count($this->queue);
+
+        if ($count >= $this->max_queue_size && $this->retryCooldownExpired()) {
+            $this->flush();
+            $count = count($this->queue);
+        }
 
         if ($count >= $this->max_queue_size) {
             return false;
@@ -212,6 +217,11 @@ abstract class QueueConsumer extends Consumer
     private function inRetryCooldown(): bool
     {
         return $this->retry_cooldown_until !== null && $this->now() < $this->retry_cooldown_until;
+    }
+
+    private function retryCooldownExpired(): bool
+    {
+        return $this->retry_cooldown_until !== null && !$this->inRetryCooldown();
     }
 
     private function now(): float

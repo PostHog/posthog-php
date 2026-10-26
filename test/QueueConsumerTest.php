@@ -224,6 +224,44 @@ class QueueConsumerTest extends TestCase
         $this->assertSame($retried ? [] : [$first, $second, $third], $consumer->queuedItems());
     }
 
+    public static function fullQueueAfterRetryableFailureCases(): array
+    {
+        return [
+            'full queue rejects during cooldown' => [0, false],
+            'full queue flushes after cooldown' => [10, true],
+        ];
+    }
+
+    #[DataProvider('fullQueueAfterRetryableFailureCases')]
+    public function testFullQueueAfterRetryableFailure(int $secondsLater, bool $recovered): void
+    {
+        $first = $this->message('first');
+        $second = $this->message('second');
+        $third = $this->message('third');
+        $consumer = new QueueConsumerTestConsumer(
+            [QueueConsumerTestConsumer::retryableFailure(), true],
+            ['batch_size' => 2, 'max_queue_size' => 2]
+        );
+        $clock = new MockClock();
+        $previousClock = Clock::get();
+        Clock::set($clock);
+
+        try {
+            $this->assertTrue($consumer->enqueue($first));
+            $this->assertFalse($consumer->enqueue($second));
+            $clock->sleep($secondsLater);
+            $this->assertSame($recovered, $consumer->enqueue($third));
+        } finally {
+            Clock::set($previousClock);
+        }
+
+        $this->assertSame(
+            $recovered ? [[$first, $second], [$first, $second]] : [[$first, $second]],
+            $consumer->flushedBatches
+        );
+        $this->assertSame($recovered ? [$third] : [$first, $second], $consumer->queuedItems());
+    }
+
     #[DataProvider('libCurlFailureQueueBehaviorCases')]
     public function testLibCurlFailureQueueBehavior(
         string $event,

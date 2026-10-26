@@ -79,7 +79,8 @@ HTTP 200 confirms delivery. Terminal HTTP errors make flush return false and
 remove the failed batch. Retry exhaustion on a retryable response or a network
 failure makes flush return false and keeps the batch queued. Automatic flushes
 then wait for the maximum backoff duration before they try again; an explicit
-flush tries at once. Foreground ForkCurl uses the system curl command without
+flush tries at once. If the queue fills during that wait, the next capture after
+the wait flushes before it rejects the event. Foreground ForkCurl uses the system curl command without
 requiring PHP's curl extension for batch delivery.
 
 Native transport tests cover status handling, retry limits, Retry-After parsing,
