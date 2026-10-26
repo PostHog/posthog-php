@@ -1,3 +1,9 @@
+## 4.18.0
+
+### Minor Changes
+
+- Add an optional OpenTelemetry context processor for session and person IDs on application spans.
+
 ## 4.17.1
 
 ### Patch Changes

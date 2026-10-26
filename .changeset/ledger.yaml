@@ -88,3 +88,7 @@ posthog-php@4.17.1:
   dir: ""
   intents:
     - brave-bottles-ask
+posthog-php@4.18.0:
+  dir: ""
+  intents:
+    - shiny-shoes-feel
