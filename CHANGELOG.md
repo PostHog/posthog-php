@@ -1,3 +1,9 @@
+## 4.18.1
+
+### Patch Changes
+
+- Normalize NaN and infinity to null in bounded data-only JSON payloads, while preserving native encoding for objects, references and out-of-budget payloads.
+
 ## 4.18.0
 
 ### Minor Changes

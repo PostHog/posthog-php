@@ -92,3 +92,7 @@ posthog-php@4.18.0:
   dir: ""
   intents:
     - shiny-shoes-feel
+posthog-php@4.18.1:
+  dir: ""
+  intents:
+    - seven-suns-strive
