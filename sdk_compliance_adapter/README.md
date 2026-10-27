@@ -69,7 +69,9 @@ not SDK shutdown certification; `/flush` always calls the real public SDK method
 ## Retry policy and applicability
 
 Socket and foreground ForkCurl retry transient HTTP failures, including 408,
-429, and server errors. Each attempt sends the same batch. Retry delays start at
+429, and server errors. They also retry redirects and other unexpected responses,
+because these may be transient. Only other 4xx responses are terminal. Each
+attempt sends the same batch. Retry delays start at
 100 ms and double after each attempt, within the configured backoff limit.
 Valid Retry-After headers replace the delay for that attempt, up to the backoff
 limit. These headers can contain a number of seconds or an HTTP date. Invalid

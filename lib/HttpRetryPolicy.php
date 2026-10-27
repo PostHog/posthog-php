@@ -13,6 +13,15 @@ trait HttpRetryPolicy
     }
 
     /**
+     * Event batches retry any response except a client error, because redirects
+     * and other unexpected responses may be transient.
+     */
+    protected function isRetryableBatchStatus(int $responseCode): bool
+    {
+        return $responseCode < 400 || $responseCode >= 500 || $this->isRetryableStatus($responseCode);
+    }
+
+    /**
      * @param array<int, string> $headers
      */
     protected function retryDelayMilliseconds(array $headers, int $backoff, int $maximumMilliseconds): int

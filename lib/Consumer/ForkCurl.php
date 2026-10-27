@@ -157,7 +157,7 @@ class ForkCurl extends QueueConsumer
                 }
 
                 $this->handleError($statusCode, implode("\n", $output));
-                if (!$this->isRetryableStatus($statusCode)) {
+                if (!$this->isRetryableBatchStatus($statusCode)) {
                     return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
                 }
                 if ($backoff >= $this->maximum_backoff_duration) {
