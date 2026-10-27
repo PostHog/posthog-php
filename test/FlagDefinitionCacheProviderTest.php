@@ -812,6 +812,40 @@ class FlagDefinitionCacheProviderTest extends TestCase
         ];
     }
 
+    public function testUnresolvableFlagWarningIsLoggedForApiLoadsOnly(): void
+    {
+        $definitions = $this->sampleFlagDefinitionData();
+        $definitions['flags'][0]['ensure_experience_continuity'] = true;
+        $warning = '(reason: experience_continuity): beta-ui.';
+
+        // A client that only reads the shared cache does not warn: the request that fetched the
+        // definitions already did.
+        $provider = new MockFlagDefinitionCacheProvider();
+        $provider->shouldFetch = false;
+        $provider->cachedData = $definitions;
+        $this->createClient($provider, new MockedHttpClient(host: 'app.posthog.com'));
+        $this->assertWarningCount($warning, 0);
+
+        $provider = new MockFlagDefinitionCacheProvider();
+        $httpClient = new MockedHttpClient(host: 'app.posthog.com', flagEndpointResponse: $definitions);
+        $client = $this->createClient($provider, $httpClient);
+        $this->assertWarningCount($warning, 1);
+
+        $provider->shouldFetch = false;
+        $provider->cachedData = $provider->storedData;
+        $client->loadFlags();
+        $this->assertSame(1, $provider->getCallCount);
+        $this->assertCount(1, $httpClient->calls);
+        $this->assertWarningCount($warning, 1);
+    }
+
+    private function assertWarningCount(string $expected, int $count): void
+    {
+        global $errorMessages;
+        $matching = array_filter($errorMessages, fn($message) => str_contains($message, $expected));
+        $this->assertCount($count, $matching, implode("\n", $errorMessages));
+    }
+
     private function assertWarningContains(string $expected): void
     {
         global $errorMessages;

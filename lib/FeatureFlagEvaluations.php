@@ -27,6 +27,8 @@ class FeatureFlagEvaluations
      * @param bool $errorsWhileComputing Whether the remote response reported computation errors.
      * @param bool $quotaLimited Whether the remote response was quota limited.
      * @param bool|null $disableGeoip Override GeoIP enrichment on access events; null uses the client setting.
+     * @param array<string, string> $unresolvedFlags Flags local evaluation could not resolve, mapped to an
+     *     UnresolvedFlagReason value.
      */
     public function __construct(
         private readonly string $distinctId,
@@ -39,6 +41,7 @@ class FeatureFlagEvaluations
         private readonly bool $errorsWhileComputing = false,
         private readonly bool $quotaLimited = false,
         private readonly ?bool $disableGeoip = null,
+        private readonly array $unresolvedFlags = [],
     ) {
         $this->accessed = $accessed ?? [];
     }
@@ -51,6 +54,21 @@ class FeatureFlagEvaluations
     public function getKeys(): array
     {
         return array_keys($this->flags);
+    }
+
+    /**
+     * Flags that have a loaded local definition but that neither local evaluation nor a remote
+     * fallback resolved, mapped to the reason local evaluation was inconclusive (an
+     * UnresolvedFlagReason value). These flags are absent from getKeys(), and their accessors
+     * return the missing-flag results. Reading this does not record access or fire an event.
+     *
+     * Always empty on snapshots returned by only() and onlyAccessed().
+     *
+     * @return array<string, string>
+     */
+    public function getUnresolvedFlags(): array
+    {
+        return $this->unresolvedFlags;
     }
 
     /**
@@ -214,7 +232,8 @@ class FeatureFlagEvaluations
         }
 
         // Build a comma-joined $feature_flag_error matching the single-flag path's granularity:
-        // response-level errors combine with per-flag errors so consumers can filter by type.
+        // response-level errors combine with per-flag errors (flag-missing or
+        // local-evaluation-inconclusive) so consumers can filter by type.
         $errors = [];
         if ($this->errorsWhileComputing) {
             $errors[] = FeatureFlagError::ERRORS_WHILE_COMPUTING_FLAGS;
@@ -223,7 +242,9 @@ class FeatureFlagEvaluations
             $errors[] = FeatureFlagError::QUOTA_LIMITED;
         }
         if ($record === null) {
-            $errors[] = FeatureFlagError::FLAG_MISSING;
+            $errors[] = array_key_exists($key, $this->unresolvedFlags)
+                ? FeatureFlagError::LOCAL_EVALUATION_INCONCLUSIVE
+                : FeatureFlagError::FLAG_MISSING;
         }
         if (!empty($errors)) {
             $properties['$feature_flag_error'] = implode(',', $errors);
@@ -246,6 +267,7 @@ class FeatureFlagEvaluations
     {
         // Filtered views start with an empty access set so reads on the child don't propagate back
         // into the parent's view. PHP's value-copy semantics on arrays already give us isolation.
+        // Unresolved flags are left out on purpose: filtered views carry no unresolved entries.
         return new self(
             $this->distinctId,
             $flags,

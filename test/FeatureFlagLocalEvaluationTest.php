@@ -13,6 +13,8 @@ use PostHog\Client;
 use PostHog\PostHog;
 use PostHog\Test\Assets\MockedResponses;
 use PostHog\InconclusiveMatchException;
+use PostHog\RequiresServerEvaluationException;
+use PostHog\UnresolvedFlagReason;
 use PostHog\SizeLimitedHash;
 
 class FeatureFlagLocalEvaluationTest extends TestCase
@@ -66,6 +68,13 @@ class FeatureFlagLocalEvaluationTest extends TestCase
     {
         global $errorMessages;
         $this->assertTrue(empty($errorMessages), "Error logs are not empty: " . implode("\n", $errorMessages));
+    }
+
+    private function checkOnlyUnsupportedDefinitionWarning(string $flagKey): void
+    {
+        global $errorMessages;
+        $this->assertCount(1, $errorMessages, "Error logs: " . implode("\n", $errorMessages));
+        $this->assertStringContainsString("(reason: unsupported_definition): {$flagKey}.", $errorMessages[0]);
     }
 
     private function assertHttpCallsEqual(array $expectedCalls): void
@@ -1963,7 +1972,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         $this->assertEquals(PostHog::getFeatureFlag('feature-1', 'some-distinct'), 'decide-fallback-value');
         $this->assertEquals(PostHog::getFeatureFlag('feature-2', 'some-distinct'), 'decide-fallback-value');
 
-        $this->checkEmptyErrorLogs();
+        $this->checkOnlyUnsupportedDefinitionWarning('feature-1');
     }
 
     public function testFlagFallbackToDecideWithFalseFlag()
@@ -1990,7 +1999,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             array_column($this->http_client->calls, 'path')
         );
 
-        $this->checkEmptyErrorLogs();
+        $this->checkOnlyUnsupportedDefinitionWarning('feature-1');
     }
 
     public function testFeatureFlagDefaultsComeIntoPlayOnlyWhenDecideErrorsOut()
@@ -4645,7 +4654,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         try {
             FeatureFlag::matchPropertyGroup($propertyGroup, $properties, []);
         } catch (InconclusiveMatchException $e) {
-            $this->assertStringContainsString("Cannot evaluate flag dependency on 'parent-flag' without flags_by_key and evaluation_cache", $e->getMessage());
+            $this->assertSame(UnresolvedFlagReason::UNSUPPORTED_DEFINITION, $e->getReason());
             $threwException = true;
         }
         $this->assertTrue($threwException, "Expected InconclusiveMatchException was not thrown");
@@ -4673,7 +4682,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         try {
             FeatureFlag::matchFeatureFlagProperties($flag, "test-user", $properties);
         } catch (InconclusiveMatchException $e) {
-            $this->assertStringContainsString("Cannot evaluate flag dependency", $e->getMessage());
+            $this->assertSame(UnresolvedFlagReason::UNSUPPORTED_DEFINITION, $e->getReason());
             $threwException = true;
         }
         $this->assertTrue($threwException, "Expected InconclusiveMatchException was not thrown");
@@ -4706,7 +4715,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         // Should return 'set-1' from API, not 'set-8' from local evaluation
         $this->assertEquals('set-1', $result);
 
-        $this->checkEmptyErrorLogs();
+        $this->checkOnlyUnsupportedDefinitionWarning('multi-condition-flag');
     }
 
     public function testFallsBackToAPIInGetAllFlagsWhenFlagHasStaticCohort()
@@ -4737,7 +4746,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             'multi-condition-flag' => 'set-1'
         ], $result);
 
-        $this->checkEmptyErrorLogs();
+        $this->checkOnlyUnsupportedDefinitionWarning('multi-condition-flag');
     }
 
     public function testFallsBackToAPIInGetFeatureFlagPayloadWhenFlagHasStaticCohort()
@@ -4767,7 +4776,7 @@ class FeatureFlagLocalEvaluationTest extends TestCase
             'message' => 'from-api'
         ], $result);
 
-        $this->checkEmptyErrorLogs();
+        $this->checkOnlyUnsupportedDefinitionWarning('flag-with-payload');
     }
 
     // ==================== Semver Operator Tests ====================
@@ -5461,5 +5470,544 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         ];
         $this->expectException(InconclusiveMatchException::class);
         FeatureFlag::matchFeatureFlagProperties($flag, "test-user", ["region" => "us"]);
+    }
+
+    // ==================== Unresolved Reason Tests ====================
+
+    private static function reasonOf(callable $evaluate): ?string
+    {
+        try {
+            $evaluate();
+        } catch (InconclusiveMatchException | RequiresServerEvaluationException $e) {
+            return $e->getReason();
+        }
+        return null;
+    }
+
+    private static function filter(string $operator, mixed $value, string $key = 'key'): array
+    {
+        return ['key' => $key, 'operator' => $operator, 'value' => $value];
+    }
+
+    private static function flagWithConditions(array ...$conditions): array
+    {
+        return [
+            'key' => 'reason-flag',
+            'active' => true,
+            'filters' => [
+                'groups' => array_map(
+                    fn($properties) => ['properties' => $properties, 'rollout_percentage' => 100],
+                    $conditions
+                ),
+            ],
+        ];
+    }
+
+    private static function staticCohortFilter(): array
+    {
+        return ['key' => 'id', 'type' => 'cohort', 'value' => 999];
+    }
+
+    public function testInconclusiveExceptionsDefaultToUnsupportedDefinition(): void
+    {
+        $this->assertSame(
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+            (new InconclusiveMatchException('message'))->getReason()
+        );
+        $this->assertSame(
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+            (new RequiresServerEvaluationException('message'))->getReason()
+        );
+        $this->assertSame(
+            UnresolvedFlagReason::MISSING_CONTEXT,
+            (new InconclusiveMatchException('message', reason: UnresolvedFlagReason::MISSING_CONTEXT))->getReason()
+        );
+    }
+
+    #[DataProvider('matchPropertyReasonProvider')]
+    public function testMatchPropertyReportsUnresolvedReason(array $property, array $propertyValues, string $reason): void
+    {
+        $this->assertSame($reason, self::reasonOf(fn() => FeatureFlag::matchProperty($property, $propertyValues)));
+    }
+
+    public static function matchPropertyReasonProvider(): iterable
+    {
+        yield 'a missing property' => [self::filter('exact', 'x'), [], UnresolvedFlagReason::MISSING_CONTEXT];
+        yield 'an unknown operator and a missing property' => [
+            self::filter('unknown', 'x'),
+            [],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an invalid semver filter and a missing property' => [
+            self::filter('semver_gt', 'x.y'),
+            [],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an invalid numeric filter and a missing property' => [
+            self::filter('gt', 'ten'),
+            [],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an invalid date filter and a missing property' => [
+            self::filter('is_date_after', 'not-a-date'),
+            [],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an unsupported regex and a missing property' => [
+            self::filter('regex', '(?<name>a)'),
+            [],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an unknown operator' => [
+            self::filter('unknown', 'x'),
+            ['key' => 'x'],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an invalid date filter' => [
+            self::filter('is_date_after', 'not-a-date'),
+            ['key' => '2025-01-01'],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'a numeric date filter' => [
+            self::filter('is_date_after', 1234),
+            ['key' => '2025-01-01'],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an invalid context date' => [
+            self::filter('is_date_after', '2025-01-01'),
+            ['key' => 'not-a-date'],
+            UnresolvedFlagReason::MISSING_CONTEXT,
+        ];
+        yield 'a numeric context date' => [
+            self::filter('is_date_after', '2025-01-01'),
+            ['key' => 1],
+            UnresolvedFlagReason::MISSING_CONTEXT,
+        ];
+        yield 'an invalid date filter and context' => [
+            self::filter('is_date_after', 'not-a-date'),
+            ['key' => 'also-not-a-date'],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an invalid semver filter' => [
+            self::filter('semver_gt', 'x.y'),
+            ['key' => '1.2.3'],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an invalid tilde filter' => [
+            self::filter('semver_tilde', 'x.y'),
+            ['key' => '1.2.3'],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an invalid caret filter' => [
+            self::filter('semver_caret', 'x.y'),
+            ['key' => '1.2.3'],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an invalid wildcard filter' => [
+            self::filter('semver_wildcard', '1x.*'),
+            ['key' => '1.8.0'],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an invalid context semver' => [
+            self::filter('semver_gt', '1.2.3'),
+            ['key' => 'x.y'],
+            UnresolvedFlagReason::MISSING_CONTEXT,
+        ];
+        yield 'an invalid context semver for a range' => [
+            self::filter('semver_wildcard', '1.*'),
+            ['key' => 'x.y'],
+            UnresolvedFlagReason::MISSING_CONTEXT,
+        ];
+        yield 'an invalid semver filter and context' => [
+            self::filter('semver_gt', 'x.y'),
+            ['key' => 'a.b'],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an invalid wildcard filter and context' => [
+            self::filter('semver_wildcard', '1x.*'),
+            ['key' => 'a.b'],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'an unsupported regex' => [
+            self::filter('regex', '(?<name>a)'),
+            ['key' => 'a'],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+    }
+
+    public function testConditionWithNonMatchingFilterResolvesDespiteInconclusiveFilter(): void
+    {
+        $missing = self::filter('exact', 'pro', 'plan');
+        $nonMatching = self::filter('exact', 'other@example.com', 'email');
+        $properties = ['email' => 'test@example.com'];
+
+        foreach ([[$missing, $nonMatching], [$nonMatching, $missing]] as $filters) {
+            $this->assertFalse(
+                FeatureFlag::matchFeatureFlagProperties(self::flagWithConditions($filters), 'user', $properties)
+            );
+        }
+    }
+
+    public function testConditionWithStaticCohortAndNonMatchingFilterResolvesLocally(): void
+    {
+        $flag = self::flagWithConditions([self::staticCohortFilter(), self::filter('exact', 'other', 'email')]);
+
+        $this->assertFalse(FeatureFlag::matchFeatureFlagProperties($flag, 'user', ['email' => 'test']));
+    }
+
+    public function testConditionWithInconclusiveAndMatchingFiltersIsInconclusive(): void
+    {
+        $flag = self::flagWithConditions([self::filter('exact', 'pro', 'plan'), self::filter('exact', 'a', 'email')]);
+
+        $this->assertSame(
+            UnresolvedFlagReason::MISSING_CONTEXT,
+            self::reasonOf(fn() => FeatureFlag::matchFeatureFlagProperties($flag, 'user', ['email' => 'a']))
+        );
+    }
+
+    #[DataProvider('conditionReasonPrecedenceProvider')]
+    public function testUnresolvedReasonFollowsSpecPrecedence(array $conditions, string $reason): void
+    {
+        $flag = self::flagWithConditions(...$conditions);
+        $flagsByKey = [
+            'continuity-flag' => [
+                'key' => 'continuity-flag',
+                'active' => true,
+                'ensure_experience_continuity' => true,
+            ],
+        ];
+
+        $this->assertSame(
+            $reason,
+            self::reasonOf(fn() => FeatureFlag::matchFeatureFlagProperties(
+                $flag,
+                'user',
+                ['email' => 'a'],
+                [],
+                $flagsByKey,
+                []
+            ))
+        );
+    }
+
+    public static function conditionReasonPrecedenceProvider(): iterable
+    {
+        $missing = self::filter('exact', 'pro', 'plan');
+        $unknownOperator = self::filter('unknown', 'a', 'email');
+        $dependsOn = fn(array $chain) => [
+            'key' => end($chain), 'type' => 'flag', 'operator' => 'flag_evaluates_to', 'value' => true,
+            'dependency_chain' => $chain,
+        ];
+        $unresolvedDependency = $dependsOn(['continuity-flag']);
+        $missingDependency = $dependsOn(['gone']);
+
+        yield 'missing property then unknown operator' => [
+            [[$missing, $unknownOperator]],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'unknown operator then missing property' => [
+            [[$unknownOperator, $missing]],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'missing property condition then unknown operator condition' => [
+            [[$missing], [$unknownOperator]],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'unknown operator condition then missing property condition' => [
+            [[$unknownOperator], [$missing]],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'missing property then unresolved dependency' => [
+            [[$missing, $unresolvedDependency]],
+            UnresolvedFlagReason::UNRESOLVED_DEPENDENCY,
+        ];
+        yield 'unresolved dependency condition then missing property condition' => [
+            [[$unresolvedDependency], [$missing]],
+            UnresolvedFlagReason::UNRESOLVED_DEPENDENCY,
+        ];
+        yield 'unresolved dependency then unknown operator' => [
+            [[$unresolvedDependency, $unknownOperator]],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'unresolved dependency then missing dependency' => [
+            [[$unresolvedDependency, $missingDependency]],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'missing property then static cohort' => [
+            [[$missing, self::staticCohortFilter()]],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'static cohort then missing property' => [
+            [[self::staticCohortFilter(), $missing]],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+    }
+
+    public function testCohortGroupKeepsHighestPrecedenceReason(): void
+    {
+        $flag = self::flagWithConditions([['key' => 'id', 'type' => 'cohort', 'value' => 1]]);
+        $cohorts = [
+            '1' => [
+                'type' => 'OR',
+                'values' => [
+                    self::filter('unknown', 'a', 'email'),
+                    self::filter('exact', 'pro', 'plan'),
+                ],
+            ],
+        ];
+
+        $this->assertSame(
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+            self::reasonOf(fn() => FeatureFlag::matchFeatureFlagProperties($flag, 'user', ['email' => 'a'], $cohorts))
+        );
+    }
+
+    public function testStaticCohortRequiresServerOnlyWhenFirstUncheckableFilter(): void
+    {
+        $missing = self::filter('exact', 'pro', 'plan');
+        $matching = [self::filter('exact', 'a', 'email')];
+
+        // The static cohort is the first filter local evaluation cannot check: fall back to the server.
+        $flag = self::flagWithConditions([self::staticCohortFilter(), $missing], $matching);
+        try {
+            FeatureFlag::matchFeatureFlagProperties($flag, 'user', ['email' => 'a']);
+            $this->fail('Expected RequiresServerEvaluationException');
+        } catch (RequiresServerEvaluationException $e) {
+            $this->assertSame(UnresolvedFlagReason::UNSUPPORTED_DEFINITION, $e->getReason());
+        }
+
+        // After another uncheckable filter, a later condition can still resolve the flag locally.
+        $flag = self::flagWithConditions([$missing, self::staticCohortFilter()], $matching);
+        $this->assertTrue(FeatureFlag::matchFeatureFlagProperties($flag, 'user', ['email' => 'a']));
+    }
+
+    public function testMissingGroupPropertiesReportMissingContext(): void
+    {
+        $flag = [
+            'key' => 'mixed-flag',
+            'active' => true,
+            'filters' => [
+                'groups' => [
+                    ['aggregation_group_type_index' => 0, 'properties' => [], 'rollout_percentage' => 100],
+                ],
+            ],
+        ];
+
+        $this->assertSame(
+            UnresolvedFlagReason::MISSING_CONTEXT,
+            self::reasonOf(fn() => FeatureFlag::matchFeatureFlagProperties(
+                $flag,
+                'user',
+                [],
+                [],
+                [],
+                [],
+                ['company' => 'acme'],
+                [],
+                ['0' => 'company']
+            ))
+        );
+    }
+
+    #[DataProvider('definitionUnresolvedReasonProvider')]
+    public function testDefinitionUnresolvedReason(array $flag, ?string $reason): void
+    {
+        $flagsByKey = [
+            'continuity-flag' => ['key' => 'continuity-flag', 'active' => true, 'ensure_experience_continuity' => true],
+            'loaded-flag' => ['key' => 'loaded-flag', 'active' => true],
+        ];
+        $cohorts = ['1' => ['type' => 'AND', 'values' => [self::filter('unknown', 'a', 'email')]]];
+
+        $this->assertSame(
+            $reason,
+            FeatureFlag::getDefinitionUnresolvedReason($flag, $flagsByKey, $cohorts, ['0' => 'company'])
+        );
+    }
+
+    public static function definitionUnresolvedReasonProvider(): iterable
+    {
+        $dependency = fn(array $chain) => [
+            'key' => end($chain), 'type' => 'flag', 'operator' => 'flag_evaluates_to', 'value' => true,
+            'dependency_chain' => $chain,
+        ];
+        $continuity = self::flagWithConditions([]);
+        $continuity['ensure_experience_continuity'] = true;
+        $inactive = $continuity;
+        $inactive['active'] = false;
+        $unknownGroupType = self::flagWithConditions([]);
+        $unknownGroupType['filters']['aggregation_group_type_index'] = 5;
+
+        yield 'experience continuity' => [$continuity, UnresolvedFlagReason::EXPERIENCE_CONTINUITY];
+        yield 'inactive with experience continuity' => [$inactive, null];
+        yield 'unknown group type' => [$unknownGroupType, UnresolvedFlagReason::UNSUPPORTED_DEFINITION];
+        yield 'static cohort' => [self::flagWithConditions([self::staticCohortFilter()]), UnresolvedFlagReason::UNSUPPORTED_DEFINITION];
+        yield 'unknown operator' => [self::flagWithConditions([self::filter('unknown', 'a')]), UnresolvedFlagReason::UNSUPPORTED_DEFINITION];
+        yield 'malformed semver' => [self::flagWithConditions([self::filter('semver_gt', 'x.y')]), UnresolvedFlagReason::UNSUPPORTED_DEFINITION];
+        yield 'unknown operator in a cohort' => [
+            self::flagWithConditions([['key' => 'id', 'type' => 'cohort', 'value' => 1]]),
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'missing dependency' => [self::flagWithConditions([$dependency(['gone'])]), UnresolvedFlagReason::UNSUPPORTED_DEFINITION];
+        yield 'missing dependency in the chain' => [
+            self::flagWithConditions([$dependency(['gone', 'loaded-flag'])]),
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'circular dependency' => [self::flagWithConditions([$dependency([])]), UnresolvedFlagReason::UNSUPPORTED_DEFINITION];
+        yield 'dependency on an experience continuity flag' => [self::flagWithConditions([$dependency(['continuity-flag'])]), null];
+        yield 'loaded dependency' => [self::flagWithConditions([$dependency(['loaded-flag'])]), null];
+        yield 'person property' => [self::flagWithConditions([self::filter('exact', 'pro', 'plan')]), null];
+    }
+
+    // ==================== Unresolvable Flag Warning Tests ====================
+
+    private static function definitionsResponse(array ...$flags): array
+    {
+        return ['flags' => $flags, 'group_type_mapping' => [], 'cohorts' => []];
+    }
+
+    private static function continuityFlag(string $key = 'checkout', int $version = 1): array
+    {
+        return [
+            'id' => 1,
+            'key' => $key,
+            'version' => $version,
+            'active' => true,
+            'ensure_experience_continuity' => true,
+            'filters' => ['groups' => [['properties' => [], 'rollout_percentage' => 100]]],
+        ];
+    }
+
+    private function loadDefinitionsInOrder(array $responses): Client
+    {
+        $this->http_client = new MockedHttpClient(host: 'app.posthog.com');
+        $this->http_client->setFlagEndpointResponseQueue($responses);
+        $this->client = new Client(self::FAKE_API_KEY, [], $this->http_client, 'test');
+        for ($i = 1; $i < count($responses); $i++) {
+            $this->client->loadFlags();
+        }
+        return $this->client;
+    }
+
+    /** @return list<string> */
+    private static function warningsNaming(string $flagKey, string $reason): array
+    {
+        global $errorMessages;
+        return array_values(array_filter(
+            $errorMessages,
+            fn($message) => str_contains($message, "(reason: {$reason}):")
+                && preg_match('/\): (.*)\. /U', $message, $matches) === 1
+                && in_array($flagKey, explode(', ', $matches[1]), true)
+        ));
+    }
+
+    #[DataProvider('unchangedRefreshProvider')]
+    public function testLoadingNeverResolvableDefinitionLogsOneWarning(array $refresh): void
+    {
+        $this->loadDefinitionsInOrder([
+            ['response' => self::definitionsResponse(self::continuityFlag()), 'etag' => '"v1"'],
+            $refresh,
+        ]);
+
+        $this->assertCount(1, self::warningsNaming('checkout', UnresolvedFlagReason::EXPERIENCE_CONTINUITY));
+        $this->assertSame(
+            ['/flags/definitions?send_cohorts&token=random_key', '/flags/definitions?send_cohorts&token=random_key'],
+            array_column($this->http_client->calls, 'path')
+        );
+    }
+
+    public static function unchangedRefreshProvider(): iterable
+    {
+        yield 'unchanged definitions' => [
+            ['response' => self::definitionsResponse(self::continuityFlag()), 'etag' => '"v1-again"'],
+        ];
+        yield '304 not modified' => [['responseCode' => 304, 'etag' => '"v1"']];
+    }
+
+    public function testChangedNeverResolvableDefinitionLogsWarningAgain(): void
+    {
+        $this->loadDefinitionsInOrder([
+            ['response' => self::definitionsResponse(self::continuityFlag(version: 1))],
+            ['response' => self::definitionsResponse(self::continuityFlag(version: 2))],
+        ]);
+
+        $this->assertCount(2, self::warningsNaming('checkout', UnresolvedFlagReason::EXPERIENCE_CONTINUITY));
+    }
+
+    public function testWarningIsLoggedWithoutDebugAndNamesEveryUnsupportedDefinition(): void
+    {
+        $flag = fn(string $key, array $properties) => [
+            'id' => 1,
+            'key' => $key,
+            'active' => true,
+            'filters' => ['groups' => [['properties' => $properties, 'rollout_percentage' => 100]]],
+        ];
+        $dependsOn = fn(string $key, array $chain) => [
+            'key' => $key, 'type' => 'flag', 'operator' => 'flag_evaluates_to', 'value' => true,
+            'dependency_chain' => $chain,
+        ];
+        $inactiveContinuity = self::continuityFlag('inactive-continuity');
+        $inactiveContinuity['active'] = false;
+
+        $this->loadDefinitionsInOrder([[
+            'response' => self::definitionsResponse(
+                self::continuityFlag(),
+                $flag('static-cohort', [self::staticCohortFilter()]),
+                $flag('unknown-operator', [self::filter('unknown', 'a')]),
+                $flag('malformed-value', [self::filter('semver_gt', 'x.y')]),
+                $flag('missing-dependency', [$dependsOn('gone', ['gone'])]),
+                $flag('circular-dependency', [$dependsOn('checkout', [])]),
+                $flag('missing-context', [self::filter('exact', 'pro', 'plan')]),
+                $flag('unresolved-dependency', [$dependsOn('checkout', ['checkout'])]),
+                $inactiveContinuity,
+            ),
+        ]]);
+
+        global $errorMessages;
+        $this->assertCount(2, $errorMessages);
+        $this->assertStringContainsString(
+            '1 flag(s) have experience continuity enabled and cannot be resolved locally '
+            . '(reason: experience_continuity): checkout.',
+            $errorMessages[0]
+        );
+        $this->assertStringContainsString(
+            '(reason: unsupported_definition): static-cohort, unknown-operator, malformed-value, '
+            . 'missing-dependency, circular-dependency.',
+            $errorMessages[1]
+        );
+    }
+
+    public function testFlagThatReturnsAfterRemovalLogsWarningAgain(): void
+    {
+        $this->loadDefinitionsInOrder([
+            ['response' => self::definitionsResponse(self::continuityFlag())],
+            ['response' => self::definitionsResponse()],
+            ['response' => self::definitionsResponse(self::continuityFlag())],
+        ]);
+
+        $this->assertCount(2, self::warningsNaming('checkout', UnresolvedFlagReason::EXPERIENCE_CONTINUITY));
+    }
+
+    public function testDependencyLoadedThenRemovedLogsWarningAgain(): void
+    {
+        $dependent = [
+            'id' => 2,
+            'key' => 'dependent',
+            'active' => true,
+            'filters' => ['groups' => [[
+                'properties' => [[
+                    'key' => 'checkout', 'type' => 'flag', 'operator' => 'flag_evaluates_to', 'value' => true,
+                    'dependency_chain' => ['checkout'],
+                ]],
+                'rollout_percentage' => 100,
+            ]]],
+        ];
+
+        $this->loadDefinitionsInOrder([
+            ['response' => self::definitionsResponse($dependent)],
+            ['response' => self::definitionsResponse($dependent, self::continuityFlag())],
+            ['response' => self::definitionsResponse($dependent)],
+        ]);
+
+        $this->assertCount(2, self::warningsNaming('dependent', UnresolvedFlagReason::UNSUPPORTED_DEFINITION));
     }
 }

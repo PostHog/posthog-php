@@ -3,6 +3,7 @@
 namespace PostHog;
 
 use Exception;
+use Throwable;
 
 /**
  * Raised when feature flag evaluation requires server-side data.
@@ -11,6 +12,31 @@ use Exception;
  */
 class RequiresServerEvaluationException extends Exception
 {
+    /**
+     * @param string $message Exception message.
+     * @param int $code Exception code.
+     * @param Throwable|null $previous Previous exception.
+     * @param string $reason Why local evaluation is inconclusive, one of the UnresolvedFlagReason values.
+     */
+    public function __construct(
+        string $message = "",
+        int $code = 0,
+        ?Throwable $previous = null,
+        private readonly string $reason = UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+    ) {
+        parent::__construct($message, $code, $previous);
+    }
+
+    /**
+     * Why local evaluation is inconclusive, one of the UnresolvedFlagReason values.
+     *
+     * @return string
+     */
+    public function getReason(): string
+    {
+        return $this->reason;
+    }
+
     /**
      * Format the exception as an HTML-ish error message.
      *
