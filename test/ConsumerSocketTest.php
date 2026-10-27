@@ -66,6 +66,11 @@ class ConsumerSocketTest extends ConsumerTransportTestCase
         return [
             'server error' => [503, false],
             'rate limited gzip' => [429, true],
+            'moved permanently' => [301, false],
+            'found' => [302, false],
+            'temporary redirect' => [307, false],
+            'permanent redirect' => [308, false],
+            'no content' => [204, false],
         ];
     }
 
@@ -104,19 +109,17 @@ class ConsumerSocketTest extends ConsumerTransportTestCase
         self::assertCount(2, $this->server->requests());
     }
 
-    public static function unsupportedResponseStatuses(): array
+    public static function unexpectedResponseStatuses(): array
     {
         return [
             'moved permanently' => [301],
-            'found' => [302],
-            'temporary redirect' => [307],
             'permanent redirect' => [308],
             'no content' => [204],
         ];
     }
 
-    #[DataProvider('unsupportedResponseStatuses')]
-    public function testUnsupportedResponseDropsBatchWithoutRetrying(int $status): void
+    #[DataProvider('unexpectedResponseStatuses')]
+    public function testUnexpectedResponseRetriesUntilBackoffLimit(int $status): void
     {
         $this->server->stop();
         $this->server = new LocalHttpServer(array_fill(0, 4, ['status' => $status]));
@@ -130,9 +133,7 @@ class ConsumerSocketTest extends ConsumerTransportTestCase
             ini_set('default_socket_timeout', $previousTimeout);
         }
 
-        self::assertCount(1, $this->server->requests());
-        self::assertTrue($client->flush());
-        self::assertCount(1, $this->server->requests());
+        self::assertCount(2, $this->server->requests());
     }
 
     public function testFailedReconnectReturnsFalseWithoutInvalidStreamAccess(): void

@@ -157,7 +157,9 @@ class Socket extends QueueConsumer
             // If status code is greater than 500 and less than 600, it indicates server error
             // Error code 429 indicates rate limited.
             // Retry uploading in these cases.
-            if (($statusCode >= 500 && $statusCode <= 600) || 429 == $statusCode || 0 == $statusCode) {
+            // Unexpected responses such as redirects may be transient, so only other 4xx responses are final.
+            $isClientError = $statusCode >= 400 && $statusCode < 500 && 429 != $statusCode;
+            if (!$isClientError) {
                 if ($backoff >= $this->maximum_backoff_duration) {
                     break;
                 }
