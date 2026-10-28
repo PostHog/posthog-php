@@ -295,6 +295,42 @@ class QueueConsumerTest extends TestCase
         ];
     }
 
+    public static function destructDuringCooldownCases(): array
+    {
+        return [
+            'destructor waits for cooldown' => [0, 1],
+            'destructor retries once cooldown elapses' => [1, 2],
+        ];
+    }
+
+    #[DataProvider('destructDuringCooldownCases')]
+    public function testDestructDoesNotRepeatRetryWithinCooldown(int $secondsLater, int $expectedCalls): void
+    {
+        $message = $this->message('persistent-failure');
+        $httpClient = new MockedHttpClient(
+            'app.posthog.com',
+            batchEndpointResponse: '{"status":0}',
+            batchEndpointResponseCode: 503
+        );
+        $consumer = new LibCurl('test-key', ['batch_size' => 1, 'maximum_backoff_duration' => 100], $httpClient);
+        $clock = new MockClock();
+        $previousClock = Clock::get();
+        Clock::set($clock);
+
+        try {
+            $this->assertFalse($consumer->capture($message));
+            $clock->sleep($secondsLater);
+            // Call the real destructor logic directly (as Client::shutdown() and PHP's own
+            // garbage collector both do) without destroying the test's reference to $consumer.
+            $consumer->__destruct();
+        } finally {
+            Clock::set($previousClock);
+        }
+
+        $this->assertCount($expectedCalls, $httpClient->calls);
+        $this->assertSame([$message], $this->queuedItems($consumer));
+    }
+
     private function message(string $event): array
     {
         return [

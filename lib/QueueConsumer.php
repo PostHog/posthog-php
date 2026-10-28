@@ -94,6 +94,10 @@ abstract class QueueConsumer extends Consumer
      */
     public function __destruct()
     {
+        if ($this->inRetryCooldown()) {
+            return;
+        }
+
         try {
             $this->flush();
         } catch (Throwable $throwable) {
