@@ -244,6 +244,13 @@ class Client implements FeatureFlagEvaluationsHost
     private array $missingDistinctIdWarnings = [];
 
     /**
+     * Definition fingerprint per flag key already warned about as never locally resolvable.
+     *
+     * @var array<string, string>
+     */
+    private array $warnedUnresolvableFlags = [];
+
+    /**
      * Create a new PostHog client with your project's API key.
      *
      * @param string|null $apiKey Your project API key. When omitted or empty, the client is disabled
@@ -1135,7 +1142,9 @@ class Client implements FeatureFlagEvaluationsHost
      * FeatureFlagEvaluations snapshot. When distinctId is omitted, the current request context
      * distinctId is used if available. Reads on the snapshot do not trigger additional /flags
      * requests; access via isEnabled() or getFlag() fires a deduped $feature_flag_called event the
-     * first time each key is touched.
+     * first time each key is touched. Flags with a local definition that neither local evaluation nor
+     * the remote fallback resolved are absent from the snapshot; getUnresolvedFlags() lists them with
+     * a reason.
      *
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array<string, mixed> $groups Group identifiers for group-based flags.
@@ -1189,6 +1198,7 @@ class Client implements FeatureFlagEvaluationsHost
         );
 
         $records = [];
+        $unresolvedFlags = [];
         $requestId = null;
         $evaluatedAt = null;
         $errorsWhileComputing = false;
@@ -1222,11 +1232,9 @@ class Client implements FeatureFlagEvaluationsHost
                         $personProperties,
                         $groupProperties
                     );
-                } catch (RequiresServerEvaluationException $e) {
+                } catch (RequiresServerEvaluationException | InconclusiveMatchException $e) {
                     $fallbackToRemote = true;
-                    continue;
-                } catch (InconclusiveMatchException $e) {
-                    $fallbackToRemote = true;
+                    $unresolvedFlags[$key] = $e->getReason();
                     continue;
                 } catch (Exception $e) {
                     $fallbackToRemote = true;
@@ -1337,6 +1345,9 @@ class Client implements FeatureFlagEvaluationsHost
             }
         }
 
+        // A flag the remote fallback resolved has a value, so it is not unresolved.
+        $unresolvedFlags = array_diff_key($unresolvedFlags, $records);
+
         return new FeatureFlagEvaluations(
             $distinctId,
             $records,
@@ -1348,6 +1359,7 @@ class Client implements FeatureFlagEvaluationsHost
             $errorsWhileComputing,
             $quotaLimited,
             $disableGeoip,
+            $unresolvedFlags,
         );
     }
 
@@ -1478,12 +1490,15 @@ class Client implements FeatureFlagEvaluationsHost
         // Create evaluation cache for flag dependencies
         $evaluationCache = [];
 
-        if ($featureFlag["ensure_experience_continuity"] ?? false) {
-            throw new InconclusiveMatchException("Flag has experience continuity enabled");
-        }
-
         if (!$featureFlag["active"]) {
             return false;
+        }
+
+        if ($featureFlag["ensure_experience_continuity"] ?? false) {
+            throw new InconclusiveMatchException(
+                "Flag has experience continuity enabled",
+                reason: UnresolvedFlagReason::EXPERIENCE_CONTINUITY
+            );
         }
 
         $flagFilters = $featureFlag["filters"] ?? [];
@@ -1493,7 +1508,10 @@ class Client implements FeatureFlagEvaluationsHost
             $groupName = $definitionSnapshot['group_type_mapping'][strval($aggregationGroupTypeIndex)] ?? null;
 
             if (is_null($groupName)) {
-                throw new InconclusiveMatchException("Flag has unknown group type index");
+                throw new InconclusiveMatchException(
+                    "Flag has unknown group type index",
+                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                );
             }
 
             if (!array_key_exists($groupName, $groups)) {
@@ -1699,7 +1717,91 @@ class Client implements FeatureFlagEvaluationsHost
 
         $data = $this->normalizeFlagDefinitionData($payload);
         $this->applyFlagDefinitions($data);
+        // Only a fresh response warns: PHP builds a client per request, and a 304 or a shared-cache
+        // load carries definitions that a fresh response already warned about.
+        $this->warnAboutUnresolvableFlags();
         $this->storeFlagDefinitionsInCacheProvider($data);
+    }
+
+    /**
+     * Warn about flags whose definition local evaluation cannot resolve. Each flag is warned about
+     * once per client until its definition changes.
+     *
+     * @return void
+     */
+    private function warnAboutUnresolvableFlags(): void
+    {
+        $flagKeysByReason = [
+            UnresolvedFlagReason::EXPERIENCE_CONTINUITY => [],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION => [],
+        ];
+        // Rebuilt from the current definitions, so a flag that is deleted or becomes resolvable is
+        // forgotten and warns again if it later returns to an unresolvable definition.
+        $warnedFlags = [];
+        $uncheckedFlags = [];
+        foreach ($this->featureFlags as $flag) {
+            if (!is_array($flag) || !is_string($flag['key'] ?? null)) {
+                continue;
+            }
+            try {
+                $reason = FeatureFlag::getDefinitionUnresolvedReason(
+                    $flag,
+                    $this->featureFlagsByKey,
+                    $this->cohorts,
+                    $this->groupTypeMapping
+                );
+            } catch (Throwable $throwable) {
+                // A malformed definition must not stop the load or the warning for the other flags.
+                $uncheckedFlags[] = $flag['key'];
+                continue;
+            }
+            if ($reason === null) {
+                continue;
+            }
+            $fingerprint = ($flag['version'] ?? '') . ':' . sha1(serialize($flag)) . ':' . $reason;
+            $warnedFlags[$flag['key']] = $fingerprint;
+            if (($this->warnedUnresolvableFlags[$flag['key']] ?? null) !== $fingerprint) {
+                $flagKeysByReason[$reason][] = $flag['key'];
+            }
+        }
+        $this->warnedUnresolvableFlags = $warnedFlags;
+
+        $experienceContinuityFlags = $flagKeysByReason[UnresolvedFlagReason::EXPERIENCE_CONTINUITY];
+        if (count($experienceContinuityFlags) > 0) {
+            $this->logWarning(sprintf(
+                'You are using local evaluation but %d flag(s) have experience continuity enabled and cannot be '
+                . 'resolved locally (reason: %s): %s. Experience continuity is incompatible with local evaluation '
+                . 'and causes a server request on every evaluation of these flags. To evaluate them locally, '
+                . 'disable experience continuity on these flags in PostHog; with onlyEvaluateLocally: true they '
+                . 'are left unresolved.',
+                count($experienceContinuityFlags),
+                UnresolvedFlagReason::EXPERIENCE_CONTINUITY,
+                implode(', ', $experienceContinuityFlags)
+            ));
+        }
+
+        $unsupportedDefinitionFlags = $flagKeysByReason[UnresolvedFlagReason::UNSUPPORTED_DEFINITION];
+        if (count($unsupportedDefinitionFlags) > 0) {
+            $this->logWarning(sprintf(
+                'You are using local evaluation but %d flag(s) use something local evaluation does not support, '
+                . 'such as a static cohort, an unknown operator, a malformed value, or a missing or circular flag '
+                . 'dependency (reason: %s): %s. Evaluating these flags falls back to a server request when '
+                . 'evaluation reaches that part. To evaluate them locally, change these flags in PostHog or '
+                . 'upgrade posthog-php.',
+                count($unsupportedDefinitionFlags),
+                UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+                implode(', ', $unsupportedDefinitionFlags)
+            ));
+        }
+
+        if (count($uncheckedFlags) > 0) {
+            $this->logWarning(sprintf(
+                'You are using local evaluation but the SDK could not check the definition of %d flag(s) '
+                . 'because it is malformed: %s. Evaluating these flags can fall back to a server request.',
+                count($uncheckedFlags),
+                implode(', ', $uncheckedFlags)
+            ));
+        }
     }
 
     /**

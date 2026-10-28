@@ -2166,6 +2166,54 @@
                         }
                     ]
                 },
+                "getDefinitionUnresolvedReason": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": [
+                        {
+                            "name": "flag",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "flagsByKey",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "cohorts",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "groupTypeMapping",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
                 "matchCohort": {
                     "static": true,
                     "abstract": false,
@@ -2554,6 +2602,10 @@
                     "type": "string",
                     "value": "flag_missing"
                 },
+                "LOCAL_EVALUATION_INCONCLUSIVE": {
+                    "type": "string",
+                    "value": "local_evaluation_inconclusive"
+                },
                 "QUOTA_LIMITED": {
                     "type": "string",
                     "value": "quota_limited"
@@ -2704,6 +2756,16 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "unresolvedFlags",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -2751,6 +2813,13 @@
                     ]
                 },
                 "getKeys": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": []
+                },
+                "getUnresolvedFlags": {
                     "static": false,
                     "abstract": false,
                     "final": false,
@@ -3405,11 +3474,66 @@
             "constants": [],
             "properties": [],
             "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": "",
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "code",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 0,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "previous",
+                            "type": "?Throwable",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "reason",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": "unsupported_definition",
+                            "defaultConstant": "PostHog\\UnresolvedFlagReason::UNSUPPORTED_DEFINITION",
+                            "hasDefault": true
+                        }
+                    ]
+                },
                 "errorMessage": {
                     "static": false,
                     "abstract": false,
                     "final": false,
                     "returnType": null,
+                    "parameters": []
+                },
+                "getReason": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
                     "parameters": []
                 }
             }
@@ -4571,11 +4695,66 @@
             "constants": [],
             "properties": [],
             "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": "",
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "code",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 0,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "previous",
+                            "type": "?Throwable",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "reason",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": "unsupported_definition",
+                            "defaultConstant": "PostHog\\UnresolvedFlagReason::UNSUPPORTED_DEFINITION",
+                            "hasDefault": true
+                        }
+                    ]
+                },
                 "errorMessage": {
                     "static": false,
                     "abstract": false,
                     "final": false,
                     "returnType": null,
+                    "parameters": []
+                },
+                "getReason": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
                     "parameters": []
                 }
             }
@@ -4725,6 +4904,34 @@
                     ]
                 }
             }
+        },
+        "PostHog\\UnresolvedFlagReason": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": {
+                "EXPERIENCE_CONTINUITY": {
+                    "type": "string",
+                    "value": "experience_continuity"
+                },
+                "MISSING_CONTEXT": {
+                    "type": "string",
+                    "value": "missing_context"
+                },
+                "UNRESOLVED_DEPENDENCY": {
+                    "type": "string",
+                    "value": "unresolved_dependency"
+                },
+                "UNSUPPORTED_DEFINITION": {
+                    "type": "string",
+                    "value": "unsupported_definition"
+                }
+            },
+            "properties": [],
+            "methods": []
         },
         "PostHog\\Uuid": {
             "type": "class",

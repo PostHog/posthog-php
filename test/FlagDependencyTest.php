@@ -2,11 +2,14 @@
 
 namespace PostHog\Test;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\FeatureFlag;
 use PostHog\InconclusiveMatchException;
+use PostHog\RequiresServerEvaluationException;
+use PostHog\UnresolvedFlagReason;
 
 class FlagDependencyTest extends TestCase
 {
@@ -141,9 +144,12 @@ class FlagDependencyTest extends TestCase
         $evaluationCache = [];
 
         // Both flags should raise InconclusiveMatchException due to circular dependency
-        $this->expectException(InconclusiveMatchException::class);
-        $this->expectExceptionMessage("Circular dependency detected for flag 'flag-b'");
-        FeatureFlag::matchFeatureFlagProperties($flagA, "test-user", [], [], $flagsByKey, $evaluationCache);
+        try {
+            FeatureFlag::matchFeatureFlagProperties($flagA, "test-user", [], [], $flagsByKey, $evaluationCache);
+            $this->fail('Expected InconclusiveMatchException');
+        } catch (InconclusiveMatchException $e) {
+            $this->assertSame(UnresolvedFlagReason::UNSUPPORTED_DEFINITION, $e->getReason());
+        }
     }
 
     public function testFlagDependencyMissingFlag(): void
@@ -179,11 +185,12 @@ class FlagDependencyTest extends TestCase
         $evaluationCache = [];
 
         // Should raise InconclusiveMatchException because dependency doesn't exist
-        $this->expectException(InconclusiveMatchException::class);
-        $this->expectExceptionMessage(
-            "Cannot evaluate flag dependency 'non-existent-flag' - flag not found in local flags"
-        );
-        FeatureFlag::matchFeatureFlagProperties($flag, "test-user", [], [], $flagsByKey, $evaluationCache);
+        try {
+            FeatureFlag::matchFeatureFlagProperties($flag, "test-user", [], [], $flagsByKey, $evaluationCache);
+            $this->fail('Expected InconclusiveMatchException');
+        } catch (InconclusiveMatchException $e) {
+            $this->assertSame(UnresolvedFlagReason::UNSUPPORTED_DEFINITION, $e->getReason());
+        }
     }
 
     public function testFlagDependencyComplexChain(): void
@@ -822,5 +829,242 @@ class FlagDependencyTest extends TestCase
             $evaluationCache
         );
         $this->assertFalse($intermediateResult);
+    }
+
+    private static function dependencyFlag(string $key, array $properties = [], array $overrides = []): array
+    {
+        return array_merge([
+            "key" => $key,
+            "active" => true,
+            "filters" => ["groups" => [["properties" => $properties, "rollout_percentage" => 100]]],
+        ], $overrides);
+    }
+
+    private static function dependsOn(string $key, mixed $value = true, ?array $chain = null): array
+    {
+        return [
+            "key" => $key,
+            "operator" => "flag_evaluates_to",
+            "value" => $value,
+            "type" => "flag",
+            "dependency_chain" => $chain ?? [$key],
+        ];
+    }
+
+    private static function dependencyReason(array $flag, array $flagsByKey, array $properties = []): ?string
+    {
+        try {
+            FeatureFlag::matchFeatureFlagProperties($flag, "test-user", $properties, [], $flagsByKey, []);
+        } catch (InconclusiveMatchException $e) {
+            return $e->getReason();
+        }
+        return null;
+    }
+
+    public function testDependencyWithExperienceContinuityIsAnUnresolvedDependency(): void
+    {
+        $dependency = self::dependencyFlag("dependency", [], ["ensure_experience_continuity" => true]);
+        $flag = self::dependencyFlag("flag", [self::dependsOn("dependency")]);
+
+        $this->assertSame(
+            UnresolvedFlagReason::UNRESOLVED_DEPENDENCY,
+            self::dependencyReason($flag, ["dependency" => $dependency, "flag" => $flag])
+        );
+    }
+
+    public function testInactiveDependencyWithExperienceContinuityIsFalse(): void
+    {
+        $dependency = self::dependencyFlag(
+            "dependency",
+            [],
+            ["active" => false, "ensure_experience_continuity" => true]
+        );
+        $flag = self::dependencyFlag("flag", [self::dependsOn("dependency", false)]);
+
+        $this->assertTrue(FeatureFlag::matchFeatureFlagProperties(
+            $flag,
+            "test-user",
+            [],
+            [],
+            ["dependency" => $dependency, "flag" => $flag],
+            []
+        ));
+    }
+
+    public function testDependencyThatNeedsContextIsAnUnresolvedDependency(): void
+    {
+        $dependency = self::dependencyFlag("dependency", [["key" => "plan", "operator" => "exact", "value" => "pro"]]);
+        $flag = self::dependencyFlag("flag", [self::dependsOn("dependency")]);
+
+        $this->assertSame(
+            UnresolvedFlagReason::UNRESOLVED_DEPENDENCY,
+            self::dependencyReason($flag, ["dependency" => $dependency, "flag" => $flag])
+        );
+    }
+
+    public function testInvalidDependencyOperatorOutranksADependencyThatNeedsContext(): void
+    {
+        $dependency = self::dependencyFlag("dependency", [["key" => "plan", "operator" => "exact", "value" => "pro"]]);
+        $flag = self::dependencyFlag("flag", [array_merge(self::dependsOn("dependency"), ["operator" => "exact"])]);
+        $flagsByKey = ["dependency" => $dependency, "flag" => $flag];
+
+        $this->assertSame(
+            [UnresolvedFlagReason::UNSUPPORTED_DEFINITION, UnresolvedFlagReason::UNSUPPORTED_DEFINITION],
+            [
+                self::dependencyReason($flag, $flagsByKey),
+                FeatureFlag::getDefinitionUnresolvedReason($flag, $flagsByKey, [], []),
+            ]
+        );
+    }
+
+    public function testDependencyThatRequiresServerIsAnUnresolvedDependency(): void
+    {
+        $dependency = self::dependencyFlag("dependency", [["key" => "id", "type" => "cohort", "value" => 999]]);
+        $flag = self::dependencyFlag("flag", [self::dependsOn("dependency")]);
+
+        try {
+            FeatureFlag::matchFeatureFlagProperties($flag, "test-user", [], [], ["dependency" => $dependency], []);
+            $this->fail("Expected RequiresServerEvaluationException");
+        } catch (RequiresServerEvaluationException $e) {
+            $this->assertSame(UnresolvedFlagReason::UNRESOLVED_DEPENDENCY, $e->getReason());
+        }
+    }
+
+    #[DataProvider('serverDependencyReasonProvider')]
+    public function testDependencyThatRequiresServerReportsTheHighestReasonOfTheFlag(
+        array $conditionFilters,
+        array $cohorts,
+        string $reason
+    ): void {
+        $dependency = self::dependencyFlag("dependency", [["key" => "id", "type" => "cohort", "value" => 999]]);
+        $flag = [
+            "key" => "flag",
+            "active" => true,
+            "filters" => ["groups" => array_map(
+                fn (array $filters) => ["properties" => $filters, "rollout_percentage" => 100],
+                $conditionFilters
+            )],
+        ];
+
+        try {
+            FeatureFlag::matchFeatureFlagProperties(
+                $flag,
+                "test-user",
+                ["plan" => "free"],
+                $cohorts,
+                ["dependency" => $dependency],
+                []
+            );
+            $this->fail("Expected RequiresServerEvaluationException");
+        } catch (RequiresServerEvaluationException $e) {
+            $this->assertSame($reason, $e->getReason());
+        }
+    }
+
+    public static function serverDependencyReasonProvider(): iterable
+    {
+        $dependsOn = self::dependsOn("dependency");
+        $unknownOperator = ["key" => "plan", "operator" => "not_a_real_operator", "value" => "pro"];
+        $onProPlan = ["key" => "plan", "operator" => "exact", "value" => "pro"];
+        $inCohort = ["key" => "id", "type" => "cohort", "value" => 1];
+
+        yield 'later condition matches everyone' => [
+            [[$dependsOn], []],
+            [],
+            UnresolvedFlagReason::UNRESOLVED_DEPENDENCY,
+        ];
+        yield 'later condition is unsupported' => [
+            [[$dependsOn], [$unknownOperator]],
+            [],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'later filter in the same condition is unsupported' => [
+            [[$dependsOn, $unknownOperator]],
+            [],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'earlier condition fails before its unsupported filter' => [
+            [[$onProPlan, $unknownOperator], [$dependsOn]],
+            [],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'cohort checks the dependency before an unsupported filter' => [
+            [[$inCohort]],
+            [1 => ["type" => "AND", "values" => [$dependsOn, $unknownOperator]]],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'cohort checks an unsupported filter before the dependency' => [
+            [[$inCohort]],
+            [1 => ["type" => "AND", "values" => [$unknownOperator, $dependsOn]]],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+    }
+
+    public function testMissingDependencyAnywhereInTheChainIsAnUnsupportedDefinition(): void
+    {
+        $dependency = self::dependencyFlag("dependency", [], ["ensure_experience_continuity" => true]);
+        $flag = self::dependencyFlag("flag", [self::dependsOn("dependency", true, ["gone", "dependency"])]);
+
+        $this->assertSame(
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+            self::dependencyReason($flag, ["dependency" => $dependency, "flag" => $flag])
+        );
+    }
+
+    public function testRepeatedInconclusiveDependencyKeepsItsReason(): void
+    {
+        $dependency = self::dependencyFlag("dependency", [], ["ensure_experience_continuity" => true]);
+        $flag = [
+            "key" => "flag",
+            "active" => true,
+            "filters" => ["groups" => [
+                ["properties" => [self::dependsOn("dependency")], "rollout_percentage" => 100],
+                ["properties" => [self::dependsOn("dependency", false)], "rollout_percentage" => 100],
+            ]],
+        ];
+
+        $this->assertSame(
+            UnresolvedFlagReason::UNRESOLVED_DEPENDENCY,
+            self::dependencyReason($flag, ["dependency" => $dependency])
+        );
+    }
+
+    public function testGroupConditionDependencyResultIsNotReusedForPersonCondition(): void
+    {
+        // The dependency matches only with the group's properties, so a result cached for the group
+        // condition must not resolve the person condition.
+        $dependency = self::dependencyFlag(
+            "dependency",
+            [["key" => "\$group_key", "operator" => "exact", "value" => "acme"]]
+        );
+        $flag = [
+            "key" => "flag",
+            "active" => true,
+            "filters" => ["groups" => [
+                [
+                    "aggregation_group_type_index" => 0,
+                    "properties" => [self::dependsOn("dependency", false)],
+                    "rollout_percentage" => 100,
+                ],
+                ["properties" => [self::dependsOn("dependency")], "rollout_percentage" => 100],
+            ]],
+        ];
+
+        try {
+            FeatureFlag::matchFeatureFlagProperties(
+                $flag,
+                "test-user",
+                [],
+                [],
+                ["dependency" => $dependency],
+                [],
+                ["company" => "acme"],
+                ["company" => ["\$group_key" => "acme"]],
+                ["0" => "company"]
+            );
+            $this->fail("Expected InconclusiveMatchException");
+        } catch (InconclusiveMatchException $e) {
+            $this->assertSame(UnresolvedFlagReason::UNRESOLVED_DEPENDENCY, $e->getReason());
+        }
     }
 }

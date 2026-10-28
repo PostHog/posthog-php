@@ -13,6 +13,15 @@ class FeatureFlag
 {
     private const LONG_SCALE = 0xfffffffffffffff;
 
+    // When several causes apply to one flag, the spec reports the first reason in this order, so
+    // every SDK picks the same reason whatever order it inspects the filters in.
+    private const UNRESOLVED_REASON_PRECEDENCE = [
+        UnresolvedFlagReason::EXPERIENCE_CONTINUITY,
+        UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        UnresolvedFlagReason::UNRESOLVED_DEPENDENCY,
+        UnresolvedFlagReason::MISSING_CONTEXT,
+    ];
+
     /**
      * Match a single property filter against provided property values.
      *
@@ -24,12 +33,92 @@ class FeatureFlag
      */
     public static function matchProperty($property, $propertyValues, $propertyMatchingVersion = 1)
     {
+        try {
+            return FeatureFlag::matchPropertyValue($property, $propertyValues, $propertyMatchingVersion);
+        } catch (InconclusiveMatchException $e) {
+            // An unusable filter outranks missing context, so check the filter before blaming the context.
+            if ($e->getReason() === UnresolvedFlagReason::MISSING_CONTEXT) {
+                FeatureFlag::assertFilterSupported($property);
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Throw an unsupported_definition error when local evaluation cannot use the filter, whatever
+     * the context holds: an unknown operator, or a filter value that the operator cannot parse.
+     *
+     * @param array<string, mixed> $property Feature flag property filter.
+     * @throws InconclusiveMatchException When local evaluation cannot use the filter.
+     */
+    private static function assertFilterSupported($property): void
+    {
+        $operator = $property["operator"] ?? "exact";
+        $value = $property["value"] ?? null;
+
+        if (
+            in_array($operator, [
+                "exact", "is_not", "is_set", "is_not_set", "icontains", "not_icontains",
+                "starts_with", "not_starts_with", "ends_with", "not_ends_with",
+            ])
+        ) {
+            return;
+        }
+
+        if (in_array($operator, ["regex", "not_regex"])) {
+            $pattern = FeatureFlag::valueToString($value);
+            FeatureFlag::assertPortableRegex($pattern);
+            FeatureFlag::isRegularExpression(FeatureFlag::prepareValueForRegex($pattern));
+            return;
+        }
+
+        if (in_array($operator, ["gt", "gte", "lt", "lte"])) {
+            FeatureFlag::parseNumericFilter($value);
+            return;
+        }
+
+        if (in_array($operator, ["is_date_before", "is_date_after"])) {
+            FeatureFlag::parseDateFilter($value);
+            return;
+        }
+
+        if (in_array($operator, ["semver_eq", "semver_neq", "semver_gt", "semver_gte", "semver_lt", "semver_lte"])) {
+            FeatureFlag::parseSemver($value);
+            return;
+        }
+
+        if ($operator === "semver_tilde") {
+            FeatureFlag::tildeBounds($value);
+            return;
+        }
+
+        if ($operator === "semver_caret") {
+            FeatureFlag::caretBounds($value);
+            return;
+        }
+
+        if ($operator === "semver_wildcard") {
+            FeatureFlag::wildcardBounds($value);
+            return;
+        }
+
+        throw new InconclusiveMatchException(
+            "Unknown operator: " . $operator,
+            reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+        );
+    }
+
+    private static function matchPropertyValue($property, $propertyValues, $propertyMatchingVersion)
+    {
         $key = $property["key"];
         $operator = $property["operator"] ?? "exact";
         $value = $property["value"];
 
         if (!array_key_exists($key, $propertyValues)) {
-            throw new InconclusiveMatchException("Can't match properties without a given property value");
+            throw new InconclusiveMatchException(
+                "Can't match properties without a given property value",
+                reason: UnresolvedFlagReason::MISSING_CONTEXT
+            );
         }
 
         if ($operator == "is_not_set") {
@@ -85,22 +174,25 @@ class FeatureFlag
             $input = FeatureFlag::valueToString($overrideValue);
             // Rust and PCRE disagree on word membership for join controls, marks, numbers and symbols.
             if ($usesWordClass && preg_match('/[^\x00-\x7f\p{L}\p{Nd}]/u', $input) === 1) {
-                throw new InconclusiveMatchException("Regex Unicode word class requires server evaluation");
+                throw new InconclusiveMatchException(
+                    "Regex Unicode word class requires server evaluation",
+                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                );
             }
 
             $matched = preg_match($regexValue, $input);
             if ($matched === false) {
-                throw new InconclusiveMatchException("Regex execution failed: " . preg_last_error_msg());
+                throw new InconclusiveMatchException(
+                    "Regex execution failed: " . preg_last_error_msg(),
+                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                );
             }
 
             return ($matched === 1) === ($operator == "regex");
         }
 
         if (in_array($operator, ["gt", "gte", "lt", "lte"])) {
-            $parsedValue = FeatureFlag::parseNumericValue($value);
-            if ($parsedValue === null) {
-                throw new InconclusiveMatchException("The number set on the flag is not a valid format");
-            }
+            $parsedValue = FeatureFlag::parseNumericFilter($value);
 
             $parsedOverrideValue = FeatureFlag::parseNumericValue($overrideValue);
             if ($parsedOverrideValue === null) {
@@ -111,17 +203,9 @@ class FeatureFlag
         }
 
         if (in_array($operator, ["is_date_before", "is_date_after"])) {
-            $parsedDate = FeatureFlag::relativeDateParseForFeatureFlagMatching($value);
+            $parsedDate = FeatureFlag::parseDateFilter($value);
 
-            if (is_null($parsedDate)) {
-                $parsedDate = FeatureFlag::convertToDateTime($value);
-            }
-
-            if (is_null($parsedDate)) {
-                throw new InconclusiveMatchException("The date set on the flag is not a valid format");
-            }
-
-            $overrideDate = FeatureFlag::convertToDateTime($overrideValue);
+            $overrideDate = FeatureFlag::convertToDateTime($overrideValue, UnresolvedFlagReason::MISSING_CONTEXT);
             if ($operator == 'is_date_before') {
                 return $overrideDate < $parsedDate;
             } else {
@@ -129,10 +213,11 @@ class FeatureFlag
             }
         }
 
-        // Semver operators
+        // Semver operators. The filter is parsed before the context, so a bad filter reports
+        // unsupported_definition even when the context value is bad too.
         if (in_array($operator, ["semver_eq", "semver_neq", "semver_gt", "semver_gte", "semver_lt", "semver_lte"])) {
-            $overrideTuple = FeatureFlag::parseSemver($overrideValue);
             $valueTuple = FeatureFlag::parseSemver($value);
+            $overrideTuple = FeatureFlag::parseContextSemver($overrideValue);
 
             $comparison = FeatureFlag::compareSemverTuples($overrideTuple, $valueTuple);
 
@@ -152,30 +237,33 @@ class FeatureFlag
         }
 
         if ($operator === "semver_tilde") {
-            $overrideTuple = FeatureFlag::parseSemver($overrideValue);
             list($lower, $upper) = FeatureFlag::tildeBounds($value);
+            $overrideTuple = FeatureFlag::parseContextSemver($overrideValue);
 
             return FeatureFlag::compareSemverTuples($overrideTuple, $lower) >= 0
                 && FeatureFlag::compareSemverTuples($overrideTuple, $upper) < 0;
         }
 
         if ($operator === "semver_caret") {
-            $overrideTuple = FeatureFlag::parseSemver($overrideValue);
             list($lower, $upper) = FeatureFlag::caretBounds($value);
+            $overrideTuple = FeatureFlag::parseContextSemver($overrideValue);
 
             return FeatureFlag::compareSemverTuples($overrideTuple, $lower) >= 0
                 && FeatureFlag::compareSemverTuples($overrideTuple, $upper) < 0;
         }
 
         if ($operator === "semver_wildcard") {
-            $overrideTuple = FeatureFlag::parseSemver($overrideValue);
             list($lower, $upper) = FeatureFlag::wildcardBounds($value);
+            $overrideTuple = FeatureFlag::parseContextSemver($overrideValue);
 
             return FeatureFlag::compareSemverTuples($overrideTuple, $lower) >= 0
                 && FeatureFlag::compareSemverTuples($overrideTuple, $upper) < 0;
         }
 
-        throw new InconclusiveMatchException("Unknown operator: " . $operator);
+        throw new InconclusiveMatchException(
+            "Unknown operator: " . $operator,
+            reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+        );
     }
 
     /**
@@ -219,7 +307,7 @@ class FeatureFlag
         $propertyValues,
         $cohortProperties,
         $flagsByKey,
-        $evaluationCache,
+        &$evaluationCache,
         $distinctId,
         $propertyMatchingVersion,
         $identityAggregation
@@ -286,7 +374,7 @@ class FeatureFlag
         $propertyValues,
         $cohortProperties,
         $flagsByKey,
-        $evaluationCache,
+        &$evaluationCache,
         $distinctId,
         $propertyMatchingVersion,
         $identityAggregation
@@ -303,7 +391,7 @@ class FeatureFlag
             return true;
         }
 
-        $errorMatchingLocally = false;
+        $inconclusiveReason = null;
 
         if (array_key_exists("values", $properties[0])) {
             // a nested property group
@@ -333,12 +421,15 @@ class FeatureFlag
                     // Immediately propagate - this condition requires server-side data
                     throw $err;
                 } catch (InconclusiveMatchException $err) {
-                    $errorMatchingLocally = true;
+                    $inconclusiveReason = FeatureFlag::pickUnresolvedReason($inconclusiveReason, $err->getReason());
                 }
             }
 
-            if ($errorMatchingLocally) {
-                throw new InconclusiveMatchException("Can't match cohort without a given cohort property value");
+            if ($inconclusiveReason !== null) {
+                throw new InconclusiveMatchException(
+                    "Can't match cohort without a given cohort property value",
+                    reason: $inconclusiveReason
+                );
             }
             // if we get here, all matched in AND case, or none matched in OR case
             return $propertyGroupType === 'AND';
@@ -396,16 +487,15 @@ class FeatureFlag
                     // Immediately propagate - this condition requires server-side data
                     throw $err;
                 } catch (InconclusiveMatchException $err) {
-                    // If this is a flag dependency error, preserve the original message
-                    if ($propType === 'flag') {
-                        throw $err;
-                    }
-                    $errorMatchingLocally = true;
+                    $inconclusiveReason = FeatureFlag::pickUnresolvedReason($inconclusiveReason, $err->getReason());
                 }
             }
 
-            if ($errorMatchingLocally) {
-                throw new InconclusiveMatchException("can't match cohort without a given cohort property value");
+            if ($inconclusiveReason !== null) {
+                throw new InconclusiveMatchException(
+                    "can't match cohort without a given cohort property value",
+                    reason: $inconclusiveReason
+                );
             }
 
             // if we get here, all matched in AND case, or none matched in OR case
@@ -461,10 +551,16 @@ class FeatureFlag
     {
         // Semver 2.0.0 §2: numeric identifiers MUST NOT include leading zeros.
         if ($part === "" || !ctype_digit($part)) {
-            throw new InconclusiveMatchException("Cannot parse semver: invalid {$component} version in {$value}");
+            throw new InconclusiveMatchException(
+                "Cannot parse semver: invalid {$component} version in {$value}",
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
         }
         if (strlen($part) > 1 && $part[0] === "0") {
-            throw new InconclusiveMatchException("Cannot parse semver: {$component} version has leading zero in {$value}");
+            throw new InconclusiveMatchException(
+                "Cannot parse semver: {$component} version has leading zero in {$value}",
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
         }
         return intval($part);
     }
@@ -489,20 +585,36 @@ class FeatureFlag
     public static function parseSemver($value): array
     {
         if ($value === null || $value === "") {
-            throw new InconclusiveMatchException("Cannot parse empty or null value as semver");
+            throw new InconclusiveMatchException(
+                "Cannot parse empty or null value as semver",
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
+        }
+
+        if (!is_scalar($value)) {
+            throw new InconclusiveMatchException(
+                "Cannot parse a non-scalar value as semver",
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
         }
 
         $text = trim(strval($value));
 
         if ($text === "") {
-            throw new InconclusiveMatchException("Cannot parse empty value as semver");
+            throw new InconclusiveMatchException(
+                "Cannot parse empty value as semver",
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
         }
 
         // Strip v/V prefix
         $text = ltrim($text, "vV");
 
         if ($text === "") {
-            throw new InconclusiveMatchException("Cannot parse semver: only prefix found");
+            throw new InconclusiveMatchException(
+                "Cannot parse semver: only prefix found",
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
         }
 
         // Strip pre-release and build metadata (split on - or +, take first part)
@@ -510,7 +622,10 @@ class FeatureFlag
 
         // Check for leading dot
         if (str_starts_with($text, ".")) {
-            throw new InconclusiveMatchException("Cannot parse semver with leading dot: {$value}");
+            throw new InconclusiveMatchException(
+                "Cannot parse semver with leading dot: {$value}",
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
         }
 
         // Split on dots
@@ -601,7 +716,17 @@ class FeatureFlag
     private static function wildcardBounds($value): array
     {
         if ($value === null || $value === "") {
-            throw new InconclusiveMatchException("Cannot parse empty or null value as semver wildcard");
+            throw new InconclusiveMatchException(
+                "Cannot parse empty or null value as semver wildcard",
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
+        }
+
+        if (!is_scalar($value)) {
+            throw new InconclusiveMatchException(
+                "Cannot parse a non-scalar value as semver wildcard",
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
         }
 
         $text = trim(strval($value));
@@ -618,7 +743,10 @@ class FeatureFlag
         }
 
         if (count($parts) === 0) {
-            throw new InconclusiveMatchException("Cannot parse semver wildcard: no version components found in {$value}");
+            throw new InconclusiveMatchException(
+                "Cannot parse semver wildcard: no version components found in {$value}",
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
         }
 
         $major = FeatureFlag::parseSemverNumeric($parts[0], "major", $value);
@@ -637,21 +765,67 @@ class FeatureFlag
         return [$lower, $upper];
     }
 
-    private static function convertToDateTime($value)
+    private static function parseDateFilter($value): \DateTime
+    {
+        $parsedDate = is_string($value) ? FeatureFlag::relativeDateParseForFeatureFlagMatching($value) : null;
+
+        return $parsedDate ?? FeatureFlag::convertToDateTime($value, UnresolvedFlagReason::UNSUPPORTED_DEFINITION);
+    }
+
+    /**
+     * @param string $reason Reason for an unusable value: unsupported_definition for a filter value,
+     *     missing_context for a value the evaluation call passed.
+     */
+    private static function convertToDateTime($value, string $reason): \DateTime
     {
         if ($value instanceof \DateTime) {
             return $value;
-        } elseif (is_string($value)) {
-            try {
-                $date = new \DateTime($value);
-                if (!is_nan($date->getTimestamp())) {
-                    return $date;
-                }
-            } catch (Exception $e) {
-                throw new InconclusiveMatchException("{$value} is in an invalid date format");
-            }
-        } else {
-            throw new InconclusiveMatchException("The date provided {$value} must be a string or date object");
+        }
+
+        if (!is_string($value)) {
+            throw new InconclusiveMatchException(
+                "The date provided " . FeatureFlag::valueToString($value) . " must be a string or date object",
+                reason: $reason
+            );
+        }
+
+        try {
+            return new \DateTime($value);
+        } catch (\Exception $e) {
+            throw new InconclusiveMatchException(
+                "{$value} is in an invalid date format: " . $e->getMessage(),
+                0,
+                $e,
+                $reason
+            );
+        }
+    }
+
+    private static function parseNumericFilter($value): float
+    {
+        $parsedValue = FeatureFlag::parseNumericValue($value);
+        if ($parsedValue === null) {
+            throw new InconclusiveMatchException(
+                "The number set on the flag is not a valid format",
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
+        }
+
+        return $parsedValue;
+    }
+
+    /**
+     * Parse a semver value read from the evaluation call: failing to use it is missing context,
+     * not an unsupported definition.
+     *
+     * @return array{int, int, int}
+     */
+    private static function parseContextSemver($value): array
+    {
+        try {
+            return FeatureFlag::parseSemver($value);
+        } catch (InconclusiveMatchException $e) {
+            throw new InconclusiveMatchException($e->getMessage(), 0, $e, UnresolvedFlagReason::MISSING_CONTEXT);
         }
     }
 
@@ -1062,7 +1236,7 @@ class FeatureFlag
         $properties,
         $cohorts,
         $flagsByKey,
-        $evaluationCache,
+        &$evaluationCache,
         $groups,
         $groupProperties,
         $groupTypeMapping,
@@ -1080,7 +1254,8 @@ class FeatureFlag
         $flagConditions = $flagFilters["groups"] ?? [];
         $flagAggregation = $flagFilters["aggregation_group_type_index"] ?? null;
         $earlyExitEnabled = $flagFilters["early_exit"] ?? false;
-        $isInconclusive = false;
+        $inconclusiveReason = null;
+        $groupEvaluationCaches = [];
 
         foreach ($flagConditions as $condition) {
             try {
@@ -1095,6 +1270,7 @@ class FeatureFlag
                 $effectiveProperties = $properties;
                 $effectiveBucketing = $distinctId;
                 $effectiveAggregation = $identityAggregation;
+                $conditionEvaluationCache = &$evaluationCache;
 
                 // Mixed-override path: condition-level aggregation differs from flag-level.
                 // This assumes flag-level aggregation is null for mixed flags.
@@ -1105,12 +1281,18 @@ class FeatureFlag
                             continue;
                         }
                         if (!array_key_exists($groupName, $groupProperties)) {
-                            $isInconclusive = true;
+                            $inconclusiveReason = FeatureFlag::pickUnresolvedReason(
+                                $inconclusiveReason,
+                                UnresolvedFlagReason::MISSING_CONTEXT
+                            );
                             continue;
                         }
                         $effectiveProperties = $groupProperties[$groupName];
                         $effectiveBucketing = $groups[$groupName];
                         $effectiveAggregation = $conditionAggregation;
+                        // Dependency results depend on the bucketing identity, so each group keeps its own.
+                        $groupEvaluationCaches[$groupName] ??= is_null($evaluationCache) ? null : [];
+                        $conditionEvaluationCache = &$groupEvaluationCaches[$groupName];
                     }
                 }
 
@@ -1121,7 +1303,7 @@ class FeatureFlag
                     $effectiveProperties,
                     $cohorts,
                     $flagsByKey,
-                    $evaluationCache,
+                    $conditionEvaluationCache,
                     $propertyMatchingVersion,
                     $effectiveAggregation
                 );
@@ -1146,28 +1328,40 @@ class FeatureFlag
                     // evaluating (early exit still applies to later groups) and let the
                     // post-loop inconclusive check fall back to server evaluation. A throw here
                     // would be swallowed by the catch below and evaluation would wrongly continue.
-                    if ($isInconclusive) {
+                    if ($inconclusiveReason !== null) {
                         break;
                     }
                     return false;
                 }
             } catch (RequiresServerEvaluationException $e) {
-                // Immediately propagate - this condition requires server-side data
-                throw $e;
-            } catch (InconclusiveMatchException $e) {
-                // If this is a flag dependency error, preserve the original message
-                if (
-                    strpos($e->getMessage(), "Cannot evaluate flag dependency") !== false ||
-                    strpos($e->getMessage(), "Circular dependency detected") !== false
-                ) {
-                    throw $e;
+                // Immediately propagate - this condition requires server-side data. Evaluation stops
+                // before it visits every filter of the flag, including those inside cohorts, so the
+                // definition of the whole flag still counts toward the reason.
+                $reason = FeatureFlag::pickUnresolvedReason($inconclusiveReason, $e->getReason());
+                try {
+                    $definitionReason = FeatureFlag::conditionsDefinitionReason(
+                        $flagConditions,
+                        $flagsByKey ?? [],
+                        $cohorts ?? []
+                    );
+                } catch (\Throwable $lookupError) {
+                    // A malformed filter must not stop the server fallback, so keep the reason found so far.
+                    $definitionReason = null;
                 }
-                $isInconclusive = true;
+                if ($definitionReason !== null) {
+                    $reason = FeatureFlag::pickUnresolvedReason($reason, $definitionReason);
+                }
+                throw new RequiresServerEvaluationException($e->getMessage(), 0, $e, $reason);
+            } catch (InconclusiveMatchException $e) {
+                $inconclusiveReason = FeatureFlag::pickUnresolvedReason($inconclusiveReason, $e->getReason());
             }
         }
 
-        if ($isInconclusive) {
-            throw new InconclusiveMatchException("Can't determine if feature flag is enabled or not with given properties"); //phpcs:ignore
+        if ($inconclusiveReason !== null) {
+            throw new InconclusiveMatchException(
+                "Can't determine if feature flag is enabled or not with given properties",
+                reason: $inconclusiveReason
+            );
         }
 
         return false;
@@ -1180,45 +1374,87 @@ class FeatureFlag
         $properties,
         $cohorts,
         $flagsByKey,
-        $evaluationCache,
+        &$evaluationCache,
         $propertyMatchingVersion,
         $identityAggregation
     ): ConditionMatch {
         $rolloutPercentage = array_key_exists("rollout_percentage", $condition) ? $condition["rollout_percentage"] : null;
 
         if (count($condition['properties'] ?? []) > 0) {
+            // Filters in a condition have no defined order, so an inconclusive filter does not stop
+            // the loop: a later filter can still rule the condition out or carry a higher-precedence reason.
+            $inconclusiveReason = null;
+            $serverEvaluationError = null;
             foreach ($condition['properties'] as $property) {
-                $matches = false;
                 $propertyType = $property['type'] ?? null;
-                if ($propertyType == 'cohort') {
-                    $matches = FeatureFlag::matchCohortForIdentity(
-                        $property,
-                        $properties,
-                        $cohorts,
-                        $flagsByKey,
-                        $evaluationCache,
-                        $distinctId,
-                        $propertyMatchingVersion,
-                        $identityAggregation
-                    );
-                } elseif ($propertyType == 'flag') {
-                    $matches = FeatureFlag::evaluateFlagDependencyForIdentity(
-                        $property,
-                        $flagsByKey,
-                        $evaluationCache,
-                        $distinctId,
-                        $properties,
-                        $cohorts,
-                        $propertyMatchingVersion,
-                        $identityAggregation
-                    );
-                } else {
-                    $matches = FeatureFlag::matchProperty($property, $properties, $propertyMatchingVersion);
+                try {
+                    if ($propertyType == 'cohort') {
+                        $matches = FeatureFlag::matchCohortForIdentity(
+                            $property,
+                            $properties,
+                            $cohorts,
+                            $flagsByKey,
+                            $evaluationCache,
+                            $distinctId,
+                            $propertyMatchingVersion,
+                            $identityAggregation
+                        );
+                    } elseif ($propertyType == 'flag') {
+                        $matches = FeatureFlag::evaluateFlagDependencyForIdentity(
+                            $property,
+                            $flagsByKey,
+                            $evaluationCache,
+                            $distinctId,
+                            $properties,
+                            $cohorts,
+                            $propertyMatchingVersion,
+                            $identityAggregation
+                        );
+                    } else {
+                        $matches = FeatureFlag::matchProperty($property, $properties, $propertyMatchingVersion);
+                    }
+                } catch (RequiresServerEvaluationException $e) {
+                    // Fall back to the server only when this is the first filter that could not be
+                    // checked, as when the loop stopped there. After another inconclusive filter,
+                    // later conditions must still be able to resolve the flag locally.
+                    if ($inconclusiveReason === null) {
+                        $serverEvaluationError = $e;
+                    }
+                    $inconclusiveReason = FeatureFlag::pickUnresolvedReason($inconclusiveReason, $e->getReason());
+                    continue;
+                } catch (InconclusiveMatchException $e) {
+                    $inconclusiveReason = FeatureFlag::pickUnresolvedReason($inconclusiveReason, $e->getReason());
+                    continue;
+                } catch (\Throwable $e) {
+                    // After an inconclusive filter the condition is already inconclusive, so an unexpected
+                    // error must not fail the whole flag and stop later conditions from resolving it.
+                    if ($inconclusiveReason === null) {
+                        throw $e;
+                    }
+                    break;
                 }
 
                 if (!$matches) {
                     return ConditionMatch::NoMatch;
                 }
+            }
+
+            // Rethrow the server error type: the caller stops at it and falls back to the server
+            // instead of trying later conditions. Later filters in this condition can still
+            // outrank its reason.
+            if ($serverEvaluationError !== null) {
+                throw new RequiresServerEvaluationException(
+                    $serverEvaluationError->getMessage(),
+                    0,
+                    $serverEvaluationError,
+                    $inconclusiveReason
+                );
+            }
+            if ($inconclusiveReason !== null) {
+                throw new InconclusiveMatchException(
+                    sprintf("Can't determine if a condition of flag '%s' matches", $featureFlag["key"] ?? "unknown"),
+                    reason: $inconclusiveReason
+                );
             }
 
             if (is_null($rolloutPercentage)) {
@@ -1231,6 +1467,23 @@ class FeatureFlag
         }
 
         return ConditionMatch::Match;
+    }
+
+    /**
+     * Pick the reason to report when two causes apply to one flag.
+     *
+     * @param string|null $current Reason found so far, if any.
+     * @param string $next Reason of the cause just found.
+     * @return string
+     */
+    private static function pickUnresolvedReason(?string $current, string $next): string
+    {
+        if ($current === null) {
+            return $next;
+        }
+
+        $precedence = array_flip(self::UNRESOLVED_REASON_PRECEDENCE);
+        return $precedence[$next] < $precedence[$current] ? $next : $current;
     }
 
     private static function isRegularExpression($string)
@@ -1246,7 +1499,10 @@ class FeatureFlag
         restore_error_handler();
         if (!$isRegularExpression && $error !== PREG_INTERNAL_ERROR) {
             // Preflight also executes the pattern; execution limits do not mean invalid syntax.
-            throw new InconclusiveMatchException("Regex execution failed: " . $errorMessage);
+            throw new InconclusiveMatchException(
+                "Regex execution failed: " . $errorMessage,
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
         }
         return $isRegularExpression;
     }
@@ -1267,7 +1523,10 @@ class FeatureFlag
                 }
                 if ($escaped === 'x') {
                     if (!preg_match('/^[0-9a-fA-F]{2}$/D', substr($pattern, $index + 1, 2))) {
-                        throw new InconclusiveMatchException('Regex escape requires server evaluation');
+                        throw new InconclusiveMatchException(
+                            'Regex escape requires server evaluation',
+                            reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                        );
                     }
                     $index += 2;
                 } elseif (
@@ -1277,20 +1536,29 @@ class FeatureFlag
                     && !preg_match('/^[\x20-\x2f:;=?@\x5b-\x60\x7b-\x7e]$/D', $escaped)
                 ) {
                     // In particular, word boundaries can exhaust the service's 10,000-step budget.
-                    throw new InconclusiveMatchException('Regex escape requires server evaluation');
+                    throw new InconclusiveMatchException(
+                        'Regex escape requires server evaluation',
+                        reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                    );
                 }
                 if (
                     $inClass
                     && !str_contains('dDsSwWbfnrtx\\^-[]', $escaped)
                 ) {
-                    throw new InconclusiveMatchException('Regex class escape requires server evaluation');
+                    throw new InconclusiveMatchException(
+                        'Regex class escape requires server evaluation',
+                        reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                    );
                 }
                 if (
                     $inClass && str_contains('dDsSwW', $escaped)
                     && (($pattern[$index - 2] ?? '') === '-'
                         || (($pattern[$index + 1] ?? '') === '-' && ($pattern[$index + 2] ?? '') !== ']'))
                 ) {
-                    throw new InconclusiveMatchException('Regex class range requires server evaluation');
+                    throw new InconclusiveMatchException(
+                        'Regex class range requires server evaluation',
+                        reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                    );
                 }
                 if ($escaped === 'w' || $escaped === 'W') {
                     $usesWordClass = true;
@@ -1302,20 +1570,29 @@ class FeatureFlag
             if ($character === '[') {
                 // PCRE accepts POSIX/nested/set classes with semantics different from Rust's.
                 if ($inClass) {
-                    throw new InconclusiveMatchException('Regex nested class requires server evaluation');
+                    throw new InconclusiveMatchException(
+                        'Regex nested class requires server evaluation',
+                        reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                    );
                 }
                 $inClass = true;
                 $classStart = $index + (($pattern[$index + 1] ?? '') === '^' ? 2 : 1);
             } elseif ($character === ']' && $inClass) {
                 if ($index === $classStart) {
-                    throw new InconclusiveMatchException('Regex empty class requires server evaluation');
+                    throw new InconclusiveMatchException(
+                        'Regex empty class requires server evaluation',
+                        reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                    );
                 }
                 $inClass = false;
                 $previousToken = 'literal';
                 continue;
             } elseif ($inClass) {
                 if (in_array(substr($pattern, $index, 2), ['&&', '--', '~~'], true)) {
-                    throw new InconclusiveMatchException('Regex set operation requires server evaluation');
+                    throw new InconclusiveMatchException(
+                        'Regex set operation requires server evaluation',
+                        reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                    );
                 }
                 continue;
             } elseif ($character === '(' && ($pattern[$index + 1] ?? '') === '?') {
@@ -1325,10 +1602,16 @@ class FeatureFlag
                     $index += 3;
                     continue;
                 } else {
-                    throw new InconclusiveMatchException('Regex group requires server evaluation');
+                    throw new InconclusiveMatchException(
+                        'Regex group requires server evaluation',
+                        reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                    );
                 }
             } elseif ($character === '(' && ($pattern[$index + 1] ?? '') === '*') {
-                throw new InconclusiveMatchException('Regex verb requires server evaluation');
+                throw new InconclusiveMatchException(
+                    'Regex verb requires server evaluation',
+                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                );
             } elseif ($character === '{') {
                 if (
                     !preg_match('/^\{(\d+)(?:,(\d*))?\}/', substr($pattern, $index), $repetition)
@@ -1337,16 +1620,25 @@ class FeatureFlag
                     || (isset($repetition[2]) && (float) $repetition[2] > 65535)
                 ) {
                     // PCRE's repetition count limit is smaller than the service's.
-                    throw new InconclusiveMatchException('Regex repetition requires server evaluation');
+                    throw new InconclusiveMatchException(
+                        'Regex repetition requires server evaluation',
+                        reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                    );
                 }
             } elseif (
                 str_contains('*+?}', $character)
                 && in_array($pattern[$index + 1] ?? '', ['+', '{'], true)
             ) {
-                throw new InconclusiveMatchException('Regex stacked repetition requires server evaluation');
+                throw new InconclusiveMatchException(
+                    'Regex stacked repetition requires server evaluation',
+                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                );
             }
             if (str_contains('*+?{', $character) && in_array($previousToken, ['^', '$', 'empty group'], true)) {
-                throw new InconclusiveMatchException('Regex assertion repetition requires server evaluation');
+                throw new InconclusiveMatchException(
+                    'Regex assertion repetition requires server evaluation',
+                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                );
             }
             $previousToken = $character === ')' && in_array($previousToken, ['(', 'empty group'], true)
                 ? 'empty group' : $character;
@@ -1404,7 +1696,7 @@ class FeatureFlag
     private static function evaluateFlagDependencyForIdentity(
         $property,
         $flagsByKey,
-        $evaluationCache,
+        &$evaluationCache,
         $distinctId,
         $properties,
         $cohortProperties,
@@ -1412,95 +1704,90 @@ class FeatureFlag
         $identityAggregation
     ) {
         if ($flagsByKey === null || $evaluationCache === null) {
-            throw new InconclusiveMatchException(sprintf(
-                "Cannot evaluate flag dependency on '%s' without flags_by_key and evaluation_cache",
-                $property["key"] ?? "unknown"
-            ));
+            throw new InconclusiveMatchException(
+                sprintf(
+                    "Cannot evaluate flag dependency on '%s' without flags_by_key and evaluation_cache",
+                    $property["key"] ?? "unknown"
+                ),
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
         }
 
-        // Check if dependency_chain is present - it should always be provided for flag dependencies
-        if (!array_key_exists("dependency_chain", $property)) {
-            throw new InconclusiveMatchException(sprintf(
-                "Cannot evaluate flag dependency on '%s' without dependency_chain",
-                $property["key"] ?? "unknown"
-            ));
-        }
-
-        $dependencyChain = $property["dependency_chain"];
-
-        // Handle circular dependency (empty chain means circular)
-        if (count($dependencyChain) === 0) {
-            throw new InconclusiveMatchException(sprintf(
-                "Circular dependency detected for flag '%s'",
-                $property["key"] ?? "unknown"
-            ));
-        }
-
-        // The flag key to evaluate is in the "key" field
-        $depFlagKey = $property["key"] ?? null;
-        if (!$depFlagKey) {
-            throw new InconclusiveMatchException(sprintf(
-                "Flag dependency missing 'key' field: %s",
-                json_encode($property)
-            ));
-        }
+        // An unsupported dependency outranks one that is only inconclusive, so check it before
+        // evaluating any of it.
+        FeatureFlag::assertFlagDependencySupported($property, $flagsByKey, $evaluationCache);
+        $depFlagKey = $property["key"];
 
         // Check if we've already evaluated this flag
         if (!array_key_exists($depFlagKey, $evaluationCache)) {
-            // Need to evaluate this dependency first
-            $depFlag = $flagsByKey[$depFlagKey] ?? null;
-            if (!$depFlag) {
-                // Missing flag dependency - cannot evaluate locally
+            $depFlag = $flagsByKey[$depFlagKey];
+            // Same order as Client::computeFlagLocally: an inactive flag is false whatever its
+            // experience continuity setting.
+            if (!($depFlag["active"] ?? false)) {
+                $evaluationCache[$depFlagKey] = false;
+            } elseif ($depFlag["ensure_experience_continuity"] ?? false) {
                 $evaluationCache[$depFlagKey] = null;
-                throw new InconclusiveMatchException(sprintf(
-                    "Cannot evaluate flag dependency '%s' - flag not found in local flags",
-                    $depFlagKey
-                ));
+                throw new InconclusiveMatchException(
+                    sprintf(
+                        "Cannot evaluate flag dependency '%s' - flag has experience continuity enabled",
+                        $depFlagKey
+                    ),
+                    reason: UnresolvedFlagReason::UNRESOLVED_DEPENDENCY
+                );
             } else {
-                // Check if the flag is active (same check as in Client::computeFlagLocally)
-                if (!($depFlag["active"] ?? false)) {
-                    $evaluationCache[$depFlagKey] = false;
-                } else {
-                    // Holdout bucketing uses the evaluated identity, which can't be resolved for a
-                    // dependency aggregated differently, so defer to server evaluation.
-                    $depFilters = $depFlag["filters"] ?? [];
-                    if (
-                        $identityAggregation !== false &&
-                        FeatureFlag::hasActiveHoldout($depFilters["holdout"] ?? null) &&
-                        FeatureFlag::aggregationKey($depFilters["aggregation_group_type_index"] ?? null) !==
-                            FeatureFlag::aggregationKey($identityAggregation)
-                    ) {
-                        throw new InconclusiveMatchException(sprintf(
+                // Holdout bucketing uses the evaluated identity, which can't be resolved for a
+                // dependency aggregated differently, so defer to server evaluation.
+                $depFilters = $depFlag["filters"] ?? [];
+                if (
+                    $identityAggregation !== false &&
+                    FeatureFlag::hasActiveHoldout($depFilters["holdout"] ?? null) &&
+                    FeatureFlag::aggregationKey($depFilters["aggregation_group_type_index"] ?? null) !==
+                        FeatureFlag::aggregationKey($identityAggregation)
+                ) {
+                    throw new InconclusiveMatchException(
+                        sprintf(
                             "Cannot evaluate flag dependency '%s' with a holdout aggregated differently from the dependent flag", //phpcs:ignore
                             $depFlagKey
-                        ));
-                    }
+                        ),
+                        reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                    );
+                }
 
-                    // Recursively evaluate the dependency
-                    try {
-                        $depResult = FeatureFlag::matchFeatureFlagPropertiesForIdentity(
-                            $depFlag,
-                            $distinctId,
-                            $properties,
-                            $cohortProperties,
-                            $flagsByKey,
-                            $evaluationCache,
-                            [],
-                            [],
-                            [],
-                            $propertyMatchingVersion,
-                            $identityAggregation
-                        );
-                        $evaluationCache[$depFlagKey] = $depResult;
-                    } catch (InconclusiveMatchException $e) {
-                        // If we can't evaluate a dependency, store null and propagate the error
-                        $evaluationCache[$depFlagKey] = null;
-                        throw new InconclusiveMatchException(sprintf(
-                            "Cannot evaluate flag dependency '%s': %s",
-                            $depFlagKey,
-                            $e->getMessage()
-                        ));
-                    }
+                // Recursively evaluate the dependency
+                try {
+                    $depResult = FeatureFlag::matchFeatureFlagPropertiesForIdentity(
+                        $depFlag,
+                        $distinctId,
+                        $properties,
+                        $cohortProperties,
+                        $flagsByKey,
+                        $evaluationCache,
+                        [],
+                        [],
+                        [],
+                        $propertyMatchingVersion,
+                        $identityAggregation
+                    );
+                    $evaluationCache[$depFlagKey] = $depResult;
+                } catch (RequiresServerEvaluationException $e) {
+                    // Keep the server error type so the dependent flag falls back to the server instead
+                    // of letting a later condition resolve it locally. Nothing is cached, so a later
+                    // check of this dependency needs the server too.
+                    throw new RequiresServerEvaluationException(
+                        sprintf("Cannot evaluate flag dependency '%s': %s", $depFlagKey, $e->getMessage()),
+                        0,
+                        $e,
+                        UnresolvedFlagReason::UNRESOLVED_DEPENDENCY
+                    );
+                } catch (InconclusiveMatchException $e) {
+                    // If we can't evaluate a dependency, store null and propagate the error
+                    $evaluationCache[$depFlagKey] = null;
+                    throw new InconclusiveMatchException(
+                        sprintf("Cannot evaluate flag dependency '%s': %s", $depFlagKey, $e->getMessage()),
+                        0,
+                        $e,
+                        UnresolvedFlagReason::UNRESOLVED_DEPENDENCY
+                    );
                 }
             }
         }
@@ -1509,33 +1796,76 @@ class FeatureFlag
         $flagValue = $evaluationCache[$depFlagKey];
         if ($flagValue === null) {
             // Previously inconclusive - raise error again
-            throw new InconclusiveMatchException(sprintf(
-                "Flag dependency '%s' was previously inconclusive",
-                $depFlagKey
-            ));
+            throw new InconclusiveMatchException(
+                sprintf("Flag dependency '%s' was previously inconclusive", $depFlagKey),
+                reason: UnresolvedFlagReason::UNRESOLVED_DEPENDENCY
+            );
         }
 
         // Now check if the flag value matches the expected value in the property
         $expectedValue = $property["value"] ?? null;
-        $operator = $property["operator"] ?? "exact";
-
         if ($expectedValue !== null) {
-            // For flag dependencies, we need to compare the actual flag result with expected value
-            // using the flag_evaluates_to operator logic
-            if ($operator === "flag_evaluates_to") {
-                return FeatureFlag::matchesDependencyValue($expectedValue, $flagValue);
-            } else {
-                // This should never happen, but just to be defensive
-                throw new InconclusiveMatchException(sprintf(
-                    "Flag dependency property for '%s' has invalid operator '%s'",
-                    $depFlagKey,
-                    $operator
-                ));
-            }
+            return FeatureFlag::matchesDependencyValue($expectedValue, $flagValue);
         }
 
         // If no value check needed, return true (all dependencies passed)
         return true;
+    }
+
+    /**
+     * Throw unsupported_definition when local evaluation can never evaluate a flag dependency filter.
+     *
+     * @param array<string, mixed> $evaluationCache Dependency results already known, keyed by flag key.
+     * @throws InconclusiveMatchException
+     */
+    private static function assertFlagDependencySupported($property, $flagsByKey, array $evaluationCache): void
+    {
+        // Check if dependency_chain is present - it should always be provided for flag dependencies
+        if (!is_array($property["dependency_chain"] ?? null)) {
+            throw new InconclusiveMatchException(
+                sprintf(
+                    "Cannot evaluate flag dependency on '%s' without dependency_chain",
+                    $property["key"] ?? "unknown"
+                ),
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
+        }
+
+        $dependencyChain = $property["dependency_chain"];
+
+        // Handle circular dependency (empty chain means circular)
+        if (count($dependencyChain) === 0) {
+            throw new InconclusiveMatchException(
+                sprintf("Circular dependency detected for flag '%s'", $property["key"] ?? "unknown"),
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
+        }
+
+        // The flag key to evaluate is in the "key" field
+        $depFlagKey = $property["key"] ?? null;
+        if (!$depFlagKey) {
+            throw new InconclusiveMatchException(
+                sprintf("Flag dependency missing 'key' field: %s", json_encode($property)),
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
+        }
+
+        $operator = $property["operator"] ?? "exact";
+        if (($property["value"] ?? null) !== null && $operator !== "flag_evaluates_to") {
+            throw new InconclusiveMatchException(
+                sprintf("Flag dependency property for '%s' has invalid operator '%s'", $depFlagKey, $operator),
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
+        }
+
+        foreach (array_merge($dependencyChain, [$depFlagKey]) as $chainFlagKey) {
+            if (!array_key_exists($chainFlagKey, $evaluationCache) && empty($flagsByKey[$chainFlagKey])) {
+                throw new InconclusiveMatchException(
+                    sprintf("Cannot evaluate flag dependency '%s' - flag not found in local flags", $chainFlagKey),
+                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                );
+            }
+        }
     }
 
     /**
@@ -1564,6 +1894,119 @@ class FeatureFlag
         }
 
         // Default case
+        return false;
+    }
+
+    /**
+     * The unresolved reason that comes from the flag's definition alone, so it is known when
+     * definitions load. Matches the reason local evaluation reports for the same cause.
+     *
+     * @param array<string, mixed> $flag Feature flag definition.
+     * @param array<string, array<string, mixed>> $flagsByKey Local feature flag definitions keyed by key.
+     * @param array<string, mixed> $cohorts Local cohort definitions keyed by cohort ID.
+     * @param array<string, string> $groupTypeMapping Mapping from group type index to group type name.
+     * @return string|null UnresolvedFlagReason::EXPERIENCE_CONTINUITY or
+     *     UnresolvedFlagReason::UNSUPPORTED_DEFINITION, or null when the definition alone does not
+     *     stop local evaluation.
+     */
+    public static function getDefinitionUnresolvedReason($flag, $flagsByKey, $cohorts, $groupTypeMapping): ?string
+    {
+        if (!($flag["active"] ?? false)) {
+            return null;
+        }
+
+        if ($flag["ensure_experience_continuity"] ?? false) {
+            return UnresolvedFlagReason::EXPERIENCE_CONTINUITY;
+        }
+
+        $flagFilters = $flag["filters"] ?? [];
+        $aggregation = $flagFilters["aggregation_group_type_index"] ?? null;
+        if (!is_null($aggregation) && is_null($groupTypeMapping[strval($aggregation)] ?? null)) {
+            return UnresolvedFlagReason::UNSUPPORTED_DEFINITION;
+        }
+
+        return FeatureFlag::conditionsDefinitionReason($flagFilters["groups"] ?? [], $flagsByKey, $cohorts);
+    }
+
+    /**
+     * UnresolvedFlagReason::UNSUPPORTED_DEFINITION when local evaluation can never check a filter in
+     * one of the conditions, null otherwise.
+     *
+     * @param array<int, array<string, mixed>> $conditions Release conditions of a feature flag.
+     */
+    private static function conditionsDefinitionReason(array $conditions, $flagsByKey, $cohorts): ?string
+    {
+        foreach ($conditions as $condition) {
+            foreach ($condition["properties"] ?? [] as $property) {
+                $visitedCohortIds = [];
+                if (FeatureFlag::isUnsupportedProperty($property, $flagsByKey, $cohorts, $visitedCohortIds)) {
+                    return UnresolvedFlagReason::UNSUPPORTED_DEFINITION;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, bool> $visitedCohortIds
+     */
+    private static function isUnsupportedProperty($property, $flagsByKey, $cohorts, array &$visitedCohortIds): bool
+    {
+        $propertyType = $property["type"] ?? null;
+
+        if ($propertyType === "flag") {
+            try {
+                FeatureFlag::assertFlagDependencySupported($property, $flagsByKey, []);
+                return false;
+            } catch (InconclusiveMatchException $e) {
+                return true;
+            }
+        }
+
+        if ($propertyType === "cohort") {
+            $cohortId = strval($property["value"] ?? "");
+            if (!array_key_exists($cohortId, $cohorts)) {
+                return true;
+            }
+            if (isset($visitedCohortIds[$cohortId])) {
+                return false;
+            }
+            $visitedCohortIds[$cohortId] = true;
+            return FeatureFlag::isUnsupportedPropertyGroup(
+                $cohorts[$cohortId],
+                $flagsByKey,
+                $cohorts,
+                $visitedCohortIds
+            );
+        }
+
+        try {
+            FeatureFlag::assertFilterSupported($property);
+            return false;
+        } catch (InconclusiveMatchException $e) {
+            return true;
+        }
+    }
+
+    /**
+     * @param array<string, bool> $visitedCohortIds
+     */
+    private static function isUnsupportedPropertyGroup(
+        $propertyGroup,
+        $flagsByKey,
+        $cohorts,
+        array &$visitedCohortIds
+    ): bool {
+        foreach ($propertyGroup["values"] ?? [] as $value) {
+            $unsupported = is_array($value) && array_key_exists("values", $value)
+                ? FeatureFlag::isUnsupportedPropertyGroup($value, $flagsByKey, $cohorts, $visitedCohortIds)
+                : FeatureFlag::isUnsupportedProperty($value, $flagsByKey, $cohorts, $visitedCohortIds);
+            if ($unsupported) {
+                return true;
+            }
+        }
+
         return false;
     }
 }

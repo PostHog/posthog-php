@@ -20,6 +20,11 @@ class FeatureFlagError
     public const FLAG_MISSING = 'flag_missing';
 
     /**
+     * Flag has a loaded local definition but local evaluation could not resolve it
+     */
+    public const LOCAL_EVALUATION_INCONCLUSIVE = 'local_evaluation_inconclusive';
+
+    /**
      * Rate/quota limit exceeded
      */
     public const QUOTA_LIMITED = 'quota_limited';
