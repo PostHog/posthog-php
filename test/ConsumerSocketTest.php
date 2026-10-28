@@ -7,16 +7,57 @@ use RuntimeException;
 
 class ConsumerSocketTest extends ConsumerTransportTestCase
 {
+    use HttpRetryTransportTests;
+
     protected function consumer(): string
     {
         return 'socket';
     }
 
-    public function testShortTimeout(): void
+    public static function incompleteResponseCases(): array
     {
-        $client = $this->client(['timeout' => 0.01]);
-        self::assertTrue($client->capture(['distinctId' => 'some-user', 'event' => 'short timeout']));
-        self::assertSame('short timeout', $this->flushEvent($client)['event']);
+        return [
+            'missing header terminator' => ["HTTP/1.1 200 OK\r\nContent-Length: 0\r\n", 0.1],
+            'oversized unterminated header' => ["HTTP/1.1 200 OK\r\nX-Padding: " . str_repeat('a', 70 * 1024), 6.0],
+        ];
+    }
+
+    #[DataProvider('incompleteResponseCases')]
+    public function testIncompleteResponseKeepsBatchForRetry(string $response, float $timeout): void
+    {
+        $this->server->stop();
+        $this->server = new LocalHttpServer([['raw_response' => $response]]);
+        $client = $this->client(['timeout' => $timeout]);
+        $previousTimeout = ini_set('default_socket_timeout', '6');
+
+        try {
+            self::assertTrue($client->capture(['distinctId' => 'some-user', 'event' => 'incomplete response']));
+            self::assertFalse($client->flush());
+            self::assertCount(1, $this->server->requests());
+            self::assertTrue($client->flush());
+            [$failed, $resent] = $this->server->requests();
+            self::assertSame($failed['body'], $resent['body']);
+        } finally {
+            ini_set('default_socket_timeout', $previousTimeout);
+        }
+    }
+
+    public static function defaultReadTimeouts(): array
+    {
+        return ['bounded default' => ['60'], 'unlimited default' => ['-1']];
+    }
+
+    #[DataProvider('defaultReadTimeouts')]
+    public function testShortTimeout(string $defaultTimeout): void
+    {
+        $previousTimeout = ini_set('default_socket_timeout', $defaultTimeout);
+        try {
+            $client = $this->client(['timeout' => 0.01]);
+            self::assertTrue($client->capture(['distinctId' => 'some-user', 'event' => 'short timeout']));
+            self::assertSame('short timeout', $this->flushEvent($client)['event']);
+        } finally {
+            ini_set('default_socket_timeout', $previousTimeout);
+        }
     }
 
     public function testBatchSizeOneConnectionErrorReturnsFalse(): void

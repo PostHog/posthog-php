@@ -93,7 +93,8 @@ class ConsumerCurlTimeoutTest extends TestCase
         $directory = sys_get_temp_dir() . '/posthog-curl-timeout-' . bin2hex(random_bytes(8));
         mkdir($directory);
         $arguments = $directory . '/arguments';
-        file_put_contents($directory . '/curl', "#!/bin/sh\nprintf '%s\\n' \"\$@\" > " . escapeshellarg($arguments));
+        $fakeCurl = "#!/bin/sh\nprintf '%s\\n' \"\$@\" > " . escapeshellarg($arguments) . "\nprintf '\\n200'\n";
+        file_put_contents($directory . '/curl', $fakeCurl);
         chmod($directory . '/curl', 0700);
         $process = null;
         try {

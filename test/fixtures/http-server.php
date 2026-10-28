@@ -48,7 +48,7 @@ while ($connection = stream_socket_accept($server, 30)) {
     foreach ($response['headers'] ?? [] as $name => $value) {
         $headers .= "$name: $value\r\n";
     }
-    $wire = "HTTP/1.1 $status Response\r\n" . $headers
+    $wire = $response['raw_response'] ?? "HTTP/1.1 $status Response\r\n" . $headers
         . 'Content-Length: ' . strlen($body) . "\r\nConnection: close\r\n\r\n" . $body;
     while ($wire !== '') {
         $written = fwrite($connection, $wire);
@@ -56,6 +56,14 @@ while ($connection = stream_socket_accept($server, 30)) {
             break;
         }
         $wire = substr($wire, $written);
+    }
+    if (isset($response['raw_response'])) {
+        while (!feof($connection)) {
+            $chunk = fread($connection, 2048);
+            if ($chunk === false || $chunk === '') {
+                break;
+            }
+        }
     }
     fclose($connection);
     if ($closeServer) {
