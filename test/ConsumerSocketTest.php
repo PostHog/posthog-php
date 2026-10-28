@@ -66,6 +66,11 @@ class ConsumerSocketTest extends ConsumerTransportTestCase
         return [
             'server error' => [503, false],
             'rate limited gzip' => [429, true],
+            'moved permanently' => [301, false],
+            'found' => [302, false],
+            'temporary redirect' => [307, false],
+            'permanent redirect' => [308, false],
+            'no content' => [204, false],
         ];
     }
 
@@ -101,6 +106,33 @@ class ConsumerSocketTest extends ConsumerTransportTestCase
             $requests[1]['headers']['content-encoding'] ?? null
         );
         self::assertTrue($client->flush());
+        self::assertCount(2, $this->server->requests());
+    }
+
+    public static function unexpectedResponseStatuses(): array
+    {
+        return [
+            'moved permanently' => [301],
+            'permanent redirect' => [308],
+            'no content' => [204],
+        ];
+    }
+
+    #[DataProvider('unexpectedResponseStatuses')]
+    public function testUnexpectedResponseRetriesUntilBackoffLimit(int $status): void
+    {
+        $this->server->stop();
+        $this->server = new LocalHttpServer(array_fill(0, 4, ['status' => $status]));
+        $client = $this->client(['maximum_backoff_duration' => 200]);
+        self::assertTrue($client->capture(['distinctId' => 'some-user', 'event' => 'redirected']));
+
+        $previousTimeout = ini_set('default_socket_timeout', '1');
+        try {
+            self::assertFalse($client->flush());
+        } finally {
+            ini_set('default_socket_timeout', $previousTimeout);
+        }
+
         self::assertCount(2, $this->server->requests());
     }
 
