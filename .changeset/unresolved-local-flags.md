@@ -6,7 +6,7 @@ Report the flags local evaluation could not resolve on `evaluateFlags()` snapsho
 
 Behavior changes:
 
-- A condition with a filter that local evaluation cannot check and a filter that does not match now resolves locally as no match. An inconclusive flag dependency in one condition, or a dependency that needs server data such as a static cohort, no longer stops a later condition from resolving the flag. So a flag that went to the server before can now resolve locally.
+- A condition with a filter that local evaluation cannot check and a filter that does not match now resolves locally as no match. An inconclusive flag dependency in one condition no longer stops a later condition from resolving the flag. So a flag that went to the server before can now resolve locally. A dependency that needs server data, such as a static cohort, still sends the flag to the server.
 - An inactive flag with experience continuity enabled now resolves to `false` locally instead of going to the server.
 - A flag that depends on a flag with experience continuity enabled no longer resolves locally. It goes to the server, or stays unresolved with `onlyEvaluateLocally`.
 - A malformed date in a flag filter or a person property now makes its condition inconclusive, like other malformed values, instead of failing local evaluation of the whole flag.

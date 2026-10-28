@@ -1257,7 +1257,7 @@ class FeatureFlag
         $inconclusiveReason = null;
         $groupEvaluationCaches = [];
 
-        foreach ($flagConditions as $condition) {
+        foreach ($flagConditions as $conditionIndex => $condition) {
             try {
                 // Per-condition aggregation overrides only when the condition explicitly
                 // sets its own aggregation_group_type_index (mixed targeting). When absent,
@@ -1334,8 +1334,18 @@ class FeatureFlag
                     return false;
                 }
             } catch (RequiresServerEvaluationException $e) {
-                // Immediately propagate - this condition requires server-side data
-                throw $e;
+                // Immediately propagate - this condition requires server-side data. Later conditions
+                // are not evaluated, so their definitions still count toward the reason.
+                $reason = FeatureFlag::pickUnresolvedReason($inconclusiveReason, $e->getReason());
+                $laterReason = FeatureFlag::conditionsDefinitionReason(
+                    array_slice($flagConditions, $conditionIndex + 1),
+                    $flagsByKey ?? [],
+                    $cohorts ?? []
+                );
+                if ($laterReason !== null) {
+                    $reason = FeatureFlag::pickUnresolvedReason($reason, $laterReason);
+                }
+                throw new RequiresServerEvaluationException($e->getMessage(), 0, $e, $reason);
             } catch (InconclusiveMatchException $e) {
                 $inconclusiveReason = FeatureFlag::pickUnresolvedReason($inconclusiveReason, $e->getReason());
             }
@@ -1424,9 +1434,15 @@ class FeatureFlag
             }
 
             // Rethrow the server error type: the caller stops at it and falls back to the server
-            // instead of trying later conditions.
+            // instead of trying later conditions. Later filters in this condition can still
+            // outrank its reason.
             if ($serverEvaluationError !== null) {
-                throw $serverEvaluationError;
+                throw new RequiresServerEvaluationException(
+                    $serverEvaluationError->getMessage(),
+                    0,
+                    $serverEvaluationError,
+                    $inconclusiveReason
+                );
             }
             if ($inconclusiveReason !== null) {
                 throw new InconclusiveMatchException(
@@ -1747,7 +1763,17 @@ class FeatureFlag
                         $identityAggregation
                     );
                     $evaluationCache[$depFlagKey] = $depResult;
-                } catch (InconclusiveMatchException | RequiresServerEvaluationException $e) {
+                } catch (RequiresServerEvaluationException $e) {
+                    // Keep the server error type so the dependent flag falls back to the server instead
+                    // of letting a later condition resolve it locally. Nothing is cached, so a later
+                    // check of this dependency needs the server too.
+                    throw new RequiresServerEvaluationException(
+                        sprintf("Cannot evaluate flag dependency '%s': %s", $depFlagKey, $e->getMessage()),
+                        0,
+                        $e,
+                        UnresolvedFlagReason::UNRESOLVED_DEPENDENCY
+                    );
+                } catch (InconclusiveMatchException $e) {
                     // If we can't evaluate a dependency, store null and propagate the error
                     $evaluationCache[$depFlagKey] = null;
                     throw new InconclusiveMatchException(
@@ -1893,7 +1919,18 @@ class FeatureFlag
             return UnresolvedFlagReason::UNSUPPORTED_DEFINITION;
         }
 
-        foreach ($flagFilters["groups"] ?? [] as $condition) {
+        return FeatureFlag::conditionsDefinitionReason($flagFilters["groups"] ?? [], $flagsByKey, $cohorts);
+    }
+
+    /**
+     * UnresolvedFlagReason::UNSUPPORTED_DEFINITION when local evaluation can never check a filter in
+     * one of the conditions, null otherwise.
+     *
+     * @param array<int, array<string, mixed>> $conditions Release conditions of a feature flag.
+     */
+    private static function conditionsDefinitionReason(array $conditions, $flagsByKey, $cohorts): ?string
+    {
+        foreach ($conditions as $condition) {
             foreach ($condition["properties"] ?? [] as $property) {
                 $visitedCohortIds = [];
                 if (FeatureFlag::isUnsupportedProperty($property, $flagsByKey, $cohorts, $visitedCohortIds)) {

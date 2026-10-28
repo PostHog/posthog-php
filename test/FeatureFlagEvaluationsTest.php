@@ -1325,6 +1325,76 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertSame(['beta-ui' => UnresolvedFlagReason::UNSUPPORTED_DEFINITION], $snapshot->getUnresolvedFlags());
     }
 
+    /** A flag whose first condition depends on `dep` and whose second condition matches everyone. */
+    private static function flagWithDependencyAndCatchAll(): array
+    {
+        return [
+            'id' => 2,
+            'key' => 'target',
+            'active' => true,
+            'filters' => [
+                'multivariate' => ['variants' => [
+                    ['key' => 'a', 'rollout_percentage' => 50],
+                    ['key' => 'b', 'rollout_percentage' => 50],
+                ]],
+                'groups' => [
+                    ['properties' => [self::dependsOnFilter('dep')], 'rollout_percentage' => 100, 'variant' => 'a'],
+                    ['properties' => [], 'rollout_percentage' => 100, 'variant' => 'b'],
+                ],
+            ],
+        ];
+    }
+
+    #[DataProvider('dependencyThatNeedsServerProvider')]
+    public function testFlagWithDependencyThatNeedsServerFallsBackToServer(?array $flagKeys): void
+    {
+        $this->makeLocalClient(
+            self::localDefinitions(
+                self::localFlag('dep', [self::staticCohortFilter()]),
+                self::flagWithDependencyAndCatchAll(),
+            ),
+            ['flags' => ['target' => ['key' => 'target', 'enabled' => true, 'variant' => 'a']]]
+        );
+
+        $snapshot = $this->client->evaluateFlags('user-123', flagKeys: $flagKeys);
+
+        $this->assertSame(1, $this->flagsRequestCount());
+        $this->assertSame('a', $snapshot->getFlag('target'));
+        $this->assertArrayNotHasKey('target', $snapshot->getUnresolvedFlags());
+    }
+
+    public static function dependencyThatNeedsServerProvider(): iterable
+    {
+        yield 'flag requested alone' => [['target']];
+        yield 'all flags requested' => [null];
+    }
+
+    public function testFlagWithDependencyThatNeedsServerIsUnresolvedLocally(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(
+            self::localFlag('dep', [self::staticCohortFilter()]),
+            self::flagWithDependencyAndCatchAll(),
+        ));
+
+        $snapshot = $this->client->evaluateFlags('user-123', onlyEvaluateLocally: true, flagKeys: ['target']);
+
+        $this->assertSame([], $snapshot->getKeys());
+        $this->assertSame(['target' => UnresolvedFlagReason::UNRESOLVED_DEPENDENCY], $snapshot->getUnresolvedFlags());
+    }
+
+    public function testFlagWithLocallyResolvedDependencyMatchesTheDependencyCondition(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(
+            self::localFlag('dep', [self::planFilter()]),
+            self::flagWithDependencyAndCatchAll(),
+        ));
+
+        $snapshot = $this->client->evaluateFlags('user-123', personProperties: ['plan' => 'pro'], flagKeys: ['target']);
+
+        $this->assertSame(0, $this->flagsRequestCount());
+        $this->assertSame('a', $snapshot->getFlag('target'));
+    }
+
     public function testFlagResolvedByRemoteFallbackIsNotUnresolved(): void
     {
         $this->makeLocalClient(

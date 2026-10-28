@@ -4695,6 +4695,54 @@
             "constants": [],
             "properties": [],
             "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": "",
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "code",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 0,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "previous",
+                            "type": "?Throwable",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "reason",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": "unsupported_definition",
+                            "defaultConstant": "PostHog\\UnresolvedFlagReason::UNSUPPORTED_DEFINITION",
+                            "hasDefault": true
+                        }
+                    ]
+                },
                 "errorMessage": {
                     "static": false,
                     "abstract": false,

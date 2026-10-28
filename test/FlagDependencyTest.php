@@ -2,6 +2,7 @@
 
 namespace PostHog\Test;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
@@ -923,34 +924,53 @@ class FlagDependencyTest extends TestCase
 
         try {
             FeatureFlag::matchFeatureFlagProperties($flag, "test-user", [], [], ["dependency" => $dependency], []);
-            $this->fail("Expected InconclusiveMatchException");
+            $this->fail("Expected RequiresServerEvaluationException");
         } catch (RequiresServerEvaluationException $e) {
-            $this->fail("A dependency that requires the server must not force a server fallback");
-        } catch (InconclusiveMatchException $e) {
             $this->assertSame(UnresolvedFlagReason::UNRESOLVED_DEPENDENCY, $e->getReason());
         }
     }
 
-    public function testDependencyThatRequiresServerDoesNotBlockLaterConditions(): void
-    {
+    #[DataProvider('laterFiltersOfServerDependencyProvider')]
+    public function testDependencyThatRequiresServerBlocksLaterConditions(
+        array $sameConditionFilters,
+        array $laterConditionFilters,
+        string $reason
+    ): void {
         $dependency = self::dependencyFlag("dependency", [["key" => "id", "type" => "cohort", "value" => 999]]);
         $flag = [
             "key" => "flag",
             "active" => true,
             "filters" => ["groups" => [
-                ["properties" => [self::dependsOn("dependency")], "rollout_percentage" => 100],
-                ["properties" => [], "rollout_percentage" => 100],
+                [
+                    "properties" => array_merge([self::dependsOn("dependency")], $sameConditionFilters),
+                    "rollout_percentage" => 100,
+                ],
+                ["properties" => $laterConditionFilters, "rollout_percentage" => 100],
             ]],
         ];
 
-        $this->assertTrue(FeatureFlag::matchFeatureFlagProperties(
-            $flag,
-            "test-user",
+        try {
+            FeatureFlag::matchFeatureFlagProperties($flag, "test-user", [], [], ["dependency" => $dependency], []);
+            $this->fail("Expected RequiresServerEvaluationException");
+        } catch (RequiresServerEvaluationException $e) {
+            $this->assertSame($reason, $e->getReason());
+        }
+    }
+
+    public static function laterFiltersOfServerDependencyProvider(): iterable
+    {
+        $unknownOperator = ["key" => "plan", "operator" => "not_a_real_operator", "value" => "pro"];
+        yield 'later condition matches everyone' => [[], [], UnresolvedFlagReason::UNRESOLVED_DEPENDENCY];
+        yield 'later condition is unsupported' => [
             [],
+            [$unknownOperator],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'later filter in the same condition is unsupported' => [
+            [$unknownOperator],
             [],
-            ["dependency" => $dependency],
-            []
-        ));
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
     }
 
     public function testMissingDependencyAnywhereInTheChainIsAnUnsupportedDefinition(): void
