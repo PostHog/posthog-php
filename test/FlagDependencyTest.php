@@ -901,6 +901,21 @@ class FlagDependencyTest extends TestCase
         );
     }
 
+    public function testInvalidDependencyOperatorOutranksADependencyThatNeedsContext(): void
+    {
+        $dependency = self::dependencyFlag("dependency", [["key" => "plan", "operator" => "exact", "value" => "pro"]]);
+        $flag = self::dependencyFlag("flag", [array_merge(self::dependsOn("dependency"), ["operator" => "exact"])]);
+        $flagsByKey = ["dependency" => $dependency, "flag" => $flag];
+
+        $this->assertSame(
+            [UnresolvedFlagReason::UNSUPPORTED_DEFINITION, UnresolvedFlagReason::UNSUPPORTED_DEFINITION],
+            [
+                self::dependencyReason($flag, $flagsByKey),
+                FeatureFlag::getDefinitionUnresolvedReason($flag, $flagsByKey, [], []),
+            ]
+        );
+    }
+
     public function testDependencyThatRequiresServerIsAnUnresolvedDependency(): void
     {
         $dependency = self::dependencyFlag("dependency", [["key" => "id", "type" => "cohort", "value" => 999]]);

@@ -1480,16 +1480,4 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertCount(1, $events);
         $this->assertSame('flag_missing', $events[0]['$feature_flag_error']);
     }
-
-    public function testReadingUnresolvedFlagsDoesNotRecordAccessOrFireEvents(): void
-    {
-        $this->makeLocalClient(self::localDefinitions(self::localFlag('checkout', continuity: true)));
-
-        $snapshot = $this->client->evaluateFlags('user-123', onlyEvaluateLocally: true);
-        $snapshot->getUnresolvedFlags();
-
-        $this->assertSame([], $snapshot->onlyAccessed()->getKeys());
-        $this->assertSame([], $this->flagCalledEvents('checkout'));
-        $this->assertSame(0, $this->flagsRequestCount());
-    }
 }

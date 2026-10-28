@@ -316,8 +316,7 @@ class FeatureFlag
         if (!array_key_exists($cohortId, $cohortProperties)) {
             throw new RequiresServerEvaluationException(
                 "cohort {$cohortId} not found in local cohorts - " .
-                "likely a static cohort that requires server evaluation",
-                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                "likely a static cohort that requires server evaluation"
             );
         }
 
@@ -420,7 +419,7 @@ class FeatureFlag
                     }
                 } catch (RequiresServerEvaluationException $err) {
                     // Immediately propagate - this condition requires server-side data
-                    throw FeatureFlag::withHigherReason($err, $inconclusiveReason);
+                    throw $err;
                 } catch (InconclusiveMatchException $err) {
                     $inconclusiveReason = FeatureFlag::pickUnresolvedReason($inconclusiveReason, $err->getReason());
                 }
@@ -486,7 +485,7 @@ class FeatureFlag
                     }
                 } catch (RequiresServerEvaluationException $err) {
                     // Immediately propagate - this condition requires server-side data
-                    throw FeatureFlag::withHigherReason($err, $inconclusiveReason);
+                    throw $err;
                 } catch (InconclusiveMatchException $err) {
                     $inconclusiveReason = FeatureFlag::pickUnresolvedReason($inconclusiveReason, $err->getReason());
                 }
@@ -1336,7 +1335,7 @@ class FeatureFlag
                 }
             } catch (RequiresServerEvaluationException $e) {
                 // Immediately propagate - this condition requires server-side data
-                throw FeatureFlag::withHigherReason($e, $inconclusiveReason);
+                throw $e;
             } catch (InconclusiveMatchException $e) {
                 $inconclusiveReason = FeatureFlag::pickUnresolvedReason($inconclusiveReason, $e->getReason());
             }
@@ -1410,6 +1409,13 @@ class FeatureFlag
                 } catch (InconclusiveMatchException $e) {
                     $inconclusiveReason = FeatureFlag::pickUnresolvedReason($inconclusiveReason, $e->getReason());
                     continue;
+                } catch (\Throwable $e) {
+                    // After an inconclusive filter the condition is already inconclusive, so an unexpected
+                    // error must not fail the whole flag and stop later conditions from resolving it.
+                    if ($inconclusiveReason === null) {
+                        throw $e;
+                    }
+                    break;
                 }
 
                 if (!$matches) {
@@ -1420,7 +1426,7 @@ class FeatureFlag
             // Rethrow the server error type: the caller stops at it and falls back to the server
             // instead of trying later conditions.
             if ($serverEvaluationError !== null) {
-                throw FeatureFlag::withHigherReason($serverEvaluationError, $inconclusiveReason);
+                throw $serverEvaluationError;
             }
             if ($inconclusiveReason !== null) {
                 throw new InconclusiveMatchException(
@@ -1456,21 +1462,6 @@ class FeatureFlag
 
         $precedence = array_flip(self::UNRESOLVED_REASON_PRECEDENCE);
         return $precedence[$next] < $precedence[$current] ? $next : $current;
-    }
-
-    /**
-     * The server-required error with the higher-precedence reason of its own and $reason.
-     */
-    private static function withHigherReason(
-        RequiresServerEvaluationException $e,
-        ?string $reason
-    ): RequiresServerEvaluationException {
-        $higherReason = FeatureFlag::pickUnresolvedReason($reason, $e->getReason());
-        if ($higherReason === $e->getReason()) {
-            return $e;
-        }
-
-        return new RequiresServerEvaluationException($e->getMessage(), 0, $e, $higherReason);
     }
 
     private static function isRegularExpression($string)
@@ -1700,46 +1691,10 @@ class FeatureFlag
             );
         }
 
-        // Check if dependency_chain is present - it should always be provided for flag dependencies
-        if (!is_array($property["dependency_chain"] ?? null)) {
-            throw new InconclusiveMatchException(
-                sprintf(
-                    "Cannot evaluate flag dependency on '%s' without dependency_chain",
-                    $property["key"] ?? "unknown"
-                ),
-                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
-            );
-        }
-
-        $dependencyChain = $property["dependency_chain"];
-
-        // Handle circular dependency (empty chain means circular)
-        if (count($dependencyChain) === 0) {
-            throw new InconclusiveMatchException(
-                sprintf("Circular dependency detected for flag '%s'", $property["key"] ?? "unknown"),
-                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
-            );
-        }
-
-        // The flag key to evaluate is in the "key" field
-        $depFlagKey = $property["key"] ?? null;
-        if (!$depFlagKey) {
-            throw new InconclusiveMatchException(
-                sprintf("Flag dependency missing 'key' field: %s", json_encode($property)),
-                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
-            );
-        }
-
-        // A dependency with no definition outranks one that is only inconclusive, so check the
-        // whole chain before evaluating any of it.
-        foreach (array_merge($dependencyChain, [$depFlagKey]) as $chainFlagKey) {
-            if (!array_key_exists($chainFlagKey, $evaluationCache) && empty($flagsByKey[$chainFlagKey])) {
-                throw new InconclusiveMatchException(
-                    sprintf("Cannot evaluate flag dependency '%s' - flag not found in local flags", $chainFlagKey),
-                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
-                );
-            }
-        }
+        // An unsupported dependency outranks one that is only inconclusive, so check it before
+        // evaluating any of it.
+        FeatureFlag::assertFlagDependencySupported($property, $flagsByKey, $evaluationCache);
+        $depFlagKey = $property["key"];
 
         // Check if we've already evaluated this flag
         if (!array_key_exists($depFlagKey, $evaluationCache)) {
@@ -1817,28 +1772,68 @@ class FeatureFlag
 
         // Now check if the flag value matches the expected value in the property
         $expectedValue = $property["value"] ?? null;
-        $operator = $property["operator"] ?? "exact";
-
         if ($expectedValue !== null) {
-            // For flag dependencies, we need to compare the actual flag result with expected value
-            // using the flag_evaluates_to operator logic
-            if ($operator === "flag_evaluates_to") {
-                return FeatureFlag::matchesDependencyValue($expectedValue, $flagValue);
-            } else {
-                // This should never happen, but just to be defensive
-                throw new InconclusiveMatchException(
-                    sprintf(
-                        "Flag dependency property for '%s' has invalid operator '%s'",
-                        $depFlagKey,
-                        $operator
-                    ),
-                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
-                );
-            }
+            return FeatureFlag::matchesDependencyValue($expectedValue, $flagValue);
         }
 
         // If no value check needed, return true (all dependencies passed)
         return true;
+    }
+
+    /**
+     * Throw unsupported_definition when local evaluation can never evaluate a flag dependency filter.
+     *
+     * @param array<string, mixed> $evaluationCache Dependency results already known, keyed by flag key.
+     * @throws InconclusiveMatchException
+     */
+    private static function assertFlagDependencySupported($property, $flagsByKey, array $evaluationCache): void
+    {
+        // Check if dependency_chain is present - it should always be provided for flag dependencies
+        if (!is_array($property["dependency_chain"] ?? null)) {
+            throw new InconclusiveMatchException(
+                sprintf(
+                    "Cannot evaluate flag dependency on '%s' without dependency_chain",
+                    $property["key"] ?? "unknown"
+                ),
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
+        }
+
+        $dependencyChain = $property["dependency_chain"];
+
+        // Handle circular dependency (empty chain means circular)
+        if (count($dependencyChain) === 0) {
+            throw new InconclusiveMatchException(
+                sprintf("Circular dependency detected for flag '%s'", $property["key"] ?? "unknown"),
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
+        }
+
+        // The flag key to evaluate is in the "key" field
+        $depFlagKey = $property["key"] ?? null;
+        if (!$depFlagKey) {
+            throw new InconclusiveMatchException(
+                sprintf("Flag dependency missing 'key' field: %s", json_encode($property)),
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
+        }
+
+        $operator = $property["operator"] ?? "exact";
+        if (($property["value"] ?? null) !== null && $operator !== "flag_evaluates_to") {
+            throw new InconclusiveMatchException(
+                sprintf("Flag dependency property for '%s' has invalid operator '%s'", $depFlagKey, $operator),
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
+        }
+
+        foreach (array_merge($dependencyChain, [$depFlagKey]) as $chainFlagKey) {
+            if (!array_key_exists($chainFlagKey, $evaluationCache) && empty($flagsByKey[$chainFlagKey])) {
+                throw new InconclusiveMatchException(
+                    sprintf("Cannot evaluate flag dependency '%s' - flag not found in local flags", $chainFlagKey),
+                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                );
+            }
+        }
     }
 
     /**
@@ -1918,20 +1913,12 @@ class FeatureFlag
         $propertyType = $property["type"] ?? null;
 
         if ($propertyType === "flag") {
-            $dependencyChain = $property["dependency_chain"] ?? null;
-            $depFlagKey = $property["key"] ?? null;
-            if (!is_array($dependencyChain) || count($dependencyChain) === 0 || !$depFlagKey) {
+            try {
+                FeatureFlag::assertFlagDependencySupported($property, $flagsByKey, []);
+                return false;
+            } catch (InconclusiveMatchException $e) {
                 return true;
             }
-            if (($property["value"] ?? null) !== null && ($property["operator"] ?? "exact") !== "flag_evaluates_to") {
-                return true;
-            }
-            foreach (array_merge($dependencyChain, [$depFlagKey]) as $chainFlagKey) {
-                if (empty($flagsByKey[$chainFlagKey])) {
-                    return true;
-                }
-            }
-            return false;
         }
 
         if ($propertyType === "cohort") {

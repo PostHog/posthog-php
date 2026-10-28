@@ -5648,6 +5648,28 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         }
     }
 
+    public function testUnexpectedErrorAfterInconclusiveFilterLeavesTheConditionInconclusive(): void
+    {
+        $missing = self::filter('exact', 'pro', 'plan');
+        $throwing = self::filter('exact', 'a', 'email');
+        // A value that cannot be encoded as JSON makes the exact match throw a plain error.
+        $properties = ['email' => ["\xB1"]];
+
+        $this->assertTrue(FeatureFlag::matchFeatureFlagProperties(
+            self::flagWithConditions([$missing, $throwing], []),
+            'user',
+            $properties
+        ));
+        $this->assertSame(
+            UnresolvedFlagReason::MISSING_CONTEXT,
+            self::reasonOf(fn() => FeatureFlag::matchFeatureFlagProperties(
+                self::flagWithConditions([$missing, $throwing]),
+                'user',
+                $properties
+            ))
+        );
+    }
+
     public function testConditionWithStaticCohortAndNonMatchingFilterResolvesLocally(): void
     {
         $flag = self::flagWithConditions([self::staticCohortFilter(), self::filter('exact', 'other', 'email')]);
