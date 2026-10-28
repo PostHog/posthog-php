@@ -930,45 +930,72 @@ class FlagDependencyTest extends TestCase
         }
     }
 
-    #[DataProvider('laterFiltersOfServerDependencyProvider')]
-    public function testDependencyThatRequiresServerBlocksLaterConditions(
-        array $sameConditionFilters,
-        array $laterConditionFilters,
+    #[DataProvider('serverDependencyReasonProvider')]
+    public function testDependencyThatRequiresServerReportsTheHighestReasonOfTheFlag(
+        array $conditionFilters,
+        array $cohorts,
         string $reason
     ): void {
         $dependency = self::dependencyFlag("dependency", [["key" => "id", "type" => "cohort", "value" => 999]]);
         $flag = [
             "key" => "flag",
             "active" => true,
-            "filters" => ["groups" => [
-                [
-                    "properties" => array_merge([self::dependsOn("dependency")], $sameConditionFilters),
-                    "rollout_percentage" => 100,
-                ],
-                ["properties" => $laterConditionFilters, "rollout_percentage" => 100],
-            ]],
+            "filters" => ["groups" => array_map(
+                fn (array $filters) => ["properties" => $filters, "rollout_percentage" => 100],
+                $conditionFilters
+            )],
         ];
 
         try {
-            FeatureFlag::matchFeatureFlagProperties($flag, "test-user", [], [], ["dependency" => $dependency], []);
+            FeatureFlag::matchFeatureFlagProperties(
+                $flag,
+                "test-user",
+                ["plan" => "free"],
+                $cohorts,
+                ["dependency" => $dependency],
+                []
+            );
             $this->fail("Expected RequiresServerEvaluationException");
         } catch (RequiresServerEvaluationException $e) {
             $this->assertSame($reason, $e->getReason());
         }
     }
 
-    public static function laterFiltersOfServerDependencyProvider(): iterable
+    public static function serverDependencyReasonProvider(): iterable
     {
+        $dependsOn = self::dependsOn("dependency");
         $unknownOperator = ["key" => "plan", "operator" => "not_a_real_operator", "value" => "pro"];
-        yield 'later condition matches everyone' => [[], [], UnresolvedFlagReason::UNRESOLVED_DEPENDENCY];
-        yield 'later condition is unsupported' => [
+        $onProPlan = ["key" => "plan", "operator" => "exact", "value" => "pro"];
+        $inCohort = ["key" => "id", "type" => "cohort", "value" => 1];
+
+        yield 'later condition matches everyone' => [
+            [[$dependsOn], []],
             [],
-            [$unknownOperator],
+            UnresolvedFlagReason::UNRESOLVED_DEPENDENCY,
+        ];
+        yield 'later condition is unsupported' => [
+            [[$dependsOn], [$unknownOperator]],
+            [],
             UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
         ];
         yield 'later filter in the same condition is unsupported' => [
-            [$unknownOperator],
+            [[$dependsOn, $unknownOperator]],
             [],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'earlier condition fails before its unsupported filter' => [
+            [[$onProPlan, $unknownOperator], [$dependsOn]],
+            [],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'cohort checks the dependency before an unsupported filter' => [
+            [[$inCohort]],
+            [1 => ["type" => "AND", "values" => [$dependsOn, $unknownOperator]]],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'cohort checks an unsupported filter before the dependency' => [
+            [[$inCohort]],
+            [1 => ["type" => "AND", "values" => [$unknownOperator, $dependsOn]]],
             UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
         ];
     }

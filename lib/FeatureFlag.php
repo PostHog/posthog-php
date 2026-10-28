@@ -1257,7 +1257,7 @@ class FeatureFlag
         $inconclusiveReason = null;
         $groupEvaluationCaches = [];
 
-        foreach ($flagConditions as $conditionIndex => $condition) {
+        foreach ($flagConditions as $condition) {
             try {
                 // Per-condition aggregation overrides only when the condition explicitly
                 // sets its own aggregation_group_type_index (mixed targeting). When absent,
@@ -1334,16 +1334,22 @@ class FeatureFlag
                     return false;
                 }
             } catch (RequiresServerEvaluationException $e) {
-                // Immediately propagate - this condition requires server-side data. Later conditions
-                // are not evaluated, so their definitions still count toward the reason.
+                // Immediately propagate - this condition requires server-side data. Evaluation stops
+                // before it visits every filter of the flag, including those inside cohorts, so the
+                // definition of the whole flag still counts toward the reason.
                 $reason = FeatureFlag::pickUnresolvedReason($inconclusiveReason, $e->getReason());
-                $laterReason = FeatureFlag::conditionsDefinitionReason(
-                    array_slice($flagConditions, $conditionIndex + 1),
-                    $flagsByKey ?? [],
-                    $cohorts ?? []
-                );
-                if ($laterReason !== null) {
-                    $reason = FeatureFlag::pickUnresolvedReason($reason, $laterReason);
+                try {
+                    $definitionReason = FeatureFlag::conditionsDefinitionReason(
+                        $flagConditions,
+                        $flagsByKey ?? [],
+                        $cohorts ?? []
+                    );
+                } catch (\Throwable $lookupError) {
+                    // A malformed filter must not stop the server fallback, so keep the reason found so far.
+                    $definitionReason = null;
+                }
+                if ($definitionReason !== null) {
+                    $reason = FeatureFlag::pickUnresolvedReason($reason, $definitionReason);
                 }
                 throw new RequiresServerEvaluationException($e->getMessage(), 0, $e, $reason);
             } catch (InconclusiveMatchException $e) {

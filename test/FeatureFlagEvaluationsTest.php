@@ -12,6 +12,7 @@ use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\EvaluatedFlagRecord;
 use PostHog\FeatureFlagEvaluations;
+use PostHog\FlagDefinitionCacheProvider;
 use PostHog\PostHog;
 use PostHog\Test\Assets\MockedResponses;
 use PostHog\UnresolvedFlagReason;
@@ -1325,8 +1326,8 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertSame(['beta-ui' => UnresolvedFlagReason::UNSUPPORTED_DEFINITION], $snapshot->getUnresolvedFlags());
     }
 
-    /** A flag whose first condition depends on `dep` and whose second condition matches everyone. */
-    private static function flagWithDependencyAndCatchAll(): array
+    /** A flag whose first condition depends on `dep` and whose second condition matches everyone by default. */
+    private static function flagWithDependencyAndCatchAll(array $laterConditionFilters = []): array
     {
         return [
             'id' => 2,
@@ -1339,7 +1340,7 @@ class FeatureFlagEvaluationsTest extends TestCase
                 ]],
                 'groups' => [
                     ['properties' => [self::dependsOnFilter('dep')], 'rollout_percentage' => 100, 'variant' => 'a'],
-                    ['properties' => [], 'rollout_percentage' => 100, 'variant' => 'b'],
+                    ['properties' => $laterConditionFilters, 'rollout_percentage' => 100, 'variant' => 'b'],
                 ],
             ],
         ];
@@ -1367,6 +1368,52 @@ class FeatureFlagEvaluationsTest extends TestCase
     {
         yield 'flag requested alone' => [['target']];
         yield 'all flags requested' => [null];
+    }
+
+    public function testFlagWithDependencyThatNeedsServerFallsBackToServerDespiteAMalformedLaterCondition(): void
+    {
+        global $errorMessages;
+        $malformedDependency = array_merge(self::dependsOnFilter('dep'), ['dependency_chain' => [['dep']]]);
+        $definitions = self::localDefinitions(
+            self::localFlag('dep', [self::staticCohortFilter()]),
+            self::flagWithDependencyAndCatchAll([$malformedDependency]),
+        );
+        // Cached definitions skip the load-time warning, so evaluation is the first code to read them.
+        $cacheProvider = new class ($definitions) implements FlagDefinitionCacheProvider {
+            public function __construct(private array $definitions)
+            {
+            }
+
+            public function getFlagDefinitions(): ?array
+            {
+                return $this->definitions;
+            }
+
+            public function shouldFetchFlagDefinitions(): bool
+            {
+                return false;
+            }
+
+            public function onFlagDefinitionsReceived(array $data): void
+            {
+            }
+
+            public function shutdown(): void
+            {
+            }
+        };
+        $this->makeClient(
+            flagsEndpointResponse: ['flags' => ['target' => ['key' => 'target', 'enabled' => true, 'variant' => 'a']]],
+            personalApiKey: 'test-personal-key',
+            options: ['flag_definition_cache_provider' => $cacheProvider]
+        );
+
+        $snapshot = $this->client->evaluateFlags('user-123', flagKeys: ['target']);
+
+        $this->assertSame(
+            [1, 'a', []],
+            [$this->flagsRequestCount(), $snapshot->getFlag('target'), $errorMessages]
+        );
     }
 
     public function testFlagWithDependencyThatNeedsServerIsUnresolvedLocally(): void
