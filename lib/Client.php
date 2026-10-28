@@ -1738,16 +1738,23 @@ class Client implements FeatureFlagEvaluationsHost
         // Rebuilt from the current definitions, so a flag that is deleted or becomes resolvable is
         // forgotten and warns again if it later returns to an unresolvable definition.
         $warnedFlags = [];
+        $uncheckedFlags = [];
         foreach ($this->featureFlags as $flag) {
             if (!is_array($flag) || !is_string($flag['key'] ?? null)) {
                 continue;
             }
-            $reason = FeatureFlag::getDefinitionUnresolvedReason(
-                $flag,
-                $this->featureFlagsByKey,
-                $this->cohorts,
-                $this->groupTypeMapping
-            );
+            try {
+                $reason = FeatureFlag::getDefinitionUnresolvedReason(
+                    $flag,
+                    $this->featureFlagsByKey,
+                    $this->cohorts,
+                    $this->groupTypeMapping
+                );
+            } catch (Throwable $throwable) {
+                // A malformed definition must not stop the load or the warning for the other flags.
+                $uncheckedFlags[] = $flag['key'];
+                continue;
+            }
             if ($reason === null) {
                 continue;
             }
@@ -1784,6 +1791,15 @@ class Client implements FeatureFlagEvaluationsHost
                 count($unsupportedDefinitionFlags),
                 UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
                 implode(', ', $unsupportedDefinitionFlags)
+            ));
+        }
+
+        if (count($uncheckedFlags) > 0) {
+            $this->logWarning(sprintf(
+                'You are using local evaluation but the SDK could not check the definition of %d flag(s) '
+                . 'because it is malformed: %s. Evaluating these flags can fall back to a server request.',
+                count($uncheckedFlags),
+                implode(', ', $uncheckedFlags)
             ));
         }
     }

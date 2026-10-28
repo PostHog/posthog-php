@@ -12,7 +12,6 @@ use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\EvaluatedFlagRecord;
 use PostHog\FeatureFlagEvaluations;
-use PostHog\FlagDefinitionCacheProvider;
 use PostHog\PostHog;
 use PostHog\Test\Assets\MockedResponses;
 use PostHog\UnresolvedFlagReason;
@@ -1374,46 +1373,33 @@ class FeatureFlagEvaluationsTest extends TestCase
     {
         global $errorMessages;
         $malformedDependency = array_merge(self::dependsOnFilter('dep'), ['dependency_chain' => [['dep']]]);
-        $definitions = self::localDefinitions(
-            self::localFlag('dep', [self::staticCohortFilter()]),
-            self::flagWithDependencyAndCatchAll([$malformedDependency]),
+        $this->makeLocalClient(
+            self::localDefinitions(
+                self::localFlag('dep', [self::staticCohortFilter()]),
+                self::flagWithDependencyAndCatchAll([$malformedDependency]),
+                self::localFlag('everyone'),
+            ),
+            ['flags' => ['target' => ['key' => 'target', 'enabled' => true, 'variant' => 'a']]]
         );
-        // Cached definitions skip the load-time warning, so evaluation is the first code to read them.
-        $cacheProvider = new class ($definitions) implements FlagDefinitionCacheProvider {
-            public function __construct(private array $definitions)
-            {
-            }
+        $loadMessages = $errorMessages;
+        $errorMessages = [];
 
-            public function getFlagDefinitions(): ?array
-            {
-                return $this->definitions;
-            }
-
-            public function shouldFetchFlagDefinitions(): bool
-            {
-                return false;
-            }
-
-            public function onFlagDefinitionsReceived(array $data): void
-            {
-            }
-
-            public function shutdown(): void
-            {
-            }
-        };
-        $this->makeClient(
-            flagsEndpointResponse: ['flags' => ['target' => ['key' => 'target', 'enabled' => true, 'variant' => 'a']]],
-            personalApiKey: 'test-personal-key',
-            options: ['flag_definition_cache_provider' => $cacheProvider]
-        );
-
-        $snapshot = $this->client->evaluateFlags('user-123', flagKeys: ['target']);
+        $snapshot = $this->client->evaluateFlags('user-123', flagKeys: ['target', 'everyone']);
 
         $this->assertSame(
-            [1, 'a', []],
-            [$this->flagsRequestCount(), $snapshot->getFlag('target'), $errorMessages]
+            [1, 'a', true, []],
+            [
+                $this->flagsRequestCount(),
+                $snapshot->getFlag('target'),
+                $snapshot->getFlag('everyone'),
+                $errorMessages,
+            ]
         );
+        $this->assertCount(1, array_filter(
+            $loadMessages,
+            fn (string $message) => str_contains($message, 'could not check the definition') &&
+                str_contains($message, 'target')
+        ));
     }
 
     public function testFlagWithDependencyThatNeedsServerIsUnresolvedLocally(): void
