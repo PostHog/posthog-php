@@ -100,6 +100,37 @@ class RuntimeTest extends TestCase
         $this->assertStringNotContainsString('private', json_encode($messages));
     }
 
+    public function testExplicitScopedIdentityWinsOverAuthenticationAndCustomResolvers(): void
+    {
+        $fake = Facade::fake();
+        $context = $this->app->make(Context::class);
+        $request = Request::create('/', server: ['HTTP_X_POSTHOG_DISTINCT_ID' => 'header-user']);
+        $request->setUserResolver(fn () => new GenericUser(['id' => 'authenticated-user']));
+        $context->fromRequest($request);
+        $context->with(['distinctId' => 'scoped-user'], fn () => Facade::capture('scoped'));
+        $fake->assertCaptured('scoped', fn ($event) => $event['distinctId'] === 'scoped-user');
+        $this->assertSame('authenticated-user', $context->data()['distinctId']);
+        $this->app['config']->set('posthog.distinct_id', IdentityResolver::class);
+        $context->begin(['distinctId' => 'explicit-job-user']);
+        $this->assertSame('explicit-job-user', $context->data()['distinctId']);
+    }
+
+    public function testNestedArtisanCommandRestoresCallerContextAndFlagSnapshot(): void
+    {
+        $context = $this->app->make(Context::class);
+        $context->begin(['distinctId' => 'caller', 'sessionId' => 'session', 'groups' => ['team' => 'one']]);
+        $before = $context->snapshot();
+        $flags = new \PostHog\FeatureFlagEvaluations('caller', [], [], Facade::fake()->client());
+        $context->flags('caller-snapshot', fn () => $flags);
+        $this->app->make(\Illuminate\Contracts\Console\Kernel::class)->rerouteSymfonyCommandEvents();
+        \Illuminate\Support\Facades\Artisan::call('list', ['--raw' => true]);
+        $this->assertSame($before, $context->snapshot());
+        $this->assertSame($flags, $context->flags(
+            'caller-snapshot',
+            fn () => throw new RuntimeException('lost flags'),
+        ));
+    }
+
     public function testHeaderFallbackAndNestedContextRestoreOnFailure(): void
     {
         $context = $this->app->make(Context::class);
