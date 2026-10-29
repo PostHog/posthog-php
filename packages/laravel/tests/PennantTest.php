@@ -2,6 +2,8 @@
 
 namespace PostHog\Laravel\Tests;
 
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Route;
 use Laravel\Pennant\Contracts\FeatureScopeable;
@@ -20,6 +22,7 @@ use PostHog\Laravel\PostHogServiceProvider;
 use PostHog\Laravel\Tests\Fixtures\CaptureJob;
 use PostHog\Laravel\Tests\Fixtures\FailingCaptureJob;
 use PostHog\Laravel\Tests\Fixtures\PennantEndEventProvider;
+use PostHog\Laravel\Tests\Fixtures\ScopedCommand;
 use RuntimeException;
 
 class PennantTest extends TestCase
@@ -167,7 +170,7 @@ class PennantTest extends TestCase
         $this->assertFalse(Feature::for('explicit-b')->value('unknown'));
     }
 
-    public static function queueCallers(): array
+    public static function scopedCallers(): array
     {
         return [
             'anonymous caller, success' => [null, false],
@@ -177,7 +180,7 @@ class PennantTest extends TestCase
         ];
     }
 
-    #[DataProvider('queueCallers')]
+    #[DataProvider('scopedCallers')]
     public function testQueueCompletionConsumersCannotPolluteTheRestoredCallersCache(
         ?string $parentId,
         bool $fail,
@@ -202,6 +205,52 @@ class PennantTest extends TestCase
         $this->assertSame($parentId ?? false, Feature::value('layout'));
         if ($parentId !== null) {
             $this->assertSame($parentSnapshot, $this->app->make(PostHog::class)->evaluateFlags());
+        }
+    }
+
+    #[DataProvider('scopedCallers')]
+    public function testDirectCommandCallsClearPennantCacheOnEntryAndAfterCallerRestoration(
+        ?string $parentId,
+        bool $fail,
+    ): void {
+        $events = [];
+        $this->sdk($parentId === null ? 1 : 2, $events);
+        $context = $this->app->make(Context::class);
+        $observed = [];
+        Artisan::command('posthog:child', function () use ($context, $fail, &$observed) {
+            $context->begin(['distinctId' => 'child-owner']);
+            $observed['child'] = Feature::value('layout');
+            if ($fail) {
+                throw new RuntimeException('child failed');
+            }
+            return 0;
+        });
+        Artisan::registerCommand(new ScopedCommand('posthog:parent', function (Command $command) use (
+            $context,
+            $parentId,
+            &$observed,
+        ) {
+            $context->begin($parentId === null ? [] : ['distinctId' => $parentId]);
+            $observed['before'] = Feature::value('layout');
+            $observed['beforeSnapshot'] = $this->app->make(PostHog::class)->evaluateFlags();
+            $observed['exception'] = null;
+            try {
+                $command->call('posthog:child');
+            } catch (RuntimeException $exception) {
+                $observed['exception'] = $exception->getMessage();
+            }
+            $observed['after'] = Feature::value('layout');
+            $observed['afterSnapshot'] = $this->app->make(PostHog::class)->evaluateFlags();
+            return 0;
+        }));
+
+        $this->assertSame(0, Artisan::call('posthog:parent'));
+        $this->assertSame($parentId ?? false, $observed['before']);
+        $this->assertSame('child-owner', $observed['child']);
+        $this->assertSame($parentId ?? false, $observed['after']);
+        $this->assertSame($fail ? 'child failed' : null, $observed['exception']);
+        if ($parentId !== null) {
+            $this->assertSame($observed['beforeSnapshot'], $observed['afterSnapshot']);
         }
     }
 
