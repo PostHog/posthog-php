@@ -8,6 +8,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\ServiceProvider;
 use PostHog\Laravel\Autocapture\AuthEvents;
 use PostHog\Laravel\Autocapture\Collector;
+use PostHog\Laravel\Autocapture\DeferredModelEvents;
 use PostHog\Laravel\Autocapture\DomainEvents;
 use PostHog\Laravel\Autocapture\ModelEvents;
 use PostHog\Laravel\Autocapture\Outcomes;
@@ -26,6 +27,10 @@ class AutocaptureServiceProvider extends ServiceProvider
                 ? array_replace($settings[$section] ?? [], $values) : $values;
         }
         $config->set('posthog.autocapture', $settings);
+        $this->app->singleton(
+            DeferredModelEvents::class,
+            fn ($app) => new DeferredModelEvents($app['db.transactions']),
+        );
     }
 
     public function boot(): void
@@ -39,6 +44,15 @@ class AutocaptureServiceProvider extends ServiceProvider
             $events->listen('Illuminate\\Auth\\Events\\' . $name, static function ($event) use ($name) {
                 (new AuthEvents())->collect(strtolower($name), $event);
             });
+        }
+        foreach (
+            [
+                'TransactionBeginning' => 'beginning',
+                'TransactionCommitting' => 'committing',
+                'TransactionRolledBack' => 'rolledBack',
+            ] as $event => $method
+        ) {
+            $events->listen('Illuminate\\Database\\Events\\' . $event, [DeferredModelEvents::class, $method]);
         }
         foreach (['created', 'updated', 'deleted'] as $operation) {
             $events->listen('eloquent.' . $operation . ': *', static function ($name, $payload) use ($operation) {

@@ -133,10 +133,23 @@ omitted. Do not allowlist a sensitive accessor or JSON column.
 
 Values, identity, session and groups are snapshotted at the change, then emitted **after the
 model connection's outer transaction commits**. Rollback (including a nested
-savepoint rollback) discards the corresponding pending events. No model object is
-retained by the commit callback. Outside a transaction, collection is immediate.
+savepoint rollback) discards the corresponding pending events. No model or request
+object is retained. Outside a transaction, collection is immediate, even when a
+different connection has an open transaction.
+
+All connections share an internal pending budget of **1,000 events and 1 MiB of
+JSON-encoded event names, properties and correlation context**. If either limit
+would be exceeded, the newest event is dropped (including an oversized allowlisted
+attribute); there are no additional configuration options. Events without a usable
+identity consume no pending capacity. Commit and rollback release capacity;
+abandoned/disconnected transactions are also discarded before the next admission.
+Callback registration happens only after admission, once per transaction record,
+and is also capped at 1,000 records (including stale records retained by Laravel
+after a connection reset). Admitted events retain their original identity and
+operation order within each connection's outer transaction.
+
 This is not a durable outbox; process crashes or transport failures can lose events.
-Each actual model lifecycle event generates one event: multiple saves are not
+Each admitted model lifecycle event generates one event: multiple saves are not
 coalesced. Bulk query-builder updates/deletes do not produce model events. Soft
 deletes produce the normal deleted event; restores are not collected.
 
