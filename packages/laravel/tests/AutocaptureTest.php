@@ -384,11 +384,13 @@ class AutocaptureTest extends TestCase
         $task = new Event($this->createStub(EventMutex::class), 'php artisan import --secret=password');
         $task->exitCode = 1;
         $events->dispatch(new ScheduledTaskStarting($task));
+        $task->callBeforeCallbacks($this->app);
         $events->dispatch(new ScheduledTaskFinished($task, 0.1));
         $events->dispatch(new ScheduledTaskFailed($task, new RuntimeException('secret'), 0.1));
         $task->runInBackground = true;
         $task->exitCode = null;
         $events->dispatch(new ScheduledTaskStarting($task));
+        $task->callBeforeCallbacks($this->app);
         $events->dispatch(new ScheduledTaskFinished($task, 0.1));
         $fake->assertCapturedCount(3);
         $this->assertSame('import', $this->events()[0]['properties']['name']);
