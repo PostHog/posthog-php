@@ -2,6 +2,7 @@
 
 namespace PostHog\Laravel\Tests;
 
+use Illuminate\Database\Events\TransactionCommitting;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Orchestra\Testbench\TestCase;
@@ -287,6 +288,41 @@ class ModelEventsTest extends TestCase
         $this->record('fits after commit');
         DB::commit();
         $this->assertSame([$state, 'fits after commit'], $this->states());
+    }
+
+    public function testCommitFailureRetryDiscardsFailedAttemptBeforeReadmittingEvents(): void
+    {
+        $commits = 0;
+        $this->app['events']->listen(TransactionCommitting::class, function ($event) use (&$commits) {
+            if ($event->connectionName === 'a' && ++$commits === 1) {
+                throw new RuntimeException('database is locked');
+            }
+        });
+        $pdo = DB::connection('a')->getPdo();
+        $attempt = 0;
+        $usageOnRetry = null;
+        DB::transaction(function () use (&$attempt, &$usageOnRetry) {
+            if (++$attempt === 1) {
+                for ($i = 0; $i < 1000; $i++) {
+                    $this->record('failed attempt');
+                }
+                $this->assertUsage(1000, 1000 * $this->encodedSize('failed attempt'));
+            } else {
+                $usageOnRetry = $this->buffer()->pendingUsage();
+                $this->record('committed retry');
+            }
+            PostHog::assertNothingCaptured();
+        }, 2);
+        $this->assertSame(2, $attempt);
+        $this->assertSame($pdo, DB::connection('a')->getPdo());
+        $this->assertSame(['count' => 0, 'bytes' => 0], $usageOnRetry);
+        $this->assertSame(['committed retry'], $this->states());
+        $this->assertSame(1, CollectedRecord::count());
+        $this->assertUsage(0, 0);
+        $this->assertTransactionCallbackCount(0);
+        DB::transaction(fn () => $this->record('next transaction'));
+        $this->assertSame(['committed retry', 'next transaction'], $this->states());
+        $this->assertUsage(0, 0);
     }
 
     public function testRetryAndRepeatedSavepointRollbackReleaseCapacityWithoutCallbackAccumulation(): void

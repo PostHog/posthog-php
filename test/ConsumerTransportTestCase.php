@@ -81,40 +81,31 @@ abstract class ConsumerTransportTestCase extends TestCase
         self::assertSame('user-id', $event['properties']['distinct_id']);
     }
 
-    public static function libraryMetadataCases(): array
+    public function testConstructorOptionsCannotOverrideBatchUserAgent(): void
     {
-        return [
-            'configured metadata' => [
-                ['library_name' => 'posthog-laravel', 'library_version' => '0.1.0'], 'posthog-laravel/0.1.0',
-            ],
-            'normalized metadata' => [
-                ['library_name' => " posthog-laravel\t", 'library_version' => ' 0.1.0 '], 'posthog-laravel/0.1.0',
-            ],
-            'empty metadata' => [
-                ['library_name' => " \t", 'library_version' => null], PostHog::LIBRARY . '/' . PostHog::VERSION,
-            ],
-            'library name only' => [['library_name' => 'posthog-laravel'], 'posthog-laravel/' . PostHog::VERSION],
-            'library version only' => [['library_version' => '0.1.0'], PostHog::LIBRARY . '/0.1.0'],
-            'quoted metadata' => [
-                ['library_name' => "posthog'laravel", 'library_version' => '0.1.0'], "posthog'laravel/0.1.0",
-            ],
-            'line break in name' => [
-                ['library_name' => "posthog\r\nX-Injected: yes", 'library_version' => '0.1.0'],
-                PostHog::LIBRARY . '/0.1.0',
-            ],
-            'null byte in version' => [
-                ['library_name' => 'posthog-laravel', 'library_version' => "0.1\0.0"],
-                'posthog-laravel/' . PostHog::VERSION,
-            ],
-        ];
+        $client = $this->client(['library_name' => 'custom', 'library_version' => '9.9.9']);
+        self::assertTrue($client->capture(['distinctId' => 'user', 'event' => 'ignored-options']));
+        $this->flushEvent($client);
     }
 
-    #[DataProvider('libraryMetadataCases')]
-    public function testBatchUserAgentMatchesConfiguredLibrary(array $options, string $expectedUserAgent): void
+    public function testBatchUserAgentMatchesIntegrationLibrary(): void
     {
-        $client = $this->client($options);
-        self::assertTrue($client->capture(['distinctId' => 'user', 'event' => 'configured-library']));
-        self::assertTrue($client->flush());
+        // The quote covers shell escaping in the fork_curl consumer.
+        $expectedUserAgent = "posthog'laravel/0.1.0";
+        IntegrationClient::$name = "posthog'laravel";
+        try {
+            $client = new IntegrationClient('test-key', [
+                'consumer' => $this->consumer(),
+                'host' => $this->server->address(),
+                'ssl' => false,
+                'debug' => true,
+                'maximum_backoff_duration' => 100,
+            ], null, null, false);
+            self::assertTrue($client->capture(['distinctId' => 'user', 'event' => 'integration-library']));
+            self::assertTrue($client->flush());
+        } finally {
+            IntegrationClient::reset();
+        }
         $requests = $this->server->requests();
         self::assertCount(1, $requests);
         self::assertSame($expectedUserAgent, $requests[0]['headers']['user-agent']);
