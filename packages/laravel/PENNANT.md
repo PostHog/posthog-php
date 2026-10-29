@@ -64,7 +64,10 @@ The SDK reuses snapshots for identical complete evaluation inputs. Pennant also
 has its own feature/scope cache. The integration clears PostHog stores around HTTP,
 queue and command boundaries, including failed jobs. Pennant's own Octane lifecycle
 integration remains active, and the driver resolves the current application rather
-than retaining a request manager in a singleton.
+than retaining a request manager in a singleton. Calling commands that opt into
+`IsolatesCommandContext` also clear Pennant's cache on direct child-call entry and
+after restoring the caller, including failures. Uninstrumented direct calls are
+not intercepted; explicit context scopes alone do not clear Pennant's cache.
 
 If targeting properties/groups change for the **same scope within one request**,
 call `Feature::flushCache()` before another Pennant read. Alternatively use native
