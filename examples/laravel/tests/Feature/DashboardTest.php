@@ -166,6 +166,26 @@ final class DashboardTest extends TestCase
         self::assertSame(['$session_id' => 'queued-session'], $payload['_posthog']['properties']);
     }
 
+    public function test_application_transactions_defer_jobs_until_commit_and_drop_rolled_back_jobs(): void
+    {
+        PostHog::fake();
+        config(['queue.default' => 'database']);
+        self::assertTrue(config('queue.connections.database.after_commit'));
+        \Illuminate\Support\Facades\DB::beginTransaction();
+        app(Context::class)->with(['distinctId' => 'committed-owner'], function () {
+            DemoJob::dispatch('explicit-owner');
+        });
+        $this->assertDatabaseCount('jobs', 0);
+        \Illuminate\Support\Facades\DB::commit();
+        $this->assertDatabaseCount('jobs', 1);
+        $payload = json_decode(\Illuminate\Support\Facades\DB::table('jobs')->first()->payload, true);
+        self::assertSame('committed-owner', $payload['_posthog']['distinctId']);
+        \Illuminate\Support\Facades\DB::beginTransaction();
+        DemoJob::dispatch('rolled-back-owner');
+        \Illuminate\Support\Facades\DB::rollBack();
+        $this->assertDatabaseCount('jobs', 1);
+    }
+
     public function test_queue_context_propagation_can_be_disabled(): void
     {
         PostHog::fake();
