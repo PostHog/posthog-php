@@ -2,6 +2,7 @@
 
 namespace PostHog\Laravel\Tests;
 
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Route;
 use Laravel\Pennant\Contracts\FeatureScopeable;
 use Laravel\Pennant\Feature;
@@ -16,12 +17,16 @@ use PostHog\Laravel\Context;
 use PostHog\Laravel\Features\PostHogDriver;
 use PostHog\Laravel\PostHog;
 use PostHog\Laravel\PostHogServiceProvider;
+use PostHog\Laravel\Tests\Fixtures\CaptureJob;
+use PostHog\Laravel\Tests\Fixtures\FailingCaptureJob;
+use PostHog\Laravel\Tests\Fixtures\PennantEndEventProvider;
+use RuntimeException;
 
 class PennantTest extends TestCase
 {
     protected function getPackageProviders($app): array
     {
-        return [PennantServiceProvider::class, PostHogServiceProvider::class];
+        return [PennantServiceProvider::class, PostHogServiceProvider::class, PennantEndEventProvider::class];
     }
 
     protected function defineEnvironment($app): void
@@ -45,6 +50,159 @@ class PennantTest extends TestCase
         $layoutExposures = array_filter($events, fn ($event) => $event['event'] === '$feature_flag_called'
             && $event['distinct_id'] === 'first' && $event['properties']['$feature_flag'] === 'layout');
         $this->assertCount(1, $layoutExposures);
+    }
+
+    public function testExplicitScopeNameResolutionDoesNotEvaluateTheAmbientIdentity(): void
+    {
+        $events = [];
+        $this->sdk(1, $events, 'explicit-b');
+        $this->app->make(Context::class)->begin(['distinctId' => 'ambient-a']);
+
+        $this->assertSame('explicit-b', Feature::for('explicit-b')->value('layout'));
+        $this->assertTrue(Feature::for('explicit-b')->active('checkout'));
+        $this->assertFalse(Feature::for('explicit-b')->active('disabled'));
+        $this->assertFalse(Feature::for('explicit-b')->active('unknown'));
+        $this->assertSame([], Feature::defined());
+    }
+
+    public function testDefinedListsNoLocalDefinitionsAndDoesNotPerformIo(): void
+    {
+        $events = [];
+        $this->sdk(0, $events);
+        $this->app->make(Context::class)->begin(['distinctId' => 'ambient-a']);
+
+        $this->assertSame([], Feature::defined());
+        $this->assertSame([], Feature::defined());
+        $this->assertSame([], $events);
+    }
+
+    public function testAllDiscoversExternalFlagsForTheExplicitScope(): void
+    {
+        $events = [];
+        $this->sdk(1, $events, 'explicit-b', [
+            'b-only' => ['enabled' => true, 'variant' => null],
+            'unresolved' => ['failed' => true],
+        ]);
+        $this->app->make(Context::class)->begin(['distinctId' => 'ambient-a']);
+
+        $this->assertSame([
+            'layout' => 'explicit-b',
+            'checkout' => true,
+            'disabled' => false,
+            'b-only' => true,
+        ], Feature::for('explicit-b')->all());
+        $this->assertCount(4, $events);
+        $this->assertSame('explicit-b', Feature::for('explicit-b')->value('layout'));
+        $this->assertCount(4, $events);
+        $this->assertFalse(Feature::for('explicit-b')->active('unresolved'));
+        $this->assertFalse(Feature::for('explicit-b')->active('unknown'));
+    }
+
+    public function testLoadAllNormalizesTheScopeAndReusesTheNativeSnapshot(): void
+    {
+        $events = [];
+        $this->sdk(1, $events, 'custom-posthog');
+        $this->app->make(Context::class)->begin(['distinctId' => 'ambient-a']);
+        $scope = new class implements FeatureScopeable {
+            public function toFeatureIdentifier(string $driver): mixed
+            {
+                return 'custom-' . $driver;
+            }
+        };
+
+        $this->assertSame([
+            'layout' => ['custom-posthog'],
+            'checkout' => [true],
+            'disabled' => [false],
+        ], Feature::for($scope)->loadAll());
+        $this->assertSame('custom-posthog', Feature::for($scope)->value('layout'));
+        $this->assertTrue(Feature::for($scope)->active('checkout'));
+        $this->assertFalse(Feature::for($scope)->active('disabled'));
+        $this->assertCount(3, $events);
+
+        Feature::flushCache();
+        $this->assertSame('custom-posthog', Feature::for($scope)->value('layout'));
+        $this->assertSame('custom-posthog', $this->app->make(PostHog::class)
+            ->evaluateFlags('custom-posthog')->getFlag('layout'));
+        $this->assertCount(3, $events);
+    }
+
+    public function testScopedKeyEnumerationDoesNotRecordExposure(): void
+    {
+        $events = [];
+        $this->sdk(1, $events, 'explicit-b');
+        $this->app->make(Context::class)->begin(['distinctId' => 'ambient-a']);
+
+        $this->assertSame(
+            ['layout', 'checkout', 'disabled'],
+            Feature::definedFeaturesForScope('explicit-b')->all(),
+        );
+        $this->assertSame([], $events);
+        $this->assertSame([], Feature::defined());
+        $this->assertSame('explicit-b', Feature::for('explicit-b')->value('layout'));
+        $this->assertCount(1, $events);
+    }
+
+    public function testBulkReadsWithoutAnIdentityAreEmptyAndDoNotPerformIo(): void
+    {
+        $events = [];
+        $this->sdk(0, $events);
+
+        $this->assertSame([], Feature::all());
+        $this->assertSame([], Feature::loadAll());
+        $this->assertFalse(Feature::value('unknown'));
+        $this->assertSame([], $events);
+    }
+
+    public function testDisabledBulkReadsAreEmptyAndDoNotPerformIo(): void
+    {
+        $events = [];
+        $this->sdk(0, $events);
+        $this->app['config']->set('posthog.enabled', false);
+        $this->app->make(Context::class)->begin(['distinctId' => 'ambient-a']);
+
+        $this->assertSame([], Feature::for('explicit-b')->all());
+        $this->assertSame([], Feature::for('explicit-b')->loadAll());
+        $this->assertSame([], $events);
+        $this->assertFalse(Feature::for('explicit-b')->value('unknown'));
+    }
+
+    public static function queueCallers(): array
+    {
+        return [
+            'anonymous caller, success' => [null, false],
+            'anonymous caller, failure' => [null, true],
+            'identified caller, success' => ['parent-owner', false],
+            'identified caller, failure' => ['parent-owner', true],
+        ];
+    }
+
+    #[DataProvider('queueCallers')]
+    public function testQueueCompletionConsumersCannotPolluteTheRestoredCallersCache(
+        ?string $parentId,
+        bool $fail,
+    ): void {
+        $this->app['config']->set('queue.default', 'sync');
+        $this->app['config']->set('pennant-test.read-on-job-end', true);
+        $events = [];
+        $this->sdk($parentId === null ? 1 : 2, $events);
+        $context = $this->app->make(Context::class);
+        $context->begin($parentId === null ? [] : ['distinctId' => $parentId]);
+        $this->assertSame($parentId ?? false, Feature::value('layout'));
+        $parentSnapshot = $this->app->make(PostHog::class)->evaluateFlags();
+        try {
+            Bus::dispatchSync($fail ? new FailingCaptureJob('job-owner') : new CaptureJob('job-owner'));
+            $this->assertFalse($fail, 'The failing job must rethrow its original exception');
+        } catch (RuntimeException $exception) {
+            $this->assertTrue($fail);
+            $this->assertSame('failed job', $exception->getMessage());
+        }
+        $this->assertSame('job-owner', $this->app['config']->get('pennant-test.job-value'));
+        $this->assertSame($parentId, $context->data()['distinctId'] ?? null);
+        $this->assertSame($parentId ?? false, Feature::value('layout'));
+        if ($parentId !== null) {
+            $this->assertSame($parentSnapshot, $this->app->make(PostHog::class)->evaluateFlags());
+        }
     }
 
     public function testAnonymousPennantScopeDoesNotCacheAnotherRequestsIdentity(): void
@@ -119,19 +277,30 @@ class PennantTest extends TestCase
         (new PostHogDriver())->$method(...$arguments);
     }
 
-    private function sdk(int $requests, array &$events): void
-    {
+    private function sdk(
+        int $requests,
+        array &$events,
+        ?string $expectedIdentity = null,
+        array $extraFlags = [],
+    ): void {
         $http = $this->createMock(HttpClient::class);
         $http->expects($this->exactly($requests))->method('sendRequest')->willReturnCallback(function (
             $path,
             $payload,
+        ) use (
+            $expectedIdentity,
+            $extraFlags,
         ) {
+            $this->assertSame('/flags/?v=2', $path);
             $id = json_decode($payload, true)['distinct_id'];
+            if ($expectedIdentity !== null) {
+                $this->assertSame($expectedIdentity, $id);
+            }
             return new HttpResponse(json_encode(['flags' => [
                 'layout' => ['enabled' => true, 'variant' => $id, 'metadata' => ['payload' => '{"theme":"dark"}']],
                 'checkout' => ['enabled' => true, 'variant' => null],
                 'disabled' => ['enabled' => false, 'variant' => null],
-            ]]), 200);
+            ] + $extraFlags]), 200);
         });
         $sdk = new Client('test-key', [
             'consumer' => 'noop',

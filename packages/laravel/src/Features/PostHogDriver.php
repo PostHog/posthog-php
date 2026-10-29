@@ -6,11 +6,12 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
+use Laravel\Pennant\Contracts\DefinesFeaturesExternally;
 use Laravel\Pennant\Contracts\Driver;
 use LogicException;
 use PostHog\Laravel\PostHog;
 
-final class PostHogDriver implements Driver
+final class PostHogDriver implements Driver, DefinesFeaturesExternally
 {
     public function get(string $feature, mixed $scope): mixed
     {
@@ -32,7 +33,13 @@ final class PostHogDriver implements Driver
 
     public function defined(): array
     {
-        return Container::getInstance()->make(PostHog::class)->evaluateFlags()->getKeys();
+        // Pennant calls this before resolving the scope; there are no local definitions.
+        return [];
+    }
+
+    public function definedFeaturesForScope(mixed $scope): array
+    {
+        return Container::getInstance()->make(PostHog::class)->evaluateFlags($this->identity($scope))->getKeys();
     }
 
     private function identity(mixed $scope): ?string

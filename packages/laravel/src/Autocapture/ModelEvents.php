@@ -18,6 +18,11 @@ class ModelEvents
             if (!array_key_exists($model::class, $models) || !is_array($models[$model::class])) {
                 return;
             }
+            $snapshot = Collector::snapshot();
+            $id = $snapshot['distinctId'] ?? null;
+            if (!is_scalar($id) || (string) $id === '' || !Collector::jsonSafe($snapshot)) {
+                return;
+            }
             $attributes = [];
             $stored = $model->getAttributes();
             foreach ($models[$model::class] as $key) {
@@ -29,11 +34,18 @@ class ModelEvents
                 }
             }
             $properties = ['model' => $model::class, 'attributes' => $attributes];
-            $snapshot = Collector::snapshot();
-            // Register with this model's connection; no model or payload survives until commit.
-            $model->getConnection()->afterCommit(static function () use ($operation, $properties, $snapshot) {
-                Collector::capture('laravel_model_' . $operation, $properties, $snapshot);
-            });
+            $connection = $model->getConnection();
+            $event = 'laravel_model_' . $operation;
+            if ($connection->transactionLevel() === 0) {
+                Collector::capture($event, $properties, $snapshot);
+                return;
+            }
+            Container::getInstance()->make(DeferredModelEvents::class)->defer(
+                $connection,
+                $event,
+                $properties,
+                $snapshot,
+            );
         } catch (Throwable) {
         }
     }

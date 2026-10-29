@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Support\RedactDemoProperties;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PostHog\Client;
 use PostHog\HttpClient;
 use PostHog\HttpResponse;
@@ -40,6 +41,37 @@ final class TransportTest extends TestCase
         self::assertSame('compact', $decision['properties']['$feature/demo-layout']);
         self::assertSame(['demo-checkout', 'demo-layout'], $decision['properties']['$active_feature_flags']);
         self::assertCount(2, array_filter($events, fn ($event) => $event['event'] === '$feature_flag_called'));
+        PostHog::shutdown();
+    }
+
+    public static function pennantModes(): array
+    {
+        return ['local only' => [true], 'remote allowed' => [false]];
+    }
+
+    #[DataProvider('pennantModes')]
+    public function testPennantDemoHonorsLocalOnlyMode(bool $localOnly): void
+    {
+        config(['demo.local_only' => $localOnly]);
+        $requests = [];
+        $http = $this->createStub(HttpClient::class);
+        $http->method('sendRequest')->willReturnCallback(function ($path) use (&$requests): HttpResponse {
+            $requests[] = $path;
+            return new HttpResponse($path === '/flags/?v=2' ? json_encode(['flags' => [
+                'demo-checkout' => ['enabled' => true, 'variant' => null],
+                'demo-layout' => ['enabled' => true, 'variant' => 'compact'],
+            ]]) : '{}', 200);
+        });
+        $this->useClient($http);
+        $response = $this->post('/demo/pennant')->assertRedirect('/');
+        self::assertCount($localOnly ? 0 : 1, array_filter($requests, fn ($path) => $path === '/flags/?v=2'));
+        if ($localOnly) {
+            $response->assertSessionHas('result.skipped', true)
+                ->assertSessionHas('result.reason', 'Use the native flags form for local-only evaluation.');
+            self::assertSame([], $requests);
+        } else {
+            $response->assertSessionHas('result.enabled', true)->assertSessionHas('result.variant', 'compact');
+        }
         PostHog::shutdown();
     }
 

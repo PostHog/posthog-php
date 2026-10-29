@@ -81,6 +81,47 @@ abstract class ConsumerTransportTestCase extends TestCase
         self::assertSame('user-id', $event['properties']['distinct_id']);
     }
 
+    public static function libraryMetadataCases(): array
+    {
+        return [
+            'configured metadata' => [
+                ['library_name' => 'posthog-laravel', 'library_version' => '0.1.0'], 'posthog-laravel/0.1.0',
+            ],
+            'normalized metadata' => [
+                ['library_name' => " posthog-laravel\t", 'library_version' => ' 0.1.0 '], 'posthog-laravel/0.1.0',
+            ],
+            'empty metadata' => [
+                ['library_name' => " \t", 'library_version' => null], PostHog::LIBRARY . '/' . PostHog::VERSION,
+            ],
+            'library name only' => [['library_name' => 'posthog-laravel'], 'posthog-laravel/' . PostHog::VERSION],
+            'library version only' => [['library_version' => '0.1.0'], PostHog::LIBRARY . '/0.1.0'],
+            'quoted metadata' => [
+                ['library_name' => "posthog'laravel", 'library_version' => '0.1.0'], "posthog'laravel/0.1.0",
+            ],
+            'line break in name' => [
+                ['library_name' => "posthog\r\nX-Injected: yes", 'library_version' => '0.1.0'],
+                PostHog::LIBRARY . '/0.1.0',
+            ],
+            'null byte in version' => [
+                ['library_name' => 'posthog-laravel', 'library_version' => "0.1\0.0"],
+                'posthog-laravel/' . PostHog::VERSION,
+            ],
+        ];
+    }
+
+    #[DataProvider('libraryMetadataCases')]
+    public function testBatchUserAgentMatchesConfiguredLibrary(array $options, string $expectedUserAgent): void
+    {
+        $client = $this->client($options);
+        self::assertTrue($client->capture(['distinctId' => 'user', 'event' => 'configured-library']));
+        self::assertTrue($client->flush());
+        $requests = $this->server->requests();
+        self::assertCount(1, $requests);
+        self::assertSame($expectedUserAgent, $requests[0]['headers']['user-agent']);
+        $event = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR)['batch'][0];
+        self::assertSame($expectedUserAgent, $event['properties']['$lib'] . '/' . $event['properties']['$lib_version']);
+    }
+
     protected function flushEvent(Client $client, bool $compressed = false): array
     {
         self::assertSame([], $this->server->requests());

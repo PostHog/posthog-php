@@ -46,8 +46,17 @@ $payload = \PostHog\Laravel\Facades\PostHog::evaluateFlags()->getFlagPayload('ch
 Define and manage flags in PostHog. `define`, `activate`, `deactivate`, `delete`,
 `purge` and other write operations throw `LogicException`; the driver never pretends
 to modify remote flag definitions. Use remote flag key strings, not locally defined
-PHP feature classes. Listing defined keys uses the current native snapshot without
-recording exposure.
+PHP feature classes.
+
+`Feature::defined()` intentionally returns an empty array: this read-only external
+store has no local definitions. Pennant calls it during feature-name resolution,
+before resolving the requested scope, so it never evaluates flags or performs I/O.
+Use `Feature::for($scope)->all()` or `Feature::for($scope)->loadAll()` to discover
+PostHog flags for a scope through Pennant's external-definition contract. Discovery
+uses that scope's native snapshot without recording exposure; reading the discovered
+values uses normal deduplicated exposures. Bulk and subsequent individual reads
+reuse the same snapshot, preserving variants and disabled values. Unknown or
+unresolved flags remain inactive.
 
 ## Cache lifetime
 
