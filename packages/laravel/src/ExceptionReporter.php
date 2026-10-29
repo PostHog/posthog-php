@@ -10,11 +10,26 @@ class ExceptionReporter
 {
     private WeakMap $snapshots;
     private WeakMap $reported;
+    private ?array $failedCommand = null;
 
     public function __construct(private Container $app)
     {
         $this->snapshots = new WeakMap();
         $this->reported = new WeakMap();
+    }
+
+    /** @internal Symfony terminates commands before Laravel reports their exceptions. */
+    public function commandFinished(int $exitCode): void
+    {
+        if ($exitCode !== 0) {
+            $this->failedCommand ??= $this->app->make(Context::class)->snapshot();
+        }
+    }
+
+    /** @internal A previous completed command must not identify a later failure. */
+    public function commandStarting(): void
+    {
+        $this->failedCommand = null;
     }
 
     public function rememberContext(Throwable $exception): void
@@ -60,6 +75,15 @@ class ExceptionReporter
         $this->reported[$exception] = true;
         $snapshot = $this->snapshots[$exception] ?? ['data' => $this->app->make(Context::class)->snapshot()];
         $options = $snapshot['options'] ?? $this->reportOptions();
+        if (!isset($this->snapshots[$exception]) && !$options['handled'] && $this->failedCommand !== null) {
+            foreach ($exception->getTrace() as $frame) {
+                if (is_a($frame['class'] ?? '', \Illuminate\Console\Command::class, true)) {
+                    $snapshot['data'] = $this->failedCommand;
+                    $this->failedCommand = null;
+                    break;
+                }
+            }
+        }
         $manager = $this->app->make(PostHog::class);
         try {
             $manager->reportException($exception, $snapshot['data'], $options);
