@@ -113,6 +113,65 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertSame(1, $this->flagsRequestCount());
     }
 
+    public static function delayedExposureReads(): array
+    {
+        return [
+            'boolean read' => ['isEnabled', false],
+            'value read' => ['getFlag', false],
+            'filtered value read' => ['getFlag', true],
+        ];
+    }
+
+    #[DataProvider('delayedExposureReads')]
+    public function testLazyExposureRetainsOriginatingContext(string $accessor, bool $filtered): void
+    {
+        $this->makeClient();
+        $snapshot = $this->client->withContext([
+            'distinctId' => 'origin',
+            'sessionId' => 'origin-session',
+            'properties' => ['$request_path' => '/orders/{order}', 'boundary' => 'origin'],
+        ], fn () => $this->client->evaluateFlags());
+        if ($filtered) {
+            $snapshot = $snapshot->only(['simple-test']);
+        }
+        $this->client->withContext([
+            'distinctId' => 'later',
+            'sessionId' => 'later-session',
+            'properties' => ['$request_path' => '/later', 'boundary' => 'later'],
+        ], function () use ($snapshot, $accessor): void {
+            self::assertTrue($snapshot->$accessor('simple-test'));
+            self::assertTrue($snapshot->getFlag('simple-test'));
+            $this->client->capture(['event' => 'later-event']);
+        });
+        $this->client->flush();
+        $events = $this->batchRequests()[0]['batch'];
+        self::assertCount(2, $events);
+        self::assertSame('$feature_flag_called', $events[0]['event']);
+        self::assertSame('origin', $events[0]['distinct_id']);
+        self::assertSame('origin-session', $events[0]['properties']['$session_id']);
+        self::assertSame('/orders/{order}', $events[0]['properties']['$request_path']);
+        self::assertSame('origin', $events[0]['properties']['boundary']);
+        self::assertSame('later', $events[1]['distinct_id']);
+        self::assertSame('later-session', $events[1]['properties']['$session_id']);
+        self::assertSame('later', $events[1]['properties']['boundary']);
+        self::assertSame(1, $this->flagsRequestCount());
+        self::assertNull($this->client->getContext());
+    }
+
+    public function testUnscopedSnapshotDoesNotInheritLaterContext(): void
+    {
+        $this->makeClient();
+        $snapshot = $this->client->evaluateFlags('explicit-user');
+        $this->client->withContext([
+            'distinctId' => 'later', 'sessionId' => 'later-session', 'properties' => ['boundary' => 'later'],
+        ], fn () => $snapshot->getFlag('simple-test'));
+        $this->client->flush();
+        $event = $this->batchRequests()[0]['batch'][0];
+        self::assertSame('explicit-user', $event['distinct_id']);
+        self::assertArrayNotHasKey('$session_id', $event['properties']);
+        self::assertArrayNotHasKey('boundary', $event['properties']);
+    }
+
     public function testNoFeatureFlagCalledEventsUntilAccess(): void
     {
         $this->makeClient();

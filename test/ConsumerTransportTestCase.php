@@ -81,6 +81,38 @@ abstract class ConsumerTransportTestCase extends TestCase
         self::assertSame('user-id', $event['properties']['distinct_id']);
     }
 
+    public function testConstructorOptionsCannotOverrideBatchUserAgent(): void
+    {
+        $client = $this->client(['library_name' => 'custom', 'library_version' => '9.9.9']);
+        self::assertTrue($client->capture(['distinctId' => 'user', 'event' => 'ignored-options']));
+        $this->flushEvent($client);
+    }
+
+    public function testBatchUserAgentMatchesIntegrationLibrary(): void
+    {
+        // The quote covers shell escaping in the fork_curl consumer.
+        $expectedUserAgent = "posthog'laravel/0.1.0";
+        IntegrationClient::$name = "posthog'laravel";
+        try {
+            $client = new IntegrationClient('test-key', [
+                'consumer' => $this->consumer(),
+                'host' => $this->server->address(),
+                'ssl' => false,
+                'debug' => true,
+                'maximum_backoff_duration' => 100,
+            ], null, null, false);
+            self::assertTrue($client->capture(['distinctId' => 'user', 'event' => 'integration-library']));
+            self::assertTrue($client->flush());
+        } finally {
+            IntegrationClient::reset();
+        }
+        $requests = $this->server->requests();
+        self::assertCount(1, $requests);
+        self::assertSame($expectedUserAgent, $requests[0]['headers']['user-agent']);
+        $event = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR)['batch'][0];
+        self::assertSame($expectedUserAgent, $event['properties']['$lib'] . '/' . $event['properties']['$lib_version']);
+    }
+
     protected function flushEvent(Client $client, bool $compressed = false): array
     {
         self::assertSame([], $this->server->requests());

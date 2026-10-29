@@ -203,6 +203,16 @@
                             "default": [],
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "options",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -289,6 +299,34 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": false
+                        }
+                    ]
+                },
+                "enterContext": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\ContextScope",
+                    "parameters": [
+                        {
+                            "name": "data",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "options",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -778,6 +816,24 @@
                     "final": false,
                     "returnType": "?string",
                     "parameters": []
+                },
+                "groupIdentify": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": [
+                        {
+                            "name": "message",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
                 },
                 "identify": {
                     "static": false,
@@ -1566,6 +1622,50 @@
                     "abstract": false,
                     "final": false,
                     "returnType": null,
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\ContextScope": {
+            "type": "class",
+            "abstract": false,
+            "final": true,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "onClose",
+                            "type": "?Closure",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "__destruct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": []
+                },
+                "close": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
                     "parameters": []
                 }
             }
@@ -3750,6 +3850,16 @@
                             "default": [],
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "options",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -3768,6 +3878,34 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": false
+                        }
+                    ]
+                },
+                "enterContext": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\ContextScope",
+                    "parameters": [
+                        {
+                            "name": "data",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "options",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -4586,6 +4724,44 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": false
+                        }
+                    ]
+                },
+                "enterContext": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\ContextScope",
+                    "parameters": [
+                        {
+                            "name": "data",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "options",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "contextKey",
+                            "type": "?int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },

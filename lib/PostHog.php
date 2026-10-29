@@ -124,16 +124,20 @@ class PostHog
      * @param \Throwable|string $exception The exception to capture or a plain string message.
      * @param string|null $distinctId User ID; a random UUID is used when omitted (no person profile created).
      * @param array<string, mixed> $additionalProperties Extra properties merged into the event.
+     * @param array{handled?: bool, mechanism?: string, source?: string} $options Framework boundary metadata.
+     *     Source is the concrete integration hook (e.g. laravel.middleware), not a mechanism category.
+     *     Only a non-empty string source is emitted; property bags cannot supply $exception_source.
      * @return bool Whether the capture call succeeded.
      * @throws Exception
      */
     public static function captureException(
         \Throwable|string $exception,
         ?string $distinctId = null,
-        array $additionalProperties = []
+        array $additionalProperties = [],
+        array $options = []
     ): bool {
         self::checkClient();
-        return self::$client->captureException($exception, $distinctId, $additionalProperties);
+        return self::$client->captureException($exception, $distinctId, $additionalProperties, $options);
     }
 
     /**
@@ -214,40 +218,10 @@ class PostHog
      */
     public static function groupIdentify(array $message)
     {
-        self::assert(!empty($message["groupType"]), "PostHog::groupIdentify() expects a groupType");
-        self::assert(!empty($message["groupKey"]), "PostHog::groupIdentify() expects a groupKey");
-
-        if (!isset($message["properties"])) {
-            $message["properties"] = array();
-        }
-
-        $distinctId = "\${$message['groupType']}_{$message['groupKey']}";
-        if (
-            array_key_exists("distinctId", $message)
-            && is_scalar($message["distinctId"])
-            && (string) $message["distinctId"] !== ""
-        ) {
-            $distinctId = (string) $message["distinctId"];
-        } elseif (
-            array_key_exists("distinct_id", $message)
-            && is_scalar($message["distinct_id"])
-            && (string) $message["distinct_id"] !== ""
-        ) {
-            $distinctId = (string) $message["distinct_id"];
-        }
-
-        $msg = array(
-            "event" => "\$groupidentify",
-            "distinctId" => $distinctId,
-            "disableGeoip" => $message["disableGeoip"] ?? null,
-            "properties" => array(
-                "\$group_type" => $message["groupType"],
-                "\$group_key" => $message["groupKey"],
-                "\$group_set" => $message["properties"],
-            )
-        );
-
-        return self::capture($msg);
+        self::checkClient();
+        self::assert(!empty($message['groupType']), 'PostHog::groupIdentify() expects a groupType');
+        self::assert(!empty($message['groupKey']), 'PostHog::groupIdentify() expects a groupKey');
+        return self::$client->groupIdentify($message);
     }
 
     /**
@@ -500,6 +474,9 @@ class PostHog
     /**
      * Run a callback with request context applied to all captures in the callback.
      *
+     * Prefer this over enterContext() whenever the work can be wrapped in a callback: the
+     * previous context is restored when the callback returns or throws.
+     *
      * @param array{
      *     distinctId?: string,
      *     distinct_id?: string,
@@ -517,6 +494,40 @@ class PostHog
     {
         self::checkClient();
         return self::$client->withContext($data, $fn, $options);
+    }
+
+    /**
+     * Apply request context until the returned scope is closed.
+     *
+     * Use this only when the work starts and ends in separate callbacks, such as framework
+     * lifecycle events or before/after middleware hooks; otherwise prefer withContext().
+     * Retain the returned scope: discarding it immediately closes the context.
+     * Close the scope on every exit path, including failures. An unclosed scope leaks its context
+     * into later work until the scope is garbage-collected. Closing a scope is idempotent.
+     *
+     * ```php
+     * // Job started callback
+     * $this->scope = PostHog::enterContext(['distinctId' => $userId]);
+     *
+     * // Job finished or failed callback
+     * $this->scope?->close();
+     * $this->scope = null;
+     * ```
+     *
+     * @param array{
+     *     distinctId?: string,
+     *     distinct_id?: string,
+     *     sessionId?: string,
+     *     session_id?: string,
+     *     properties?: array<string, mixed>
+     * } $data
+     * @param array{fresh?: bool} $options Use `fresh => true` to avoid inheriting the current context.
+     * @throws Exception When the client has not been initialized.
+     */
+    public static function enterContext(array $data, array $options = []): ContextScope
+    {
+        self::checkClient();
+        return self::$client->enterContext($data, $options);
     }
 
     /**

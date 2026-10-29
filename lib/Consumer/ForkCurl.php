@@ -94,7 +94,7 @@ class ForkCurl extends QueueConsumer
         $cmd .= " '" . $url . "'";
 
         // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
-        $cmd .= " -H 'User-Agent: " . $this->userAgent() . "'";
+        $cmd .= " -H " . escapeshellarg("User-Agent: " . $this->userAgent());
 
         if ($this->debug()) {
             try {
