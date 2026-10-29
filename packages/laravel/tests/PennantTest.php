@@ -3,6 +3,7 @@
 namespace PostHog\Laravel\Tests;
 
 use Illuminate\Support\Facades\Route;
+use Laravel\Pennant\Contracts\FeatureScopeable;
 use Laravel\Pennant\Feature;
 use Laravel\Pennant\PennantServiceProvider;
 use LogicException;
@@ -66,6 +67,35 @@ class PennantTest extends TestCase
         $user->setRawAttributes(['id' => 'account-123']);
         $this->assertSame('account-123', Feature::for($user)->value('layout'));
         $this->assertSame('account-123', $events[0]['distinct_id']);
+    }
+
+    public function testPennantScopeContractIsResolvedBeforeTheDriverReceivesIt(): void
+    {
+        $events = [];
+        $this->sdk(1, $events);
+        $scope = new class implements FeatureScopeable {
+            public function toFeatureIdentifier(string $driver): mixed
+            {
+                return 'custom-' . $driver;
+            }
+        };
+        $this->assertSame('custom-posthog', Feature::for($scope)->value('layout'));
+        $this->assertSame('custom-posthog', $events[0]['distinct_id']);
+    }
+
+    public function testModelScopeContractTakesPrecedenceOverItsAuthenticationIdentifier(): void
+    {
+        $events = [];
+        $this->sdk(1, $events);
+        $user = new class extends \Illuminate\Foundation\Auth\User implements FeatureScopeable {
+            public function toFeatureIdentifier(string $driver): mixed
+            {
+                return 'model-' . $driver;
+            }
+        };
+        $user->setRawAttributes(['id' => 123]);
+        $this->assertSame('model-posthog', Feature::for($user)->value('layout'));
+        $this->assertSame('model-posthog', $events[0]['distinct_id']);
     }
 
     public static function writes(): array
