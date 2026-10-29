@@ -357,6 +357,18 @@ class AutocaptureTest extends TestCase
         $this->assertSame('outer', $this->app->make(Context::class)->data()['distinctId']);
     }
 
+    public function testExplicitlyFailedJobIsNotReportedAsSuccessfulWhenItReturns(): void
+    {
+        $fake = PostHog::fake();
+        $this->enable('jobs');
+        $this->identity('actor');
+        \Illuminate\Support\Facades\Bus::dispatchSync(new Fixtures\ExplicitlyFailedJob());
+        $fake->assertCapturedCount(1);
+        $fake->assertCaptured('laravel_job', fn ($event) => $event['properties']['outcome'] === 'failed'
+            && $event['properties']['name'] === Fixtures\ExplicitlyFailedJob::class);
+        $this->assertSame('actor', $this->app->make(Context::class)->data()['distinctId']);
+    }
+
     public function testCommandAndSchedulerMetadataExcludeArgumentsAndDeduplicateFailure(): void
     {
         $fake = PostHog::fake();
