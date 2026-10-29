@@ -184,6 +184,52 @@ class RuntimeContextTest extends TestCase
         $this->assertNull($manager->client()->getContext());
     }
 
+    public function testManagerGetContextOverlaysRawContextWithoutChangingEitherParent(): void
+    {
+        $manager = $this->app->make(PostHog::class);
+        $client = $manager->client();
+        $context = $this->app->make(Context::class);
+        $context->begin([
+            'distinctId' => 'laravel', 'sessionId' => 'laravel-session',
+            'properties' => ['shared' => 'laravel', 'laravelOnly' => true, 'nested' => ['laravel' => true]],
+            'groups' => ['team' => 'laravel-team'],
+        ]);
+        $laravelBefore = $context->snapshot();
+        $flags = $context->flags('parent', fn () => $manager->evaluateFlags(flagKeys: []));
+        $raw = $client->enterContext([
+            'distinctId' => 'raw', 'sessionId' => 'raw-session',
+            'properties' => ['shared' => 'raw', 'rawOnly' => true, 'nested' => ['raw' => true]],
+        ]);
+        $rawBefore = $client->getContext();
+        try {
+            $expected = [
+                'distinctId' => 'raw', 'sessionId' => 'raw-session',
+                'properties' => [
+                    '$session_id' => 'raw-session', 'shared' => 'raw', 'laravelOnly' => true,
+                    'nested' => ['raw' => true], 'rawOnly' => true,
+                ],
+            ];
+            $this->assertSame($expected, $manager->getContext());
+            $this->assertSame($expected, Facade::getContext());
+            $this->assertSame($laravelBefore, $context->snapshot());
+            $this->assertSame($rawBefore, $client->getContext());
+            $this->assertSame($flags, $context->flags('parent', fn () => throw new RuntimeException('lost snapshot')));
+            $this->assertSame($expected, $manager->withContext([], fn () => $client->getContext()));
+        } finally {
+            $raw->close();
+        }
+        $this->assertSame([
+            'distinctId' => 'laravel', 'sessionId' => 'laravel-session',
+            'properties' => [
+                '$session_id' => 'laravel-session', 'shared' => 'laravel', 'laravelOnly' => true,
+                'nested' => ['laravel' => true],
+            ],
+        ], $manager->getContext());
+        $this->assertSame($laravelBefore, $context->snapshot());
+        $this->assertNull($client->getContext());
+        $this->assertSame($flags, $context->flags('parent', fn () => throw new RuntimeException('lost snapshot')));
+    }
+
     public function testFreshManagerScopeSuppressesRequestAndResolvers(): void
     {
         $manager = $this->app->make(PostHog::class);

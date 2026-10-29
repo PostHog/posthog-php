@@ -254,11 +254,7 @@ class PostHog
 
     public function getContext(): ?array
     {
-        return $this->client()->withContext(
-            $this->app->make(Context::class)->data(),
-            fn () => $this->client()->getContext(),
-            ['fresh' => true],
-        );
+        return $this->withContext([], fn () => $this->client()->getContext());
     }
 
     public function __call(string $method, array $arguments): mixed
