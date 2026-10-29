@@ -663,8 +663,11 @@ class Client implements FeatureFlagEvaluationsHost
      * @param \Throwable|string $exception The exception to capture or a plain string message
      * @param string|null $distinctId User ID; a random UUID is used when omitted (no person profile created)
      * @param array $additionalProperties Extra properties merged into the event
-     * @param array{handled?: bool, mechanism?: string} $options Framework boundary metadata.
+     * @param array{handled?: bool, mechanism?: string, source?: string} $options Framework boundary metadata.
      *     Manual capture defaults to handled; integrations may explicitly mark a failed boundary.
+     *     Mechanism names the semantic category (e.g. middleware); source names the concrete hook
+     *     (e.g. laravel.middleware). They are independent. A non-empty string source is emitted as
+     *     $exception_source; otherwise it is omitted. Property bags cannot supply this reserved field.
      * @return bool whether the capture call succeeded
      */
     public function captureException(
@@ -683,6 +686,8 @@ class Client implements FeatureFlagEvaluationsHost
 
         $mechanism = $options['mechanism'] ?? null;
         $handled = $options['handled'] ?? null;
+        $source = $options['source'] ?? null;
+        $source = is_string($source) && trim($source) !== '' ? $source : null;
         $exceptionList = ExceptionPayloadBuilder::overridePrimaryMechanism($exceptionList, [
             'type' => is_string($mechanism) && trim($mechanism) !== '' ? $mechanism : 'generic',
             'handled' => is_bool($handled) ? $handled : true,
@@ -700,6 +705,10 @@ class Client implements FeatureFlagEvaluationsHost
                 '$exception_handled' => ExceptionPayloadBuilder::getPrimaryHandled($exceptionList),
             ]
         );
+        unset($properties['$exception_source']);
+        if ($source !== null) {
+            $properties['$exception_source'] = $source;
+        }
 
         $message = [
             'event'       => '$exception',
@@ -708,6 +717,18 @@ class Client implements FeatureFlagEvaluationsHost
 
         if ($distinctId !== null) {
             $message['distinctId'] = $distinctId;
+        }
+
+        $context = $this->getContext();
+        if ($source === null && array_key_exists('$exception_source', $context['properties'] ?? [])) {
+            unset($context['properties']['$exception_source']);
+            // Filter ambient provenance without re-enriching the caller's active span.
+            return RequestContext::withContext(
+                $context,
+                fn () => $this->capture($message),
+                ['fresh' => true],
+                $this->contextKey()
+            );
         }
 
         return $this->capture($message);
@@ -722,10 +743,12 @@ class Client implements FeatureFlagEvaluationsHost
     public function groupIdentify(array $message): bool
     {
         if (empty($message['groupType'])) {
-            throw new Exception('PostHog::groupIdentify() expects a groupType');
+            $this->logWarning('groupIdentify() expects a groupType');
+            return false;
         }
         if (empty($message['groupKey'])) {
-            throw new Exception('PostHog::groupIdentify() expects a groupKey');
+            $this->logWarning('groupIdentify() expects a groupKey');
+            return false;
         }
 
         $distinctId = "\${$message['groupType']}_{$message['groupKey']}";
@@ -2475,6 +2498,7 @@ class Client implements FeatureFlagEvaluationsHost
      *
      * Use this only when the work starts and ends in separate callbacks, such as framework
      * lifecycle events or before/after middleware hooks; otherwise prefer withContext().
+     * Retain the returned scope: discarding it immediately closes the context.
      * Close the scope on every exit path, including failures. An unclosed scope leaks its context
      * into later work until the scope is garbage-collected. Closing a scope is idempotent.
      *
