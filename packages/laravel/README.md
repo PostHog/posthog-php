@@ -82,13 +82,22 @@ app(Context::class)->with([
 
 `Context::begin()`, `data()`, `snapshot()` and `end()` support explicit integrations.
 `with()` restores the previous data and flag snapshots even when the callback throws.
+The manager/facade also exposes `withContext($data, $callback, $options)`,
+`enterContext($data, $options)` and `getContext()`. These bridge Laravel context and
+raw-client context, accept `distinct_id`/`session_id` aliases, and merge properties
+shallowly like the core SDK. Explicit values override active raw-client values, which
+override resolved Laravel values. Groups inherit from Laravel unless explicitly
+replaced. `['fresh' => true]` excludes ambient identity, request metadata, groups and
+resolvers. Close an entered scope in `finally`; closing it twice is harmless. Parent
+data and flag snapshots are restored after closing or throwing.
 Auth is resolved lazily only while handling a request; no user model is retained by
 the analytics context after cleanup. Queue jobs start fresh and receive only bounded
 identity, session and scalar group context in `_posthog` payload metadata. Arbitrary
 properties, models and request data are not propagated. Set `queue_context=false` to
 disable propagation. This metadata is analytics context, never authorization evidence.
-Jobs may override it explicitly. Nested synchronous jobs and Artisan commands restore
-the caller's context and flag snapshots when they finish or fail.
+Jobs may override it explicitly. Nested synchronous jobs and kernel-level
+`Artisan::call()` executions restore the caller's context and flag snapshots when
+they finish or fail.
 
 Request context remains active through HTTP kernel termination, including
 `dispatchAfterResponse()` jobs and callbacks registered during application termination.
@@ -101,7 +110,13 @@ automatically. Console integration decorates the existing console kernel contrac
 nested `Artisan::call()` executions restore their caller in `finally`, while the root
 command stays active through kernel termination. Thrown objects retain their own
 snapshots; nonzero return codes never supply another exception's identity. The
-application's commands, custom kernel, and exception-reporting policy are preserved. SDK creation is lazy,
+application's commands, custom kernel, and exception-reporting policy are preserved.
+Direct child-command `$this->call()`/`callSilent()` execution bypasses those kernel
+boundaries and does **not** automatically restore context. Wrap such calls in an
+explicit `PostHog::withContext([], fn () => $this->call(...))` scope when the child
+can mutate analytics context; automatic direct child-command isolation remains
+unsupported.
+SDK creation is lazy,
 per Laravel scope. Shared flag definitions live in Laravel Cache, not a global SDK.
 Do not retain scoped services in application singletons or prewarm them in Octane.
 
@@ -152,7 +167,9 @@ if ($flags->isEnabled('new-checkout')) {
 The same complete evaluation inputs reuse one core snapshot within the current
 context. New identities, groups, properties, key scopes, or lifecycle scopes do not
 reuse another user's result. Capture and boot do not evaluate flags. Value reads
-emit the core's deduplicated exposure events; payload reads are silent. An explicit
+emit the core's deduplicated exposure events with the originating context, even
+when read after another request starts or the original scope ends; payload reads
+are silent. An explicit
 empty `flagKeys: []` returns an empty snapshot without evaluation.
 
 The full core signature is supported: `distinctId`, `groups`, `personProperties`,
@@ -207,6 +224,10 @@ metadata; advanced SDK options remain accessible under `sdk`.
 - `php artisan posthog:doctor`: local configuration validation, no network or keys in output.
 - `php artisan posthog:install`: publish config without overwriting an existing file.
 - `php artisan posthog:test --send`: explicitly opt in to a diagnostic event with a random test ID.
+
+The diagnostic event excludes ambient identity, session, groups and request/user
+properties without changing the caller's context. Application-owned `before_send`
+callbacks still run and may deliberately enrich or drop it.
 
 No collectors are enabled by this foundation package. Optional collectors can be
 registered by a separate `AutocaptureServiceProvider` when installed.

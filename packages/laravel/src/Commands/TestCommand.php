@@ -17,7 +17,11 @@ class TestCommand extends Command
             $this->warn('No event sent. Configure PostHog and pass --send to opt in.');
             return self::FAILURE;
         }
-        $captured = $posthog->capture('posthog test event', [], 'posthog-test-' . Str::uuid());
+        $captured = $posthog->withContext(
+            [],
+            fn () => $posthog->capture('posthog test event', [], 'posthog-test-' . Str::uuid()),
+            ['fresh' => true],
+        );
         $flushed = $posthog->flush();
         if (!$captured || !$flushed) {
             $this->error('The diagnostic event was not accepted or the transport did not flush.');
