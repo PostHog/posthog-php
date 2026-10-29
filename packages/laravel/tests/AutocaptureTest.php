@@ -118,6 +118,10 @@ class AutocaptureTest extends TestCase
             $config->set('posthog.autocapture.requests', ['enabled' => false]);
             (new AutocaptureServiceProvider($this->app))->register();
             $this->assertFalse($config->get('posthog.autocapture.requests.enabled'));
+            $this->assertSame($defaults['requests']['exclude'], $config->get('posthog.autocapture.requests.exclude'));
+            $config->set('posthog.autocapture.requests.exclude', []);
+            (new AutocaptureServiceProvider($this->app))->register();
+            $this->assertSame([], $config->get('posthog.autocapture.requests.exclude'));
         } finally {
             if ($original === null) {
                 @unlink($path);
@@ -152,6 +156,17 @@ class AutocaptureTest extends TestCase
         $this->assertStringNotContainsString('secret', json_encode(array_column($messages, 'properties')));
         $this->assertStringNotContainsString('private', json_encode(array_column($messages, 'properties')));
         $this->assertSame([], $this->app->make(Context::class)->snapshot());
+    }
+
+    public function testAutomaticRequestsKeepSessionCorrelationWithoutArbitraryProperties(): void
+    {
+        $fake = PostHog::fake();
+        $this->enable('requests');
+        Route::get('/session', fn () => 'ok');
+        $this->get('/session', [
+            'X-PostHog-Distinct-Id' => 'person', 'X-PostHog-Session-Id' => 'session',
+        ])->assertOk();
+        $fake->assertCaptured('laravel_request', fn ($event) => $event['properties']['$session_id'] === 'session');
     }
 
     public function testHealthAssetsUnmatchedAndSamplingDoNotCollectAndPageviewIsSeparate(): void

@@ -64,7 +64,7 @@ and pageview events. Zero drops both; the default 1 captures every eligible requ
 ### Privacy and identity
 
 Collectors emit only the properties listed below, plus normal SDK metadata and
-explicit identity/groups. Arbitrary context properties are not copied. Collection
+explicit identity, session correlation and groups. Arbitrary context properties are not copied. Collection
 never reads request bodies, query values, cookies, credentials, email, IP addresses,
 job arguments or full model/event payloads. Auth uses `getAuthIdentifier()`; configure
 an opaque identifier rather than email if your application customizes that method.
@@ -131,7 +131,7 @@ Only existing attributes are read, with their normal casts/accessors; JSON-safe
 scalar/null/array values are accepted, objects/resources/invalid JSON values are
 omitted. Do not allowlist a sensitive accessor or JSON column.
 
-Values, identity and groups are snapshotted at the change, then emitted **after the
+Values, identity, session and groups are snapshotted at the change, then emitted **after the
 model connection's outer transaction commits**. Rollback (including a nested
 savepoint rollback) discards the corresponding pending events. No model object is
 retained by the commit callback. Outside a transaction, collection is immediate.

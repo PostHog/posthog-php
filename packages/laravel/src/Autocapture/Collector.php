@@ -7,7 +7,7 @@ use PostHog\Laravel\Context;
 use PostHog\Laravel\PostHog;
 use Throwable;
 
-/** @internal Collectors retain only identity and groups, never arbitrary context payloads. */
+/** @internal Collectors retain correlation IDs and groups, never arbitrary context payloads. */
 class Collector
 {
     public static function enabled(string $section): bool
@@ -18,7 +18,7 @@ class Collector
     public static function snapshot(): array
     {
         return array_intersect_key(Container::getInstance()->make(Context::class)->snapshot(), [
-            'distinctId' => true, 'groups' => true,
+            'distinctId' => true, 'sessionId' => true, 'groups' => true,
         ]);
     }
 

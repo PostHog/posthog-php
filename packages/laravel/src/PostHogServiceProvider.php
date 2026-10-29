@@ -6,7 +6,6 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Console\Events\CommandStarting;
-use Illuminate\Console\Events\CommandFinished;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobExceptionOccurred;
@@ -24,6 +23,11 @@ class PostHogServiceProvider extends ServiceProvider
         $this->app->scoped(PostHog::class);
         $this->app->alias(PostHog::class, 'posthog');
         $this->app->scoped(ExceptionReporter::class);
+        $this->app->scoped(RequestLifecycle::class);
+        $this->app->scoped(ConsoleLifecycle::class);
+        $this->app->extend(\Illuminate\Contracts\Console\Kernel::class, function ($kernel) {
+            return new ConsoleKernel($kernel);
+        });
         $this->app->scoped(\PostHog\Client::class, fn ($app) => $app->make(PostHog::class)->client());
         $this->app->scoped(FlagDefinitionCacheProvider::class, function ($app) {
             $config = $app['config']->get('posthog');
@@ -35,6 +39,9 @@ class PostHogServiceProvider extends ServiceProvider
                 $config['flag_cache']['refresh_interval'],
             );
         });
+        if (class_exists(\Laravel\Pennant\FeatureManager::class)) {
+            $this->app->register(Features\PennantServiceProvider::class);
+        }
         if (class_exists(AutocaptureServiceProvider::class)) {
             $this->app->register(AutocaptureServiceProvider::class);
         }
@@ -52,6 +59,11 @@ class PostHogServiceProvider extends ServiceProvider
         }
         $this->callAfterResolving(Kernel::class, function ($kernel) {
             $kernel->prependMiddleware(RequestContextMiddleware::class);
+            if (method_exists($kernel, 'whenRequestLifecycleIsLongerThan')) {
+                $kernel->whenRequestLifecycleIsLongerThan(-INF, static function () {
+                    Container::getInstance()->make(RequestLifecycle::class)->finish();
+                });
+            }
         });
         $this->callAfterResolving(ExceptionHandler::class, function ($handler) {
             if (method_exists($handler, 'reportable')) {
@@ -75,10 +87,8 @@ class PostHogServiceProvider extends ServiceProvider
             Container::getInstance()->make(ExceptionReporter::class)->remember($event->exception, 'task');
         });
         $events->listen(CommandStarting::class, function () {
-            $context = Container::getInstance()->make(Context::class);
-            $data = $context->snapshot();
-            $context->enter();
-            $context->begin($data);
+            // The first CLI kernel may already be handling input when package providers boot.
+            Container::getInstance()->make(ConsoleLifecycle::class)->startRoot();
         });
         foreach (
             [
@@ -101,7 +111,7 @@ class PostHogServiceProvider extends ServiceProvider
         });
         // End-event consumers must observe the completed scope before cleanup restores its caller.
         $this->app->booted(function () use ($events) {
-            foreach ([JobProcessed::class, JobExceptionOccurred::class, CommandFinished::class] as $event) {
+            foreach ([JobProcessed::class, JobExceptionOccurred::class] as $event) {
                 $events->listen($event, fn () => $this->finish(Container::getInstance(), true));
             }
             foreach (
@@ -120,11 +130,15 @@ class PostHogServiceProvider extends ServiceProvider
                 $this->finish($event->sandbox);
             });
         });
-        $this->app->terminating(fn () => $this->finish(Container::getInstance()));
     }
 
     private function finish(Container $app, bool $restore = false): void
     {
+        $request = $app->make(RequestLifecycle::class);
+        if (!$restore && $request->active()) {
+            $request->finish();
+            return;
+        }
         try {
             $app->make(PostHog::class)->flush();
         } catch (Throwable) {
