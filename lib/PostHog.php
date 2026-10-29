@@ -41,9 +41,6 @@ class PostHog
      *
      * @param array{
      *     host?: string,
-     *     library_name?: string,
-     *     library_version?: string,
-     *     release_id?: string|null,
      *     ssl?: bool,
      *     timeout?: int|float,
      *     verify_batch_events_request?: bool,
