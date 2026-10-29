@@ -1,0 +1,73 @@
+name: Laravel CI
+
+on:
+  pull_request:
+    paths:
+      - 'packages/laravel/**'
+      - 'examples/laravel/**'
+      - 'lib/**'
+      - 'composer.json'
+      - 'scripts/**'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/laravel*.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/laravel/**'
+      - 'examples/laravel/**'
+      - 'lib/**'
+      - 'composer.json'
+      - 'scripts/**'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/laravel*.yml'
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+concurrency:
+  group: laravel-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-tooling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+        with:
+          version: 11.13.1
+          runtime: node@24
+          install: false
+      - run: python3 -m unittest discover -s scripts/tests -v
+
+  framework:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { laravel: '12', php: '8.2' }
+          - { laravel: '12', php: '8.3' }
+          - { laravel: '12', php: '8.4' }
+          - { laravel: '12', php: '8.5' }
+          - { laravel: '13', php: '8.3' }
+          - { laravel: '13', php: '8.4' }
+          - { laravel: '13', php: '8.5' }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2.40.0
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: curl, mbstring, dom, xml, sqlite3, pdo_sqlite
+          tools: composer
+      - name: Test package and available example in isolation
+        env:
+          LARAVEL: ${{ matrix.laravel }}
+        run: bash scripts/test-laravel.sh "$LARAVEL"

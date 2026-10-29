@@ -155,10 +155,13 @@ jobs:
           ./vendor/bin/phpcbf --standard=phpcs.xml --no-colors --runtime-set ignore_non_auto_fixable_on_exit 1
           git diff --exit-code -- lib test
 
-      - uses: tinovyatkin/action-php-codesniffer@0043b33b3629611c37e8bc7ee8a4e061dc9a7ea2 # v1
+      - name: Check changed core PHP files
         if: needs.detect-markdown-only.outputs.markdown_only != 'true'
-        with:
-          files: "**.php" # you may customize glob as needed
-          phpcs_path: ./vendor/bin/phpcs
-          standard: phpcs.xml
-          scope: "file"
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          range="${BEFORE_SHA:-HEAD^}...HEAD"
+          if [ -n "$BASE_REF" ]; then range="origin/$BASE_REF...HEAD"; fi
+          git diff --name-only --diff-filter=ACM -z "$range" -- ':(glob)lib/**/*.php' ':(glob)test/**/*.php' |
+            xargs -0 -r ./vendor/bin/phpcs --standard=phpcs.xml --extensions=php

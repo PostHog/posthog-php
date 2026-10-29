@@ -1,0 +1,204 @@
+name: Laravel Release
+
+# Separate intents and manual dispatch deliberately do not trigger the core publisher.
+on:
+  push:
+    branches: [main]
+    paths: ['.laravel-changes/*.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+concurrency:
+  group: laravel-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      source: ${{ steps.candidate.outputs.source }}
+      version: ${{ steps.candidate.outputs.version }}
+      patch-sha256: ${{ steps.candidate.outputs.patch_sha256 }}
+      archive-sha256: ${{ steps.candidate.outputs.archive_sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require current main
+        env:
+          SOURCE: ${{ github.sha }}
+        run: test "$(git rev-parse origin/main)" = "$SOURCE"
+      - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+        with:
+          version: 11.13.1
+          runtime: node@24
+          install: false
+      - run: python3 -m unittest discover -s scripts/tests -v
+      - name: Prepare immutable candidate (no release credentials)
+        id: candidate
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 scripts/laravel_release.py prepare --repository "$REPOSITORY" --output "$RUNNER_TEMP/candidate"
+          python3 - "$RUNNER_TEMP/candidate/candidate.json" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          for key, value in json.load(open(sys.argv[1])).items():
+              print(f'{key}={value}')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: laravel-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/candidate/
+          if-no-files-found: error
+          retention-days: 5
+
+  verify:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.source }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: laravel-candidate-${{ needs.prepare.outputs.source }}
+          path: ${{ runner.temp }}/candidate
+      - name: Independently reproduce candidate bytes
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python3 scripts/laravel_release.py prepare --repository "$REPOSITORY" --output "$RUNNER_TEMP/reproduced"
+          for file in candidate.json release.patch package.tar.gz notes.md; do
+            cmp "$RUNNER_TEMP/candidate/$file" "$RUNNER_TEMP/reproduced/$file"
+          done
+          git apply --check "$RUNNER_TEMP/candidate/release.patch"
+      - name: Check source and distribution release refs are unused
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: bash scripts/check-laravel-release-refs.sh
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2.40.0
+        with:
+          php-version: '8.3'
+          extensions: curl, mbstring, dom, xml, sqlite3, pdo_sqlite
+          tools: composer
+      - name: Test approved source on both supported frameworks
+        run: |
+          bash scripts/test-laravel.sh 12
+          bash scripts/test-laravel.sh 13
+      - name: Validate distribution Composer metadata
+        run: |
+          mkdir "$RUNNER_TEMP/composer-check"
+          tar -xzf "$RUNNER_TEMP/candidate/package.tar.gz" -C "$RUNNER_TEMP/composer-check"
+          cd "$RUNNER_TEMP/composer-check"
+          composer validate --strict --no-check-version
+          composer install --no-dev --prefer-dist --no-progress --no-interaction --no-scripts --no-plugins
+
+  publish:
+    needs: [prepare, verify]
+    runs-on: ubuntu-latest
+    # Administrators MUST configure required reviewers and main-only deployment rules first.
+    environment: Laravel Release
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.source }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: laravel-candidate-${{ needs.prepare.outputs.source }}
+          path: ${{ runner.temp }}/candidate
+      - name: Recheck refs, main and approved candidate digests
+        env:
+          GH_TOKEN: ${{ secrets.LARAVEL_SOURCE_TOKEN }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          EXPECTED_SOURCE: ${{ needs.prepare.outputs.source }}
+          EXPECTED_PATCH: ${{ needs.prepare.outputs.patch-sha256 }}
+          EXPECTED_ARCHIVE: ${{ needs.prepare.outputs.archive-sha256 }}
+          DISTRIBUTION_TOKEN: ${{ secrets.LARAVEL_DISTRIBUTION_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$GH_TOKEN" && test -n "$DISTRIBUTION_TOKEN"
+          test "$(gh api "repos/$SOURCE_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$EXPECTED_SOURCE"
+          bash scripts/check-laravel-release-refs.sh
+          echo "$EXPECTED_PATCH  $RUNNER_TEMP/candidate/release.patch" | sha256sum --check --strict
+          echo "$EXPECTED_ARCHIVE  $RUNNER_TEMP/candidate/package.tar.gz" | sha256sum --check --strict
+          git apply --index "$RUNNER_TEMP/candidate/release.patch"
+      - name: Atomic GitHub-signed source version commit
+        id: source-commit
+        env:
+          GH_TOKEN: ${{ secrets.LARAVEL_SOURCE_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          python3 scripts/commit_laravel_release.py --checkout "$GITHUB_WORKSPACE" --repository "$REPOSITORY" --mode source --message "chore: release laravel-v$VERSION [skip ci]" >> "$GITHUB_OUTPUT"
+      - name: Require signed source commit
+        env:
+          GH_TOKEN: ${{ secrets.LARAVEL_SOURCE_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ steps.source-commit.outputs.commit-hash }}
+        run: |
+          test -n "$COMMIT"
+          test "$(gh api "repos/$REPOSITORY/commits/$COMMIT" --jq '.commit.verification.verified')" = true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          ref: main
+          path: laravel-distribution
+          token: ${{ secrets.LARAVEL_DISTRIBUTION_TOKEN }}
+          persist-credentials: false
+      - name: Replace dedicated distribution tree with package-only files
+        env:
+          REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+        run: python3 scripts/laravel_release.py install --candidate "$RUNNER_TEMP/candidate" --destination "$GITHUB_WORKSPACE/laravel-distribution" --repository "$REPOSITORY"
+      - name: Atomic GitHub-signed distribution commit
+        id: distribution-commit
+        env:
+          GH_TOKEN: ${{ secrets.LARAVEL_DISTRIBUTION_TOKEN }}
+          REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SOURCE: ${{ needs.prepare.outputs.source }}
+        run: |
+          python3 scripts/commit_laravel_release.py --checkout "$GITHUB_WORKSPACE/laravel-distribution" --repository "$REPOSITORY" --mode distribution --message "Release v$VERSION from source $SOURCE" >> "$GITHUB_OUTPUT"
+      - name: Publish distribution version
+        env:
+          GH_TOKEN: ${{ secrets.LARAVEL_DISTRIBUTION_TOKEN }}
+          REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          COMMIT: ${{ steps.distribution-commit.outputs.commit-hash }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "$COMMIT"
+          test "$(gh api "repos/$REPOSITORY/commits/$COMMIT" --jq '.commit.verification.verified')" = true
+          gh release create "v$VERSION" --repo "$REPOSITORY" --target "$COMMIT" --title "v$VERSION" --notes-file "$RUNNER_TEMP/candidate/notes.md"
+      - name: Publish independent source release and archive
+        env:
+          GH_TOKEN: ${{ secrets.LARAVEL_SOURCE_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ steps.source-commit.outputs.commit-hash }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          DISTRIBUTION_COMMIT: ${{ steps.distribution-commit.outputs.commit-hash }}
+          ARCHIVE_SHA256: ${{ needs.prepare.outputs.archive-sha256 }}
+        run: |
+          set -euo pipefail
+          printf '\nDistribution: %s@%s\nArchive SHA256: %s\n' "$DISTRIBUTION_REPOSITORY" "$DISTRIBUTION_COMMIT" "$ARCHIVE_SHA256" >> "$RUNNER_TEMP/candidate/notes.md"
+          gh release create "laravel-v$VERSION" --latest=false --repo "$REPOSITORY" --target "$COMMIT" --title "Laravel v$VERSION" --notes-file "$RUNNER_TEMP/candidate/notes.md" "$RUNNER_TEMP/candidate/package.tar.gz" "$RUNNER_TEMP/candidate/candidate.json"
