@@ -2447,6 +2447,9 @@ class Client implements FeatureFlagEvaluationsHost
     /**
      * Run a callback with request context applied to all captures in the callback.
      *
+     * Prefer this over enterContext() whenever the work can be wrapped in a callback: the
+     * previous context is restored when the callback returns or throws.
+     *
      * @param array{
      *     distinctId?: string,
      *     distinct_id?: string,
@@ -2468,10 +2471,30 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * Enter context across framework lifecycle callbacks. Close the returned scope in a finally block.
+     * Apply request context until the returned scope is closed.
      *
-     * @param array<string, mixed> $data
-     * @param array{fresh?: bool} $options
+     * Use this only when the work starts and ends in separate callbacks, such as framework
+     * lifecycle events or before/after middleware hooks; otherwise prefer withContext().
+     * Close the scope on every exit path, including failures. An unclosed scope leaks its context
+     * into later work until the scope is garbage-collected. Closing a scope is idempotent.
+     *
+     * ```php
+     * // Job started callback
+     * $this->scope = $client->enterContext(['distinctId' => $userId]);
+     *
+     * // Job finished or failed callback
+     * $this->scope?->close();
+     * $this->scope = null;
+     * ```
+     *
+     * @param array{
+     *     distinctId?: string,
+     *     distinct_id?: string,
+     *     sessionId?: string,
+     *     session_id?: string,
+     *     properties?: array<string, mixed>
+     * } $data
+     * @param array{fresh?: bool} $options Use `fresh => true` to avoid inheriting the current context.
      */
     public function enterContext(array $data, array $options = []): ContextScope
     {
