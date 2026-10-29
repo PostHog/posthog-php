@@ -337,10 +337,10 @@ class Client implements FeatureFlagEvaluationsHost
             ? $options['release_id']
             : ($envReleaseId === false ? null : $envReleaseId);
         $this->releaseId = StringNormalizer::normalizeOptional($releaseId);
-        $this->options['library_name'] = StringNormalizer::normalizeOptional($options['library_name'] ?? null)
-            ?? PostHog::LIBRARY;
-        $this->options['library_version'] = StringNormalizer::normalizeOptional($options['library_version'] ?? null)
-            ?? PostHog::VERSION;
+        foreach (['library_name' => PostHog::LIBRARY, 'library_version' => PostHog::VERSION] as $key => $default) {
+            $value = StringNormalizer::normalizeOptional($options[$key] ?? null);
+            $this->options[$key] = $value !== null && !preg_match('/[\x00-\x1f\x7f]/', $value) ? $value : $default;
+        }
         $this->options['host'] = StringNormalizer::normalizeHost($options['host'] ?? null);
         if (!$this->enabled) {
             if (($this->options['consumer'] ?? null) !== 'noop') {
@@ -657,9 +657,11 @@ class Client implements FeatureFlagEvaluationsHost
             return false;
         }
 
+        $mechanism = $options['mechanism'] ?? null;
+        $handled = $options['handled'] ?? null;
         $exceptionList = ExceptionPayloadBuilder::overridePrimaryMechanism($exceptionList, [
-            'type' => $options['mechanism'] ?? 'generic',
-            'handled' => $options['handled'] ?? true,
+            'type' => is_string($mechanism) && trim($mechanism) !== '' ? $mechanism : 'generic',
+            'handled' => is_bool($handled) ? $handled : true,
         ]);
 
         $traceProperties = array_diff_key(

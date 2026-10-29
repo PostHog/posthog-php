@@ -23,6 +23,8 @@ final class RequestContext
     private static array $stacks = [];
 
     private static int $nextScopeId = 1;
+    private static ?\WeakMap $fiberKeys = null;
+    private static int $nextFiberKey = 1;
 
     /**
      * Run a callback with context that is restored automatically afterwards.
@@ -52,11 +54,11 @@ final class RequestContext
     public static function enterContext(array $data, array $options = [], ?int $contextKey = null): ContextScope
     {
         $contextKey = self::contextKey($contextKey);
-        $fiber = \Fiber::getCurrent();
+        $fiberKey = self::fiberKey();
         $scopeId = self::push($data, (bool) ($options['fresh'] ?? false), $contextKey);
 
-        return new ContextScope(static function () use ($scopeId, $contextKey, $fiber): void {
-            self::pop($scopeId, $contextKey, $fiber === null ? 0 : spl_object_id($fiber));
+        return new ContextScope(static function () use ($scopeId, $contextKey, $fiberKey): void {
+            self::pop($scopeId, $contextKey, $fiberKey);
         });
     }
 
@@ -209,7 +211,13 @@ final class RequestContext
     private static function fiberKey(): int
     {
         $fiber = \Fiber::getCurrent();
-        return $fiber === null ? 0 : spl_object_id($fiber);
+        if ($fiber === null) {
+            return 0;
+        }
+
+        // Fiber object IDs can be reused while a detached scope is still open.
+        self::$fiberKeys ??= new \WeakMap();
+        return self::$fiberKeys[$fiber] ??= self::$nextFiberKey++;
     }
 
     private static function unsetStackIfEmpty(int $contextKey, int $fiberKey): void

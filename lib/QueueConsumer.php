@@ -299,6 +299,7 @@ abstract class QueueConsumer extends Consumer
      */
     protected function userAgent(): string
     {
-        return PostHog::LIBRARY . "/" . PostHog::VERSION;
+        return ($this->options['library_name'] ?? PostHog::LIBRARY)
+            . '/' . ($this->options['library_version'] ?? PostHog::VERSION);
     }
 }
