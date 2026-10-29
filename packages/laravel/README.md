@@ -90,8 +90,18 @@ disable propagation. This metadata is analytics context, never authorization evi
 Jobs may override it explicitly. Nested synchronous jobs and Artisan commands restore
 the caller's context and flag snapshots when they finish or fail.
 
-Global request middleware, queue events, Artisan command events, and Octane
-request/task/tick events flush and clean context automatically. SDK creation is lazy,
+Request context remains active through HTTP kernel termination, including
+`dispatchAfterResponse()` jobs and callbacks registered during application termination.
+The kernel's completion hook flushes and clears it afterward, not when middleware
+returns the response. Custom HTTP kernels without Laravel's lifecycle callback API
+fall back to middleware cleanup and cannot provide after-response correlation.
+
+Queue events and Octane request/task/tick boundaries flush and clean context
+automatically. Console integration decorates the existing console kernel contract:
+nested `Artisan::call()` executions restore their caller in `finally`, while the root
+command stays active through kernel termination. Thrown objects retain their own
+snapshots; nonzero return codes never supply another exception's identity. The
+application's commands, custom kernel, and exception-reporting policy are preserved. SDK creation is lazy,
 per Laravel scope. Shared flag definitions live in Laravel Cache, not a global SDK.
 Do not retain scoped services in application singletons or prewarm them in Octane.
 
@@ -107,7 +117,9 @@ Automatic flush failures do not replace an HTTP response or worker failure. Expl
 Laravel's reportable exception path respects `dontReport`, exception-specific report
 methods, and preceding report callbacks that stop reporting. The package does not
 install global PHP exception/error handlers, even if `sdk.error_tracking.enabled` is
-set. Disable automatic reporting with `capture_exceptions=false`.
+set. Disable automatic reporting with `capture_exceptions=false`. Custom exception handlers
+must expose Laravel's `reportable()` API for automatic registration; otherwise add an
+explicit report callback using the public capture API.
 
 ```php
 try {
