@@ -1,6 +1,6 @@
 # Releasing
 
-This repository uses [pnpm's native release management](https://pnpm.io/versioning) and an automated GitHub Actions workflow for releases.
+The core PHP SDK uses [pnpm's native release management](https://pnpm.io/versioning) and an automated GitHub Actions workflow for releases. The [Laravel package](#laravel-package-independent-releases) has a separate release lane; its changes must not be recorded with `pnpm change`.
 
 ## How to Release
 
@@ -91,3 +91,144 @@ git push origin main
 ```
 
 After rollback, add or restore the needed change intent and let the release workflow prepare a new release candidate.
+
+## Laravel package: independent releases
+
+`packages/laravel` contains `posthog/posthog-laravel`, initially **0.1.0**, depending
+on `posthog/posthog-php ^4.20`. It is not part of the pnpm workspace. **Do not select
+it in `pnpm change`, add it to the workspace, or put Laravel intents in
+`.changeset/`.** Core and Laravel changes in the same PR need separate intents.
+
+Packagist reads `composer.json` at a repository's root, not under
+`packages/laravel`. The source repository therefore cannot itself be registered
+as this second Composer package. Publishing uses a separate, dedicated public
+**distribution repository**, recommended `PostHog/posthog-laravel`. Its root is
+replaced with only tracked package `composer.json`, `README.md`, `LICENSE.md`,
+`src/**/*.php`, `config/**/*.php`, and generated `posthog-source.json`. Hidden
+files, vendors, tests, environment files, locks, development tooling and non-PHP
+config files are excluded; symlinks fail preparation. Never keep unrelated files
+in that repository: obsolete distribution files are deleted on release.
+
+### Prerequisites — administrator actions, not performed by this tooling change
+
+Before enabling publication:
+
+1. Create the dedicated public distribution repository and initialize its `main`
+   branch with a signed bootstrap commit (a README is sufficient). Do not create
+   the repository or publish while merely testing this tooling.
+2. Set source repository variable `LARAVEL_DISTRIBUTION_REPOSITORY` to its
+   `owner/repository` name. It must differ from the source repository.
+3. Create the source **`Laravel Release` environment**, require maintainer review,
+   prevent self-review, and restrict deployments to protected `main`. Apply
+   normal source PR/branch protections and require Laravel CI before merging.
+   Merely naming an environment in YAML does not configure its protection rules.
+4. Store **environment-only** secrets `LARAVEL_SOURCE_TOKEN` and
+   `LARAVEL_DISTRIBUTION_TOKEN` in that reviewed environment. Use a narrowly scoped
+   fine-grained token for each repository (Contents read/write, including the
+   GitHub GraphQL `createCommitOnBranch` API and releases). Do not put these
+   secrets at repository/org scope or expose them to preparation/verification.
+   Configure branch/ruleset permissions for those actors to create GitHub-signed
+   version commits, without disabling required signatures or force-push rules.
+   No local signing key is uploaded. The workflow checks GitHub commit signature
+   verification before tagging either repository.
+5. Publish core PHP **4.20 or later** first, so the Laravel Composer dependency
+   can resolve without a development path override. Remove any local Composer
+   `repositories` from the committed Laravel package; preparation rejects them.
+6. Register `posthog/posthog-laravel` on Packagist using the **distribution** repo,
+   configure its normal GitHub update integration/webhook, and verify ownership.
+   This workflow does not create repositories, register Packagist packages, or
+   configure webhooks. The distribution repo must be public so pre-approval,
+   read-only jobs can verify its refs without release credentials.
+
+Unconfigured variables, secrets, repositories, or refs fail closed. Administrators
+must configure review rules before adding the environment secrets; no publication
+has been performed as part of implementing these files.
+
+### Record a Laravel change
+
+From the source repository root:
+
+```bash
+# Once only, for the initial 0.1.0 release:
+python3 scripts/laravel_release.py intent initial "Initial Laravel package"
+
+# Subsequent releases (choose patch, minor, or major):
+python3 scripts/laravel_release.py intent patch "Describe the Laravel change"
+```
+
+Commit the generated `.laravel-changes/<id>.json` alongside the change. The
+largest pending bump wins. `initial` preserves 0.1.0 and cannot be combined with
+other bump types; the changelog prevents releasing that version twice. Later
+bumps follow normal SemVer (minor 0.1.0 becomes 0.2.0). Preparation synchronizes
+`packages/laravel/package.json`, `composer.json`, and `src/PostHog.php::VERSION`,
+updates root `LARAVEL_CHANGELOG.md`, and removes only the consumed Laravel intents.
+It does not change the root/core version, changelog, Composer lock, or intents.
+
+A push changing `.laravel-changes/*.json` on `main` starts **Laravel Release**;
+manual dispatch on `main` is also available. A stale trigger fails rather than
+publishing old source: dispatch again on current `main` if intents remain.
+There must be at least one pending Laravel intent. The core `Release` workflow
+and its script hash, signing, verification and approval protections are unchanged.
+
+### Candidate, approval and publication
+
+1. A read-only job clones the exact committed source into a temporary directory,
+   runs deterministic fixtures, and prepares a version patch, package-only
+   archive, source metadata, release notes and SHA256 manifest. Uncommitted local
+   files are never used. Nothing modifies the original checkout.
+2. A separate read-only job independently reproduces every candidate byte,
+   checks both repositories for duplicate tags/releases (only explicit 404 means
+   missing), validates Composer metadata, and tests Laravel 12 and 13 on PHP 8.3.
+   Normal Laravel CI additionally covers 12/PHP 8.2–8.5 and 13/PHP 8.3–8.5 and
+   the runnable example when present. No release credentials enter those jobs.
+3. After environment approval, the publishing job rechecks `main`, refs and
+   candidate digests. It applies only the verified patch and uses GitHub's
+   `createCommitOnBranch` API to create a signed source commit, with
+   `expectedHeadOid` rejecting concurrent branch changes atomically. It executes
+   no Composer installs, package scripts or git hooks with release credentials.
+4. It replaces the dedicated distribution tree, creates another atomically
+   guarded GitHub-signed commit, and publishes distribution **`vX.Y.Z`**. Packagist
+   can discover the root Composer package from that tag.
+5. It publishes source **`laravel-vX.Y.Z`** against the signed source version
+   commit with the package archive, manifest, checksums and distribution commit
+   reference. The source release is not marked latest, preserving the core SDK's
+   latest-release status. `posthog-source.json` records the original input source
+   SHA, source directory and source release tag; the tag includes the version
+   patch on top of that SHA.
+
+Preview without credentials or publication, using an output path that does not
+already exist:
+
+```bash
+python3 scripts/laravel_release.py prepare \
+  --repository PostHog/posthog-php --output /tmp/laravel-candidate
+cat /tmp/laravel-candidate/candidate.json
+```
+
+Fixtures run without credentials, temporary repositories only:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -v
+actionlint .github/workflows/laravel.yml .github/workflows/laravel-release.yml
+```
+
+The fixtures pin **pnpm 11.13.1**, including native core-only releases and
+selective-filter experiments: `--filter posthog-php version -r` leaves Laravel
+unchanged and retains a mixed intent until both packages are released (the
+ledger prevents rebumping core). This does **not** make registering Laravel safe:
+the existing core publisher runs **unfiltered** `pnpm version -r`. Keeping Laravel
+outside that workspace and using a different intent directory avoids consuming
+or bumping the other package, without refactoring core publishing.
+
+### Partial-failure recovery
+
+Publication spans two repositories and cannot be transactional. A failure may
+leave a signed source version commit without a distribution commit/tag, or a
+published distribution version without the source release. Do not blindly retry
+or restore a consumed intent: that can bump again or create duplicate versions.
+Inspect the retained candidate artifact and both repository histories/ref states.
+A maintainer must verify signatures, candidate checksums and matching root
+Composer/runtime versions, then complete only the missing commit/tag/release
+using the original version and recorded source. Never move an already published
+version/tag or overwrite distribution history. Correct a bad version with new
+signed commits and a new intent/version; use signed reverts, not history rewrites.

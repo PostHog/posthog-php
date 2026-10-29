@@ -155,10 +155,7 @@ jobs:
           ./vendor/bin/phpcbf --standard=phpcs.xml --no-colors --runtime-set ignore_non_auto_fixable_on_exit 1
           git diff --exit-code -- lib test
 
-      - uses: tinovyatkin/action-php-codesniffer@0043b33b3629611c37e8bc7ee8a4e061dc9a7ea2 # v1
+      - name: Check core coding standard
         if: needs.detect-markdown-only.outputs.markdown_only != 'true'
-        with:
-          files: "**.php" # you may customize glob as needed
-          phpcs_path: ./vendor/bin/phpcs
-          standard: phpcs.xml
-          scope: "file"
+        # Explicit paths must stay within the core ruleset; Laravel has independent CI.
+        run: ./vendor/bin/phpcs --standard=phpcs.xml --extensions=php lib test

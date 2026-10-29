@@ -1,0 +1,6 @@
+{
+  "name": "posthog-laravel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Independent release metadata for posthog/posthog-laravel"
+}
