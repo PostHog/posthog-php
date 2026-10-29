@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="vendor/autoload.php" colors="true" cacheDirectory=".phpunit.cache">
+    <testsuites><testsuite name="Laravel example"><directory>tests/Feature</directory></testsuite></testsuites>
+    <php>
+        <env name="APP_ENV" value="testing" force="true"/>
+        <env name="APP_KEY" value="base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" force="true"/>
+        <env name="APP_DEBUG" value="false" force="true"/>
+        <env name="DB_CONNECTION" value="sqlite" force="true"/>
+        <env name="DB_DATABASE" value=":memory:" force="true"/>
+        <env name="SESSION_DRIVER" value="array" force="true"/>
+        <env name="CACHE_STORE" value="array" force="true"/>
+        <env name="QUEUE_CONNECTION" value="sync" force="true"/>
+        <env name="LOG_CHANNEL" value="null" force="true"/>
+        <env name="POSTHOG_API_KEY" value="" force="true"/>
+        <env name="POSTHOG_SECRET_KEY" value="" force="true"/>
+        <env name="POSTHOG_QUEUE_CONTEXT" value="true" force="true"/>
+        <env name="POSTHOG_ENABLED" value="false" force="true"/>
+        <env name="POSTHOG_COLLECT_REQUESTS" value="false" force="true"/>
+        <env name="POSTHOG_COLLECT_PAGEVIEWS" value="false" force="true"/>
+        <env name="POSTHOG_COLLECT_AUTH" value="false" force="true"/>
+        <env name="POSTHOG_COLLECT_MODELS" value="false" force="true"/>
+        <env name="POSTHOG_COLLECT_DOMAIN" value="false" force="true"/>
+        <env name="POSTHOG_COLLECT_JOBS" value="false" force="true"/>
+        <env name="POSTHOG_COLLECT_COMMANDS" value="false" force="true"/>
+        <env name="POSTHOG_COLLECT_SCHEDULER" value="false" force="true"/>
+    </php>
+</phpunit>
