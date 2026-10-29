@@ -75,7 +75,13 @@ class AutocaptureServiceProvider extends ServiceProvider
         $events->listen(\Illuminate\Queue\Events\JobProcessing::class, static function ($event) use ($outcomes) {
             $outcomes->start('jobs', $event->job);
         });
-        foreach (['JobProcessed' => 'success', 'JobExceptionOccurred' => 'failed'] as $event => $outcome) {
+        foreach (
+            [
+                'JobProcessed' => 'success',
+                'JobExceptionOccurred' => 'failed',
+                'JobFailed' => 'failed',
+            ] as $event => $outcome
+        ) {
             $events->listen('Illuminate\\Queue\\Events\\' . $event, static function ($event) use ($outcomes, $outcome) {
                 $outcomes->finish('jobs', $event->job, static fn () => [
                     'name' => $event->job->resolveQueuedJobClass(),
