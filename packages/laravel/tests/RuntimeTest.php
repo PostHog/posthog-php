@@ -131,6 +131,27 @@ class RuntimeTest extends TestCase
         ));
     }
 
+    public function testFailedCommandSnapshotSurvivesTerminationBeforeKernelReporting(): void
+    {
+        $fake = Facade::fake();
+        $context = $this->app->make(Context::class);
+        $context->begin(['distinctId' => 'caller']);
+        $kernel = new \PostHog\Laravel\Tests\Fixtures\ReportingConsoleKernel($this->app, $this->app['events']);
+        $this->app->instance(\Illuminate\Contracts\Console\Kernel::class, $kernel);
+        \Illuminate\Support\Facades\Artisan::clearResolvedInstance(\Illuminate\Contracts\Console\Kernel::class);
+        $kernel->rerouteSymfonyCommandEvents();
+        \Illuminate\Support\Facades\Artisan::command('posthog:failing', function () {
+            app(Context::class)->begin(['distinctId' => 'failed-command']);
+            throw new RuntimeException('command failure');
+        });
+        $this->assertSame(1, $kernel->handle(new ArrayInput(['command' => 'posthog:failing']), new NullOutput()));
+        $this->assertSame('caller', $context->data()['distinctId']);
+        $this->assertCount(1, $fake->recorded('captureException'));
+        $this->assertSame('failed-command', $fake->recorded('captureException')[0]['message']['distinctId']);
+        $fake->assertExceptionCaptured(fn ($event) => $event['distinctId'] === 'failed-command'
+            && $event['options']['handled'] === false);
+    }
+
     public function testHeaderFallbackAndNestedContextRestoreOnFailure(): void
     {
         $context = $this->app->make(Context::class);

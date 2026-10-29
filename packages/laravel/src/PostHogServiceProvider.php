@@ -78,7 +78,9 @@ class PostHogServiceProvider extends ServiceProvider
             Container::getInstance()->make(ExceptionReporter::class)->remember($event->exception, 'task');
         });
         $events->listen(CommandStarting::class, function () {
-            $context = Container::getInstance()->make(Context::class);
+            $app = Container::getInstance();
+            $app->make(ExceptionReporter::class)->commandStarting();
+            $context = $app->make(Context::class);
             $data = $context->snapshot();
             $context->enter();
             $context->begin($data);
@@ -104,7 +106,12 @@ class PostHogServiceProvider extends ServiceProvider
         });
         // End-event consumers must observe the completed scope before cleanup restores its caller.
         $this->app->booted(function () use ($events) {
-            foreach ([JobProcessed::class, JobExceptionOccurred::class, CommandFinished::class] as $event) {
+            $events->listen(CommandFinished::class, function ($event) {
+                $app = Container::getInstance();
+                $app->make(ExceptionReporter::class)->commandFinished($event->exitCode);
+                $this->finish($app, true);
+            });
+            foreach ([JobProcessed::class, JobExceptionOccurred::class] as $event) {
                 $events->listen($event, fn () => $this->finish(Container::getInstance(), true));
             }
             foreach (
