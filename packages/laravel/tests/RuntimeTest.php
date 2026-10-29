@@ -90,8 +90,12 @@ class RuntimeTest extends TestCase
         }
         $messages = array_column($fake->recorded('capture'), 'message');
         $this->assertSame(['first', 'override', 'second', 'override'], array_column($messages, 'distinctId'));
-        $this->assertSame(['$session_id' => 'session-first'], $messages[0]['properties']);
-        $this->assertSame(['$session_id' => 'session-second'], $messages[2]['properties']);
+        $this->assertSame([
+            '$session_id' => 'session-first', '$request_method' => 'GET', '$request_path' => '/runtime/{id}',
+        ], $messages[0]['properties']);
+        $this->assertSame([
+            '$session_id' => 'session-second', '$request_method' => 'GET', '$request_path' => '/runtime/{id}',
+        ], $messages[2]['properties']);
         $this->assertSame([], $this->app->make(Context::class)->snapshot());
         $this->assertStringNotContainsString('private', json_encode($messages));
     }

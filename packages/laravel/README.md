@@ -51,6 +51,8 @@ fallback. `X-PostHog-Session-Id` provides session correlation. Headers are untru
 analytics input, **never authentication or authorization**. Set `header_context=false`
 to ignore both headers. No anonymous ID is generated for requests without identity.
 
+Captures include the request method and matched route template (for example
+`/orders/{order}`), never concrete route parameters. Explicit event properties win.
 By default there is no collection of raw URLs, query strings, request bodies,
 cookies, email, IP addresses, or user profile fields. GeoIP is disabled by default
 (`sdk.disableGeoip=true`). Application-supplied properties and exception messages may

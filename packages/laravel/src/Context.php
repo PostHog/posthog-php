@@ -4,6 +4,7 @@ namespace PostHog\Laravel;
 
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route;
 use PostHog\FeatureFlagEvaluations;
 use PostHog\PostHog as CorePostHog;
 use Throwable;
@@ -34,6 +35,13 @@ class Context
     public function data(): array
     {
         $data = $this->context;
+        if ($this->request !== null) {
+            $data['properties']['$request_method'] ??= $this->request->method();
+            $route = $this->request->route();
+            if ($route instanceof Route) {
+                $data['properties']['$request_path'] ??= '/' . ltrim($route->uri(), '/');
+            }
+        }
         try {
             $resolver = $this->app['config']->get('posthog.distinct_id');
             $id = $resolver ? ($this->app->make($resolver))($this->app) : null;
