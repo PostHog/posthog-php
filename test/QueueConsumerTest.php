@@ -8,6 +8,8 @@ use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
 use PostHog\Consumer\Socket;
 use PostHog\QueueConsumer;
+use Symfony\Component\Clock\Clock;
+use Symfony\Component\Clock\MockClock;
 
 class QueueConsumerTest extends TestCase
 {
@@ -180,22 +182,84 @@ class QueueConsumerTest extends TestCase
         $this->assertSame([], $this->queuedItems($consumer));
     }
 
-    public function testRetainedFailedBatchIsRetriedBeforeNewerEvents(): void
+    public static function retainedBatchRetryCases(): array
+    {
+        return [
+            'automatic flush waits for cooldown' => [0, false, false],
+            'automatic flush resumes after cooldown' => [10, false, true],
+            'explicit flush ignores cooldown' => [0, true, true],
+        ];
+    }
+
+    #[DataProvider('retainedBatchRetryCases')]
+    public function testRetainedBatchRetry(int $secondsLater, bool $explicitFlush, bool $retried): void
+    {
+        $first = $this->message('first');
+        $second = $this->message('second');
+        $third = $this->message('third');
+        $consumer = new QueueConsumerTestConsumer(
+            [QueueConsumerTestConsumer::retryableFailure(), true, true],
+            ['batch_size' => 2]
+        );
+        $clock = new MockClock();
+        $previousClock = Clock::get();
+        Clock::set($clock);
+
+        try {
+            $this->assertTrue($consumer->enqueue($first));
+            $this->assertFalse($consumer->enqueue($second));
+            $clock->sleep($secondsLater);
+            $this->assertTrue($consumer->enqueue($third));
+            if ($explicitFlush) {
+                $this->assertTrue($consumer->flush());
+            }
+        } finally {
+            Clock::set($previousClock);
+        }
+
+        $this->assertSame(
+            $retried ? [[$first, $second], [$first, $second], [$third]] : [[$first, $second]],
+            $consumer->flushedBatches
+        );
+        $this->assertSame($retried ? [] : [$first, $second, $third], $consumer->queuedItems());
+    }
+
+    public static function fullQueueAfterRetryableFailureCases(): array
+    {
+        return [
+            'full queue rejects during cooldown' => [0, false],
+            'full queue flushes after cooldown' => [10, true],
+        ];
+    }
+
+    #[DataProvider('fullQueueAfterRetryableFailureCases')]
+    public function testFullQueueAfterRetryableFailure(int $secondsLater, bool $recovered): void
     {
         $first = $this->message('first');
         $second = $this->message('second');
         $third = $this->message('third');
         $consumer = new QueueConsumerTestConsumer(
             [QueueConsumerTestConsumer::retryableFailure(), true],
-            ['batch_size' => 2]
+            ['batch_size' => 2, 'max_queue_size' => 2]
         );
+        $clock = new MockClock();
+        $previousClock = Clock::get();
+        Clock::set($clock);
 
-        $this->assertTrue($consumer->enqueue($first));
-        $this->assertFalse($consumer->enqueue($second));
-        $this->assertTrue($consumer->enqueue($third));
+        try {
+            $this->assertTrue($consumer->enqueue($first));
+            $this->assertFalse($consumer->enqueue($second));
+            $clock->sleep($secondsLater);
+            $this->assertSame($recovered, $consumer->enqueue($third));
+        } finally {
+            Clock::set($previousClock);
+        }
 
-        $this->assertSame([[$first, $second], [$first, $second], [$third]], $consumer->flushedBatches);
-        $this->assertSame([], $consumer->queuedItems());
+        $this->assertSame(
+            $recovered ? [[$first, $second], [$first, $second]] : [[$first, $second]],
+            $consumer->flushedBatches
+        );
+        $this->assertSame($recovered ? [$third] : [$first, $second], $consumer->queuedItems());
     }
 
     #[DataProvider('libCurlFailureQueueBehaviorCases')]
@@ -224,9 +288,47 @@ class QueueConsumerTest extends TestCase
     {
         return [
             'network failure keeps batch queued' => ['network-failure', false, 0, 28, true],
-            'http failure drops batch' => ['http-failure', '{"status":0}', 500, 0, false],
+            'server error keeps batch queued' => ['server-error', '{"status":0}', 500, 0, true],
+            'rate limit keeps batch queued' => ['rate-limit', '{"status":0}', 429, 0, true],
+            'bad request drops batch' => ['bad-request', '{"status":0}', 400, 0, false],
             'payload too large drops batch' => ['payload-too-large', '{"status":0}', 413, 0, false],
         ];
+    }
+
+    public static function destructDuringCooldownCases(): array
+    {
+        return [
+            'destructor waits for cooldown' => [0, 1],
+            'destructor retries once cooldown elapses' => [1, 2],
+        ];
+    }
+
+    #[DataProvider('destructDuringCooldownCases')]
+    public function testDestructDoesNotRepeatRetryWithinCooldown(int $secondsLater, int $expectedCalls): void
+    {
+        $message = $this->message('persistent-failure');
+        $httpClient = new MockedHttpClient(
+            'app.posthog.com',
+            batchEndpointResponse: '{"status":0}',
+            batchEndpointResponseCode: 503
+        );
+        $consumer = new LibCurl('test-key', ['batch_size' => 1, 'maximum_backoff_duration' => 100], $httpClient);
+        $clock = new MockClock();
+        $previousClock = Clock::get();
+        Clock::set($clock);
+
+        try {
+            $this->assertFalse($consumer->capture($message));
+            $clock->sleep($secondsLater);
+            // Call the real destructor logic directly (as Client::shutdown() and PHP's own
+            // garbage collector both do) without destroying the test's reference to $consumer.
+            $consumer->__destruct();
+        } finally {
+            Clock::set($previousClock);
+        }
+
+        $this->assertCount($expectedCalls, $httpClient->calls);
+        $this->assertSame([$message], $this->queuedItems($consumer));
     }
 
     private function message(string $event): array

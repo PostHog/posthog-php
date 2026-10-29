@@ -96,3 +96,12 @@ posthog-php@4.18.1:
   dir: ""
   intents:
     - seven-suns-strive
+posthog-php@4.18.2:
+  dir: ""
+  intents:
+    - consumer-http-retries
+    - socket-retry-state
+posthog-php@4.19.0:
+  dir: ""
+  intents:
+    - unresolved-local-flags

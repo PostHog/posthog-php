@@ -14,6 +14,7 @@ use PostHog\EvaluatedFlagRecord;
 use PostHog\FeatureFlagEvaluations;
 use PostHog\PostHog;
 use PostHog\Test\Assets\MockedResponses;
+use PostHog\UnresolvedFlagReason;
 
 class FeatureFlagEvaluationsTest extends TestCase
 {
@@ -33,12 +34,14 @@ class FeatureFlagEvaluationsTest extends TestCase
         $flagsEndpointResponse = MockedResponses::FLAGS_V2_RESPONSE,
         $localEvaluationResponse = [],
         ?string $personalApiKey = null,
-        array $options = []
+        array $options = [],
+        int $flagsEndpointResponseCode = 200
     ): void {
         $this->http_client = new MockedHttpClient(
             'app.posthog.com',
             flagEndpointResponse: $localEvaluationResponse,
-            flagsEndpointResponse: $flagsEndpointResponse
+            flagsEndpointResponse: $flagsEndpointResponse,
+            flagsEndpointResponseCode: $flagsEndpointResponseCode
         );
         $this->client = new Client(
             self::FAKE_API_KEY,
@@ -1156,5 +1159,428 @@ class FeatureFlagEvaluationsTest extends TestCase
         );
 
         $this->assertCount(1, $messages);
+    }
+
+    private static function localFlag(
+        string $key,
+        array $properties = [],
+        bool $continuity = false,
+        bool $active = true
+    ): array {
+        return [
+            'id' => 1,
+            'key' => $key,
+            'active' => $active,
+            'ensure_experience_continuity' => $continuity,
+            'filters' => ['groups' => [['properties' => $properties, 'rollout_percentage' => 100]]],
+        ];
+    }
+
+    private static function localDefinitions(array ...$flags): array
+    {
+        return ['flags' => $flags, 'group_type_mapping' => [], 'cohorts' => []];
+    }
+
+    private static function planFilter(string $operator = 'exact', string $value = 'pro'): array
+    {
+        return ['key' => 'plan', 'type' => 'person', 'operator' => $operator, 'value' => $value];
+    }
+
+    private static function staticCohortFilter(): array
+    {
+        return ['key' => 'id', 'type' => 'cohort', 'value' => 999];
+    }
+
+    private static function dependsOnFilter(string $key): array
+    {
+        return [
+            'key' => $key,
+            'type' => 'flag',
+            'operator' => 'flag_evaluates_to',
+            'value' => true,
+            'dependency_chain' => [$key],
+        ];
+    }
+
+    private function makeLocalClient(
+        array $localEvaluationResponse,
+        array $flagsEndpointResponse = ['flags' => []],
+        int $flagsEndpointResponseCode = 200
+    ): void {
+        $this->makeClient(
+            flagsEndpointResponse: $flagsEndpointResponse,
+            localEvaluationResponse: $localEvaluationResponse,
+            personalApiKey: 'test-personal-key',
+            flagsEndpointResponseCode: $flagsEndpointResponseCode
+        );
+    }
+
+    /** @return list<array<string, mixed>> Properties of each delivered $feature_flag_called event for $key. */
+    private function flagCalledEvents(string $key): array
+    {
+        $this->client->flush();
+        $events = [];
+        foreach ($this->batchRequests() as $batch) {
+            foreach ($batch['batch'] as $event) {
+                if ($event['event'] === '$feature_flag_called' && $event['properties']['$feature_flag'] === $key) {
+                    $events[] = $event['properties'];
+                }
+            }
+        }
+        return $events;
+    }
+
+    public function testLocalOnlyEvaluationReportsExperienceContinuityFlagAsUnresolved(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(
+            self::localFlag('beta-ui'),
+            self::localFlag('checkout', continuity: true),
+        ));
+
+        $snapshot = $this->client->evaluateFlags('user-123', onlyEvaluateLocally: true);
+
+        $this->assertSame(['beta-ui'], $snapshot->getKeys());
+        $this->assertSame(['checkout' => UnresolvedFlagReason::EXPERIENCE_CONTINUITY], $snapshot->getUnresolvedFlags());
+        $this->assertSame(0, $this->flagsRequestCount());
+        $this->client->flush();
+        $this->assertSame([], $this->batchRequests());
+        $this->assertSame([], $snapshot->onlyAccessed()->getKeys());
+        $this->assertSame([], $snapshot->onlyAccessed()->getUnresolvedFlags());
+        $this->assertSame([], $snapshot->only(['beta-ui', 'checkout'])->getUnresolvedFlags());
+        $this->assertSame(true, $snapshot->getFlag('beta-ui'));
+    }
+
+    #[DataProvider('unresolvedReasonProvider')]
+    public function testEachInconclusiveCauseReportsItsUnresolvedReason(
+        array $properties,
+        array $personProperties,
+        string $reason
+    ): void {
+        $this->makeLocalClient(self::localDefinitions(self::localFlag('checkout', $properties)));
+
+        $snapshot = $this->client->evaluateFlags(
+            'user-123',
+            personProperties: $personProperties,
+            onlyEvaluateLocally: true
+        );
+
+        $this->assertNotContains('checkout', $snapshot->getKeys());
+        $this->assertSame(['checkout' => $reason], $snapshot->getUnresolvedFlags());
+    }
+
+    public static function unresolvedReasonProvider(): iterable
+    {
+        // The device-bucketed row of the spec is not applicable: this SDK has no device id bucketing.
+        yield 'person property not passed' => [[self::planFilter()], [], UnresolvedFlagReason::MISSING_CONTEXT];
+        yield 'unknown operator' => [
+            [self::planFilter('not_a_real_operator')],
+            ['plan' => 'enterprise'],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'static cohort' => [[self::staticCohortFilter()], [], UnresolvedFlagReason::UNSUPPORTED_DEFINITION];
+        yield 'static cohort and person property not passed' => [
+            [self::staticCohortFilter(), self::planFilter()],
+            [],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'person property not passed and static cohort' => [
+            [self::planFilter(), self::staticCohortFilter()],
+            [],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+        yield 'malformed semver person property' => [
+            [self::planFilter('semver_gt', '1.2.3')],
+            ['plan' => 'not-a-version'],
+            UnresolvedFlagReason::MISSING_CONTEXT,
+        ];
+        yield 'malformed semver filter' => [
+            [self::planFilter('semver_gt', 'not-a-version')],
+            ['plan' => '1.2.3'],
+            UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+        ];
+    }
+
+    public function testFlagBlockedByUnresolvedDependencyReportsTheDependency(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(
+            self::localFlag('checkout', continuity: true),
+            self::localFlag('beta-ui', [self::dependsOnFilter('checkout')]),
+        ));
+
+        $snapshot = $this->client->evaluateFlags('user-123', onlyEvaluateLocally: true, flagKeys: ['beta-ui']);
+
+        $this->assertSame([], $snapshot->getKeys());
+        $this->assertSame(['beta-ui' => UnresolvedFlagReason::UNRESOLVED_DEPENDENCY], $snapshot->getUnresolvedFlags());
+    }
+
+    public function testFlagDependingOnFlagWithNoLoadedDefinitionReportsUnsupportedDefinition(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(
+            self::localFlag('beta-ui', [self::dependsOnFilter('checkout')]),
+        ));
+
+        $snapshot = $this->client->evaluateFlags('user-123', onlyEvaluateLocally: true, flagKeys: ['beta-ui']);
+
+        $this->assertSame([], $snapshot->getKeys());
+        $this->assertSame(['beta-ui' => UnresolvedFlagReason::UNSUPPORTED_DEFINITION], $snapshot->getUnresolvedFlags());
+    }
+
+    /** A flag whose first condition depends on `dep` and whose second condition matches everyone by default. */
+    private static function flagWithDependencyAndCatchAll(array $laterConditionFilters = []): array
+    {
+        return [
+            'id' => 2,
+            'key' => 'target',
+            'active' => true,
+            'filters' => [
+                'multivariate' => ['variants' => [
+                    ['key' => 'a', 'rollout_percentage' => 50],
+                    ['key' => 'b', 'rollout_percentage' => 50],
+                ]],
+                'groups' => [
+                    ['properties' => [self::dependsOnFilter('dep')], 'rollout_percentage' => 100, 'variant' => 'a'],
+                    ['properties' => $laterConditionFilters, 'rollout_percentage' => 100, 'variant' => 'b'],
+                ],
+            ],
+        ];
+    }
+
+    #[DataProvider('dependencyThatNeedsServerProvider')]
+    public function testFlagWithDependencyThatNeedsServerFallsBackToServer(?array $flagKeys): void
+    {
+        $this->makeLocalClient(
+            self::localDefinitions(
+                self::localFlag('dep', [self::staticCohortFilter()]),
+                self::flagWithDependencyAndCatchAll(),
+            ),
+            ['flags' => ['target' => ['key' => 'target', 'enabled' => true, 'variant' => 'a']]]
+        );
+
+        $snapshot = $this->client->evaluateFlags('user-123', flagKeys: $flagKeys);
+
+        $this->assertSame(1, $this->flagsRequestCount());
+        $this->assertSame('a', $snapshot->getFlag('target'));
+        $this->assertArrayNotHasKey('target', $snapshot->getUnresolvedFlags());
+    }
+
+    public static function dependencyThatNeedsServerProvider(): iterable
+    {
+        yield 'flag requested alone' => [['target']];
+        yield 'all flags requested' => [null];
+    }
+
+    public function testFlagWithDependencyThatNeedsServerFallsBackToServerDespiteAMalformedLaterCondition(): void
+    {
+        global $errorMessages;
+        $malformedDependency = array_merge(self::dependsOnFilter('dep'), ['dependency_chain' => [['dep']]]);
+        $this->makeLocalClient(
+            self::localDefinitions(
+                self::localFlag('dep', [self::staticCohortFilter()]),
+                self::flagWithDependencyAndCatchAll([$malformedDependency]),
+                self::localFlag('everyone'),
+            ),
+            ['flags' => ['target' => ['key' => 'target', 'enabled' => true, 'variant' => 'a']]]
+        );
+        $loadMessages = $errorMessages;
+        $errorMessages = [];
+
+        $snapshot = $this->client->evaluateFlags('user-123', flagKeys: ['target', 'everyone']);
+
+        $this->assertSame(
+            [1, 'a', true, []],
+            [
+                $this->flagsRequestCount(),
+                $snapshot->getFlag('target'),
+                $snapshot->getFlag('everyone'),
+                $errorMessages,
+            ]
+        );
+        $this->assertCount(1, array_filter(
+            $loadMessages,
+            fn (string $message) => str_contains($message, 'could not check the definition') &&
+                str_contains($message, 'target')
+        ));
+    }
+
+    public function testFlagWithDependencyThatNeedsServerIsUnresolvedLocally(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(
+            self::localFlag('dep', [self::staticCohortFilter()]),
+            self::flagWithDependencyAndCatchAll(),
+        ));
+
+        $snapshot = $this->client->evaluateFlags('user-123', onlyEvaluateLocally: true, flagKeys: ['target']);
+
+        $this->assertSame([], $snapshot->getKeys());
+        $this->assertSame(['target' => UnresolvedFlagReason::UNRESOLVED_DEPENDENCY], $snapshot->getUnresolvedFlags());
+    }
+
+    public function testFlagWithLocallyResolvedDependencyMatchesTheDependencyCondition(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(
+            self::localFlag('dep', [self::planFilter()]),
+            self::flagWithDependencyAndCatchAll(),
+        ));
+
+        $snapshot = $this->client->evaluateFlags('user-123', personProperties: ['plan' => 'pro'], flagKeys: ['target']);
+
+        $this->assertSame(0, $this->flagsRequestCount());
+        $this->assertSame('a', $snapshot->getFlag('target'));
+    }
+
+    public function testFlagResolvedByRemoteFallbackIsNotUnresolved(): void
+    {
+        $this->makeLocalClient(
+            self::localDefinitions(self::localFlag('checkout', continuity: true)),
+            ['flags' => ['checkout' => ['key' => 'checkout', 'enabled' => true, 'variant' => null]]]
+        );
+
+        $snapshot = $this->client->evaluateFlags('user-123');
+
+        $this->assertSame(['checkout'], $snapshot->getKeys());
+        $this->assertSame([], $snapshot->getUnresolvedFlags());
+        $this->assertTrue($snapshot->isEnabled('checkout'));
+
+        $events = $this->flagCalledEvents('checkout');
+        $this->assertCount(1, $events);
+        $this->assertTrue($events[0]['$feature_flag_response']);
+        $this->assertArrayNotHasKey('$feature_flag_error', $events[0]);
+    }
+
+    #[DataProvider('unresolvingFallbackProvider')]
+    public function testRemoteFallbackThatDoesNotResolveTheFlagLeavesItUnresolved(
+        array $flagsEndpointResponse,
+        int $flagsEndpointResponseCode
+    ): void {
+        $this->makeLocalClient(
+            self::localDefinitions(self::localFlag('checkout', continuity: true)),
+            $flagsEndpointResponse,
+            $flagsEndpointResponseCode
+        );
+
+        $snapshot = $this->client->evaluateFlags('user-123');
+
+        $this->assertSame(1, $this->flagsRequestCount());
+        $this->assertSame([], $snapshot->getKeys());
+        $this->assertSame(['checkout' => UnresolvedFlagReason::EXPERIENCE_CONTINUITY], $snapshot->getUnresolvedFlags());
+        $this->assertFalse($snapshot->isEnabled('checkout'));
+
+        $events = $this->flagCalledEvents('checkout');
+        $this->assertCount(1, $events);
+        $this->assertSame('local_evaluation_inconclusive', $events[0]['$feature_flag_error']);
+    }
+
+    public static function unresolvingFallbackProvider(): iterable
+    {
+        yield 'request fails' => [['error' => 'unavailable'], 500];
+        yield 'response has no flags' => [['flags' => []], 200];
+        yield 'flag failed remotely' => [
+            ['flags' => ['checkout' => ['key' => 'checkout', 'enabled' => false, 'failed' => true]]],
+            200,
+        ];
+    }
+
+    public function testKeyWithoutLocalDefinitionIsMissingNotUnresolved(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(self::localFlag('beta-ui')));
+
+        $snapshot = $this->client->evaluateFlags('user-123', flagKeys: ['beta-ui', 'typo-flag']);
+        $snapshot->isEnabled('typo-flag');
+
+        $this->assertSame([], $snapshot->getUnresolvedFlags());
+        $events = $this->flagCalledEvents('typo-flag');
+        $this->assertCount(1, $events);
+        $this->assertSame('flag_missing', $events[0]['$feature_flag_error']);
+    }
+
+    public function testFlagOutsideRequestedKeysIsNotUnresolved(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(
+            self::localFlag('beta-ui'),
+            self::localFlag('checkout', continuity: true),
+        ));
+
+        $snapshot = $this->client->evaluateFlags('user-123', flagKeys: ['beta-ui']);
+
+        $this->assertSame(['beta-ui'], $snapshot->getKeys());
+        $this->assertTrue($snapshot->isEnabled('beta-ui'));
+        $this->assertSame([], $snapshot->getUnresolvedFlags());
+        $this->assertSame(0, $this->flagsRequestCount());
+    }
+
+    public function testInactiveFlagIsResolvedAsFalseNotUnresolved(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(
+            self::localFlag('checkout', continuity: true, active: false),
+        ));
+
+        $snapshot = $this->client->evaluateFlags('user-123', onlyEvaluateLocally: true);
+
+        $this->assertSame(['checkout'], $snapshot->getKeys());
+        $this->assertFalse($snapshot->getFlag('checkout'));
+        $this->assertSame([], $snapshot->getUnresolvedFlags());
+    }
+
+    public function testReadingUnresolvedFlagReportsInconclusiveLocalEvaluation(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(self::localFlag('checkout', continuity: true)));
+
+        $snapshot = $this->client->evaluateFlags('user-123', onlyEvaluateLocally: true);
+
+        $this->assertFalse($snapshot->isEnabled('checkout'));
+        $this->assertNull($snapshot->getFlag('checkout'));
+        $this->assertSame(['checkout' => UnresolvedFlagReason::EXPERIENCE_CONTINUITY], $snapshot->getUnresolvedFlags());
+        $events = $this->flagCalledEvents('checkout');
+        $this->assertCount(1, $events);
+        $this->assertNull($events[0]['$feature_flag_response']);
+        $this->assertSame('local_evaluation_inconclusive', $events[0]['$feature_flag_error']);
+    }
+
+    public function testInconclusiveErrorCombinesWithResponseLevelErrors(): void
+    {
+        $this->makeLocalClient(
+            self::localDefinitions(self::localFlag('checkout', continuity: true)),
+            ['flags' => [], 'errorsWhileComputingFlags' => true]
+        );
+
+        $this->client->evaluateFlags('user-123')->isEnabled('checkout');
+
+        $events = $this->flagCalledEvents('checkout');
+        $this->assertCount(1, $events);
+        $this->assertSame(
+            'errors_while_computing_flags,local_evaluation_inconclusive',
+            $events[0]['$feature_flag_error']
+        );
+    }
+
+    public function testFilteredSnapshotReadOfUnresolvedFlagReportsFlagMissing(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(self::localFlag('checkout', continuity: true)));
+
+        $snapshot = $this->client->evaluateFlags('user-123', onlyEvaluateLocally: true);
+        $snapshot->only(['checkout'])->isEnabled('checkout');
+
+        $events = $this->flagCalledEvents('checkout');
+        $this->assertCount(1, $events);
+        $this->assertSame('flag_missing', $events[0]['$feature_flag_error']);
+    }
+
+    public function testUnexpectedLocalEvaluationErrorIsNotUnresolved(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(self::localFlag('checkout', [self::planFilter()])));
+
+        // A property value that cannot be encoded as JSON fails outside the inconclusive paths.
+        $snapshot = $this->client->evaluateFlags(
+            'user-123',
+            personProperties: ['plan' => ["\xB1"]],
+            onlyEvaluateLocally: true
+        );
+        $snapshot->isEnabled('checkout');
+
+        $this->assertSame([], $snapshot->getKeys());
+        $this->assertSame([], $snapshot->getUnresolvedFlags());
+        $events = $this->flagCalledEvents('checkout');
+        $this->assertCount(1, $events);
+        $this->assertSame('flag_missing', $events[0]['$feature_flag_error']);
     }
 }

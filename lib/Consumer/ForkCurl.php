@@ -3,6 +3,7 @@
 namespace PostHog\Consumer;
 
 use PostHog\QueueConsumer;
+use Symfony\Component\Clock\Clock;
 
 /**
  * Queue consumer that sends batches through a forked curl process.
@@ -95,6 +96,16 @@ class ForkCurl extends QueueConsumer
         // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
         $cmd .= " -H 'User-Agent: " . $this->userAgent() . "'";
 
+        if ($this->debug()) {
+            try {
+                return $this->sendForeground($cmd);
+            } finally {
+                if ($tmpfname != "") {
+                    unlink($tmpfname);
+                }
+            }
+        }
+
         if (!$this->debug()) {
             $cmd .= " > /dev/null 2>&1 &";
         }
@@ -116,6 +127,51 @@ class ForkCurl extends QueueConsumer
         return $this->isNetworkCurlExit($exit)
             ? self::FLUSH_BATCH_RETRYABLE_FAILURE
             : self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+    }
+
+    private function sendForeground(string $cmd): bool|string
+    {
+        $headersFile = tempnam(sys_get_temp_dir(), "posthog-curl-headers-");
+        if ($headersFile === false) {
+            return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+        }
+
+        try {
+            $cmd .= " --silent --show-error --dump-header " . escapeshellarg($headersFile);
+            $cmd .= " --write-out '\n%{http_code}'";
+            $backoff = 100;
+
+            while (true) {
+                $output = [];
+                exec($cmd, $output, $exit);
+                if ($exit !== 0) {
+                    $this->handleError($exit, implode("\n", $output));
+                    return $this->isNetworkCurlExit($exit)
+                        ? self::FLUSH_BATCH_RETRYABLE_FAILURE
+                        : self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+                }
+
+                $statusCode = (int) array_pop($output);
+                if ($statusCode === 200) {
+                    return true;
+                }
+
+                $this->handleError($statusCode, implode("\n", $output));
+                if (!$this->isRetryableBatchStatus($statusCode)) {
+                    return self::FLUSH_BATCH_NON_RETRYABLE_FAILURE;
+                }
+                if ($backoff >= $this->maximum_backoff_duration) {
+                    return self::FLUSH_BATCH_RETRYABLE_FAILURE;
+                }
+
+                $headers = file($headersFile, FILE_IGNORE_NEW_LINES) ?: [];
+                $delay = $this->retryDelayMilliseconds($headers, $backoff, $this->maximum_backoff_duration);
+                Clock::get()->sleep($delay / 1000);
+                $backoff *= 2;
+            }
+        } finally {
+            unlink($headersFile);
+        }
     }
 
     private function isNetworkCurlExit($exit)

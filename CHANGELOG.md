@@ -1,3 +1,26 @@
+## 4.19.0
+
+### Minor Changes
+
+- Report the flags local evaluation could not resolve on `evaluateFlags()` snapshots. `FeatureFlagEvaluations::getUnresolvedFlags()` maps each such flag key to an `UnresolvedFlagReason` value: `experience_continuity`, `unsupported_definition`, `unresolved_dependency` or `missing_context`.
+
+  Behavior changes:
+
+  - A condition with a filter that local evaluation cannot check and a filter that does not match now resolves locally as no match. An inconclusive flag dependency in one condition no longer stops a later condition from resolving the flag. So a flag that went to the server before can now resolve locally. A dependency that needs server data, such as a static cohort, still sends the flag to the server.
+  - An inactive flag with experience continuity enabled now resolves to `false` locally instead of going to the server.
+  - A flag that depends on a flag with experience continuity enabled no longer resolves locally. It goes to the server, or stays unresolved with `onlyEvaluateLocally`.
+  - A malformed date in a flag filter or a person property now makes its condition inconclusive, like other malformed values, instead of failing local evaluation of the whole flag.
+  - `$feature_flag_called` events from snapshot reads of unresolved flags report `local_evaluation_inconclusive` instead of `flag_missing`.
+  - When a fresh flag definitions response (HTTP 200) loads, the SDK logs a warning, also with `debug` off, that names the flags local evaluation can never resolve: flags with experience continuity, and flags that use a static cohort, an unknown operator, a malformed value, or a missing or circular dependency. Each flag is warned about once per client until its definition changes. Definitions from a cache provider or a 304 response do not log the warning. Without a `flag_definition_cache_provider`, each new client fetches fresh definitions, so under PHP-FPM the warning is logged on every request. Configure a cache provider to log it only when definitions are fetched.
+
+## 4.18.2
+
+### Patch Changes
+
+- Retry transient HTTP responses and honor Retry-After in Socket and foreground ForkCurl consumers. Redirects and other unexpected responses count as transient; only 4xx client errors other than 408 and 429 drop the batch. When retries run out on a retryable response, all HTTP consumers now keep the batch queued instead of dropping it, and automatic flushes wait for the maximum backoff duration before they try again. A queue that fills during that wait flushes again once the wait ends.
+
+- Stop the Socket consumer from resending a batch forever when the server answers with a redirect. Socket now retries redirects and other unexpected responses with backoff, and stops at the backoff limit.
+
 ## 4.18.1
 
 ### Patch Changes
