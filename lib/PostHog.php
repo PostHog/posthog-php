@@ -41,6 +41,9 @@ class PostHog
      *
      * @param array{
      *     host?: string,
+     *     library_name?: string,
+     *     library_version?: string,
+     *     release_id?: string|null,
      *     ssl?: bool,
      *     timeout?: int|float,
      *     verify_batch_events_request?: bool,
@@ -124,16 +127,18 @@ class PostHog
      * @param \Throwable|string $exception The exception to capture or a plain string message.
      * @param string|null $distinctId User ID; a random UUID is used when omitted (no person profile created).
      * @param array<string, mixed> $additionalProperties Extra properties merged into the event.
+     * @param array{handled?: bool, mechanism?: string} $options Framework boundary metadata.
      * @return bool Whether the capture call succeeded.
      * @throws Exception
      */
     public static function captureException(
         \Throwable|string $exception,
         ?string $distinctId = null,
-        array $additionalProperties = []
+        array $additionalProperties = [],
+        array $options = []
     ): bool {
         self::checkClient();
-        return self::$client->captureException($exception, $distinctId, $additionalProperties);
+        return self::$client->captureException($exception, $distinctId, $additionalProperties, $options);
     }
 
     /**
@@ -214,40 +219,8 @@ class PostHog
      */
     public static function groupIdentify(array $message)
     {
-        self::assert(!empty($message["groupType"]), "PostHog::groupIdentify() expects a groupType");
-        self::assert(!empty($message["groupKey"]), "PostHog::groupIdentify() expects a groupKey");
-
-        if (!isset($message["properties"])) {
-            $message["properties"] = array();
-        }
-
-        $distinctId = "\${$message['groupType']}_{$message['groupKey']}";
-        if (
-            array_key_exists("distinctId", $message)
-            && is_scalar($message["distinctId"])
-            && (string) $message["distinctId"] !== ""
-        ) {
-            $distinctId = (string) $message["distinctId"];
-        } elseif (
-            array_key_exists("distinct_id", $message)
-            && is_scalar($message["distinct_id"])
-            && (string) $message["distinct_id"] !== ""
-        ) {
-            $distinctId = (string) $message["distinct_id"];
-        }
-
-        $msg = array(
-            "event" => "\$groupidentify",
-            "distinctId" => $distinctId,
-            "disableGeoip" => $message["disableGeoip"] ?? null,
-            "properties" => array(
-                "\$group_type" => $message["groupType"],
-                "\$group_key" => $message["groupKey"],
-                "\$group_set" => $message["properties"],
-            )
-        );
-
-        return self::capture($msg);
+        self::checkClient();
+        return self::$client->groupIdentify($message);
     }
 
     /**
@@ -517,6 +490,18 @@ class PostHog
     {
         self::checkClient();
         return self::$client->withContext($data, $fn, $options);
+    }
+
+    /**
+     * Enter framework context until the returned scope is closed.
+     *
+     * @param array<string, mixed> $data
+     * @param array{fresh?: bool} $options
+     */
+    public static function enterContext(array $data, array $options = []): ContextScope
+    {
+        self::checkClient();
+        return self::$client->enterContext($data, $options);
     }
 
     /**

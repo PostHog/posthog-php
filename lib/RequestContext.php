@@ -40,14 +40,24 @@ final class RequestContext
         array $options = [],
         ?int $contextKey = null
     ): mixed {
-        $contextKey = self::contextKey($contextKey);
-        $scopeId = self::push($data, (bool) ($options['fresh'] ?? false), $contextKey);
-
+        $scope = self::enterContext($data, $options, $contextKey);
         try {
             return $fn();
         } finally {
-            self::pop($scopeId, $contextKey);
+            $scope->close();
         }
+    }
+
+    /** @internal Use Client::enterContext() to keep the owning client alive. */
+    public static function enterContext(array $data, array $options = [], ?int $contextKey = null): ContextScope
+    {
+        $contextKey = self::contextKey($contextKey);
+        $fiber = \Fiber::getCurrent();
+        $scopeId = self::push($data, (bool) ($options['fresh'] ?? false), $contextKey);
+
+        return new ContextScope(static function () use ($scopeId, $contextKey, $fiber): void {
+            self::pop($scopeId, $contextKey, $fiber === null ? 0 : spl_object_id($fiber));
+        });
     }
 
     /**
@@ -169,9 +179,8 @@ final class RequestContext
         return $scopeId;
     }
 
-    private static function pop(int $scopeId, int $contextKey): void
+    private static function pop(int $scopeId, int $contextKey, int $fiberKey): void
     {
-        $fiberKey = self::fiberKey();
         if (empty(self::$stacks[$contextKey][$fiberKey])) {
             return;
         }
@@ -185,11 +194,7 @@ final class RequestContext
 
         foreach (self::$stacks[$contextKey][$fiberKey] as $index => $frame) {
             if ($frame['scopeId'] === $scopeId) {
-                self::$stacks[$contextKey][$fiberKey] = array_slice(
-                    self::$stacks[$contextKey][$fiberKey],
-                    0,
-                    $index
-                );
+                array_splice(self::$stacks[$contextKey][$fiberKey], $index, 1);
                 self::unsetStackIfEmpty($contextKey, $fiberKey);
                 return;
             }
