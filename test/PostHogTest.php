@@ -1575,6 +1575,26 @@ class PostHogTest extends TestCase
         );
     }
 
+    public function testCaptureExceptionForwardsTypedIntegrationSourceWithoutAmbientContext(): void
+    {
+        self::assertTrue(PostHog::captureException(new RuntimeException('boundary'), 'user', [
+            '$exception_source' => 'spoofed.properties',
+        ], ['mechanism' => 'middleware', 'source' => 'laravel.middleware', 'handled' => false]));
+        self::assertTrue(PostHog::flush());
+        $properties = $this->firstBatchEvent()['properties'];
+        self::assertSame('laravel.middleware', $properties['$exception_source']);
+        self::assertSame('middleware', $properties['$exception_list'][0]['mechanism']['type']);
+        self::assertFalse($properties['$exception_list'][0]['mechanism']['handled']);
+        self::assertArrayNotHasKey('source', $properties['$exception_list'][0]['mechanism']);
+    }
+
+    public function testGroupIdentifyKeyValidation(): void
+    {
+        $this->expectException(Exception::class);
+        $this->expectExceptionMessage('PostHog::groupIdentify() expects a groupKey');
+        PostHog::groupIdentify(['groupType' => 'company']);
+    }
+
     public function testGroupIdentifyValidation(): void
     {
         $this->expectException(Exception::class);

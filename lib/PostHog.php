@@ -124,7 +124,9 @@ class PostHog
      * @param \Throwable|string $exception The exception to capture or a plain string message.
      * @param string|null $distinctId User ID; a random UUID is used when omitted (no person profile created).
      * @param array<string, mixed> $additionalProperties Extra properties merged into the event.
-     * @param array{handled?: bool, mechanism?: string} $options Framework boundary metadata.
+     * @param array{handled?: bool, mechanism?: string, source?: string} $options Framework boundary metadata.
+     *     Source is the concrete integration hook (e.g. laravel.middleware), not a mechanism category.
+     *     Only a non-empty string source is emitted; property bags cannot supply $exception_source.
      * @return bool Whether the capture call succeeded.
      * @throws Exception
      */
@@ -217,6 +219,8 @@ class PostHog
     public static function groupIdentify(array $message)
     {
         self::checkClient();
+        self::assert(!empty($message['groupType']), 'PostHog::groupIdentify() expects a groupType');
+        self::assert(!empty($message['groupKey']), 'PostHog::groupIdentify() expects a groupKey');
         return self::$client->groupIdentify($message);
     }
 
@@ -497,6 +501,7 @@ class PostHog
      *
      * Use this only when the work starts and ends in separate callbacks, such as framework
      * lifecycle events or before/after middleware hooks; otherwise prefer withContext().
+     * Retain the returned scope: discarding it immediately closes the context.
      * Close the scope on every exit path, including failures. An unclosed scope leaks its context
      * into later work until the scope is garbage-collected. Closing a scope is idempotent.
      *
