@@ -20,10 +20,12 @@ class AutocaptureServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__ . '/../config/autocapture.php', 'posthog-autocapture');
         $config = $this->app['config'];
-        $config->set('posthog.autocapture', array_replace(
-            $config->get('posthog-autocapture', []),
-            $config->get('posthog.autocapture', []),
-        ));
+        $settings = $config->get('posthog-autocapture', []);
+        foreach ($config->get('posthog.autocapture', []) as $section => $values) {
+            $settings[$section] = $section !== 'domain_events' && is_array($values)
+                ? array_replace($settings[$section] ?? [], $values) : $values;
+        }
+        $config->set('posthog.autocapture', $settings);
     }
 
     public function boot(): void
