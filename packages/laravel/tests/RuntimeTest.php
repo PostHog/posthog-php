@@ -445,6 +445,23 @@ class RuntimeTest extends TestCase
         }
     }
 
+    public function testFakeDoesNotApplyCaptureContextToIdentityMutations(): void
+    {
+        $fake = Facade::fake();
+        $this->app->make(Context::class)->begin([
+            'distinctId' => 'ambient-user', 'properties' => ['private' => 'capture-only'],
+        ]);
+        Facade::identify(['distinctId' => 'target', 'properties' => ['plan' => 'pro']]);
+        Facade::alias(['distinctId' => 'target', 'alias' => 'old']);
+        Facade::groupIdentify(['groupType' => 'team', 'groupKey' => 'one']);
+        $messages = array_column($fake->recorded(), 'message');
+        $this->assertSame('target', $messages[0]['distinctId']);
+        $this->assertSame(['plan' => 'pro'], $messages[0]['properties']);
+        $this->assertSame([], $messages[1]['properties']);
+        $this->assertNull($messages[2]['distinctId']);
+        $this->assertSame([], $messages[2]['properties']);
+    }
+
     public function testFakeForwardsAllMessageApisAndAssertions(): void
     {
         $previousClient = $this->app->make(Client::class);

@@ -27,7 +27,8 @@ class PostHogFake extends PostHog
 
     protected function message(string $method, array $message): bool
     {
-        $data = $this->app->make(Context::class)->data();
+        $data = in_array($method, ['capture', 'captureException'], true)
+            ? $this->app->make(Context::class)->data() : [];
         $message['distinctId'] ??= $data['distinctId'] ?? null;
         $message['groups'] ??= $data['groups'] ?? [];
         $message['properties'] = array_replace($data['properties'] ?? [], $message['properties'] ?? []);

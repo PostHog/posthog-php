@@ -61,8 +61,15 @@ class PostHogServiceProvider extends ServiceProvider
             }
         });
         $events = $this->app['events'];
-        $events->listen(JobProcessing::class, function () {
-            Container::getInstance()->make(Context::class)->enter();
+        QueueContext::register();
+        $events->listen(JobProcessing::class, function ($event) {
+            $app = Container::getInstance();
+            $context = $app->make(Context::class);
+            $context->enter();
+            $data = $event->job->payload()['_posthog'] ?? null;
+            if ($app['config']->get('posthog.queue_context', true) && is_array($data)) {
+                $context->begin(QueueContext::normalize($data));
+            }
         });
         $events->listen(JobExceptionOccurred::class, function ($event) {
             $app = Container::getInstance();

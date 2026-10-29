@@ -8,6 +8,7 @@ return [
     'release_id' => env('POSTHOG_RELEASE_ID'),
     'capture_exceptions' => true,
     'header_context' => true,
+    'queue_context' => true,
     // Invokable container class; receives the application and returns a distinct ID or null.
     'distinct_id' => null,
     // Invokable container class; receives the application and returns group identifiers.

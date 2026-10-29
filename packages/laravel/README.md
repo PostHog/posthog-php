@@ -81,9 +81,12 @@ app(Context::class)->with([
 `Context::begin()`, `data()`, `snapshot()` and `end()` support explicit integrations.
 `with()` restores the previous data and flag snapshots even when the callback throws.
 Auth is resolved lazily only while handling a request; no user model is retained by
-the analytics context after cleanup. Queue jobs start fresh; identity is not copied
-into job payloads. Set it explicitly inside jobs. Nested synchronous jobs restore the
-caller's context when they finish or fail.
+the analytics context after cleanup. Queue jobs start fresh and receive only bounded
+identity, session and scalar group context in `_posthog` payload metadata. Arbitrary
+properties, models and request data are not propagated. Set `queue_context=false` to
+disable propagation. This metadata is analytics context, never authorization evidence.
+Jobs may override it explicitly. Nested synchronous jobs restore the caller's context
+when they finish or fail.
 
 Global request middleware, queue events, Artisan command events, and Octane
 request/task/tick events flush and clean context automatically. SDK creation is lazy,
@@ -210,13 +213,11 @@ assertions accept an optional predicate. `flags($coreSnapshot)` configures fake 
 results; the default is an empty snapshot. The fake's raw client is always disabled,
 so escape-hatch calls cannot send traffic (they are not recorded).
 
-Package development uses a local Composer path repository pointing at the core SDK:
-
-```sh
-cd packages/laravel
-composer install
-composer test
-```
+The production manifest deliberately has no development repository overrides. For
+local development before the required PHP SDK release is published, use the root
+`scripts/test-laravel.sh 12` or `scripts/test-laravel.sh 13` helper once the tooling
+PR in this stack is merged. It installs local dependencies in a disposable source
+copy and runs the matching framework tests without changing package metadata.
 
 Tests use Testbench, mocked transports and real Laravel lifecycle events; no live
 PostHog service or Octane server process is required.
