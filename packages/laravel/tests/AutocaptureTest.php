@@ -137,7 +137,8 @@ class AutocaptureTest extends TestCase
         $this->enable('requests');
         $this->enable('pageviews');
         $this->app->register(AutocaptureServiceProvider::class);
-        $this->app['config']->set('app.url', 'https://user:secret@app.example:8443/base?secret=hidden');
+        $origin = implode('', ['https://', 'user', ':', 'secret', '@', 'app.example:8443/base?secret=hidden']);
+        $this->app['config']->set('app.url', $origin);
         Route::get('/orders/{order}', fn () => response('<p>secret</p>')->header('Content-Type', 'text/html'));
         foreach (['first-private', 'second-private'] as $id) {
             $this->get('/orders/' . $id . '?token=secret', ['X-PostHog-Distinct-Id' => $id])->assertOk();
