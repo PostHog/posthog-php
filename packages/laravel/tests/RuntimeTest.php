@@ -136,15 +136,19 @@ class RuntimeTest extends TestCase
         $fake = Facade::fake();
         $context = $this->app->make(Context::class);
         $context->begin(['distinctId' => 'caller']);
-        $kernel = new \PostHog\Laravel\Tests\Fixtures\ReportingConsoleKernel($this->app, $this->app['events']);
-        $this->app->instance(\Illuminate\Contracts\Console\Kernel::class, $kernel);
+        $this->app->singleton(\Illuminate\Contracts\Console\Kernel::class, fn ($app) =>
+            new \PostHog\Laravel\Tests\Fixtures\ReportingConsoleKernel($app, $app['events']));
         \Illuminate\Support\Facades\Artisan::clearResolvedInstance(\Illuminate\Contracts\Console\Kernel::class);
+        $kernel = $this->app->make(\Illuminate\Contracts\Console\Kernel::class);
         $kernel->rerouteSymfonyCommandEvents();
         \Illuminate\Support\Facades\Artisan::command('posthog:failing', function () {
             app(Context::class)->begin(['distinctId' => 'failed-command']);
             throw new RuntimeException('command failure');
         });
-        $this->assertSame(1, $kernel->handle(new ArrayInput(['command' => 'posthog:failing']), new NullOutput()));
+        $input = new ArrayInput(['command' => 'posthog:failing']);
+        $this->assertSame(1, $kernel->handle($input, new NullOutput()));
+        $this->assertSame('failed-command', $context->data()['distinctId']);
+        $kernel->terminate($input, 1);
         $this->assertSame('caller', $context->data()['distinctId']);
         $this->assertCount(1, $fake->recorded('captureException'));
         $this->assertSame('failed-command', $fake->recorded('captureException')[0]['message']['distinctId']);
@@ -291,11 +295,12 @@ class RuntimeTest extends TestCase
         $manager = $this->app->make(PostHog::class);
         (new \ReflectionProperty(PostHog::class, 'sdk'))->setValue($manager, $client);
         $context = $this->app->make(Context::class);
-        $input = new ArrayInput([]);
-        $output = new NullOutput();
-        $this->app['events']->dispatch(new \Illuminate\Console\Events\CommandStarting('test', $input, $output));
-        $context->begin(['distinctId' => 'console']);
-        $this->app['events']->dispatch(new \Illuminate\Console\Events\CommandFinished('test', $input, $output, 1));
+        $this->app->make(\Illuminate\Contracts\Console\Kernel::class)->rerouteSymfonyCommandEvents();
+        \Illuminate\Support\Facades\Artisan::command('posthog:boundary', function () {
+            app(Context::class)->begin(['distinctId' => 'console']);
+            return 1;
+        });
+        $this->assertSame(1, \Illuminate\Support\Facades\Artisan::call('posthog:boundary'));
         $this->assertSame([], $context->data());
         foreach (['first', 'second'] as $id) {
             $this->app['events']->dispatch('Laravel\\Octane\\Events\\RequestReceived', [(object) [
@@ -318,8 +323,8 @@ class RuntimeTest extends TestCase
         $context->begin(['distinctId' => 'stale']);
         $this->app['events']->dispatch('Laravel\\Octane\\Events\\TaskTerminated', [(object) []]);
         $this->assertSame([], $context->data());
-        $response = $this->app->make(RequestContext::class)->handle(Request::create('/'), fn () => 'ok');
-        $this->assertSame('ok', $response);
+        Route::get('/flush-failure', fn () => 'ok');
+        $this->get('/flush-failure')->assertOk();
         $this->assertSame([], $context->data());
         $client->fail = false;
     }
