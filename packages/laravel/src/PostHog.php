@@ -38,11 +38,6 @@ class PostHog
         $options = $config['sdk'] ?? [];
         $options += ['disableGeoip' => true];
         $options['host'] = $config['host'] ?? 'https://us.i.posthog.com';
-        $options['library_name'] = 'posthog-laravel';
-        $options['library_version'] = self::VERSION;
-        if (($config['release_id'] ?? null) !== null) {
-            $options['release_id'] = $config['release_id'];
-        }
         // Laravel owns reporting and process-wide PHP handlers.
         $options['error_tracking'] = array_replace($options['error_tracking'] ?? [], [
             'enabled' => false,
@@ -58,11 +53,11 @@ class PostHog
         if (!isset($options['flag_definition_cache_provider']) && ($config['flag_cache']['enabled'] ?? false)) {
             $options['flag_definition_cache_provider'] = $this->app->make(FlagDefinitionCacheProvider::class);
         }
-        return $this->sdk = new Client(
+        return $this->sdk = new LaravelClient(
             $config['api_key'],
             $options,
-            loadFeatureFlags: false,
-            secretKey: $config['secret_key'] ?? null,
+            $config['release_id'] ?? null,
+            $config['secret_key'] ?? null,
         );
     }
 

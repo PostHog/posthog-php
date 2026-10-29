@@ -91,6 +91,7 @@ class DeferredModelEvents
 
     public function beginning(TransactionBeginning $event): void
     {
+        $this->prune();
         $connection = $event->connection;
         if (!isset($this->connections[$connection])) {
             return;
@@ -103,6 +104,24 @@ class DeferredModelEvents
         }
         while ($root->parent !== null && $root->parent->level < $root->level) {
             $root = $root->parent;
+        }
+        if ($connection->transactionLevel() === 1) {
+            $pending = $this->transactions->getPendingTransactions();
+            $committed = $this->transactions->getCommittedTransactions();
+            foreach ($this->pending as $key => $entry) {
+                $olderRoot = $entry['root']->get();
+                if (
+                    $entry['connection']->get() === $connection && $olderRoot !== $root
+                    && ($pending->containsStrict($olderRoot) || $committed->containsStrict($olderRoot))
+                ) {
+                    // Laravel 12 commit retries can leave rolled-back roots managed on the same PDO.
+                    // Unmanaged roots may still be delivering successful commit callbacks; keep them.
+                    $this->remove($key);
+                }
+            }
+        }
+        if (!isset($this->connections[$connection])) {
+            return;
         }
         // A callback may start/roll back a new root while an older committed root is awaiting its callback.
         $state = $this->connections[$connection];

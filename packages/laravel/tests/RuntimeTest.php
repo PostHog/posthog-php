@@ -461,6 +461,8 @@ class RuntimeTest extends TestCase
         $this->app->singleton(CaptureCallback::class);
         $this->app['config']->set('posthog.sdk.before_send', CaptureCallback::class);
         $this->app['config']->set('posthog.release_id', 'release-123');
+        $this->app['config']->set('posthog.sdk.library_name', 'ignored');
+        $this->app['config']->set('posthog.sdk.release_id', 'ignored');
         $manager = $this->app->make(PostHog::class);
         $context = $this->app->make(Context::class);
         $context->begin(['distinctId' => 'user', 'groups' => ['team' => 'one']]);
