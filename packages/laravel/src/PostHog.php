@@ -2,8 +2,10 @@
 
 namespace PostHog\Laravel;
 
+use Closure;
 use Illuminate\Contracts\Container\Container;
 use PostHog\Client;
+use PostHog\ContextScope;
 use PostHog\FeatureFlagEvaluations;
 use Throwable;
 
@@ -49,6 +51,9 @@ class PostHog
             if (isset($options[$key]) && is_string($options[$key])) {
                 $options[$key] = $this->app->make($options[$key]);
             }
+        }
+        if (isset($options['error_handler'])) {
+            $options['error_handler'] = Closure::fromCallable($options['error_handler']);
         }
         if (!isset($options['flag_definition_cache_provider']) && ($config['flag_cache']['enabled'] ?? false)) {
             $options['flag_definition_cache_provider'] = $this->app->make(FlagDefinitionCacheProvider::class);
@@ -152,11 +157,15 @@ class PostHog
                 disableGeoip: $disableGeoip,
             );
         }
-        return $context->flags(hash('sha256', serialize($inputs)), function () use ($inputs, $flagKeys) {
+        return $context->flags(hash('sha256', serialize($inputs)), function () use ($inputs, $flagKeys, $data) {
             if ($flagKeys !== []) {
                 $this->loadDefinitionsIfNeeded();
             }
-            return $this->client()->evaluateFlags(...$inputs);
+            return $this->client()->withContext(
+                $data,
+                fn () => $this->client()->evaluateFlags(...$inputs),
+                ['fresh' => true],
+            );
         });
     }
 
@@ -196,6 +205,56 @@ class PostHog
     public function shutdown(): bool
     {
         return $this->sdk !== null ? $this->sdk->shutdown() : false;
+    }
+
+    public function withContext(array $data, callable $fn, array $options = []): mixed
+    {
+        $scope = $this->enterContext($data, $options);
+        try {
+            return $fn();
+        } catch (Throwable $exception) {
+            $this->app->make(ExceptionReporter::class)->rememberContext($exception);
+            throw $exception;
+        } finally {
+            $scope->close();
+        }
+    }
+
+    public function enterContext(array $data, array $options = []): ContextScope
+    {
+        $context = $this->app->make(Context::class);
+        $client = $this->client();
+        $scopes = [];
+        $groups = [];
+        if (!($options['fresh'] ?? false)) {
+            $parent = $context->data();
+            $groups = $parent['groups'] ?? [];
+            $raw = $client->getContext();
+            $scopes[] = $client->enterContext($parent, ['fresh' => true]);
+            if ($raw !== null) {
+                $scopes[] = $client->enterContext($raw);
+            }
+        }
+        $scopes[] = $client->enterContext($data, $options);
+        $resolved = $client->getContext();
+        if (array_key_exists('groups', $data)) {
+            $groups = $data['groups'];
+        }
+        if ($groups !== []) {
+            $resolved['groups'] = $groups;
+        }
+        $scope = $context->enterResolvedContext($resolved);
+        return new ContextScope(static function () use ($scope, $scopes): void {
+            $scope->close();
+            foreach (array_reverse($scopes) as $coreScope) {
+                $coreScope->close();
+            }
+        });
+    }
+
+    public function getContext(): ?array
+    {
+        return $this->withContext([], fn () => $this->client()->getContext());
     }
 
     public function __call(string $method, array $arguments): mixed

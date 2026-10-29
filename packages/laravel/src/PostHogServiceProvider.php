@@ -146,6 +146,7 @@ class PostHogServiceProvider extends ServiceProvider
         } finally {
             $context = $app->make(Context::class);
             $restore ? $context->leave() : $context->end();
+            Features\PennantCache::flush();
         }
     }
 }
