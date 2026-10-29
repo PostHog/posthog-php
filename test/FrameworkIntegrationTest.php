@@ -50,6 +50,33 @@ class FrameworkIntegrationTest extends TestCase
         self::assertArrayNotHasKey('secret', $event['properties']);
     }
 
+    public static function invalidGroupMessages(): array
+    {
+        return [
+            'missing identity' => [[], 'groupType'],
+            'missing type' => [['groupKey' => 'company'], 'groupType'],
+            'empty type' => [['groupType' => '', 'groupKey' => 'company'], 'groupType'],
+            'missing key' => [['groupType' => 'company'], 'groupKey'],
+            'empty key' => [['groupType' => 'company', 'groupKey' => ''], 'groupKey'],
+            'null key' => [['groupType' => 'company', 'groupKey' => null], 'groupKey'],
+        ];
+    }
+
+    #[DataProvider('invalidGroupMessages')]
+    public function testInvalidInstanceGroupIdentityWarnsAndDropsWithoutThrowing(array $message, string $field): void
+    {
+        global $errorMessages;
+        $client = $this->client();
+        $errorMessages = [];
+        self::assertFalse($client->groupIdentify($message));
+        self::assertSame(
+            ['[PostHog][Client] groupIdentify() expects a ' . $field],
+            $errorMessages
+        );
+        self::assertTrue($client->capture(['event' => 'still usable', 'distinctId' => 'user']));
+        self::assertSame(['still usable'], array_column($this->events($client), 'event'));
+    }
+
     public function testDetachedScopesRestoreOuterContextAndCloseOnlyOnce(): void
     {
         $client = $this->client();
@@ -100,6 +127,16 @@ class FrameworkIntegrationTest extends TestCase
         self::assertNull($client->getContext());
     }
 
+    public function testDiscardingAnEnteredScopeImmediatelyRestoresItsParent(): void
+    {
+        $client = $this->client();
+        $parent = $client->enterContext(['distinctId' => 'parent']);
+        $client->enterContext(['distinctId' => 'discarded']);
+        self::assertSame('parent', $client->getContext()['distinctId']);
+        $parent->close();
+        self::assertNull($client->getContext());
+    }
+
     public function testAbandonedFiberRunsContextCleanupWithoutCyclicCollection(): void
     {
         $client = $this->client();
@@ -145,6 +182,84 @@ class FrameworkIntegrationTest extends TestCase
         } finally {
             $scope->close();
         }
+    }
+
+    public static function exceptionSourceCases(): array
+    {
+        $cases = [
+            'manual capture' => [[], null, 'generic', true],
+            'framework boundary' => [[
+                'source' => 'laravel.middleware', 'mechanism' => 'middleware', 'handled' => false,
+            ], 'laravel.middleware', 'middleware', false],
+            'source does not imply mechanism' => [[
+                'source' => 'laravel.queue_job',
+            ], 'laravel.queue_job', 'generic', true],
+            'new integration' => [[
+                'source' => 'custom_framework.worker', 'mechanism' => 'task', 'handled' => false,
+            ], 'custom_framework.worker', 'task', false],
+        ];
+        foreach (
+            [
+                'null' => null,
+                'empty' => '',
+                'whitespace' => " \t",
+                'number' => 123,
+                'array' => [],
+                'bool' => false,
+            ] as $name => $source
+        ) {
+            $cases[$name] = [[
+                'source' => $source, 'mechanism' => 'task', 'handled' => false,
+            ], null, 'task', false];
+        }
+        return $cases;
+    }
+
+    #[DataProvider('exceptionSourceCases')]
+    public function testExceptionSourceUsesOnlyTypedMetadataAndPreservesCallerContext(
+        array $options,
+        ?string $expectedSource,
+        string $expectedMechanism,
+        bool $expectedHandled
+    ): void {
+        $seen = [];
+        $client = $this->client(['before_send' => function ($event) use (&$seen) {
+            $seen[] = $event;
+            return $event;
+        }]);
+        $client->withContext([
+            'distinctId' => 'request-user', 'sessionId' => 'request-session',
+            'properties' => ['$exception_source' => 'spoofed.context', 'contextOnly' => true],
+        ], function () use ($client, $options) {
+            $before = $client->getContext();
+            $exception = new RuntimeException('outer', previous: new RuntimeException('root'));
+            self::assertTrue($client->captureException(
+                $exception,
+                null,
+                ['$exception_source' => 'spoofed.properties', 'custom' => 'kept', 'source' => 'ordinary property'],
+                $options
+            ));
+            self::assertSame($before, $client->getContext());
+        });
+        $event = $this->events($client)[0];
+        $properties = $event['properties'];
+        foreach ([$properties, $seen[0]['properties']] as $captured) {
+            if ($expectedSource === null) {
+                self::assertArrayNotHasKey('$exception_source', $captured);
+            } else {
+                self::assertSame($expectedSource, $captured['$exception_source']);
+            }
+        }
+        self::assertSame('request-user', $event['distinct_id']);
+        self::assertSame('request-session', $properties['$session_id']);
+        self::assertTrue($properties['contextOnly']);
+        self::assertSame('kept', $properties['custom']);
+        self::assertSame('ordinary property', $properties['source']);
+        self::assertSame($expectedMechanism, $properties['$exception_list'][0]['mechanism']['type']);
+        self::assertSame($expectedHandled, $properties['$exception_list'][0]['mechanism']['handled']);
+        self::assertArrayNotHasKey('source', $properties['$exception_list'][0]['mechanism']);
+        self::assertSame('root', $properties['$exception_list'][1]['value']);
+        self::assertNull($client->getContext());
     }
 
     public static function exceptionMetadataCases(): array
@@ -233,6 +348,8 @@ class FrameworkIntegrationTest extends TestCase
             self::assertSame('0.1.0', $event['properties']['$lib_version']);
             self::assertSame('release', $event['properties']['$release_id']);
         }
+        self::assertSame('$exception', $events[4]['event']);
+        self::assertArrayNotHasKey('$exception_source', $events[4]['properties']);
     }
 
     public function testIntegrationLibraryIsUsedForFlagHttpRequests(): void

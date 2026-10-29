@@ -4,6 +4,11 @@ namespace PostHog;
 
 use Closure;
 
+/**
+ * Owns an entered context until close() or destruction.
+ *
+ * Retain the object returned by enterContext(): discarding it immediately closes the scope.
+ */
 final class ContextScope
 {
     /** @internal Obtain scopes through Client::enterContext(). */
@@ -11,6 +16,7 @@ final class ContextScope
     {
     }
 
+    /** Release this scope once; repeated calls are harmless and younger scopes remain active. */
     public function close(): void
     {
         $close = $this->onClose;
