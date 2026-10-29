@@ -1225,13 +1225,18 @@ class Client implements FeatureFlagEvaluationsHost
         ?array $flagKeys = null
     ): FeatureFlagEvaluations {
         $distinctId = $this->resolveDistinctId($distinctId);
+        $host = new Internal\ContextualFeatureFlagEvaluationsHost(
+            $this,
+            $this->getContext() ?? [],
+            $this->contextKey(),
+        );
         if ($distinctId === '') {
             $this->warnMissingDistinctId('evaluateFlags()');
             return new FeatureFlagEvaluations(
                 $distinctId,
                 [],
                 $groups,
-                $this,
+                $host,
                 disableGeoip: $disableGeoip,
             );
         }
@@ -1241,7 +1246,7 @@ class Client implements FeatureFlagEvaluationsHost
                 $distinctId,
                 [],
                 $groups,
-                $this,
+                $host,
                 disableGeoip: $disableGeoip,
             );
         }
@@ -1407,7 +1412,7 @@ class Client implements FeatureFlagEvaluationsHost
             $distinctId,
             $records,
             $groups,
-            $this,
+            $host,
             $requestId,
             $evaluatedAt,
             null,
