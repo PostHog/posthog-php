@@ -25,7 +25,12 @@ final class DemoActions
     public function capture(): array
     {
         return $this->ambient(function (): array {
-            $explicit = PostHog::capture('demo_explicit', ['source' => 'form'], 'demo-explicit', ['team' => 'demo-team']);
+            $explicit = PostHog::capture(
+                'demo_explicit',
+                ['source' => 'form'],
+                'demo-explicit',
+                ['team' => 'demo-team'],
+            );
             $ambient = PostHog::capture('demo_ambient', ['source' => 'context']);
             return ['explicit_accepted' => $explicit, 'ambient_accepted' => $ambient];
         });

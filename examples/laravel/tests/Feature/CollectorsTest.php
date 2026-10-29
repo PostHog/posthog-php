@@ -33,14 +33,17 @@ final class CollectorsTest extends TestCase
         return $app;
     }
 
-    public function test_request_and_pageview_collectors_exclude_raw_query_body_and_health(): void
+    public function testRequestAndPageviewCollectorsExcludeRawQueryBodyAndHealth(): void
     {
         $fake = PostHog::fake();
         $this->withHeader('X-PostHog-Distinct-Id', 'collector-visitor')->get('/?private=do-not-collect')
             ->assertOk();
         $fake->assertCaptured('laravel_request', fn ($event) => $event['properties']['route'] === '/'
             && $event['properties']['method'] === 'GET' && $event['properties']['status_code'] === 200);
-        $fake->assertCaptured('$pageview', fn ($event) => !str_contains($event['properties']['$current_url'], 'private'));
+        $fake->assertCaptured(
+            '$pageview',
+            fn ($event) => !str_contains($event['properties']['$current_url'], 'private'),
+        );
         $before = count($fake->recorded());
         $this->get('/up')->assertOk();
         self::assertCount($before, $fake->recorded());
@@ -49,7 +52,7 @@ final class CollectorsTest extends TestCase
         self::assertStringNotContainsString('do-not-collect', json_encode($fake->recorded(), JSON_THROW_ON_ERROR));
     }
 
-    public function test_auth_collectors_use_selected_user_not_credentials(): void
+    public function testAuthCollectorsUseSelectedUserNotCredentials(): void
     {
         $fake = PostHog::fake();
         $this->post('/demo/login')->assertRedirect('/');
@@ -59,7 +62,7 @@ final class CollectorsTest extends TestCase
         $fake->assertCaptured('laravel_auth_logout');
     }
 
-    public function test_model_and_domain_collectors_emit_only_allowlisted_data(): void
+    public function testModelAndDomainCollectorsEmitOnlyAllowlistedData(): void
     {
         $fake = PostHog::fake();
         $this->withHeader('X-PostHog-Distinct-Id', 'order-owner')->post('/demo/order')->assertRedirect('/');
@@ -75,7 +78,7 @@ final class CollectorsTest extends TestCase
         $fake->assertCaptured('laravel_model_deleted');
     }
 
-    public function test_model_collector_drops_rolled_back_changes(): void
+    public function testModelCollectorDropsRolledBackChanges(): void
     {
         $fake = PostHog::fake();
         app(Context::class)->begin(['distinctId' => 'rollback-owner']);
@@ -85,7 +88,7 @@ final class CollectorsTest extends TestCase
         $fake->assertNotCaptured('laravel_model_created');
     }
 
-    public function test_job_command_and_scheduler_collectors_are_executable(): void
+    public function testJobCommandAndSchedulerCollectorsAreExecutable(): void
     {
         $fake = PostHog::fake();
         $this->post('/demo/queue')->assertRedirect('/');

@@ -12,7 +12,7 @@ use Tests\TestCase;
 
 final class TransportTest extends TestCase
 {
-    public function test_real_sdk_serializes_flag_attachment_and_exposures_using_mock_transport(): void
+    public function testRealSdkSerializesFlagAttachmentAndExposuresUsingMockTransport(): void
     {
         $requests = [];
         $http = $this->createStub(HttpClient::class);
@@ -43,7 +43,7 @@ final class TransportTest extends TestCase
         PostHog::shutdown();
     }
 
-    public function test_flags_and_transport_failure_do_not_break_demo_response(): void
+    public function testFlagsAndTransportFailureDoNotBreakDemoResponse(): void
     {
         $paths = [];
         $outage = true;
@@ -62,10 +62,13 @@ final class TransportTest extends TestCase
         PostHog::shutdown();
     }
 
-    public function test_before_send_callback_drops_explicit_sensitive_properties(): void
+    public function testBeforeSendCallbackDropsExplicitSensitiveProperties(): void
     {
         $http = $this->createMock(HttpClient::class);
-        $http->expects($this->once())->method('sendRequest')->willReturnCallback(function ($path, $payload): HttpResponse {
+        $http->expects($this->once())->method('sendRequest')->willReturnCallback(function (
+            $path,
+            $payload,
+        ): HttpResponse {
             self::assertSame('/batch/', $path);
             $properties = json_decode($payload, true, flags: JSON_THROW_ON_ERROR)['batch'][0]['properties'];
             self::assertArrayNotHasKey('email', $properties);
@@ -74,7 +77,11 @@ final class TransportTest extends TestCase
             return new HttpResponse('{}', 200);
         });
         $this->useClient($http);
-        PostHog::capture('test_redaction', ['email' => 'synthetic', 'password' => 'synthetic', 'plan' => 'demo'], 'demo');
+        PostHog::capture(
+            'test_redaction',
+            ['email' => 'synthetic', 'password' => 'synthetic', 'plan' => 'demo'],
+            'demo',
+        );
         self::assertTrue(PostHog::flush());
         PostHog::shutdown();
     }
