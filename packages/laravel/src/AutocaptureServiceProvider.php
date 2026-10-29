@@ -115,19 +115,14 @@ class AutocaptureServiceProvider extends ServiceProvider
         $events->listen(
             \Illuminate\Console\Events\ScheduledTaskStarting::class,
             static function ($event) use ($outcomes) {
-                $outcomes->start('scheduler', $event->task);
+                $outcomes->startScheduler($event->task);
             },
         );
         foreach (['ScheduledTaskFinished' => false, 'ScheduledTaskFailed' => true] as $event => $failed) {
             $events->listen(
                 'Illuminate\\Console\\Events\\' . $event,
                 static function ($event) use ($outcomes, $failed) {
-                    $outcomes->finish('scheduler', $event->task, static fn () => [
-                        'name' => $event->task::class,
-                        'outcome' => $failed ? 'failed' : ($event->task->runInBackground ? 'background_started'
-                            : ($event->task->exitCode === 0 ? 'success' : 'failed')),
-                        'exit_code' => $event->task->exitCode,
-                    ]);
+                    $outcomes->finishScheduler($event->task, $failed);
                 },
             );
         }
