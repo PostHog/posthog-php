@@ -111,11 +111,34 @@ nested `Artisan::call()` executions restore their caller in `finally`, while the
 command stays active through kernel termination. Thrown objects retain their own
 snapshots; nonzero return codes never supply another exception's identity. The
 application's commands, custom kernel, and exception-reporting policy are preserved.
-Direct child-command `$this->call()`/`callSilent()` execution bypasses those kernel
-boundaries and does **not** automatically restore context. Wrap such calls in an
-explicit `PostHog::withContext([], fn () => $this->call(...))` scope when the child
-can mutate analytics context; automatic direct child-command isolation remains
-unsupported.
+Direct child-command `$this->call()`/`callSilent()`/`callSilently()` execution bypasses
+those kernel boundaries. Opt into isolation by adding `IsolatesCommandContext` to
+**the calling command**, or to your application's base command:
+
+```php
+namespace App\Console;
+
+use Illuminate\Console\Command as BaseCommand;
+use PostHog\Laravel\Concerns\IsolatesCommandContext;
+
+abstract class Command extends BaseCommand
+{
+    use IsolatesCommandContext;
+}
+```
+
+Have your application commands extend this base class, or apply the trait directly
+to each calling command. All three call helpers then restore the caller's context
+and cached flag snapshots when the child returns or throws, including closure
+children. Arguments, output, exit codes and throwables pass through unchanged.
+Root context still lasts through kernel termination.
+
+This is opt-in, not global interception: uninstrumented callers, including commands
+registered with `Artisan::command()`, still need kernel-level `Artisan::call()` or an
+explicit `PostHog::withContext([], fn () => $this->call(...))` scope when a child can
+mutate analytics context. The trait uses Laravel's inherited `runCommand()`;
+custom call implementations that bypass it also need explicit scoping.
+
 SDK creation is lazy,
 per Laravel scope. Shared flag definitions live in Laravel Cache, not a global SDK.
 Do not retain scoped services in application singletons or prewarm them in Octane.
