@@ -6,6 +6,7 @@ use Fiber;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
+use PostHog\PostHog;
 use RuntimeException;
 
 class FrameworkIntegrationTest extends TestCase
@@ -205,11 +206,21 @@ class FrameworkIntegrationTest extends TestCase
         self::assertSame('generic', $event['properties']['$exception_list'][0]['mechanism']['type']);
     }
 
-    public function testConfiguredLibraryAndReleaseApplyAcrossEventTypes(): void
+    private function integrationClient(?string $release = null): Client
     {
-        $client = $this->client([
-            'library_name' => 'posthog-laravel', 'library_version' => '0.1.0', 'release_id' => 'release',
-        ]);
+        $this->http = new MockedHttpClient('localhost');
+        IntegrationClient::$release = $release;
+        return new IntegrationClient('test-key', [], $this->http, loadFeatureFlags: false);
+    }
+
+    protected function tearDown(): void
+    {
+        IntegrationClient::reset();
+    }
+
+    public function testIntegrationLibraryAndReleaseApplyAcrossEventTypes(): void
+    {
+        $client = $this->integrationClient('release');
         $client->capture(['event' => 'purchase']);
         $client->identify(['distinctId' => 'user', 'properties' => ['plan' => 'pro']]);
         $client->alias(['distinctId' => 'user', 'alias' => 'old-user']);
@@ -224,34 +235,55 @@ class FrameworkIntegrationTest extends TestCase
         }
     }
 
-    public function testConfiguredLibraryIsUsedForFlagHttpRequests(): void
+    public function testIntegrationLibraryIsUsedForFlagHttpRequests(): void
     {
-        $client = $this->client(['library_name' => 'posthog-laravel', 'library_version' => '0.1.0']);
+        $client = $this->integrationClient();
         $client->evaluateFlags('user');
         self::assertContains('User-Agent: posthog-laravel/0.1.0', $this->http->calls[0]['extraHeaders']);
     }
 
-    public function testReleaseOptionOverridesEnvironmentAndNullDisablesIt(): void
+    public function testIntegrationReleaseOverridesEnvironment(): void
     {
         $previous = getenv('POSTHOG_RELEASE_ID');
         putenv('POSTHOG_RELEASE_ID=environment-release');
         try {
-            $client = $this->client(['release_id' => 'configured-release']);
+            $client = $this->integrationClient('configured-release');
             $client->capture(['event' => 'configured']);
             self::assertSame('configured-release', $this->events($client)[0]['properties']['$release_id']);
-            $client = $this->client(['release_id' => null]);
-            $client->capture(['event' => 'disabled']);
-            self::assertArrayNotHasKey('$release_id', $this->events($client)[0]['properties']);
+            $client = $this->integrationClient();
+            $client->capture(['event' => 'fallback']);
+            self::assertSame('environment-release', $this->events($client)[0]['properties']['$release_id']);
         } finally {
             putenv($previous === false ? 'POSTHOG_RELEASE_ID' : 'POSTHOG_RELEASE_ID=' . $previous);
         }
     }
 
-    public function testExplicitEventMetadataWinsOverClientOptions(): void
+    public function testConstructorOptionsCannotOverrideLibraryOrRelease(): void
     {
-        $client = $this->client([
-            'library_name' => 'integration', 'library_version' => '0.1.0', 'release_id' => 'default',
-        ]);
+        $previous = getenv('POSTHOG_RELEASE_ID');
+        putenv('POSTHOG_RELEASE_ID');
+        try {
+            $client = $this->client([
+                'library_name' => 'custom', 'library_version' => '9.9.9', 'release_id' => 'configured',
+            ]);
+            $client->capture(['event' => 'ignored-options']);
+            $client->evaluateFlags('user');
+            $properties = $this->events($client)[0]['properties'];
+            self::assertSame(PostHog::LIBRARY, $properties['$lib']);
+            self::assertSame(PostHog::VERSION, $properties['$lib_version']);
+            self::assertArrayNotHasKey('$release_id', $properties);
+            self::assertContains(
+                'User-Agent: ' . PostHog::LIBRARY . '/' . PostHog::VERSION,
+                $this->http->calls[0]['extraHeaders']
+            );
+        } finally {
+            putenv($previous === false ? 'POSTHOG_RELEASE_ID' : 'POSTHOG_RELEASE_ID=' . $previous);
+        }
+    }
+
+    public function testExplicitEventMetadataWinsOverIntegrationDefaults(): void
+    {
+        $client = $this->integrationClient('default');
         $client->capture(['event' => 'custom', 'properties' => [
             '$lib' => 'custom', '$lib_version' => '2.0.0', '$release_id' => 'explicit',
         ]]);
