@@ -2,6 +2,7 @@
 
 namespace PostHog\Laravel\Tests;
 
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Route;
 use Laravel\Pennant\Contracts\FeatureScopeable;
 use Laravel\Pennant\Feature;
@@ -16,12 +17,16 @@ use PostHog\Laravel\Context;
 use PostHog\Laravel\Features\PostHogDriver;
 use PostHog\Laravel\PostHog;
 use PostHog\Laravel\PostHogServiceProvider;
+use PostHog\Laravel\Tests\Fixtures\CaptureJob;
+use PostHog\Laravel\Tests\Fixtures\FailingCaptureJob;
+use PostHog\Laravel\Tests\Fixtures\PennantEndEventProvider;
+use RuntimeException;
 
 class PennantTest extends TestCase
 {
     protected function getPackageProviders($app): array
     {
-        return [PennantServiceProvider::class, PostHogServiceProvider::class];
+        return [PennantServiceProvider::class, PostHogServiceProvider::class, PennantEndEventProvider::class];
     }
 
     protected function defineEnvironment($app): void
@@ -160,6 +165,44 @@ class PennantTest extends TestCase
         $this->assertSame([], Feature::for('explicit-b')->loadAll());
         $this->assertSame([], $events);
         $this->assertFalse(Feature::for('explicit-b')->value('unknown'));
+    }
+
+    public static function queueCallers(): array
+    {
+        return [
+            'anonymous caller, success' => [null, false],
+            'anonymous caller, failure' => [null, true],
+            'identified caller, success' => ['parent-owner', false],
+            'identified caller, failure' => ['parent-owner', true],
+        ];
+    }
+
+    #[DataProvider('queueCallers')]
+    public function testQueueCompletionConsumersCannotPolluteTheRestoredCallersCache(
+        ?string $parentId,
+        bool $fail,
+    ): void {
+        $this->app['config']->set('queue.default', 'sync');
+        $this->app['config']->set('pennant-test.read-on-job-end', true);
+        $events = [];
+        $this->sdk($parentId === null ? 1 : 2, $events);
+        $context = $this->app->make(Context::class);
+        $context->begin($parentId === null ? [] : ['distinctId' => $parentId]);
+        $this->assertSame($parentId ?? false, Feature::value('layout'));
+        $parentSnapshot = $this->app->make(PostHog::class)->evaluateFlags();
+        try {
+            Bus::dispatchSync($fail ? new FailingCaptureJob('job-owner') : new CaptureJob('job-owner'));
+            $this->assertFalse($fail, 'The failing job must rethrow its original exception');
+        } catch (RuntimeException $exception) {
+            $this->assertTrue($fail);
+            $this->assertSame('failed job', $exception->getMessage());
+        }
+        $this->assertSame('job-owner', $this->app['config']->get('pennant-test.job-value'));
+        $this->assertSame($parentId, $context->data()['distinctId'] ?? null);
+        $this->assertSame($parentId ?? false, Feature::value('layout'));
+        if ($parentId !== null) {
+            $this->assertSame($parentSnapshot, $this->app->make(PostHog::class)->evaluateFlags());
+        }
     }
 
     public function testAnonymousPennantScopeDoesNotCacheAnotherRequestsIdentity(): void
