@@ -273,9 +273,6 @@ class Client implements FeatureFlagEvaluationsHost
      *
      * @param array{
      *     host?: string,
-     *     library_name?: string,
-     *     library_version?: string,
-     *     release_id?: string|null,
      *     ssl?: bool,
      *     timeout?: int|float,
      *     verify_batch_events_request?: bool,
@@ -332,15 +329,10 @@ class Client implements FeatureFlagEvaluationsHost
         );
         $this->flagDefinitionCacheProviderShutdown = false;
         $this->shutdownComplete = false;
-        $envReleaseId = getenv(self::ENV_RELEASE_ID);
-        $releaseId = array_key_exists('release_id', $options)
-            ? $options['release_id']
-            : ($envReleaseId === false ? null : $envReleaseId);
-        $this->releaseId = StringNormalizer::normalizeOptional($releaseId);
-        foreach (['library_name' => PostHog::LIBRARY, 'library_version' => PostHog::VERSION] as $key => $default) {
-            $value = StringNormalizer::normalizeOptional($options[$key] ?? null);
-            $this->options[$key] = $value !== null && !preg_match('/[\x00-\x1f\x7f]/', $value) ? $value : $default;
-        }
+        $this->releaseId = StringNormalizer::normalizeOptional($this->releaseId());
+        // Consumers read these keys for the User-Agent; always overwrite caller-supplied values.
+        $this->options['library_name'] = $this->libraryName();
+        $this->options['library_version'] = $this->libraryVersion();
         $this->options['host'] = StringNormalizer::normalizeHost($options['host'] ?? null);
         if (!$this->enabled) {
             if (($this->options['consumer'] ?? null) !== 'noop') {
@@ -405,6 +397,38 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         return $provider;
+    }
+
+    /**
+     * Library name reported as $lib and in the User-Agent. Read once during construction.
+     *
+     * @internal Overridden by PostHog framework integrations; not part of the customer API.
+     */
+    protected function libraryName(): string
+    {
+        return PostHog::LIBRARY;
+    }
+
+    /**
+     * Library version reported as $lib_version and in the User-Agent. Read once during construction.
+     *
+     * @internal Overridden by PostHog framework integrations; not part of the customer API.
+     */
+    protected function libraryVersion(): string
+    {
+        return PostHog::VERSION;
+    }
+
+    /**
+     * Release id reported as $release_id. Read once during construction.
+     *
+     * @internal Overridden by PostHog framework integrations whose configuration is cached
+     *     and cannot rely on the process environment; not part of the customer API.
+     */
+    protected function releaseId(): ?string
+    {
+        $releaseId = getenv(self::ENV_RELEASE_ID);
+        return $releaseId === false ? null : $releaseId;
     }
 
     /**
