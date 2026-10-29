@@ -4,6 +4,7 @@ namespace PostHog\Laravel;
 
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route;
 use PostHog\FeatureFlagEvaluations;
 use PostHog\PostHog as CorePostHog;
 use Throwable;
@@ -14,6 +15,7 @@ class Context
     private array $flags = [];
     private array $scopes = [];
     private ?Request $request = null;
+    private bool $headerIdentity = false;
 
     public function __construct(private Container $app)
     {
@@ -24,6 +26,7 @@ class Context
         $this->context = $data;
         $this->flags = [];
         $this->request = null;
+        $this->headerIdentity = false;
     }
 
     public function end(): void
@@ -34,9 +37,17 @@ class Context
     public function data(): array
     {
         $data = $this->context;
+        if ($this->request !== null) {
+            $data['properties']['$request_method'] ??= $this->request->method();
+            $route = $this->request->route();
+            if ($route instanceof Route) {
+                $data['properties']['$request_path'] ??= '/' . ltrim($route->uri(), '/');
+            }
+        }
         try {
             $resolver = $this->app['config']->get('posthog.distinct_id');
-            $id = $resolver ? ($this->app->make($resolver))($this->app) : null;
+            $explicitId = !$this->headerIdentity && isset($data['distinctId']);
+            $id = $explicitId ? $data['distinctId'] : ($resolver ? ($this->app->make($resolver))($this->app) : null);
             if ($id === null && $this->request !== null) {
                 $id = $this->request->user()?->getAuthIdentifier();
             }
@@ -69,8 +80,10 @@ class Context
         $previous = $this->context;
         $flags = $this->flags;
         $request = $this->request;
+        $headerIdentity = $this->headerIdentity;
         $this->begin(array_replace_recursive($previous, $data));
         $this->request = $request;
+        $this->headerIdentity = !array_key_exists('distinctId', $data) && $headerIdentity;
         try {
             return $callback();
         } catch (Throwable $exception) {
@@ -80,6 +93,7 @@ class Context
             $this->context = $previous;
             $this->flags = $flags;
             $this->request = $request;
+            $this->headerIdentity = $headerIdentity;
         }
     }
 
@@ -88,12 +102,13 @@ class Context
         $this->begin($this->app['config']->get('posthog.header_context', true)
             ? CorePostHog::contextFromHeaders($request->headers->all()) : []);
         $this->request = $request;
+        $this->headerIdentity = true;
     }
 
     /** @internal Isolate nested queue executions without discarding the caller's context. */
     public function enter(): void
     {
-        $this->scopes[] = [$this->context, $this->flags, $this->request];
+        $this->scopes[] = [$this->context, $this->flags, $this->request, $this->headerIdentity];
         $this->begin();
     }
 
@@ -104,7 +119,7 @@ class Context
             $this->end();
             return;
         }
-        [$this->context, $this->flags, $this->request] = array_pop($this->scopes);
+        [$this->context, $this->flags, $this->request, $this->headerIdentity] = array_pop($this->scopes);
     }
 
     public function flags(string $key, callable $evaluate): FeatureFlagEvaluations

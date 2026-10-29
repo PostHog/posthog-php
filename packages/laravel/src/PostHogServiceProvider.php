@@ -72,14 +72,18 @@ class PostHogServiceProvider extends ServiceProvider
             }
         });
         $events->listen(JobExceptionOccurred::class, function ($event) {
-            $app = Container::getInstance();
-            $app->make(ExceptionReporter::class)->remember($event->exception, 'task');
-            $this->finish($app, true);
+            Container::getInstance()->make(ExceptionReporter::class)->remember($event->exception, 'task');
         });
-        $events->listen(JobProcessed::class, fn () => $this->finish(Container::getInstance(), true));
+        $events->listen(CommandStarting::class, function () {
+            $app = Container::getInstance();
+            $app->make(ExceptionReporter::class)->commandStarting();
+            $context = $app->make(Context::class);
+            $data = $context->snapshot();
+            $context->enter();
+            $context->begin($data);
+        });
         foreach (
             [
-                CommandStarting::class,
                 'Laravel\\Octane\\Events\\RequestReceived',
                 'Laravel\\Octane\\Events\\TaskReceived',
                 'Laravel\\Octane\\Events\\TickReceived',
@@ -94,28 +98,39 @@ class PostHogServiceProvider extends ServiceProvider
                 }
             });
         }
-        foreach (
-            [
-                Looping::class,
-                CommandFinished::class,
-                'Laravel\\Octane\\Events\\RequestTerminated',
-                'Laravel\\Octane\\Events\\TaskTerminated',
-                'Laravel\\Octane\\Events\\TickTerminated',
-            ] as $event
-        ) {
-            $events->listen($event, function ($event) {
-                $this->finish($event->sandbox ?? $event->app ?? Container::getInstance());
-            });
-        }
         $events->listen('Laravel\\Octane\\Events\\WorkerErrorOccurred', function ($event) {
-            $app = $event->sandbox;
-            $app->make(ExceptionReporter::class)->remember($event->exception, 'runtime');
-            $this->finish($app);
+            $event->sandbox->make(ExceptionReporter::class)->remember($event->exception, 'runtime');
+        });
+        // End-event consumers must observe the completed scope before cleanup restores its caller.
+        $this->app->booted(function () use ($events) {
+            $events->listen(CommandFinished::class, function ($event) {
+                $app = Container::getInstance();
+                $app->make(ExceptionReporter::class)->commandFinished($event->exitCode);
+                $this->finish($app, true);
+            });
+            foreach ([JobProcessed::class, JobExceptionOccurred::class] as $event) {
+                $events->listen($event, fn () => $this->finish(Container::getInstance(), true));
+            }
+            foreach (
+                [
+                    Looping::class,
+                    'Laravel\\Octane\\Events\\RequestTerminated',
+                    'Laravel\\Octane\\Events\\TaskTerminated',
+                    'Laravel\\Octane\\Events\\TickTerminated',
+                ] as $event
+            ) {
+                $events->listen($event, function ($event) {
+                    $this->finish($event->sandbox ?? $event->app ?? Container::getInstance());
+                });
+            }
+            $events->listen('Laravel\\Octane\\Events\\WorkerErrorOccurred', function ($event) {
+                $this->finish($event->sandbox);
+            });
         });
         $this->app->terminating(fn () => $this->finish(Container::getInstance()));
     }
 
-    private function finish(Container $app, bool $queue = false): void
+    private function finish(Container $app, bool $restore = false): void
     {
         try {
             $app->make(PostHog::class)->flush();
@@ -123,7 +138,7 @@ class PostHogServiceProvider extends ServiceProvider
             // Lifecycle cleanup must continue when a transport fails.
         } finally {
             $context = $app->make(Context::class);
-            $queue ? $context->leave() : $context->end();
+            $restore ? $context->leave() : $context->end();
         }
     }
 }

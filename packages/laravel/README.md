@@ -45,12 +45,14 @@ Inject `PostHog\Laravel\PostHog` to use the same API without a facade. `posthog`
 container alias. `PostHog\Client` is also injectable, but raw client calls require
 explicit identity or an explicit core context.
 
-Identity precedence: an explicit API `distinctId` wins, then the authenticated
-request user's auth identifier, then `X-PostHog-Distinct-Id` as an anonymous analytics
-fallback. `X-PostHog-Session-Id` provides session correlation. Headers are untrusted
+Identity precedence: an explicit API `distinctId` wins, then an explicitly scoped
+`Context` identity, then the custom identity resolver or authenticated request user's
+auth identifier, then `X-PostHog-Distinct-Id` as an anonymous analytics fallback. `X-PostHog-Session-Id` provides session correlation. Headers are untrusted
 analytics input, **never authentication or authorization**. Set `header_context=false`
 to ignore both headers. No anonymous ID is generated for requests without identity.
 
+Captures include the request method and matched route template (for example
+`/orders/{order}`), never concrete route parameters. Explicit event properties win.
 By default there is no collection of raw URLs, query strings, request bodies,
 cookies, email, IP addresses, or user profile fields. GeoIP is disabled by default
 (`sdk.disableGeoip=true`). Application-supplied properties and exception messages may
@@ -85,8 +87,8 @@ the analytics context after cleanup. Queue jobs start fresh and receive only bou
 identity, session and scalar group context in `_posthog` payload metadata. Arbitrary
 properties, models and request data are not propagated. Set `queue_context=false` to
 disable propagation. This metadata is analytics context, never authorization evidence.
-Jobs may override it explicitly. Nested synchronous jobs restore the caller's context
-when they finish or fail.
+Jobs may override it explicitly. Nested synchronous jobs and Artisan commands restore
+the caller's context and flag snapshots when they finish or fail.
 
 Global request middleware, queue events, Artisan command events, and Octane
 request/task/tick events flush and clean context automatically. SDK creation is lazy,

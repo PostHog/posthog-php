@@ -90,10 +90,66 @@ class RuntimeTest extends TestCase
         }
         $messages = array_column($fake->recorded('capture'), 'message');
         $this->assertSame(['first', 'override', 'second', 'override'], array_column($messages, 'distinctId'));
-        $this->assertSame(['$session_id' => 'session-first'], $messages[0]['properties']);
-        $this->assertSame(['$session_id' => 'session-second'], $messages[2]['properties']);
+        $this->assertSame([
+            '$session_id' => 'session-first', '$request_method' => 'GET', '$request_path' => '/runtime/{id}',
+        ], $messages[0]['properties']);
+        $this->assertSame([
+            '$session_id' => 'session-second', '$request_method' => 'GET', '$request_path' => '/runtime/{id}',
+        ], $messages[2]['properties']);
         $this->assertSame([], $this->app->make(Context::class)->snapshot());
         $this->assertStringNotContainsString('private', json_encode($messages));
+    }
+
+    public function testExplicitScopedIdentityWinsOverAuthenticationAndCustomResolvers(): void
+    {
+        $fake = Facade::fake();
+        $context = $this->app->make(Context::class);
+        $request = Request::create('/', server: ['HTTP_X_POSTHOG_DISTINCT_ID' => 'header-user']);
+        $request->setUserResolver(fn () => new GenericUser(['id' => 'authenticated-user']));
+        $context->fromRequest($request);
+        $context->with(['distinctId' => 'scoped-user'], fn () => Facade::capture('scoped'));
+        $fake->assertCaptured('scoped', fn ($event) => $event['distinctId'] === 'scoped-user');
+        $this->assertSame('authenticated-user', $context->data()['distinctId']);
+        $this->app['config']->set('posthog.distinct_id', IdentityResolver::class);
+        $context->begin(['distinctId' => 'explicit-job-user']);
+        $this->assertSame('explicit-job-user', $context->data()['distinctId']);
+    }
+
+    public function testNestedArtisanCommandRestoresCallerContextAndFlagSnapshot(): void
+    {
+        $context = $this->app->make(Context::class);
+        $context->begin(['distinctId' => 'caller', 'sessionId' => 'session', 'groups' => ['team' => 'one']]);
+        $before = $context->snapshot();
+        $flags = new \PostHog\FeatureFlagEvaluations('caller', [], [], Facade::fake()->client());
+        $context->flags('caller-snapshot', fn () => $flags);
+        $this->app->make(\Illuminate\Contracts\Console\Kernel::class)->rerouteSymfonyCommandEvents();
+        \Illuminate\Support\Facades\Artisan::call('list', ['--raw' => true]);
+        $this->assertSame($before, $context->snapshot());
+        $this->assertSame($flags, $context->flags(
+            'caller-snapshot',
+            fn () => throw new RuntimeException('lost flags'),
+        ));
+    }
+
+    public function testFailedCommandSnapshotSurvivesTerminationBeforeKernelReporting(): void
+    {
+        $fake = Facade::fake();
+        $context = $this->app->make(Context::class);
+        $context->begin(['distinctId' => 'caller']);
+        $kernel = new \PostHog\Laravel\Tests\Fixtures\ReportingConsoleKernel($this->app, $this->app['events']);
+        $this->app->instance(\Illuminate\Contracts\Console\Kernel::class, $kernel);
+        \Illuminate\Support\Facades\Artisan::clearResolvedInstance(\Illuminate\Contracts\Console\Kernel::class);
+        $kernel->rerouteSymfonyCommandEvents();
+        \Illuminate\Support\Facades\Artisan::command('posthog:failing', function () {
+            app(Context::class)->begin(['distinctId' => 'failed-command']);
+            throw new RuntimeException('command failure');
+        });
+        $this->assertSame(1, $kernel->handle(new ArrayInput(['command' => 'posthog:failing']), new NullOutput()));
+        $this->assertSame('caller', $context->data()['distinctId']);
+        $this->assertCount(1, $fake->recorded('captureException'));
+        $this->assertSame('failed-command', $fake->recorded('captureException')[0]['message']['distinctId']);
+        $fake->assertExceptionCaptured(fn ($event) => $event['distinctId'] === 'failed-command'
+            && $event['options']['handled'] === false);
     }
 
     public function testHeaderFallbackAndNestedContextRestoreOnFailure(): void
