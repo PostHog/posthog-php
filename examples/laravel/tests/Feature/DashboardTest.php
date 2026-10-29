@@ -20,7 +20,7 @@ final class DashboardTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_dashboard_needs_no_key_browser_sdk_or_build_assets(): void
+    public function testDashboardNeedsNoKeyBrowserSdkOrBuildAssets(): void
     {
         $fake = PostHog::fake();
         config(['posthog.api_key' => 'project-must-not-render', 'posthog.secret_key' => 'secret-must-not-render']);
@@ -34,7 +34,7 @@ final class DashboardTest extends TestCase
         $fake->assertNothingCaptured();
     }
 
-    public function test_capture_uses_explicit_and_header_ambient_identity_and_groups(): void
+    public function testCaptureUsesExplicitAndHeaderAmbientIdentityAndGroups(): void
     {
         $fake = PostHog::fake();
         $this->withHeaders([
@@ -51,7 +51,7 @@ final class DashboardTest extends TestCase
         self::assertSame([], app(Context::class)->data());
     }
 
-    public function test_auth_identity_beats_analytics_headers_but_not_explicit_api_identity(): void
+    public function testAuthIdentityBeatsAnalyticsHeadersButNotExplicitApiIdentity(): void
     {
         $fake = PostHog::fake();
         $user = DemoUser::create(['name' => 'Synthetic member']);
@@ -61,7 +61,7 @@ final class DashboardTest extends TestCase
         $fake->assertCaptured('demo_explicit', fn ($event) => $event['distinctId'] === 'demo-explicit');
     }
 
-    public function test_identity_form_records_identify_alias_and_group_messages(): void
+    public function testIdentityFormRecordsIdentifyAliasAndGroupMessages(): void
     {
         $fake = PostHog::fake();
         $this->post('/demo/identity')->assertRedirect('/');
@@ -71,12 +71,21 @@ final class DashboardTest extends TestCase
         $fake->assertGroupIdentified(fn ($message) => $message['groupKey'] === 'demo-team');
     }
 
-    public function test_flag_form_uses_variant_payload_snapshot_and_unresolved_reasons(): void
+    public function testFlagFormUsesVariantPayloadSnapshotAndUnresolvedReasons(): void
     {
         $fake = PostHog::fake();
         $snapshot = new FeatureFlagEvaluations('demo-visitor', [
             'demo-checkout' => new EvaluatedFlagRecord('demo-checkout', true, null, null, null, null, null, true),
-            'demo-layout' => new EvaluatedFlagRecord('demo-layout', true, 'compact', ['color' => 'blue'], null, null, null, true),
+            'demo-layout' => new EvaluatedFlagRecord(
+                'demo-layout',
+                true,
+                'compact',
+                ['color' => 'blue'],
+                null,
+                null,
+                null,
+                true,
+            ),
         ], [], $fake->client(), unresolvedFlags: ['needs-plan' => UnresolvedFlagReason::MISSING_CONTEXT]);
         $fake->flags($snapshot);
         $this->post('/demo/flags')->assertRedirect('/')->assertSessionHas('result', fn ($result) =>
@@ -88,7 +97,7 @@ final class DashboardTest extends TestCase
             && $event['flags']->getEventProperties()['$active_feature_flags'] === ['demo-checkout', 'demo-layout']);
     }
 
-    public function test_pennant_form_reads_boolean_and_variant_without_mutating_remote_flags(): void
+    public function testPennantFormReadsBooleanAndVariantWithoutMutatingRemoteFlags(): void
     {
         $fake = PostHog::fake();
         $fake->flags(new FeatureFlagEvaluations('demo-visitor', [
@@ -101,7 +110,7 @@ final class DashboardTest extends TestCase
         $fake->assertNothingCaptured();
     }
 
-    public function test_manual_and_report_endpoints_capture_handled_exceptions_without_network(): void
+    public function testManualAndReportEndpointsCaptureHandledExceptionsWithoutNetwork(): void
     {
         $fake = PostHog::fake();
         $this->post('/demo/exception')->assertRedirect('/');
@@ -113,7 +122,7 @@ final class DashboardTest extends TestCase
             && $message['options']['handled'] === true);
     }
 
-    public function test_failing_endpoint_reports_unhandled_and_cleans_context(): void
+    public function testFailingEndpointReportsUnhandledAndCleansContext(): void
     {
         $fake = PostHog::fake();
         $this->post('/demo/failure')->assertStatus(500);
@@ -122,16 +131,19 @@ final class DashboardTest extends TestCase
         self::assertSame([], app(Context::class)->data());
     }
 
-    public function test_order_form_persists_synthetic_data_and_dispatches_allowlisted_event(): void
+    public function testOrderFormPersistsSyntheticDataAndDispatchesAllowlistedEvent(): void
     {
         PostHog::fake();
         \Illuminate\Support\Facades\Event::fake([\App\Events\OrderCompleted::class]);
         $this->post('/demo/order')->assertRedirect('/');
         $this->assertDatabaseHas('demo_orders', ['amount' => 4200, 'status' => 'completed']);
-        \Illuminate\Support\Facades\Event::assertDispatched(\App\Events\OrderCompleted::class, fn ($event) => $event->amount === 4200);
+        \Illuminate\Support\Facades\Event::assertDispatched(
+            \App\Events\OrderCompleted::class,
+            fn ($event) => $event->amount === 4200,
+        );
     }
 
-    public function test_queue_form_dispatches_job_and_sync_execution_records_scoped_payload(): void
+    public function testQueueFormDispatchesJobAndSyncExecutionRecordsScopedPayload(): void
     {
         $fake = PostHog::fake();
         $this->withHeader('X-PostHog-Distinct-Id', 'must-not-leak')->post('/demo/queue')->assertRedirect('/');
@@ -142,23 +154,31 @@ final class DashboardTest extends TestCase
         self::assertSame([], app(Context::class)->data());
     }
 
-    public function test_queue_job_object_does_not_copy_request_context(): void
+    public function testQueueJobObjectDoesNotCopyRequestContext(): void
     {
         PostHog::fake();
         Queue::fake();
-        $this->withHeader('X-PostHog-Distinct-Id', 'private-request-identity')->post('/demo/queue')->assertRedirect('/');
-        Queue::assertPushed(DemoJob::class, fn (DemoJob $job) => $job->analyticsId === 'demo-job-owner'
-            && !str_contains(serialize($job), 'private-request-identity'));
+        $this->withHeader('X-PostHog-Distinct-Id', 'private-request-identity')
+            ->post('/demo/queue')->assertRedirect('/');
+        Queue::assertPushed(
+            DemoJob::class,
+            fn (DemoJob $job) => $job->analyticsId === 'demo-job-owner'
+                && !str_contains(serialize($job), 'private-request-identity'),
+        );
     }
 
-    public function test_database_queue_metadata_contains_only_bounded_analytics_context(): void
+    public function testDatabaseQueueMetadataContainsOnlyBoundedAnalyticsContext(): void
     {
         PostHog::fake();
         config(['queue.default' => 'database']);
         $this->withHeaders([
             'X-PostHog-Distinct-Id' => 'queued-visitor', 'X-PostHog-Session-Id' => 'queued-session',
         ])->post('/demo/queue')->assertRedirect('/');
-        $payload = json_decode(\Illuminate\Support\Facades\DB::table('jobs')->first()->payload, true, flags: JSON_THROW_ON_ERROR);
+        $payload = json_decode(
+            \Illuminate\Support\Facades\DB::table('jobs')->first()->payload,
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
         self::assertSame('queued-visitor', $payload['_posthog']['distinctId']);
         self::assertSame('queued-session', $payload['_posthog']['sessionId']);
         self::assertSame(['team' => 'demo-team'], $payload['_posthog']['groups']);
@@ -166,7 +186,7 @@ final class DashboardTest extends TestCase
         self::assertSame(['$session_id' => 'queued-session'], $payload['_posthog']['properties']);
     }
 
-    public function test_application_transactions_defer_jobs_until_commit_and_drop_rolled_back_jobs(): void
+    public function testApplicationTransactionsDeferJobsUntilCommitAndDropRolledBackJobs(): void
     {
         PostHog::fake();
         config(['queue.default' => 'database']);
@@ -186,26 +206,33 @@ final class DashboardTest extends TestCase
         $this->assertDatabaseCount('jobs', 1);
     }
 
-    public function test_queue_context_propagation_can_be_disabled(): void
+    public function testQueueContextPropagationCanBeDisabled(): void
     {
         PostHog::fake();
         config(['queue.default' => 'database', 'posthog.queue_context' => false]);
         $this->withHeader('X-PostHog-Distinct-Id', 'must-not-copy')->post('/demo/queue')->assertRedirect('/');
-        $payload = json_decode(\Illuminate\Support\Facades\DB::table('jobs')->first()->payload, true, flags: JSON_THROW_ON_ERROR);
+        $payload = json_decode(
+            \Illuminate\Support\Facades\DB::table('jobs')->first()->payload,
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
         self::assertArrayNotHasKey('_posthog', $payload);
     }
 
-    public function test_synthetic_login_and_logout_are_executable(): void
+    public function testSyntheticLoginAndLogoutAreExecutable(): void
     {
         $fake = PostHog::fake();
         $this->post('/demo/login')->assertRedirect('/');
         $this->assertAuthenticated();
-        $fake->assertCaptured('demo_authenticated', fn ($event) => $event['distinctId'] === (string) DemoUser::first()->id);
+        $fake->assertCaptured(
+            'demo_authenticated',
+            fn ($event) => $event['distinctId'] === (string) DemoUser::first()->id,
+        );
         $this->post('/demo/logout')->assertRedirect('/');
         $this->assertGuest();
     }
 
-    public function test_flush_failure_is_visible_without_breaking_response(): void
+    public function testFlushFailureIsVisibleWithoutBreakingResponse(): void
     {
         $fake = \Mockery::mock(PostHogFake::class, [$this->app])->makePartial();
         $fake->shouldReceive('flush')->andReturn(false);
@@ -213,7 +240,7 @@ final class DashboardTest extends TestCase
         $this->post('/demo/flush')->assertRedirect('/')->assertSessionHas('result.flushed', false);
     }
 
-    public function test_disabled_sdk_allows_demo_and_flag_routes_without_live_network(): void
+    public function testDisabledSdkAllowsDemoAndFlagRoutesWithoutLiveNetwork(): void
     {
         self::assertFalse(PostHog::enabled());
         $this->post('/demo/capture')->assertRedirect('/')->assertSessionHas('result.explicit_accepted', false);
@@ -222,7 +249,7 @@ final class DashboardTest extends TestCase
         self::assertInstanceOf(Client::class, PostHog::client());
     }
 
-    public function test_artisan_demo_and_scheduled_command_are_repeatable(): void
+    public function testArtisanDemoAndScheduledCommandAreRepeatable(): void
     {
         $fake = PostHog::fake();
         app(\Illuminate\Contracts\Console\Kernel::class)->rerouteSymfonyCommandEvents();
@@ -234,7 +261,7 @@ final class DashboardTest extends TestCase
         self::assertSame(2, DemoOrder::count());
     }
 
-    public function test_unknown_demo_action_is_not_executable(): void
+    public function testUnknownDemoActionIsNotExecutable(): void
     {
         $fake = PostHog::fake();
         $this->post('/demo/not-a-demo')->assertNotFound();
