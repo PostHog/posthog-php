@@ -124,7 +124,9 @@ local definitions, local-only evaluation is empty; it is not proof a flag is off
 
 The Pennant form uses `Feature::store('posthog')` explicitly, leaving other Pennant
 stores unchanged. Its values come from the same native SDK snapshots; write operations
-are intentionally unsupported. See the integration's `PENNANT.md` for scope mapping
+are intentionally unsupported. This form is disabled when `POSTHOG_LOCAL_ONLY=true`;
+use the native flags form for local-only evaluation. Direct POSTs are guarded too.
+See the integration's `PENNANT.md` for scope mapping
 and when to clear Pennant's cache after targeting changes within a request.
 
 Advanced PHP SDK methods remain accessible without another global SDK instance:

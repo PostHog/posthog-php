@@ -77,6 +77,9 @@ final class DemoActions
 
     public function pennant(): array
     {
+        if (config('demo.local_only')) {
+            return ['skipped' => true, 'reason' => 'Use the native flags form for local-only evaluation.'];
+        }
         return $this->ambient(function (): array {
             $store = \Laravel\Pennant\Feature::store('posthog');
             return [

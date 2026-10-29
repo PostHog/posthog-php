@@ -35,8 +35,9 @@
     <p>Create boolean <code>demo-checkout</code> and multivariate <code>demo-layout</code> flags in your project.
         One snapshot supplies enabled state, variant, decoded payload, and an accessed-only event attachment.</p>
     <form method="post" action="{{ route('demo.run', 'flags') }}">@csrf<button>Evaluate flags and capture decision</button></form>
-    <form method="post" action="{{ route('demo.run', 'pennant') }}">@csrf<button>Read flags through Pennant</button></form>
-    <small>Pennant uses the same SDK snapshots. The PostHog store is read-only; manage flags in PostHog.</small>
+    <form method="post" action="{{ route('demo.run', 'pennant') }}">@csrf<button @disabled(config('demo.local_only'))>Read flags through Pennant</button></form>
+    <small>Pennant uses the same SDK snapshots. Its demo requires remote fallback; use the native flags form in local-only mode.
+        The PostHog store is read-only; manage flags in PostHog.</small>
     <p><code>POSTHOG_SECRET_KEY</code> (server only) + <code>POSTHOG_FLAG_CACHE=true</code> enables shared local definitions.
         <code>POSTHOG_LOCAL_ONLY=true</code> disables remote fallback. Unresolved reasons are shown separately
         (missing context, unsupported definition, dependency, or experience continuity); an empty result with no key is expected.</p>
