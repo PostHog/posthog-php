@@ -6,6 +6,7 @@
     "require": {
         "php": "^8.2",
         "laravel/framework": "^12.0 || ^13.0",
+        "laravel/pennant": "^1.26",
         "posthog/posthog-php": "^4.20",
         "posthog/posthog-laravel": "^0.1.0"
     },

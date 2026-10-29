@@ -64,6 +64,7 @@ After changing configuration, use `php artisan config:clear` and restart workers
 | Capture two events | explicit identity/groups and ambient scoped capture | `app/Support/DemoActions.php` |
 | Identify, alias, group identify | synthetic member/visitor relationship, team profile | `DemoActions::identity()` |
 | Evaluate flags | boolean, variant, decoded payload, one shared snapshot, `onlyAccessed()` attachment, unresolved reasons | `DemoActions::flags()` |
+| Read flags through Pennant | optional read-only PostHog store; boolean and variant values | `DemoActions::pennant()` |
 | Manual exception | explicit handled capture and safe properties | `DemoActions::exception()` |
 | Laravel report() | handled framework reporting (no global PHP handlers) | `DemoActions::exception()` |
 | Throw an unhandled 500 | escaping failure reporting and context cleanup | `DemoController::failure()` |
@@ -120,6 +121,11 @@ cache. `POSTHOG_LOCAL_ONLY=true` prevents remote flag fallback, but a secret-key
 worker may still fetch definitions. Unresolved entries can report missing context,
 unsupported definitions, unresolved dependencies or experience continuity. Without
 local definitions, local-only evaluation is empty; it is not proof a flag is off.
+
+The Pennant form uses `Feature::store('posthog')` explicitly, leaving other Pennant
+stores unchanged. Its values come from the same native SDK snapshots; write operations
+are intentionally unsupported. See the integration's `PENNANT.md` for scope mapping
+and when to clear Pennant's cache after targeting changes within a request.
 
 Advanced PHP SDK methods remain accessible without another global SDK instance:
 

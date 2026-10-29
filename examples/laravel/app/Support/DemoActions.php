@@ -70,6 +70,18 @@ final class DemoActions
         });
     }
 
+    public function pennant(): array
+    {
+        return $this->ambient(function (): array {
+            $store = \Laravel\Pennant\Feature::store('posthog');
+            return [
+                'enabled' => $store->active('demo-checkout'),
+                'variant' => $store->value('demo-layout'),
+                'read_only' => true,
+            ];
+        });
+    }
+
     public function exception(bool $report = false): array
     {
         return $this->ambient(function () use ($report): array {

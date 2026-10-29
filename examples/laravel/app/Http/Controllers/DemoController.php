@@ -29,6 +29,7 @@ final class DemoController
             'capture' => $demo->capture(),
             'identity' => $demo->identity(),
             'flags' => $demo->flags(),
+            'pennant' => $demo->pennant(),
             'exception' => $demo->exception(),
             'report' => $demo->exception(report: true),
             'order' => $demo->order(),

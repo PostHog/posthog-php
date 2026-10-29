@@ -88,6 +88,19 @@ final class DashboardTest extends TestCase
             && $event['flags']->getEventProperties()['$active_feature_flags'] === ['demo-checkout', 'demo-layout']);
     }
 
+    public function test_pennant_form_reads_boolean_and_variant_without_mutating_remote_flags(): void
+    {
+        $fake = PostHog::fake();
+        $fake->flags(new FeatureFlagEvaluations('demo-visitor', [
+            'demo-checkout' => new EvaluatedFlagRecord('demo-checkout', true, null, null, null, null, null, true),
+            'demo-layout' => new EvaluatedFlagRecord('demo-layout', true, 'compact', null, null, null, null, true),
+        ], [], $fake->client()));
+        $this->post('/demo/pennant')->assertRedirect('/')->assertSessionHas('result', [
+            'enabled' => true, 'variant' => 'compact', 'read_only' => true,
+        ]);
+        $fake->assertNothingCaptured();
+    }
+
     public function test_manual_and_report_endpoints_capture_handled_exceptions_without_network(): void
     {
         $fake = PostHog::fake();
