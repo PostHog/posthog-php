@@ -252,8 +252,13 @@ The diagnostic event excludes ambient identity, session, groups and request/user
 properties without changing the caller's context. Application-owned `before_send`
 callbacks still run and may deliberately enrich or drop it.
 
-No collectors are enabled by this foundation package. Optional collectors can be
-registered by a separate `AutocaptureServiceProvider` when installed.
+Optional server event collectors are included but **all are off by default**.
+The main provider discovers the separate `AutocaptureServiceProvider` automatically.
+See [collector configuration and exact event schemas](AUTOCAPTURE.md) for request
+summaries, separately enabled server HTML pageviews, auth outcomes, explicit domain
+mappings, after-commit model events, worker outcomes, and Blade flag conditionals.
+Server pageviews can duplicate browser SDK pageviews: enable only one equivalent
+source. These collectors do not observe UI interactions or emit `$autocapture`.
 
 ## Testing
 

@@ -32,6 +32,9 @@ class PostHogFake extends PostHog
         $message['distinctId'] ??= $data['distinctId'] ?? null;
         $message['groups'] ??= $data['groups'] ?? [];
         $message['properties'] = array_replace($data['properties'] ?? [], $message['properties'] ?? []);
+        if (isset($data['sessionId']) && !array_key_exists('$session_id', $message['properties'])) {
+            $message['properties']['$session_id'] = $data['sessionId'];
+        }
         $this->recorded[] = ['method' => $method, 'message' => $message];
         return true;
     }
