@@ -35,6 +35,9 @@ class PostHogServiceProvider extends ServiceProvider
                 $config['flag_cache']['refresh_interval'],
             );
         });
+        if (class_exists(\Laravel\Pennant\FeatureManager::class)) {
+            $this->app->register(Features\PennantServiceProvider::class);
+        }
         if (class_exists(AutocaptureServiceProvider::class)) {
             $this->app->register(AutocaptureServiceProvider::class);
         }

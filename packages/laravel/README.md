@@ -181,6 +181,11 @@ refresh lazily after the interval. There is no background timer. The PHP client'
 `loadFlags()` remains available for an explicit refresh. You can instead supply a
 custom provider class in `sdk.flag_definition_cache_provider`.
 
+## Laravel Pennant
+
+An optional read-only PostHog store supports Pennant boolean and variant reads.
+See [Pennant setup, scope mapping and cache behavior](PENNANT.md).
+
 ## Configuration callbacks and full PHP access
 
 `posthog.sdk` passes PHP SDK options through. `before_send`, `error_handler`, and
