@@ -273,6 +273,9 @@ class Client implements FeatureFlagEvaluationsHost
      *
      * @param array{
      *     host?: string,
+     *     library_name?: string,
+     *     library_version?: string,
+     *     release_id?: string|null,
      *     ssl?: bool,
      *     timeout?: int|float,
      *     verify_batch_events_request?: bool,
@@ -330,7 +333,14 @@ class Client implements FeatureFlagEvaluationsHost
         $this->flagDefinitionCacheProviderShutdown = false;
         $this->shutdownComplete = false;
         $envReleaseId = getenv(self::ENV_RELEASE_ID);
-        $this->releaseId = $envReleaseId === false ? null : StringNormalizer::normalizeOptional($envReleaseId);
+        $releaseId = array_key_exists('release_id', $options)
+            ? $options['release_id']
+            : ($envReleaseId === false ? null : $envReleaseId);
+        $this->releaseId = StringNormalizer::normalizeOptional($releaseId);
+        $this->options['library_name'] = StringNormalizer::normalizeOptional($options['library_name'] ?? null)
+            ?? PostHog::LIBRARY;
+        $this->options['library_version'] = StringNormalizer::normalizeOptional($options['library_version'] ?? null)
+            ?? PostHog::VERSION;
         $this->options['host'] = StringNormalizer::normalizeHost($options['host'] ?? null);
         if (!$this->enabled) {
             if (($this->options['consumer'] ?? null) !== 'noop') {
@@ -629,12 +639,15 @@ class Client implements FeatureFlagEvaluationsHost
      * @param \Throwable|string $exception The exception to capture or a plain string message
      * @param string|null $distinctId User ID; a random UUID is used when omitted (no person profile created)
      * @param array $additionalProperties Extra properties merged into the event
+     * @param array{handled?: bool, mechanism?: string} $options Framework boundary metadata.
+     *     Manual capture defaults to handled; integrations may explicitly mark a failed boundary.
      * @return bool whether the capture call succeeded
      */
     public function captureException(
         \Throwable|string $exception,
         ?string $distinctId = null,
-        array $additionalProperties = []
+        array $additionalProperties = [],
+        array $options = []
     ): bool {
         $errorTrackingConfig = $this->options['error_tracking'] ?? [];
         $maxFrames = max(0, (int) ($errorTrackingConfig['max_frames'] ?? 20));
@@ -643,6 +656,11 @@ class Client implements FeatureFlagEvaluationsHost
         if (empty($exceptionList)) {
             return false;
         }
+
+        $exceptionList = ExceptionPayloadBuilder::overridePrimaryMechanism($exceptionList, [
+            'type' => $options['mechanism'] ?? 'generic',
+            'handled' => $options['handled'] ?? true,
+        ]);
 
         $traceProperties = array_diff_key(
             ExceptionPayloadBuilder::getTraceProperties(),
@@ -667,6 +685,41 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         return $this->capture($message);
+    }
+
+    /**
+     * Update a group using explicit group identity, without inheriting request context.
+     *
+     * @param array{groupType: string, groupKey: string, properties?: array<string, mixed>,
+     *     distinctId?: string, distinct_id?: string, disableGeoip?: bool} $message
+     */
+    public function groupIdentify(array $message): bool
+    {
+        if (empty($message['groupType'])) {
+            throw new Exception('PostHog::groupIdentify() expects a groupType');
+        }
+        if (empty($message['groupKey'])) {
+            throw new Exception('PostHog::groupIdentify() expects a groupKey');
+        }
+
+        $distinctId = "\${$message['groupType']}_{$message['groupKey']}";
+        foreach (['distinctId', 'distinct_id'] as $key) {
+            if (isset($message[$key]) && is_scalar($message[$key]) && (string) $message[$key] !== '') {
+                $distinctId = (string) $message[$key];
+                break;
+            }
+        }
+
+        return $this->capture([
+            'event' => '$groupidentify',
+            'distinctId' => $distinctId,
+            'disableGeoip' => $message['disableGeoip'] ?? null,
+            'properties' => [
+                '$group_type' => $message['groupType'],
+                '$group_key' => $message['groupKey'],
+                '$group_set' => $message['properties'] ?? [],
+            ],
+        ]);
     }
 
     /**
@@ -1977,7 +2030,7 @@ class Client implements FeatureFlagEvaluationsHost
 
         $headers = [
             // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
-            "User-Agent: " . PostHog::LIBRARY . "/" . PostHog::VERSION,
+            "User-Agent: " . $this->options['library_name'] . "/" . $this->options['library_version'],
             "Authorization: Bearer " . $this->secretKey
         ];
 
@@ -2184,7 +2237,7 @@ class Client implements FeatureFlagEvaluationsHost
                 $requestPayload,
                 [
                     // Send user agent in the form of {library_name}/{library_version} as per RFC 7231.
-                    "User-Agent: " . PostHog::LIBRARY . "/" . PostHog::VERSION,
+                    "User-Agent: " . $this->options['library_name'] . "/" . $this->options['library_version'],
                 ],
                 [
                     "shouldRetry" => false,
@@ -2384,6 +2437,22 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
+     * Enter context across framework lifecycle callbacks. Close the returned scope in a finally block.
+     *
+     * @param array<string, mixed> $data
+     * @param array{fresh?: bool} $options
+     */
+    public function enterContext(array $data, array $options = []): ContextScope
+    {
+        $scope = RequestContext::enterContext($data, $options, $this->contextKey());
+        Internal\SpanContext::enrichCurrent($this);
+        // The bound closure keeps this client alive so its context key cannot be reused before close.
+        return new ContextScope(function () use ($scope): void {
+            $scope->close();
+        });
+    }
+
+    /**
      * Get the currently active request context for this client, if any.
      *
      * @return array{distinctId?: string|null, sessionId?: string|null, properties: array<string, mixed>}|null
@@ -2543,19 +2612,22 @@ class Client implements FeatureFlagEvaluationsHost
         unset($msg["type"], $msg["library"], $msg["library_version"], $msg["library_consumer"]);
 
         if (!array_key_exists('$lib', $msg["properties"])) {
-            $msg["properties"]['$lib'] = is_scalar($legacyLibrary) && (string) $legacyLibrary !== ''
+            $msg["properties"]['$lib'] = is_scalar($legacyLibrary)
+                && (string) $legacyLibrary !== ''
                 ? (string) $legacyLibrary
-                : PostHog::LIBRARY;
+                : $this->options['library_name'];
         }
 
         if (!array_key_exists('$lib_version', $msg["properties"])) {
-            $msg["properties"]['$lib_version'] = is_scalar($legacyLibraryVersion) && (string) $legacyLibraryVersion !== ''
+            $msg["properties"]['$lib_version'] = is_scalar($legacyLibraryVersion)
+                && (string) $legacyLibraryVersion !== ''
                 ? (string) $legacyLibraryVersion
-                : PostHog::VERSION;
+                : $this->options['library_version'];
         }
 
         if (!array_key_exists('$lib_consumer', $msg["properties"])) {
-            $msg["properties"]['$lib_consumer'] = is_scalar($legacyLibraryConsumer) && (string) $legacyLibraryConsumer !== ''
+            $msg["properties"]['$lib_consumer'] = is_scalar($legacyLibraryConsumer)
+                && (string) $legacyLibraryConsumer !== ''
                 ? (string) $legacyLibraryConsumer
                 : $this->consumer->getConsumer();
         }
