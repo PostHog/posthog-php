@@ -56,7 +56,7 @@ def allowed_distribution_file(name):
     path = PurePosixPath(name)
     if path.is_absolute() or any(p.startswith(".") or p.lower() in FORBIDDEN for p in path.parts):
         return False
-    return name in {"composer.json", "README.md", "LICENSE.md"} or (
+    return name in {"composer.json", "README.md", "LICENSE.md", "AUTOCAPTURE.md", "PENNANT.md"} or (
         len(path.parts) > 1 and path.parts[0] in {"src", "config"} and path.suffix == ".php"
     )
 

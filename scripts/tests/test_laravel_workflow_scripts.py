@@ -19,7 +19,7 @@ class LaravelWorkflowScriptsTest(LaravelReleaseFixture):
         return path
 
     def test_composer_overrides_and_example_tests_run_only_in_temporary_copy(self):
-        self.write("examples/laravel/composer.json", '{"name":"posthog/laravel-example","scripts":{"test":"php artisan test"}}')
+        self.write("examples/laravel/composer.json", '{"name":"posthog/laravel-example","scripts":{"test":"php artisan test"},"config":{"platform":{"php":"8.2.0"}}}')
         snapshot(self.root)
         self.write("packages/laravel/.env", "local-secret")
         self.write("packages/laravel/vendor/local.txt", "local vendor")
@@ -49,6 +49,10 @@ if sys.argv[1] == 'update':
             self.assertNotEqual(Path(entry["cwd"]), self.root / "packages/laravel")
             for repository in entry["metadata"]["repositories"]:
                 self.assertFalse(Path(repository["url"]).exists(), "Temporary dependency copy should be cleaned up")
+        example_entries = [e for e in entries if e['cwd'].endswith('/examples/laravel')]
+        self.assertTrue(example_entries)
+        self.assertTrue(all(e['metadata']['config']['platform']['php'] == '8.3.0' for e in example_entries))
+        self.assertEqual(json.loads((self.root / 'examples/laravel/composer.json').read_text())['config']['platform']['php'], '8.2.0')
         self.assertNotIn("repositories", json.loads((self.root / "packages/laravel/composer.json").read_text()))
 
 

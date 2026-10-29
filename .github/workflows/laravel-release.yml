@@ -104,6 +104,7 @@ jobs:
           tar -xzf "$RUNNER_TEMP/candidate/package.tar.gz" -C "$RUNNER_TEMP/composer-check"
           cd "$RUNNER_TEMP/composer-check"
           composer validate --strict --no-check-version
+          composer install --no-dev --prefer-dist --no-progress --no-interaction --no-scripts --no-plugins
 
   publish:
     needs: [prepare, verify]

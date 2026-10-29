@@ -106,6 +106,8 @@ class LaravelReleaseTest(LaravelReleaseFixture):
             release.next_version("0.1.0", ["initial", "patch"])
 
     def test_archive_is_deterministic_and_excludes_development_files(self):
+        self.write("packages/laravel/AUTOCAPTURE.md", "# Automatic collection\n")
+        self.write("packages/laravel/PENNANT.md", "# Pennant integration\n")
         for name in ["vendor/autoload.php", "tests/Test.php", ".env", ".env.testing", "composer.lock", "phpunit.xml", "auth.json", "src/.env.php", "src/vendor/private.php", "src/secrets/private.php", "config/key.pem", "config/.secret.php"]:
             self.write("packages/laravel/" + name, "secret-development-value")
         snapshot(self.root)
@@ -115,7 +117,7 @@ class LaravelReleaseTest(LaravelReleaseFixture):
         for name in ["package.tar.gz", "release.patch", "candidate.json", "notes.md"]:
             self.assertEqual((first / name).read_bytes(), (second / name).read_bytes())
         with tarfile.open(first / "package.tar.gz") as archive:
-            self.assertEqual(set(archive.getnames()), {"composer.json", "README.md", "LICENSE.md", "src/PostHog.php", "config/posthog.php", "posthog-source.json"})
+            self.assertEqual(set(archive.getnames()), {"composer.json", "README.md", "LICENSE.md", "AUTOCAPTURE.md", "PENNANT.md", "src/PostHog.php", "config/posthog.php", "posthog-source.json"})
             self.assertFalse(any(b"secret" in archive.extractfile(item).read() for item in archive))
             composer = json.load(archive.extractfile("composer.json"))
             self.assertEqual(composer["require"]["posthog/posthog-php"], "^4.20")

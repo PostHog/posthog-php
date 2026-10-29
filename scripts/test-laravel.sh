@@ -22,7 +22,7 @@ done < <(git -C "$ROOT" ls-files -z -- packages/laravel examples/laravel)
 
 # Tests use the checked-out core API before 4.20 is available on Packagist.
 # Never write these development repositories into the distribution metadata.
-python3 - "$TEMP" <<'PY'
+python3 - "$TEMP" "$LARAVEL" <<'PY'
 import json
 from pathlib import Path
 import sys
@@ -42,6 +42,8 @@ for relative in ['packages/laravel', 'examples/laravel']:
             'options': {'symlink': False, 'versions': {'posthog/posthog-laravel': '0.1.0'}},
         })
     data['repositories'] = repositories
+    if relative.startswith('examples/') and sys.argv[2] == '13':
+        data.setdefault('config', {}).setdefault('platform', {})['php'] = '8.3.0'
     path.write_text(json.dumps(data, indent=2) + '\n')
     path.with_name('composer.lock').unlink(missing_ok=True)
 PY
