@@ -145,6 +145,7 @@ class Context
         [$this->context, $this->flags, $this->request, $this->headerIdentity, $this->resolved] = $state;
     }
 
+    /** @internal */
     public function fromRequest(Request $request): void
     {
         $this->begin($this->app['config']->get('posthog.header_context', true)
@@ -170,6 +171,7 @@ class Context
         $this->restore(array_pop($this->scopes));
     }
 
+    /** @internal */
     public function flags(string $key, callable $evaluate): FeatureFlagEvaluations
     {
         return $this->flags[$key] ??= $evaluate();

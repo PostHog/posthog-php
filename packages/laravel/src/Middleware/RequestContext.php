@@ -8,7 +8,8 @@ use PostHog\Laravel\ExceptionReporter;
 use PostHog\Laravel\RequestLifecycle;
 use Throwable;
 
-class RequestContext
+/** @internal */
+final class RequestContext
 {
     public function __construct(
         private RequestLifecycle $lifecycle,
@@ -23,7 +24,7 @@ class RequestContext
         try {
             return $next($request);
         } catch (Throwable $exception) {
-            $this->reporter->remember($exception, 'middleware');
+            $this->reporter->remember($exception, 'middleware', 'laravel.middleware');
             throw $exception;
         } finally {
             if (!method_exists($this->kernel, 'whenRequestLifecycleIsLongerThan')) {

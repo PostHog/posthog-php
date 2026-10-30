@@ -5,7 +5,8 @@ namespace PostHog\Laravel\Commands;
 use Illuminate\Console\Command;
 use PostHog\Laravel\PostHog;
 
-class DoctorCommand extends Command
+/** @internal */
+final class DoctorCommand extends Command
 {
     protected $signature = 'posthog:doctor';
     protected $description = 'Check server-side PostHog configuration without sending traffic';

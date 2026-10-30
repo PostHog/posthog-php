@@ -6,7 +6,8 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Str;
 use PostHog\Laravel\PostHog;
 
-class TestCommand extends Command
+/** @internal */
+final class TestCommand extends Command
 {
     protected $signature = 'posthog:test {--send : Explicitly allow a diagnostic event to be sent}';
     protected $description = 'Send an opt-in diagnostic event without user data';

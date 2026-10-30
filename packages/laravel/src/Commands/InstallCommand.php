@@ -4,7 +4,8 @@ namespace PostHog\Laravel\Commands;
 
 use Illuminate\Console\Command;
 
-class InstallCommand extends Command
+/** @internal */
+final class InstallCommand extends Command
 {
     protected $signature = 'posthog:install';
     protected $description = 'Publish the PostHog configuration without changing application credentials';

@@ -64,6 +64,7 @@ class OctaneTest extends TestCase
         $fake->assertExceptionCaptured(
             fn ($message) => $message['distinctId'] === 'failing-task'
                 && !$message['options']['handled']
+                && ($message['options']['source'] ?? null) === 'laravel.octane_worker_error'
         );
         $this->assertSame([], $sandbox->make(Context::class)->data());
         $sandbox->make(ExceptionHandler::class)->report($exception);
@@ -79,7 +80,8 @@ class OctaneTest extends TestCase
         (new \Laravel\Octane\Listeners\ReportException())->handle($earlyEvent);
         $sandbox['events']->dispatch($earlyEvent);
         $fake->assertExceptionCaptured(
-            fn ($message) => $message['distinctId'] === 'early-report' && !$message['options']['handled'],
+            fn ($message) => $message['distinctId'] === 'early-report' && !$message['options']['handled']
+                && ($message['options']['source'] ?? null) === 'laravel.reportable',
         );
         $this->assertCount(2, $fake->recorded('captureException'));
     }

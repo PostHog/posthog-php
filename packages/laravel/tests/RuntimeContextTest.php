@@ -13,6 +13,7 @@ use PostHog\Client;
 use PostHog\HttpClient;
 use PostHog\HttpResponse;
 use PostHog\Laravel\Context;
+use PostHog\Laravel\ExceptionReporter;
 use PostHog\Laravel\Facades\PostHog as Facade;
 use PostHog\Laravel\PostHog;
 use PostHog\Laravel\PostHogServiceProvider;
@@ -256,6 +257,87 @@ class RuntimeContextTest extends TestCase
             $this->assertSame(0, $calls);
         }, ['fresh' => true]);
         $this->assertSame($before, $context->snapshot());
+    }
+
+    public function testAutomaticReportingUsesCaptureExceptionAndRestoresContextWhenItThrows(): void
+    {
+        $manager = $this->getMockBuilder(PostHog::class)
+            ->setConstructorArgs([$this->app])
+            ->onlyMethods(['captureException'])
+            ->getMock();
+        $this->app->instance(PostHog::class, $manager);
+        $context = $this->app->make(Context::class);
+        $context->begin([
+            'distinctId' => 'origin', 'sessionId' => 'origin-session',
+            'groups' => ['team' => 'origin-team'], 'properties' => ['component' => 'origin'],
+        ]);
+        $exception = new RuntimeException('original failure');
+        $reporter = $this->app->make(ExceptionReporter::class);
+        $reporter->remember($exception, 'task');
+        $context->begin(['distinctId' => 'later', 'groups' => ['team' => 'later-team']]);
+        $before = $context->snapshot();
+        $flags = $context->flags('later', fn () => $manager->evaluateFlags(flagKeys: []));
+        $raw = $manager->client()->enterContext(['distinctId' => 'raw-later']);
+        $rawBefore = $manager->client()->getContext();
+        $observed = null;
+        $manager->expects($this->once())->method('captureException')->willReturnCallback(
+            function ($captured, $distinctId, $properties, $options) use ($manager, $context, &$observed) {
+                $observed = [$captured, $context->data(), $manager->client()->getContext(), $options];
+                throw new RuntimeException('capture failed');
+            },
+        );
+        try {
+            $reporter->report($exception);
+            $reporter->report($exception);
+            $this->assertNotNull($observed);
+            $this->assertSame($exception, $observed[0]);
+            $this->assertSame('origin', $observed[1]['distinctId']);
+            $this->assertSame('origin-session', $observed[1]['sessionId']);
+            $this->assertSame(['team' => 'origin-team'], $observed[1]['groups']);
+            $this->assertSame('origin', $observed[1]['properties']['component']);
+            $this->assertSame('origin', $observed[2]['distinctId']);
+            $this->assertFalse($observed[3]['handled']);
+            $this->assertSame('task', $observed[3]['mechanism']);
+            $this->assertSame($before, $context->snapshot());
+            $this->assertSame($rawBefore, $manager->client()->getContext());
+            $this->assertSame($flags, $context->flags('later', fn () => throw new RuntimeException('lost flags')));
+        } finally {
+            $raw->close();
+        }
+    }
+
+    public function testKnownExceptionSourceSurvivesLaterBoundariesButDoesNotLeakIntoManualCaptures(): void
+    {
+        $events = [];
+        $this->app['config']->set('posthog.sdk.before_send', function ($event) use (&$events) {
+            $events[] = $event;
+            return null;
+        });
+        $context = $this->app->make(Context::class);
+        $context->begin(['distinctId' => 'origin']);
+        $exception = new RuntimeException('original failure');
+        $reporter = $this->app->make(ExceptionReporter::class);
+        $reporter->remember($exception, 'task', 'laravel.queue_job');
+        $context->begin(['distinctId' => 'later']);
+        $reporter->remember($exception, 'runtime', 'laravel.console_lifecycle');
+        $handler = $this->app->make(\Illuminate\Contracts\Debug\ExceptionHandler::class);
+        $handler->report($exception);
+        $handler->report($exception);
+        $this->assertCount(1, $events);
+        $this->assertSame('origin', $events[0]['distinct_id']);
+        $this->assertSame('laravel.queue_job', $events[0]['properties']['$exception_source'] ?? null);
+        $this->assertSame('task', $events[0]['properties']['$exception_list'][0]['mechanism']['type']);
+        $this->assertSame(['distinctId' => 'later'], $context->snapshot());
+        $manager = $this->app->make(PostHog::class);
+        $manager->captureException($exception, properties: ['$exception_source' => 'forged']);
+        $this->assertCount(2, $events);
+        $this->assertSame('later', $events[1]['distinct_id']);
+        $this->assertArrayNotHasKey('$exception_source', $events[1]['properties']);
+        $reporter->report(new RuntimeException('unknown hook'));
+        $this->assertCount(3, $events);
+        $this->assertArrayNotHasKey('$exception_source', $events[2]['properties']);
+        $this->assertSame(['distinctId' => 'later'], $context->snapshot());
+        $this->assertNull($manager->client()->getContext());
     }
 
     public function testDelayedFlagExposuresKeepOriginAfterRequestSwitchAndEnd(): void

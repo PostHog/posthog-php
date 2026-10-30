@@ -40,7 +40,9 @@
 	},
 	"scripts": {
 		"api:check": "@php scripts/check-public-api.php",
-		"api:update": "@php scripts/check-public-api.php --update"
+		"api:update": "@php scripts/check-public-api.php --update",
+		"api:check:laravel": "@php scripts/check-public-api.php --laravel",
+		"api:update:laravel": "@php scripts/check-public-api.php --laravel --update"
 	},
 	"bin": [
 		"bin/posthog"

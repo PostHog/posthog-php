@@ -177,6 +177,13 @@ emitted by an earlier framework listener cannot be retroactively relabeled by a
 later boundary event. Explicit manual capture is intentionally independent of
 automatic-report deduplication.
 
+Automatic reports include `$exception_source` from the first known SDK boundary:
+`laravel.middleware`, `laravel.queue_job`, `laravel.console_lifecycle`, or
+`laravel.octane_worker_error`. Without a remembered boundary source, the registered
+Laravel reportable callback supplies `laravel.reportable`. Sources are never inferred
+from stack frames. Ordinary manual `captureException()` calls omit the source unless
+an integration explicitly supplies it through the typed `source` option.
+
 ## Feature flags
 
 ```php
@@ -197,7 +204,11 @@ empty `flagKeys: []` returns an empty snapshot without evaluation.
 
 The full core signature is supported: `distinctId`, `groups`, `personProperties`,
 `groupProperties`, `onlyEvaluateLocally`, `disableGeoip`, and `flagKeys`.
-All other public PHP client methods are forwarded with current context:
+The manager also supports the core-compatible `getAllFlags()`, `getFeatureFlag()`,
+`getFeatureFlagResult()`, `getFeatureFlagPayload()`, and `isFeatureEnabled()` methods
+with current context, plus `loadFlags()` and `contextFromHeaders()`. These methods
+are declared explicitly; new core methods are not exposed automatically. Use
+`client()` for other lower-level PHP SDK operations:
 
 ```php
 $result = PostHog::getFeatureFlagResult('flag-key', 'account-123');
@@ -241,6 +252,12 @@ can be cached without serializing closures. Callback classes must implement the
 corresponding SDK callable/interface contract. The Laravel library metadata and
 framework handler ownership are enforced by the wrapper. `release_id` sets release
 metadata; advanced SDK options remain accessible under `sdk`.
+
+The supported PHP surface consists of the manager, facade, documented `Context`
+methods, `IsolatesCommandContext` trait, test fake, service provider registration,
+and Laravel flag-definition cache provider. Classes and methods marked `@internal`
+are framework plumbing, not supported customer APIs or extension points, even when
+Laravel or other package classes require their methods to be public.
 
 ## Diagnostics
 

@@ -51,7 +51,7 @@ class RuntimeTest extends TestCase
     {
         $manager = $this->app->make(PostHog::class);
         $this->assertSame($manager, $this->app->make('posthog'));
-        $sdk = new \ReflectionProperty(PostHog::class, 'sdk');
+        $sdk = new \ReflectionProperty(PostHog::class, 'client');
         $this->assertNull($sdk->getValue($manager));
         $this->app['config']->set('posthog.api_key', '   ');
         $this->assertFalse($manager->capture('no traffic'));
@@ -193,7 +193,9 @@ class RuntimeTest extends TestCase
         $this->assertCount(1, $fake->recorded('captureException'));
         $fake->assertExceptionCaptured(
             fn ($message) => $message['distinctId'] === 'origin'
-                && $message['options'] === ['handled' => false, 'mechanism' => 'middleware']
+                && $message['options'] === [
+                    'handled' => false, 'mechanism' => 'middleware', 'source' => 'laravel.middleware',
+                ]
         );
         $handler->dontReport([IgnoredFailure::class]);
         $handler->report(new IgnoredFailure('ignored'));
@@ -215,10 +217,12 @@ class RuntimeTest extends TestCase
         $fake->assertExceptionCaptured(
             fn ($message) => $message['distinctId'] === 'failed-user'
                 && $message['options']['handled'] === false
+                && ($message['options']['source'] ?? null) === 'laravel.reportable'
         );
         $fake->assertExceptionCaptured(
             fn ($message) => $message['distinctId'] === 'manual-user'
                 && $message['options']['handled'] === true
+                && ($message['options']['source'] ?? null) === 'laravel.reportable'
         );
     }
 
@@ -239,7 +243,9 @@ class RuntimeTest extends TestCase
         $this->app->make(ExceptionHandler::class)->report($exception);
         $fake->assertExceptionCaptured(
             fn ($message) => $message['distinctId'] === 'failed-job'
-                && $message['options'] === ['handled' => false, 'mechanism' => 'task']
+                && $message['options'] === [
+                    'handled' => false, 'mechanism' => 'task', 'source' => 'laravel.queue_job',
+                ]
         );
         $this->app['events']->dispatch(new JobProcessed('sync', $job));
         $this->assertSame([], $this->app->make(Context::class)->data());
@@ -293,7 +299,7 @@ class RuntimeTest extends TestCase
     {
         $client = new FlushClient();
         $manager = $this->app->make(PostHog::class);
-        (new \ReflectionProperty(PostHog::class, 'sdk'))->setValue($manager, $client);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $client);
         $context = $this->app->make(Context::class);
         $this->app->make(\Illuminate\Contracts\Console\Kernel::class)->rerouteSymfonyCommandEvents();
         \Illuminate\Support\Facades\Artisan::command('posthog:boundary', function () {
@@ -318,7 +324,7 @@ class RuntimeTest extends TestCase
         $manager = $this->app->make(PostHog::class);
         $client = new FlushClient();
         $client->fail = true;
-        (new \ReflectionProperty(PostHog::class, 'sdk'))->setValue($manager, $client);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $client);
         $context = $this->app->make(Context::class);
         $context->begin(['distinctId' => 'stale']);
         $this->app['events']->dispatch('Laravel\\Octane\\Events\\TaskTerminated', [(object) []]);
@@ -348,7 +354,7 @@ class RuntimeTest extends TestCase
             loadFeatureFlags: false,
         );
         $manager = $this->app->make(PostHog::class);
-        (new \ReflectionProperty(PostHog::class, 'sdk'))->setValue($manager, $sdk);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $sdk);
         $manager->capture('does not fetch', [], 'first');
         $context = $this->app->make(Context::class);
         foreach (['first', 'second'] as $id) {
@@ -375,7 +381,7 @@ class RuntimeTest extends TestCase
             secretKey: 'server-secret',
         );
         $manager = $this->app->make(PostHog::class);
-        (new \ReflectionProperty(PostHog::class, 'sdk'))->setValue($manager, $sdk);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $sdk);
         $this->assertSame([], $manager->evaluateFlags()->getKeys());
         $this->app['config']->set('posthog.distinct_id', IdentityResolver::class);
         $this->app['config']->set('posthog.groups', GroupsResolver::class);
@@ -413,7 +419,7 @@ class RuntimeTest extends TestCase
             'flag_definition_cache_provider' => $provider,
         ], $http, loadFeatureFlags: false);
         $manager = $this->app->make(PostHog::class);
-        (new \ReflectionProperty(PostHog::class, 'sdk'))->setValue($manager, $sdk);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $sdk);
         $this->assertSame([], $manager->getAllFlags(onlyEvaluateLocally: true));
         $this->app->make(Context::class)->begin(['distinctId' => '0']);
         $this->assertSame(['local-flag' => true], $manager->getAllFlags(onlyEvaluateLocally: true));
@@ -477,6 +483,7 @@ class RuntimeTest extends TestCase
         $this->assertSame(['team' => 'one'], $events[1]['properties']['$groups']);
         $this->assertSame('RuntimeException', $events[1]['properties']['$exception_list'][0]['type']);
         $this->assertTrue($events[1]['properties']['$exception_list'][0]['mechanism']['handled']);
+        $this->assertArrayNotHasKey('$exception_source', $events[1]['properties']);
         $this->assertNull($manager->client()->getContext());
         $exception = new RuntimeException('originating boundary');
         $this->app->make(ExceptionReporter::class)->remember($exception, 'task');
@@ -486,6 +493,7 @@ class RuntimeTest extends TestCase
         $this->assertSame('user', $events[2]['distinct_id']);
         $this->assertSame(['team' => 'one'], $events[2]['properties']['$groups']);
         $this->assertFalse($events[2]['properties']['$exception_list'][0]['mechanism']['handled']);
+        $this->assertSame('laravel.reportable', $events[2]['properties']['$exception_source'] ?? null);
     }
 
     public function testInstallPublishesWithoutOverwritingApplicationConfig(): void

@@ -60,6 +60,15 @@ This section is for external contributors. PostHog maintainers (members of the P
 
 `composer api:update` regenerates `api/public-api.json`, and CI runs `composer api:check` to catch an outdated snapshot. A diff in that file means your change touches public API.
 
+The Laravel package has a separate snapshot in `api/laravel-public-api.json`. From the repository root:
+
+```bash
+composer install --working-dir=packages/laravel --prefer-dist --no-progress
+composer api:check:laravel
+```
+
+After agreeing on a Laravel API change, run `composer api:update:laravel` and inspect the generated diff. CI checks both snapshots. The Laravel snapshot excludes `@internal` classes and members; framework-required public methods do not automatically become supported customer APIs. Supported client forwarders are declared explicitly in the Laravel manager, so their signatures are tracked without exposing future core methods automatically.
+
 ## Pull requests
 
 Please follow the existing project conventions and include tests when you change behavior.

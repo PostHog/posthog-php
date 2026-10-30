@@ -70,7 +70,7 @@ final class ConsoleLifecycle
     private function remember(Throwable $exception): void
     {
         try {
-            $this->app->make(ExceptionReporter::class)->remember($exception, 'runtime');
+            $this->app->make(ExceptionReporter::class)->remember($exception, 'runtime', 'laravel.console_lifecycle');
         } catch (Throwable) {
         }
     }

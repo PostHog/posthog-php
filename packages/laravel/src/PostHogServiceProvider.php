@@ -65,7 +65,7 @@ class PostHogServiceProvider extends ServiceProvider
         $this->callAfterResolving(ExceptionHandler::class, function ($handler) {
             if (method_exists($handler, 'reportable')) {
                 $handler->reportable(function (Throwable $exception) {
-                    Container::getInstance()->make(ExceptionReporter::class)->report($exception);
+                    Container::getInstance()->make(ExceptionReporter::class)->report($exception, 'laravel.reportable');
                 });
             }
         });
@@ -81,7 +81,11 @@ class PostHogServiceProvider extends ServiceProvider
             }
         });
         $events->listen(JobExceptionOccurred::class, function ($event) {
-            Container::getInstance()->make(ExceptionReporter::class)->remember($event->exception, 'task');
+            Container::getInstance()->make(ExceptionReporter::class)->remember(
+                $event->exception,
+                'task',
+                'laravel.queue_job',
+            );
         });
         $events->listen(CommandStarting::class, function () {
             // The first CLI kernel may already be handling input when package providers boot.
@@ -104,7 +108,11 @@ class PostHogServiceProvider extends ServiceProvider
             });
         }
         $events->listen('Laravel\\Octane\\Events\\WorkerErrorOccurred', function ($event) {
-            $event->sandbox->make(ExceptionReporter::class)->remember($event->exception, 'runtime');
+            $event->sandbox->make(ExceptionReporter::class)->remember(
+                $event->exception,
+                'runtime',
+                'laravel.octane_worker_error',
+            );
         });
         // End-event consumers must observe the completed scope before cleanup restores its caller.
         $this->app->booted(function () use ($events) {

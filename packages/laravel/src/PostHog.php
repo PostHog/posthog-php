@@ -7,13 +7,14 @@ use Illuminate\Contracts\Container\Container;
 use PostHog\Client;
 use PostHog\ContextScope;
 use PostHog\FeatureFlagEvaluations;
+use PostHog\FeatureFlagResult;
 use Throwable;
 
 class PostHog
 {
     public const VERSION = '0.1.0';
 
-    private ?Client $sdk = null;
+    private ?Client $client = null;
     private ?int $definitionsLoadedAt = null;
 
     public function __construct(protected Container $app)
@@ -28,11 +29,11 @@ class PostHog
 
     public function client(): Client
     {
-        if ($this->sdk !== null) {
-            return $this->sdk;
+        if ($this->client !== null) {
+            return $this->client;
         }
         if (!$this->enabled()) {
-            return $this->sdk = new Client(null, ['consumer' => 'noop'], loadFeatureFlags: false);
+            return $this->client = new Client(null, ['consumer' => 'noop'], loadFeatureFlags: false);
         }
         $config = $this->app['config']->get('posthog', []);
         $options = $config['sdk'] ?? [];
@@ -53,7 +54,7 @@ class PostHog
         if (!isset($options['flag_definition_cache_provider']) && ($config['flag_cache']['enabled'] ?? false)) {
             $options['flag_definition_cache_provider'] = $this->app->make(FlagDefinitionCacheProvider::class);
         }
-        return $this->sdk = new LaravelClient(
+        return $this->client = new LaravelClient(
             $config['api_key'],
             $options,
             $config['release_id'] ?? null,
@@ -178,28 +179,14 @@ class PostHog
         }
     }
 
-    /** @internal Report a Laravel failure using its originating boundary snapshot. */
-    public function reportException(Throwable $exception, array $snapshot, array $options): bool
-    {
-        if (!$this->enabled()) {
-            return false;
-        }
-        $properties = isset($snapshot['groups']) ? ['$groups' => $snapshot['groups']] : [];
-        return $this->client()->withContext(
-            $snapshot,
-            fn () => $this->client()->captureException($exception, null, $properties, $options),
-            ['fresh' => true],
-        );
-    }
-
     public function flush(): bool
     {
-        return $this->sdk !== null ? (bool) $this->sdk->flush() : false;
+        return $this->client !== null ? (bool) $this->client->flush() : false;
     }
 
     public function shutdown(): bool
     {
-        return $this->sdk !== null ? $this->sdk->shutdown() : false;
+        return $this->client !== null ? $this->client->shutdown() : false;
     }
 
     public function withContext(array $data, callable $fn, array $options = []): mixed
@@ -252,24 +239,84 @@ class PostHog
         return $this->withContext([], fn () => $this->client()->getContext());
     }
 
-    public function __call(string $method, array $arguments): mixed
+    /** @deprecated Use evaluateFlags()->isEnabled() instead. */
+    public function isFeatureEnabled(
+        string $key,
+        ?string $distinctId = null,
+        array $groups = [],
+        array $personProperties = [],
+        array $groupProperties = [],
+        bool $onlyEvaluateLocally = false,
+        bool $sendFeatureFlagEvents = true,
+    ): ?bool {
+        return $this->callFlagMethod(__FUNCTION__, func_get_args(), $distinctId);
+    }
+
+    /** @deprecated Use evaluateFlags()->getFlag() instead. */
+    public function getFeatureFlag(
+        string $key,
+        ?string $distinctId = null,
+        array $groups = [],
+        array $personProperties = [],
+        array $groupProperties = [],
+        bool $onlyEvaluateLocally = false,
+        bool $sendFeatureFlagEvents = true,
+    ): bool|string|null {
+        return $this->callFlagMethod(__FUNCTION__, func_get_args(), $distinctId);
+    }
+
+    /** @deprecated Use evaluateFlags() to read the value and payload from one snapshot. */
+    public function getFeatureFlagResult(
+        string $key,
+        ?string $distinctId = null,
+        array $groups = [],
+        array $personProperties = [],
+        array $groupProperties = [],
+        bool $onlyEvaluateLocally = false,
+        bool $sendFeatureFlagEvents = true,
+    ): ?FeatureFlagResult {
+        return $this->callFlagMethod(__FUNCTION__, func_get_args(), $distinctId);
+    }
+
+    /** @deprecated Use evaluateFlags()->getFlagPayload() instead. */
+    public function getFeatureFlagPayload(
+        string $key,
+        ?string $distinctId = null,
+        array $groups = [],
+        array $personProperties = [],
+        array $groupProperties = [],
+    ): mixed {
+        return $this->callFlagMethod(__FUNCTION__, func_get_args(), $distinctId);
+    }
+
+    public function getAllFlags(
+        ?string $distinctId = null,
+        array $groups = [],
+        array $personProperties = [],
+        array $groupProperties = [],
+        bool $onlyEvaluateLocally = false,
+    ): array {
+        return $this->callFlagMethod(__FUNCTION__, func_get_args(), $distinctId);
+    }
+
+    public function loadFlags(): void
+    {
+        $this->client()->loadFlags();
+    }
+
+    public function contextFromHeaders(array $headers): array
+    {
+        return $this->client()->contextFromHeaders($headers);
+    }
+
+    private function callFlagMethod(string $method, array $arguments, ?string $distinctId): mixed
     {
         $data = $this->app->make(Context::class)->data();
-        $legacyFlags = [
-            'getAllFlags' => 0,
-            'getFeatureFlagResult' => 1,
-            'getFeatureFlag' => 1,
-            'getFeatureFlagPayload' => 1,
-            'isFeatureEnabled' => 1,
-        ];
-        if ($this->enabled() && isset($legacyFlags[$method])) {
-            $distinctId = $arguments['distinctId'] ?? $arguments[$legacyFlags[$method]] ?? null;
-            if ($distinctId === null || $distinctId === '') {
-                $distinctId = $data['distinctId'] ?? null;
-            }
-            if (is_string($distinctId) && $distinctId !== '') {
-                $this->loadDefinitionsIfNeeded();
-            }
+        if ($distinctId === null || $distinctId === '') {
+            $distinctId = $data['distinctId'] ?? null;
+        }
+        if ($this->enabled() && is_string($distinctId) && $distinctId !== '') {
+            $this->loadDefinitionsIfNeeded();
         }
         return $this->client()->withContext(
             $data,

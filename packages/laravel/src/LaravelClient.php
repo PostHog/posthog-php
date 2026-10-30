@@ -7,12 +7,15 @@ use PostHog\Client;
 /** @internal Reports Laravel library metadata and the cached-config release id. */
 final class LaravelClient extends Client
 {
+    private readonly ?string $configuredReleaseId;
+
     public function __construct(
         ?string $apiKey,
         array $options,
-        private readonly ?string $configuredReleaseId,
+        ?string $releaseId,
         ?string $secretKey = null,
     ) {
+        $this->configuredReleaseId = $releaseId;
         parent::__construct($apiKey, $options, loadFeatureFlags: false, secretKey: $secretKey);
     }
 

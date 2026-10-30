@@ -131,20 +131,6 @@ class PostHogFake extends PostHog
         ));
     }
 
-    public function reportException(Throwable $exception, array $snapshot, array $options): bool
-    {
-        $this->recorded[] = ['method' => 'captureException', 'message' => [
-            'exception' => $exception,
-            'distinctId' => $snapshot['distinctId'] ?? null,
-            'properties' => array_replace(
-                $snapshot['properties'] ?? [],
-                isset($snapshot['groups']) ? ['$groups' => $snapshot['groups']] : [],
-            ),
-            'options' => $options,
-        ]];
-        return true;
-    }
-
     public function flush(): bool
     {
         return true;
