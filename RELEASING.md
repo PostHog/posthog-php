@@ -43,6 +43,10 @@ The pending change intents determine the next version:
 
 When multiple intents are pending, the workflow uses the largest requested bump.
 
+## Composer distribution archives
+
+The root `.gitattributes` excludes `packages/laravel/` from the core Composer distribution. Laravel source stays in Git and has its own publishing flow. Tools that need the complete repository must use a Git checkout, not the core distribution archive. In particular, a whole-repository `git archive` no longer includes Laravel source or tests.
+
 ## Troubleshooting
 
 ### No releasable change intents found

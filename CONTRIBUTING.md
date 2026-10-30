@@ -32,7 +32,7 @@ Run the test command used in CI:
 XDEBUG_MODE=coverage ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml --coverage-text
 ```
 
-The PHPUnit transport tests use a loopback HTTP server, not live PostHog endpoints. They require the cURL extension, the `curl` and `gzip` commands, and permission to start PHP subprocesses and listen on loopback ports.
+The PHPUnit transport tests use a loopback HTTP server, not live PostHog endpoints. They require the cURL extension, the `curl` and `gzip` commands, and permission to start PHP subprocesses and listen on loopback ports. Distribution archive tests also require the `git` and `tar` commands.
 
 Run the adapter fidelity and report checker tests (Python standard library only):
 
