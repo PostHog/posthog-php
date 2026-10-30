@@ -1,3 +1,9 @@
+## 4.20.0
+
+### Minor Changes
+
+- Add instance group identify, lifecycle context scopes, and framework exception metadata.
+
 ## 4.19.0
 
 ### Minor Changes

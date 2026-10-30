@@ -65,6 +65,7 @@ final class ConsoleLifecycle
         $data = $context->snapshot();
         $context->enter();
         $context->begin($data);
+        Features\PennantCache::flush();
     }
 
     private function remember(Throwable $exception): void
@@ -82,6 +83,7 @@ final class ConsoleLifecycle
         } catch (Throwable) {
         } finally {
             $this->app->make(Context::class)->leave();
+            Features\PennantCache::flush();
         }
     }
 }
