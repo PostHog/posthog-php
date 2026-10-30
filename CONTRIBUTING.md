@@ -32,7 +32,7 @@ Run the test command used in CI:
 XDEBUG_MODE=coverage ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml --coverage-text
 ```
 
-The PHPUnit transport tests use a loopback HTTP server, not live PostHog endpoints. They require the cURL extension, the `curl` and `gzip` commands, and permission to start PHP subprocesses and listen on loopback ports.
+The PHPUnit transport tests use a loopback HTTP server, not live PostHog endpoints. They require the cURL extension, the `curl` and `gzip` commands, and permission to start PHP subprocesses and listen on loopback ports. Distribution archive tests also require the `git` and `tar` commands.
 
 Run the adapter fidelity and report checker tests (Python standard library only):
 
@@ -59,6 +59,15 @@ This section is for external contributors. PostHog maintainers (members of the P
 - If a reviewer suggests a different API on your PR, confirm it with them before re-implementing. Treat it as a question, not an instruction.
 
 `composer api:update` regenerates `api/public-api.json`, and CI runs `composer api:check` to catch an outdated snapshot. A diff in that file means your change touches public API.
+
+The Laravel package has a separate snapshot in `api/laravel-public-api.json`. From the repository root:
+
+```bash
+composer install --working-dir=packages/laravel --prefer-dist --no-progress
+composer api:check:laravel
+```
+
+After agreeing on a Laravel API change, run `composer api:update:laravel` and inspect the generated diff. CI checks both snapshots. The Laravel snapshot excludes `@internal` classes and members; framework-required public methods do not automatically become supported customer APIs. Supported client forwarders are declared explicitly in the Laravel manager, so their signatures are tracked without exposing future core methods automatically.
 
 ## Pull requests
 

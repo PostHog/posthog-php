@@ -14,6 +14,8 @@ on:
       - "phpcs.xml"
       - "phpunit.xml"
       - "api/public-api.json"
+      - "api/laravel-public-api.json"
+      - "packages/laravel/composer.json"
       - "scripts/**"
       - ".github/workflows/php.yml"
 
@@ -69,6 +71,15 @@ jobs:
 
       - name: Check public API snapshot
         run: composer api:check
+
+      - name: Install Laravel dependencies
+        run: composer install --working-dir=packages/laravel --prefer-dist --no-progress
+
+      - name: Check Laravel public API snapshot
+        run: composer api:check:laravel
+
+      - name: Run Laravel tests
+        run: composer --working-dir=packages/laravel test
 
   phpunit:
     needs: detect-markdown-only
