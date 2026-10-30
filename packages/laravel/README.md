@@ -224,8 +224,10 @@ try {
 Array-form `capture()` forwards the PHP message unchanged, including its advanced
 options. Prefer `evaluateFlags()` over the legacy getters for shared flag decisions.
 Forwarded legacy flag getters also lazily load configured local definitions on first
-identified use, preserving local-only options. With the raw `client()` escape hatch,
-call `loadFlags()` explicitly before local evaluation if definitions have not loaded.
+identified use, preserving local-only options. Like `evaluateFlags()`, they inherit
+context groups when the groups argument is empty; explicit nonempty groups override
+them. With the raw `client()` escape hatch, call `loadFlags()` explicitly before local
+evaluation if definitions have not loaded.
 
 ### Shared local definitions
 

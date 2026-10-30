@@ -6,6 +6,8 @@ use Error;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PostHog\Client;
+use PostHog\HttpClient;
+use PostHog\HttpResponse;
 use PostHog\Laravel\Context;
 use PostHog\Laravel\Facades\PostHog as Facade;
 use PostHog\Laravel\PostHog;
@@ -73,7 +75,7 @@ class ApiSurfaceTest extends TestCase
             'personProperties' => ['plan' => 'pro'], 'groupProperties' => ['team' => ['size' => 2]],
         ];
         $options = ['onlyEvaluateLocally' => true, 'sendFeatureFlagEvents' => false];
-        return [
+        $methods = [
             'boolean' => ['isFeatureEnabled', $single + $options, true],
             'value' => ['getFeatureFlag', $single + $options, 'variant'],
             'result' => ['getFeatureFlagResult', $single + $options, null],
@@ -82,6 +84,12 @@ class ApiSurfaceTest extends TestCase
                 'onlyEvaluateLocally' => true,
             ], ['checkout' => true]],
         ];
+        $cases = $methods;
+        foreach ($methods as $name => [$method, $arguments, $result]) {
+            $arguments['groups'] = [];
+            $cases['ambient groups ' . $name] = [$method, $arguments, $result];
+        }
+        return $cases;
     }
 
     #[DataProvider('flagMethods')]
@@ -94,9 +102,11 @@ class ApiSurfaceTest extends TestCase
             ->setConstructorArgs(['project-key', ['consumer' => 'noop'], null, null, false])
             ->onlyMethods([$method])
             ->getMock();
+        $expected = $arguments;
+        $expected['groups'] = $expected['groups'] ?: ['team' => 'ambient'];
         $client->expects($this->once())->method($method)->willReturnCallback(
-            function (...$actual) use ($client, $arguments, $result) {
-                $this->assertSame(array_values($arguments), $actual);
+            function (...$actual) use ($client, $expected, $result) {
+                $this->assertSame(array_values($expected), $actual);
                 $this->assertSame('ambient', $client->getContext()['distinctId']);
                 return $result;
             },
@@ -106,7 +116,7 @@ class ApiSurfaceTest extends TestCase
             ->onlyMethods(['client'])
             ->getMock();
         $manager->expects($this->atLeastOnce())->method('client')->willReturn($client);
-        $this->app->make(Context::class)->begin(['distinctId' => 'ambient']);
+        $this->app->make(Context::class)->begin(['distinctId' => 'ambient', 'groups' => ['team' => 'ambient']]);
         $raw = $client->enterContext(['distinctId' => 'raw-parent']);
         $before = $client->getContext();
         try {
@@ -115,6 +125,31 @@ class ApiSurfaceTest extends TestCase
         } finally {
             $raw->close();
         }
+    }
+
+    public function testLegacyFlagEvaluationSendsAmbientGroupsWhenArgumentsAreOmitted(): void
+    {
+        $payload = null;
+        $http = $this->createMock(HttpClient::class);
+        $http->expects($this->once())->method('sendRequest')->willReturnCallback(
+            function ($path, $body) use (&$payload) {
+                $payload = json_decode($body, true);
+                return new HttpResponse(json_encode([
+                    'flags' => ['checkout' => ['enabled' => true, 'variant' => null]],
+                ]), 200);
+            },
+        );
+        $client = new Client('project-key', ['consumer' => 'noop'], $http, loadFeatureFlags: false);
+        $manager = $this->getMockBuilder(PostHog::class)
+            ->setConstructorArgs([$this->app])
+            ->onlyMethods(['client'])
+            ->getMock();
+        $manager->expects($this->atLeastOnce())->method('client')->willReturn($client);
+        $this->app->make(Context::class)->begin(['distinctId' => 'user', 'groups' => ['team' => 'ambient']]);
+        $this->assertSame(['checkout' => true], $manager->getAllFlags());
+        $this->assertSame(['team' => 'ambient'], $payload['groups']);
+        $this->assertSame('user', $payload['distinct_id']);
+        $this->assertNull($client->getContext());
     }
 
     public function testSupportedForwardersKeepTheCoreParameterSignatures(): void

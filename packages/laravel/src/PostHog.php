@@ -249,7 +249,10 @@ class PostHog
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true,
     ): ?bool {
-        return $this->callFlagMethod(__FUNCTION__, func_get_args(), $distinctId);
+        return $this->callFlagMethod(__FUNCTION__, [
+            $key, $distinctId, $groups, $personProperties, $groupProperties,
+            $onlyEvaluateLocally, $sendFeatureFlagEvents,
+        ], $distinctId);
     }
 
     /** @deprecated Use evaluateFlags()->getFlag() instead. */
@@ -262,7 +265,10 @@ class PostHog
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true,
     ): bool|string|null {
-        return $this->callFlagMethod(__FUNCTION__, func_get_args(), $distinctId);
+        return $this->callFlagMethod(__FUNCTION__, [
+            $key, $distinctId, $groups, $personProperties, $groupProperties,
+            $onlyEvaluateLocally, $sendFeatureFlagEvents,
+        ], $distinctId);
     }
 
     /** @deprecated Use evaluateFlags() to read the value and payload from one snapshot. */
@@ -275,7 +281,10 @@ class PostHog
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true,
     ): ?FeatureFlagResult {
-        return $this->callFlagMethod(__FUNCTION__, func_get_args(), $distinctId);
+        return $this->callFlagMethod(__FUNCTION__, [
+            $key, $distinctId, $groups, $personProperties, $groupProperties,
+            $onlyEvaluateLocally, $sendFeatureFlagEvents,
+        ], $distinctId);
     }
 
     /** @deprecated Use evaluateFlags()->getFlagPayload() instead. */
@@ -286,7 +295,9 @@ class PostHog
         array $personProperties = [],
         array $groupProperties = [],
     ): mixed {
-        return $this->callFlagMethod(__FUNCTION__, func_get_args(), $distinctId);
+        return $this->callFlagMethod(__FUNCTION__, [
+            $key, $distinctId, $groups, $personProperties, $groupProperties,
+        ], $distinctId);
     }
 
     public function getAllFlags(
@@ -296,7 +307,9 @@ class PostHog
         array $groupProperties = [],
         bool $onlyEvaluateLocally = false,
     ): array {
-        return $this->callFlagMethod(__FUNCTION__, func_get_args(), $distinctId);
+        return $this->callFlagMethod(__FUNCTION__, [
+            $distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally,
+        ], $distinctId);
     }
 
     public function loadFlags(): void
@@ -312,6 +325,8 @@ class PostHog
     private function callFlagMethod(string $method, array $arguments, ?string $distinctId): mixed
     {
         $data = $this->app->make(Context::class)->data();
+        $groupsIndex = $method === 'getAllFlags' ? 1 : 2;
+        $arguments[$groupsIndex] = $arguments[$groupsIndex] ?: ($data['groups'] ?? []);
         if ($distinctId === null || $distinctId === '') {
             $distinctId = $data['distinctId'] ?? null;
         }
