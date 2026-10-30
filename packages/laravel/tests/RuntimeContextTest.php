@@ -17,6 +17,7 @@ use PostHog\Laravel\ExceptionReporter;
 use PostHog\Laravel\Facades\PostHog as Facade;
 use PostHog\Laravel\PostHog;
 use PostHog\Laravel\PostHogServiceProvider;
+use PostHog\Laravel\Tests\Fixtures\FlushClient;
 use PostHog\Laravel\Tests\Fixtures\GroupsResolver;
 use PostHog\Laravel\Tests\Fixtures\TransportErrorHandler;
 use RuntimeException;
@@ -52,6 +53,37 @@ class RuntimeContextTest extends TestCase
             $request->setUserResolver(fn () => throw new RuntimeException('auth'));
             $this->assertSame(['team' => 'resolved-team'], $context->data()['groups']);
         }
+    }
+
+    public function testScopedSessionOverrideReplacesInheritedHeaderSession(): void
+    {
+        $events = [];
+        $this->app['config']->set('posthog.sdk.before_send', function ($event) use (&$events) {
+            $events[] = $event;
+            return null;
+        });
+        $context = $this->app->make(Context::class);
+        $context->fromRequest(Request::create('/', server: ['HTTP_X_POSTHOG_SESSION_ID' => 'old']));
+        $manager = $this->app->make(PostHog::class);
+        $context->with(['sessionId' => 'new'], fn () => $manager->capture('scoped', [], 'user'));
+        $context->with(
+            ['sessionId' => 'new', 'properties' => ['$session_id' => 'explicit']],
+            fn () => $manager->capture('explicit', [], 'user'),
+        );
+        $manager->capture('outer', [], 'user');
+        $this->assertSame(
+            ['new', 'explicit', 'old'],
+            array_map(fn ($event) => $event['properties']['$session_id'], $events),
+        );
+    }
+
+    public function testAutomaticReportingDefersFlushToLifecycleCleanup(): void
+    {
+        $client = new FlushClient();
+        $manager = $this->app->make(PostHog::class);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $client);
+        $this->app->make(ExceptionReporter::class)->report(new RuntimeException('failure'));
+        $this->assertSame(0, $client->flushes);
     }
 
     public function testInvokableErrorHandlerConstructsRealLibCurlConsumer(): void

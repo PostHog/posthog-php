@@ -74,7 +74,6 @@ final class ExceptionReporter
                 fn () => $manager->captureException($exception, options: $options),
                 ['fresh' => true],
             );
-            $manager->flush();
         } catch (Throwable) {
             // Reporting must never replace the application's original failure.
         }

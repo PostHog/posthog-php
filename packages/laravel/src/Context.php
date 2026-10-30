@@ -95,6 +95,13 @@ class Context
         $request = $this->request;
         $headerIdentity = $this->headerIdentity;
         $resolved = $this->resolved;
+        $sessionId = $data['sessionId'] ?? $data['session_id'] ?? null;
+        if (
+            is_scalar($sessionId) && (string) $sessionId !== ''
+            && !array_key_exists('$session_id', $data['properties'] ?? [])
+        ) {
+            $data['properties']['$session_id'] = (string) $sessionId;
+        }
         $this->begin(array_replace_recursive($previous, $data));
         $this->resolved = $resolved;
         $this->request = $request;
