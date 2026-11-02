@@ -584,6 +584,24 @@ class EmailsTest extends TestCase
         $this->assertCount(5, $this->requests);
     }
 
+    public function testAClientShutDownDuringTheRetryWaitSendsNothingMore(): void
+    {
+        $this->reply([503, '{"code":"unavailable"}', []], [202, '{"message_id":"msg_1"}', []]);
+        // Closed once the first attempt is made, as when a signal handler shuts the client down during the wait.
+        $emails = $this->emails(['isClosed' => fn(): bool => $this->requests !== []]);
+
+        $sendError = $this->sendError(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID], $emails);
+        $sendRequests = count($this->requests);
+        $this->reply([503, '{"code":"unavailable"}', []], [200, '{}', []]);
+        $this->requests = [];
+        $getError = $this->getError(self::TEMPLATE_ID, $emails);
+
+        $this->assertSame('unavailable', $sendError->getErrorCode());
+        $this->assertSame(1, $sendRequests);
+        $this->assertSame('unavailable', $getError->getErrorCode());
+        $this->assertCount(1, $this->requests);
+    }
+
     public function testALongerRetryAfterIsWaitedFor(): void
     {
         $this->reply([429, '{"code":"throttled"}', ['Retry-After: 7']], [202, '{"message_id":"msg_1"}', []]);

@@ -468,6 +468,11 @@ final class Emails
                     throw $error;
                 }
                 Clock::get()->sleep($delayMs / 1000);
+                // A signal handler can shut the client down during the wait. A closed client sends nothing,
+                // so the operation settles with the failure it already has.
+                if (($this->isClosed)()) {
+                    throw $error;
+                }
             }
         }
     }
