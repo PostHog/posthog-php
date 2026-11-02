@@ -30,7 +30,7 @@ Existing span attributes take precedence. The processor preserves the applicatio
 The client needs a project secret API key (`phs_...`) as `secretKey`. Sending needs the `hog_flow:write` scope, and reading a status needs `hog_flow:read`. A client whose `host` is PostHog Cloud sends to its region's app host. For any other `host`, such as a reverse proxy, set the `app_host` option to your PostHog app host: email requests never go to a custom `host`. Loading flag definitions still sends the secret key to `host`, so when your proxy must not see the key, build the client with `loadFeatureFlags: false` and don't call `loadFlags()`:
 
 ```php
-$client = new PostHog\Client('phc_...', [
+$client = new \PostHog\Client('phc_...', [
     'host' => 'ph.example.com', // your proxy
     'app_host' => 'https://eu.posthog.com',
 ], loadFeatureFlags: false, secretKey: 'phs_...');
