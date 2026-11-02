@@ -15,6 +15,7 @@ use PostHog\Laravel\Autocapture\Outcomes;
 use PostHog\Laravel\Autocapture\RequestSummary;
 use Throwable;
 
+/** @internal */
 class AutocaptureServiceProvider extends ServiceProvider
 {
     public function register(): void

@@ -4,6 +4,7 @@ namespace PostHog\Laravel\Autocapture;
 
 use Throwable;
 
+/** @internal */
 class DomainEvents
 {
     public function collect(object $event, array $mapping): void

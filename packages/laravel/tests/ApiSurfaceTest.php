@@ -183,6 +183,20 @@ class ApiSurfaceTest extends TestCase
         require_once $root . '/scripts/PublicApiSnapshot.php';
         $builder = new ReflectionMethod(PublicApiSnapshot::class, 'buildPublicApi');
         $api = $builder->invoke(null, dirname(__DIR__) . '/src', 'PostHog\\Laravel\\', true);
+        foreach (
+            [
+                \PostHog\Laravel\AutocaptureServiceProvider::class,
+                \PostHog\Laravel\Autocapture\AuthEvents::class,
+                \PostHog\Laravel\Autocapture\Collector::class,
+                \PostHog\Laravel\Autocapture\DeferredModelEvents::class,
+                \PostHog\Laravel\Autocapture\DomainEvents::class,
+                \PostHog\Laravel\Autocapture\ModelEvents::class,
+                \PostHog\Laravel\Autocapture\Outcomes::class,
+                \PostHog\Laravel\Autocapture\RequestSummary::class,
+            ] as $internal
+        ) {
+            $this->assertArrayNotHasKey($internal, $api['symbols']);
+        }
         $this->assertArrayNotHasKey(\PostHog\Laravel\ExceptionReporter::class, $api['symbols']);
         $this->assertArrayNotHasKey('fromRequest', $api['symbols'][Context::class]['methods']);
         $this->assertArrayHasKey('getFeatureFlagResult', $api['symbols'][PostHog::class]['methods']);

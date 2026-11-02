@@ -6,6 +6,10 @@ are off by default. The main `PostHogServiceProvider` discovers the separate
 `PostHog\Laravel\AutocaptureServiceProvider` automatically. Register only the main
 provider; registering the collector provider again does not add duplicate listeners.
 
+The collector classes and their service provider are internal implementation details,
+not supported extension points. The documented configuration, publish tag and
+`@posthogFeature` Blade conditional are the supported integration surface.
+
 ## Configuration
 
 Publish the optional configuration:

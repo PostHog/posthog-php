@@ -9,10 +9,14 @@ use Illuminate\Routing\Route;
 use Illuminate\Support\Str;
 use Throwable;
 
+/** @internal */
 class RequestSummary
 {
     public function handle(Request $request, Closure $next): mixed
     {
+        if (!Collector::enabled('requests') && !Collector::enabled('pageviews')) {
+            return $next($request);
+        }
         $started = hrtime(true);
         $response = null;
         try {

@@ -5,6 +5,7 @@ namespace PostHog\Laravel\Autocapture;
 use Illuminate\Container\Container;
 use Throwable;
 
+/** @internal */
 class AuthEvents
 {
     public function collect(string $name, object $event): void

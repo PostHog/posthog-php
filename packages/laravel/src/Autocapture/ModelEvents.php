@@ -6,6 +6,7 @@ use Illuminate\Container\Container;
 use Illuminate\Database\Eloquent\Model;
 use Throwable;
 
+/** @internal */
 class ModelEvents
 {
     public function collect(string $operation, Model $model): void
