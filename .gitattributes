@@ -6,3 +6,4 @@
 /phpcs.xml export-ignore
 /.github export-ignore
 /Makefile export-ignore
+/packages/laravel export-ignore

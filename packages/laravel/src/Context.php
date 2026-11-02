@@ -20,6 +20,7 @@ class Context
     private bool $resolved = false;
     private array $contextScopes = [];
     private int $nextScopeId = 0;
+    private array $loggedResolverFailures = [];
 
     public function __construct(private Container $app)
     {
@@ -32,6 +33,7 @@ class Context
         $this->request = null;
         $this->headerIdentity = false;
         $this->resolved = false;
+        $this->loggedResolverFailures = [];
     }
 
     public function end(): void
@@ -58,13 +60,15 @@ class Context
         if (!$explicitId && $resolver) {
             try {
                 $id = ($this->app->make($resolver))($this->app);
-            } catch (Throwable) {
+            } catch (Throwable $exception) {
+                $this->logResolverFailure('distinct_id', $exception);
             }
         }
         if ($id === null && $this->request !== null) {
             try {
                 $id = $this->request->user()?->getAuthIdentifier();
-            } catch (Throwable) {
+            } catch (Throwable $exception) {
+                $this->logResolverFailure('authenticated user', $exception);
             }
         }
         if (is_scalar($id) && (string) $id !== '') {
@@ -77,10 +81,26 @@ class Context
                 if (is_array($groups)) {
                     $data['groups'] = array_replace($groups, $data['groups'] ?? []);
                 }
-            } catch (Throwable) {
+            } catch (Throwable $exception) {
+                $this->logResolverFailure('groups', $exception);
             }
         }
         return $data;
+    }
+
+    private function logResolverFailure(string $resolver, Throwable $exception): void
+    {
+        if (!$this->app['config']->get('posthog.sdk.debug', false) || isset($this->loggedResolverFailures[$resolver])) {
+            return;
+        }
+        $this->loggedResolverFailures[$resolver] = true;
+        try {
+            $this->app->make('log')->debug('[PostHog] Failed to resolve ' . $resolver . ' context.', [
+                'exception_class' => $exception::class,
+            ]);
+        } catch (Throwable) {
+            // A failing application logger must not interrupt analytics context fallback.
+        }
     }
 
     public function snapshot(): array
@@ -95,6 +115,20 @@ class Context
         $request = $this->request;
         $headerIdentity = $this->headerIdentity;
         $resolved = $this->resolved;
+        $loggedResolverFailures = $this->loggedResolverFailures;
+        foreach (['distinct_id' => 'distinctId', 'session_id' => 'sessionId'] as $alias => $canonical) {
+            if (array_key_exists($alias, $data) && !array_key_exists($canonical, $data)) {
+                $data[$canonical] = $data[$alias];
+            }
+            unset($data[$alias]);
+        }
+        $sessionId = $data['sessionId'] ?? null;
+        if (
+            is_scalar($sessionId) && (string) $sessionId !== ''
+            && !array_key_exists('$session_id', $data['properties'] ?? [])
+        ) {
+            $data['properties']['$session_id'] = (string) $sessionId;
+        }
         $this->begin(array_replace_recursive($previous, $data));
         $this->resolved = $resolved;
         $this->request = $request;
@@ -110,6 +144,7 @@ class Context
             $this->request = $request;
             $this->headerIdentity = $headerIdentity;
             $this->resolved = $resolved;
+            $this->loggedResolverFailures = $loggedResolverFailures;
         }
     }
 
@@ -137,14 +172,21 @@ class Context
 
     private function state(): array
     {
-        return [$this->context, $this->flags, $this->request, $this->headerIdentity, $this->resolved];
+        return [
+            $this->context, $this->flags, $this->request, $this->headerIdentity,
+            $this->resolved, $this->loggedResolverFailures,
+        ];
     }
 
     private function restore(array $state): void
     {
-        [$this->context, $this->flags, $this->request, $this->headerIdentity, $this->resolved] = $state;
+        [
+            $this->context, $this->flags, $this->request, $this->headerIdentity,
+            $this->resolved, $this->loggedResolverFailures,
+        ] = $state;
     }
 
+    /** @internal */
     public function fromRequest(Request $request): void
     {
         $this->begin($this->app['config']->get('posthog.header_context', true)
@@ -170,6 +212,7 @@ class Context
         $this->restore(array_pop($this->scopes));
     }
 
+    /** @internal */
     public function flags(string $key, callable $evaluate): FeatureFlagEvaluations
     {
         return $this->flags[$key] ??= $evaluate();

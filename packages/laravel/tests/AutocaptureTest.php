@@ -417,7 +417,7 @@ class AutocaptureTest extends TestCase
             },
         ], $http, loadFeatureFlags: false);
         $manager = $this->app->make(\PostHog\Laravel\PostHog::class);
-        (new \ReflectionProperty(\PostHog\Laravel\PostHog::class, 'sdk'))->setValue($manager, $sdk);
+        (new \ReflectionProperty(\PostHog\Laravel\PostHog::class, 'client'))->setValue($manager, $sdk);
         foreach (['first', 'second'] as $id) {
             $this->identity($id);
             $snapshot = $manager->evaluateFlags();
