@@ -1,0 +1,23 @@
+{
+    "name": "posthog/posthog-laravel",
+    "description": "PostHog for Laravel",
+    "version": "0.1.0",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "posthog/posthog-php": "^4.20",
+        "illuminate/support": "^12.0 || ^13.0",
+        "illuminate/contracts": "^12.0 || ^13.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^10.0 || ^11.0",
+        "phpunit/phpunit": "^11.0 || ^12.0",
+        "laravel/octane": "^2.0"
+    },
+    "autoload": {"psr-4": {"PostHog\\Laravel\\": "src/"}},
+    "autoload-dev": {"psr-4": {"PostHog\\Laravel\\Tests\\": "tests/"}},
+    "extra": {"laravel": {"providers": ["PostHog\\Laravel\\PostHogServiceProvider"], "aliases": {"PostHog": "PostHog\\Laravel\\Facades\\PostHog"}}},
+    "scripts": {"test": "phpunit"},
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
