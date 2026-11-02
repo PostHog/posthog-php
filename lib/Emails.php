@@ -556,6 +556,13 @@ final class Emails
         ?string $body,
         int $timeoutMs
     ): array {
+        if (!function_exists('curl_init')) {
+            throw new EmailError(
+                'missing_curl',
+                'Sending email and reading its status need the PHP curl extension, which is not loaded.',
+                fix: 'Install or enable ext-curl.'
+            );
+        }
         $responseHeaders = [];
         $curl = curl_init();
         curl_setopt_array($curl, [

@@ -58,6 +58,7 @@ PostHog::emails()->send([
     'distinct_id' => 'user_123',
 ]);
 
+// Later, such as in a job: for a few seconds after the send, get() throws not_found
 $status = PostHog::emails()->get($result->getId()); // queued, sent, delivered, bounced, ...
 ```
 
