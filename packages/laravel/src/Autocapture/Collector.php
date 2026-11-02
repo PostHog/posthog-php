@@ -10,9 +10,13 @@ use Throwable;
 /** @internal Collectors retain correlation IDs and groups, never arbitrary context payloads. */
 class Collector
 {
-    public static function enabled(string $section): bool
+    private array $loggedFailures = [];
+
+    public static function enabled(?string $section = null): bool
     {
-        return (bool) Container::getInstance()['config']->get('posthog.autocapture.' . $section . '.enabled', false);
+        $app = Container::getInstance();
+        return ($section === null || $app['config']->get('posthog.autocapture.' . $section . '.enabled', false))
+            && $app->make(PostHog::class)->enabled();
     }
 
     public static function snapshot(): array
@@ -27,6 +31,9 @@ class Collector
         $context = null;
         try {
             $app = Container::getInstance();
+            if (!self::enabled()) {
+                return;
+            }
             $snapshot ??= self::snapshot();
             $id = $snapshot['distinctId'] ?? null;
             if (!is_scalar($id) || (string) $id === '') {
@@ -39,10 +46,29 @@ class Collector
                 'event' => $event, 'properties' => $properties,
                 'distinctId' => (string) $id, 'groups' => $snapshot['groups'] ?? [],
             ]);
-        } catch (Throwable) {
-            // Analytics must never replace an application result or its original exception.
+        } catch (Throwable $exception) {
+            self::logFailure(__METHOD__, $exception);
         } finally {
             $context?->leave();
+        }
+    }
+
+    public static function logFailure(string $collector, Throwable $exception): void
+    {
+        try {
+            $app = Container::getInstance();
+            if (!$app['config']->get('posthog.sdk.debug', false)) {
+                return;
+            }
+            $instance = $app->make(self::class);
+            if (isset($instance->loggedFailures[$collector])) {
+                return;
+            }
+            $instance->loggedFailures[$collector] = true;
+            $app->make('log')->debug('[PostHog] Automatic event collection failed.', [
+                'collector' => $collector, 'exception_class' => $exception::class,
+            ]);
+        } catch (Throwable) {
         }
     }
 

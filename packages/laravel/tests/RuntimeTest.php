@@ -11,6 +11,7 @@ use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Route;
 use Orchestra\Testbench\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PostHog\Client;
 use PostHog\HttpClient;
 use PostHog\HttpResponse;
@@ -51,7 +52,7 @@ class RuntimeTest extends TestCase
     {
         $manager = $this->app->make(PostHog::class);
         $this->assertSame($manager, $this->app->make('posthog'));
-        $sdk = new \ReflectionProperty(PostHog::class, 'sdk');
+        $sdk = new \ReflectionProperty(PostHog::class, 'client');
         $this->assertNull($sdk->getValue($manager));
         $this->app['config']->set('posthog.api_key', '   ');
         $this->assertFalse($manager->capture('no traffic'));
@@ -193,7 +194,9 @@ class RuntimeTest extends TestCase
         $this->assertCount(1, $fake->recorded('captureException'));
         $fake->assertExceptionCaptured(
             fn ($message) => $message['distinctId'] === 'origin'
-                && $message['options'] === ['handled' => false, 'mechanism' => 'middleware']
+                && $message['options'] === [
+                    'handled' => false, 'mechanism' => 'middleware', 'source' => 'laravel.middleware',
+                ]
         );
         $handler->dontReport([IgnoredFailure::class]);
         $handler->report(new IgnoredFailure('ignored'));
@@ -215,10 +218,14 @@ class RuntimeTest extends TestCase
         $fake->assertExceptionCaptured(
             fn ($message) => $message['distinctId'] === 'failed-user'
                 && $message['options']['handled'] === false
+                && $message['options']['mechanism'] === 'middleware'
+                && ($message['options']['source'] ?? null) === 'laravel.reportable'
         );
         $fake->assertExceptionCaptured(
             fn ($message) => $message['distinctId'] === 'manual-user'
                 && $message['options']['handled'] === true
+                && $message['options']['mechanism'] === 'generic'
+                && ($message['options']['source'] ?? null) === 'laravel.reportable'
         );
     }
 
@@ -239,7 +246,9 @@ class RuntimeTest extends TestCase
         $this->app->make(ExceptionHandler::class)->report($exception);
         $fake->assertExceptionCaptured(
             fn ($message) => $message['distinctId'] === 'failed-job'
-                && $message['options'] === ['handled' => false, 'mechanism' => 'task']
+                && $message['options'] === [
+                    'handled' => false, 'mechanism' => 'task', 'source' => 'laravel.queue_job',
+                ]
         );
         $this->app['events']->dispatch(new JobProcessed('sync', $job));
         $this->assertSame([], $this->app->make(Context::class)->data());
@@ -293,7 +302,7 @@ class RuntimeTest extends TestCase
     {
         $client = new FlushClient();
         $manager = $this->app->make(PostHog::class);
-        (new \ReflectionProperty(PostHog::class, 'sdk'))->setValue($manager, $client);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $client);
         $context = $this->app->make(Context::class);
         $this->app->make(\Illuminate\Contracts\Console\Kernel::class)->rerouteSymfonyCommandEvents();
         \Illuminate\Support\Facades\Artisan::command('posthog:boundary', function () {
@@ -318,7 +327,7 @@ class RuntimeTest extends TestCase
         $manager = $this->app->make(PostHog::class);
         $client = new FlushClient();
         $client->fail = true;
-        (new \ReflectionProperty(PostHog::class, 'sdk'))->setValue($manager, $client);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $client);
         $context = $this->app->make(Context::class);
         $context->begin(['distinctId' => 'stale']);
         $this->app['events']->dispatch('Laravel\\Octane\\Events\\TaskTerminated', [(object) []]);
@@ -348,7 +357,7 @@ class RuntimeTest extends TestCase
             loadFeatureFlags: false,
         );
         $manager = $this->app->make(PostHog::class);
-        (new \ReflectionProperty(PostHog::class, 'sdk'))->setValue($manager, $sdk);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $sdk);
         $manager->capture('does not fetch', [], 'first');
         $context = $this->app->make(Context::class);
         foreach (['first', 'second'] as $id) {
@@ -375,7 +384,7 @@ class RuntimeTest extends TestCase
             secretKey: 'server-secret',
         );
         $manager = $this->app->make(PostHog::class);
-        (new \ReflectionProperty(PostHog::class, 'sdk'))->setValue($manager, $sdk);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $sdk);
         $this->assertSame([], $manager->evaluateFlags()->getKeys());
         $this->app['config']->set('posthog.distinct_id', IdentityResolver::class);
         $this->app['config']->set('posthog.groups', GroupsResolver::class);
@@ -413,7 +422,7 @@ class RuntimeTest extends TestCase
             'flag_definition_cache_provider' => $provider,
         ], $http, loadFeatureFlags: false);
         $manager = $this->app->make(PostHog::class);
-        (new \ReflectionProperty(PostHog::class, 'sdk'))->setValue($manager, $sdk);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $sdk);
         $this->assertSame([], $manager->getAllFlags(onlyEvaluateLocally: true));
         $this->app->make(Context::class)->begin(['distinctId' => '0']);
         $this->assertSame(['local-flag' => true], $manager->getAllFlags(onlyEvaluateLocally: true));
@@ -477,6 +486,7 @@ class RuntimeTest extends TestCase
         $this->assertSame(['team' => 'one'], $events[1]['properties']['$groups']);
         $this->assertSame('RuntimeException', $events[1]['properties']['$exception_list'][0]['type']);
         $this->assertTrue($events[1]['properties']['$exception_list'][0]['mechanism']['handled']);
+        $this->assertArrayNotHasKey('$exception_source', $events[1]['properties']);
         $this->assertNull($manager->client()->getContext());
         $exception = new RuntimeException('originating boundary');
         $this->app->make(ExceptionReporter::class)->remember($exception, 'task');
@@ -486,6 +496,7 @@ class RuntimeTest extends TestCase
         $this->assertSame('user', $events[2]['distinct_id']);
         $this->assertSame(['team' => 'one'], $events[2]['properties']['$groups']);
         $this->assertFalse($events[2]['properties']['$exception_list'][0]['mechanism']['handled']);
+        $this->assertSame('laravel.reportable', $events[2]['properties']['$exception_source'] ?? null);
     }
 
     public function testInstallPublishesWithoutOverwritingApplicationConfig(): void
@@ -545,6 +556,70 @@ class RuntimeTest extends TestCase
         $fake->assertGroupIdentified();
         $fake->assertExceptionCaptured();
         $this->assertFalse($fake->client()->capture(['event' => 'escape', 'distinctId' => 'user']));
+    }
+
+    public static function invalidClientOptions(): array
+    {
+        return [
+            'consumer' => [['consumer' => 'invalid-consumer']],
+            'provider' => [['consumer' => 'noop', 'flag_definition_cache_provider' => \stdClass::class]],
+        ];
+    }
+
+    #[DataProvider('invalidClientOptions')]
+    public function testDoctorRejectsInvalidClientOptionsWithoutLeakingSecrets(array $options): void
+    {
+        $this->app['config']->set('posthog.sdk', $options);
+        $this->app->instance(PostHog::class, new PostHog($this->app));
+        $this->assertSame(1, \Illuminate\Support\Facades\Artisan::call('posthog:doctor'));
+        $output = \Illuminate\Support\Facades\Artisan::output();
+        $this->assertStringContainsString('PostHog client initialization failed', $output);
+        $this->assertStringContainsString('posthog.sdk', $output);
+        $this->assertStringNotContainsString('project-key', $output);
+    }
+
+    public function testUncachedDefinitionsLoadOncePerScopedManagerNotOncePerWorker(): void
+    {
+        $this->app['config']->set('posthog.secret_key', 'private-secret');
+        $this->app['config']->set('posthog.flag_cache.refresh_interval', 3600);
+        $http = $this->createMock(HttpClient::class);
+        $http->expects($this->exactly(3))->method('sendRequest')->willReturnCallback(function ($path) {
+            $this->assertStringStartsWith('/flags/definitions?', $path);
+            return new HttpResponse(json_encode(['flags' => []]), 200);
+        });
+        for ($i = 0; $i < 3; $i++) {
+            $this->app->forgetScopedInstances();
+            $manager = $this->app->make(PostHog::class);
+            $client = new Client(
+                'project-key',
+                ['consumer' => 'noop'],
+                $http,
+                loadFeatureFlags: false,
+                secretKey: 'private-secret',
+            );
+            (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $client);
+            for ($read = 0; $read < 2; $read++) {
+                $this->assertSame([], $manager->evaluateFlags('user', onlyEvaluateLocally: true)->getKeys());
+            }
+        }
+    }
+
+    public function testDoctorWarnsAboutUncachedDefinitionsWithoutFetching(): void
+    {
+        $this->app['config']->set('posthog.secret_key', 'private-secret');
+        $manager = $this->getMockBuilder(PostHog::class)
+            ->setConstructorArgs([$this->app])
+            ->onlyMethods(['loadFlags'])
+            ->getMock();
+        $manager->expects($this->never())->method('loadFlags');
+        $this->app->instance(PostHog::class, $manager);
+        $this->assertSame(0, \Illuminate\Support\Facades\Artisan::call('posthog:doctor'));
+        $output = \Illuminate\Support\Facades\Artisan::output();
+        $this->assertStringContainsString('each request or job', $output);
+        $this->assertStringNotContainsString('private-secret', $output);
+        $this->app['config']->set('posthog.flag_cache.enabled', true);
+        $this->assertSame(0, \Illuminate\Support\Facades\Artisan::call('posthog:doctor'));
+        $this->assertStringNotContainsString('each request or job', \Illuminate\Support\Facades\Artisan::output());
     }
 
     public function testCommandsNeverPrintKeysAndRequireExplicitSending(): void

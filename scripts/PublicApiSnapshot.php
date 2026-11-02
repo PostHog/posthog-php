@@ -23,12 +23,19 @@ final class PublicApiSnapshot
     public static function run(array $argv): int
     {
         $root = dirname(__DIR__);
-        $snapshotFile = $root . '/api/public-api.json';
+        $laravel = in_array('--laravel', $argv, true);
+        $packageRoot = $laravel ? $root . '/packages/laravel' : $root;
+        $snapshotFile = $root . '/api/' . ($laravel ? 'laravel-public-api.json' : 'public-api.json');
         $update = in_array('--update', $argv, true);
+        $updateCommand = $laravel ? 'composer api:update:laravel' : 'composer api:update';
 
-        require_once $root . '/vendor/autoload.php';
+        require_once $packageRoot . '/vendor/autoload.php';
 
-        $api = self::buildPublicApi($root . '/lib', 'PostHog\\');
+        $api = self::buildPublicApi(
+            $packageRoot . ($laravel ? '/src' : '/lib'),
+            $laravel ? 'PostHog\\Laravel\\' : 'PostHog\\',
+            $laravel,
+        );
         $json = json_encode($api, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
 
         if ($update) {
@@ -43,7 +50,7 @@ final class PublicApiSnapshot
 
         if (!file_exists($snapshotFile)) {
             fwrite(STDERR, 'Missing public API snapshot: ' . self::relativePath($snapshotFile, $root) . PHP_EOL);
-            fwrite(STDERR, "Run `composer api:update` to create it.\n");
+            fwrite(STDERR, "Run `$updateCommand` to create it.\n");
             return 1;
         }
 
@@ -57,7 +64,7 @@ final class PublicApiSnapshot
         file_put_contents($tmpFile, $json);
 
         fwrite(STDERR, "Public API snapshot is out of date.\n");
-        fwrite(STDERR, "Run `composer api:update` if this public API change is intentional.\n\n");
+        fwrite(STDERR, "Run `$updateCommand` if this public API change is intentional.\n\n");
         fwrite(STDERR, self::unifiedDiff($snapshotFile, $tmpFile, $root));
         @unlink($tmpFile);
         return 1;
@@ -66,8 +73,11 @@ final class PublicApiSnapshot
     /**
      * @return array<string, mixed>
      */
-    private static function buildPublicApi(string $sourceDir, string $namespacePrefix): array
-    {
+    private static function buildPublicApi(
+        string $sourceDir,
+        string $namespacePrefix,
+        bool $excludeInternal = false,
+    ): array {
         foreach (self::phpFiles($sourceDir) as $file) {
             require_once $file;
         }
@@ -83,11 +93,14 @@ final class PublicApiSnapshot
 
             $reflection = new ReflectionClass($name);
             $fileName = $reflection->getFileName();
-            if ($fileName === false || !self::pathIsInside($fileName, $sourceDir)) {
+            if (
+                $fileName === false || !self::pathIsInside($fileName, $sourceDir)
+                || ($excludeInternal && self::isInternal($reflection))
+            ) {
                 continue;
             }
 
-            $symbols[$name] = self::reflectClass($reflection);
+            $symbols[$name] = self::reflectClass($reflection, $excludeInternal);
         }
 
         ksort($symbols);
@@ -123,11 +136,14 @@ final class PublicApiSnapshot
     /**
      * @return array<string, mixed>
      */
-    private static function reflectClass(ReflectionClass $class): array
+    private static function reflectClass(ReflectionClass $class, bool $excludeInternal = false): array
     {
         $constants = [];
         foreach ($class->getReflectionConstants(ReflectionClassConstant::IS_PUBLIC) as $constant) {
-            if ($constant->getDeclaringClass()->getName() !== $class->getName()) {
+            if (
+                $constant->getDeclaringClass()->getName() !== $class->getName()
+                || ($excludeInternal && self::isInternal($constant))
+            ) {
                 continue;
             }
 
@@ -140,7 +156,10 @@ final class PublicApiSnapshot
 
         $properties = [];
         foreach ($class->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
-            if ($property->getDeclaringClass()->getName() !== $class->getName()) {
+            if (
+                $property->getDeclaringClass()->getName() !== $class->getName()
+                || ($excludeInternal && self::isInternal($property))
+            ) {
                 continue;
             }
 
@@ -156,7 +175,10 @@ final class PublicApiSnapshot
 
         $methods = [];
         foreach ($class->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
-            if ($method->getDeclaringClass()->getName() !== $class->getName()) {
+            if (
+                $method->getDeclaringClass()->getName() !== $class->getName()
+                || ($excludeInternal && self::isInternal($method))
+            ) {
                 continue;
             }
 
@@ -175,6 +197,12 @@ final class PublicApiSnapshot
             'properties' => $properties,
             'methods' => $methods,
         ];
+    }
+
+    private static function isInternal(
+        ReflectionClass|ReflectionClassConstant|ReflectionMethod|ReflectionProperty $symbol,
+    ): bool {
+        return preg_match('/@internal\b/', $symbol->getDocComment() ?: '') === 1;
     }
 
     /**
@@ -295,7 +323,14 @@ final class PublicApiSnapshot
 
     private static function normalizeConstantValue(ReflectionClassConstant $constant): mixed
     {
-        if ($constant->getDeclaringClass()->getName() === 'PostHog\\PostHog' && $constant->getName() === 'VERSION') {
+        if (
+            $constant->getName() === 'VERSION'
+            && in_array(
+                $constant->getDeclaringClass()->getName(),
+                ['PostHog\\PostHog', 'PostHog\\Laravel\\PostHog'],
+                true,
+            )
+        ) {
             return '<version>';
         }
 

@@ -88,7 +88,8 @@ class Outcomes
                 'jobs' => 'laravel_job', 'commands' => 'laravel_command', 'scheduler' => 'laravel_scheduled_task',
             ][$section];
             Collector::capture($event, $properties);
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            Collector::logFailure(__METHOD__, $exception);
         }
     }
 }

@@ -9,10 +9,14 @@ use Illuminate\Routing\Route;
 use Illuminate\Support\Str;
 use Throwable;
 
+/** @internal */
 class RequestSummary
 {
     public function handle(Request $request, Closure $next): mixed
     {
+        if (!Collector::enabled('requests') && !Collector::enabled('pageviews')) {
+            return $next($request);
+        }
         $started = hrtime(true);
         $response = null;
         try {
@@ -20,8 +24,8 @@ class RequestSummary
         } finally {
             try {
                 $this->collect($request, $response, $started);
-            } catch (Throwable) {
-                // Never mask an application failure, including a failing collector callback.
+            } catch (Throwable $exception) {
+                Collector::logFailure(__METHOD__, $exception);
             }
         }
     }

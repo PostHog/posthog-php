@@ -99,6 +99,38 @@ class LifecycleTest extends TestCase
         $fake->assertCaptured('parent continued', fn ($event) => $event['distinctId'] === 'parent');
     }
 
+    public function testNestedCommandsDeferFlushingUntilHttpOrRootConsoleTermination(): void
+    {
+        $client = new \PostHog\Laravel\Tests\Fixtures\FlushClient();
+        $manager = $this->app->make(\PostHog\Laravel\PostHog::class);
+        (new \ReflectionProperty($manager, 'client'))->setValue($manager, $client);
+        $kernel = $this->reportingKernel();
+        Artisan::command('posthog:child', fn () => 0);
+        Artisan::command('posthog:parent', function () use ($client) {
+            Artisan::call('posthog:child');
+            \PHPUnit\Framework\Assert::assertSame(0, $client->flushes);
+            return 0;
+        });
+        Route::get('/nested-command', function () use ($client) {
+            Artisan::call('posthog:parent');
+            $this->assertSame(0, $client->flushes);
+            return 'ok';
+        });
+        $this->get('/nested-command')->assertOk();
+        $this->assertSame(1, $client->flushes);
+
+        $client->flushes = 0;
+        $input = new ArrayInput(['command' => 'posthog:parent']);
+        $this->assertSame(0, $kernel->handle($input, new NullOutput()));
+        $this->assertSame(0, $client->flushes);
+        $kernel->terminate($input, 0);
+        $this->assertSame(1, $client->flushes);
+
+        $client->flushes = 0;
+        $this->assertSame(0, Artisan::call('posthog:parent'));
+        $this->assertSame(1, $client->flushes);
+    }
+
     private function reportingKernel(): ConsoleKernel
     {
         $this->app->singleton(ConsoleKernel::class, fn ($app) => new ReportingConsoleKernel($app, $app['events']));

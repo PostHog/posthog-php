@@ -13,9 +13,11 @@ use PostHog\Client;
 use PostHog\HttpClient;
 use PostHog\HttpResponse;
 use PostHog\Laravel\Context;
+use PostHog\Laravel\ExceptionReporter;
 use PostHog\Laravel\Facades\PostHog as Facade;
 use PostHog\Laravel\PostHog;
 use PostHog\Laravel\PostHogServiceProvider;
+use PostHog\Laravel\Tests\Fixtures\FlushClient;
 use PostHog\Laravel\Tests\Fixtures\GroupsResolver;
 use PostHog\Laravel\Tests\Fixtures\TransportErrorHandler;
 use RuntimeException;
@@ -51,6 +53,146 @@ class RuntimeContextTest extends TestCase
             $request->setUserResolver(fn () => throw new RuntimeException('auth'));
             $this->assertSame(['team' => 'resolved-team'], $context->data()['groups']);
         }
+    }
+
+    public function testScopedSessionOverrideReplacesInheritedHeaderSession(): void
+    {
+        $events = [];
+        $this->app['config']->set('posthog.sdk.before_send', function ($event) use (&$events) {
+            $events[] = $event;
+            return null;
+        });
+        $context = $this->app->make(Context::class);
+        $context->fromRequest(Request::create('/', server: ['HTTP_X_POSTHOG_SESSION_ID' => 'old']));
+        $manager = $this->app->make(PostHog::class);
+        $context->with(['sessionId' => 'new'], fn () => $manager->capture('scoped', [], 'user'));
+        $context->with(
+            ['sessionId' => 'new', 'properties' => ['$session_id' => 'explicit']],
+            fn () => $manager->capture('explicit', [], 'user'),
+        );
+        $manager->capture('outer', [], 'user');
+        $this->assertSame(
+            ['new', 'explicit', 'old'],
+            array_map(fn ($event) => $event['properties']['$session_id'], $events),
+        );
+    }
+
+    public function testAutomaticReportingDefersFlushToLifecycleCleanup(): void
+    {
+        $client = new FlushClient();
+        $manager = $this->app->make(PostHog::class);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $client);
+        $this->app->make(ExceptionReporter::class)->report(new RuntimeException('failure'));
+        $this->assertSame(0, $client->flushes);
+    }
+
+    public function testContextAliasesPropagateToCapturesAndQueuePayloads(): void
+    {
+        $events = [];
+        $this->app['config']->set('posthog.sdk.before_send', function ($event) use (&$events) {
+            $events[] = $event;
+            return null;
+        });
+        $context = $this->app->make(Context::class);
+        $context->fromRequest(Request::create('/', server: [
+            'HTTP_X_POSTHOG_DISTINCT_ID' => 'header-user', 'HTTP_X_POSTHOG_SESSION_ID' => 'header-session',
+        ]));
+        $request = $context->snapshot();
+        $manager = $this->app->make(PostHog::class);
+        foreach (
+            [
+                ['distinct_id' => 'scoped-user', 'session_id' => 'scoped-session'],
+                [
+                    'distinct_id' => 'ignored-user', 'session_id' => 'ignored-session',
+                    'distinctId' => 'scoped-user', 'sessionId' => 'scoped-session',
+                ],
+            ] as $data
+        ) {
+            $context->with($data, function () use ($context, $manager) {
+                $this->assertSame('scoped-user', $context->data()['distinctId']);
+                $this->assertSame('scoped-session', $context->data()['sessionId']);
+                $this->assertSame([
+                    'distinctId' => 'scoped-user', 'sessionId' => 'scoped-session',
+                    'properties' => ['$session_id' => 'scoped-session'],
+                ], \PostHog\Laravel\QueueContext::payload()['_posthog']);
+                $manager->capture('scoped');
+            });
+            $this->assertSame($request, $context->snapshot());
+        }
+        $this->assertSame(['scoped-user', 'scoped-user'], array_column($events, 'distinct_id'));
+        foreach ($events as $event) {
+            $this->assertSame('scoped-session', $event['properties']['$session_id']);
+        }
+    }
+
+    public function testResolverDiagnosticsAreDebugOnlyBoundedAndExcludeSensitiveMessages(): void
+    {
+        $messages = [];
+        $logger = $this->createMock(\Psr\Log\LoggerInterface::class);
+        $logger->expects($this->exactly(9))->method('debug')->willReturnCallback(
+            function ($message, $data) use (&$messages) {
+                $messages[] = [$message, $data];
+            },
+        );
+        $this->app->instance('log', $logger);
+        $this->app->bind('bad-identity', fn () => fn () => throw new RuntimeException('secret-token'));
+        $this->app->bind('bad-groups', fn () => fn () => throw new RuntimeException('private-groups'));
+        $this->app['config']->set('posthog.distinct_id', 'bad-identity');
+        $this->app['config']->set('posthog.groups', 'bad-groups');
+        $request = Request::create('/');
+        $request->setUserResolver(fn () => throw new RuntimeException('private-user'));
+        $context = $this->app->make(Context::class);
+        $context->fromRequest($request);
+        $context->data();
+        $this->assertSame([], $messages);
+        $this->app['config']->set('posthog.sdk.debug', true);
+        for ($i = 0; $i < 3; $i++) {
+            $context->data();
+        }
+        $this->assertCount(3, $messages);
+        foreach ($messages as [$message, $data]) {
+            $this->assertStringContainsString('[PostHog]', $message);
+            $this->assertSame(['exception_class' => RuntimeException::class], $data);
+        }
+        $this->assertStringNotContainsString('secret-token', json_encode($messages));
+        $this->assertStringNotContainsString('private-', json_encode($messages));
+        $context->with([], fn () => $context->data());
+        $this->assertCount(6, $messages);
+        $context->data();
+        $this->assertCount(6, $messages);
+        $context->fromRequest($request);
+        $context->data();
+        $this->assertCount(9, $messages);
+    }
+
+    public function testFailingDiagnosticLoggerDoesNotPreventAuthFallback(): void
+    {
+        $logger = $this->createMock(\Psr\Log\LoggerInterface::class);
+        $logger->expects($this->once())->method('debug')->willThrowException(new RuntimeException('logger'));
+        $this->app->instance('log', $logger);
+        $this->app['config']->set('posthog.sdk.debug', true);
+        $this->app->bind('bad-identity', fn () => fn () => throw new RuntimeException('resolver'));
+        $this->app['config']->set('posthog.distinct_id', 'bad-identity');
+        $request = Request::create('/');
+        $request->setUserResolver(fn () => new GenericUser(['id' => 'authenticated']));
+        $context = $this->app->make(Context::class);
+        $context->fromRequest($request);
+        $this->assertSame('authenticated', $context->data()['distinctId']);
+        $this->assertSame('authenticated', $context->data()['distinctId']);
+    }
+
+    public function testManualReportUsesGenericMechanismWithoutInventingAMiddlewareBoundary(): void
+    {
+        $events = [];
+        $this->app['config']->set('posthog.sdk.before_send', function ($event) use (&$events) {
+            $events[] = $event;
+            return null;
+        });
+        report(new RuntimeException('manual'));
+        $this->assertCount(1, $events);
+        $this->assertSame('generic', $events[0]['properties']['$exception_list'][0]['mechanism']['type']);
+        $this->assertTrue($events[0]['properties']['$exception_list'][0]['mechanism']['handled']);
+        $this->assertSame('laravel.reportable', $events[0]['properties']['$exception_source']);
     }
 
     public function testInvokableErrorHandlerConstructsRealLibCurlConsumer(): void
@@ -256,6 +398,87 @@ class RuntimeContextTest extends TestCase
             $this->assertSame(0, $calls);
         }, ['fresh' => true]);
         $this->assertSame($before, $context->snapshot());
+    }
+
+    public function testAutomaticReportingUsesCaptureExceptionAndRestoresContextWhenItThrows(): void
+    {
+        $manager = $this->getMockBuilder(PostHog::class)
+            ->setConstructorArgs([$this->app])
+            ->onlyMethods(['captureException'])
+            ->getMock();
+        $this->app->instance(PostHog::class, $manager);
+        $context = $this->app->make(Context::class);
+        $context->begin([
+            'distinctId' => 'origin', 'sessionId' => 'origin-session',
+            'groups' => ['team' => 'origin-team'], 'properties' => ['component' => 'origin'],
+        ]);
+        $exception = new RuntimeException('original failure');
+        $reporter = $this->app->make(ExceptionReporter::class);
+        $reporter->remember($exception, 'task');
+        $context->begin(['distinctId' => 'later', 'groups' => ['team' => 'later-team']]);
+        $before = $context->snapshot();
+        $flags = $context->flags('later', fn () => $manager->evaluateFlags(flagKeys: []));
+        $raw = $manager->client()->enterContext(['distinctId' => 'raw-later']);
+        $rawBefore = $manager->client()->getContext();
+        $observed = null;
+        $manager->expects($this->once())->method('captureException')->willReturnCallback(
+            function ($captured, $distinctId, $properties, $options) use ($manager, $context, &$observed) {
+                $observed = [$captured, $context->data(), $manager->client()->getContext(), $options];
+                throw new RuntimeException('capture failed');
+            },
+        );
+        try {
+            $reporter->report($exception);
+            $reporter->report($exception);
+            $this->assertNotNull($observed);
+            $this->assertSame($exception, $observed[0]);
+            $this->assertSame('origin', $observed[1]['distinctId']);
+            $this->assertSame('origin-session', $observed[1]['sessionId']);
+            $this->assertSame(['team' => 'origin-team'], $observed[1]['groups']);
+            $this->assertSame('origin', $observed[1]['properties']['component']);
+            $this->assertSame('origin', $observed[2]['distinctId']);
+            $this->assertFalse($observed[3]['handled']);
+            $this->assertSame('task', $observed[3]['mechanism']);
+            $this->assertSame($before, $context->snapshot());
+            $this->assertSame($rawBefore, $manager->client()->getContext());
+            $this->assertSame($flags, $context->flags('later', fn () => throw new RuntimeException('lost flags')));
+        } finally {
+            $raw->close();
+        }
+    }
+
+    public function testKnownExceptionSourceSurvivesLaterBoundariesButDoesNotLeakIntoManualCaptures(): void
+    {
+        $events = [];
+        $this->app['config']->set('posthog.sdk.before_send', function ($event) use (&$events) {
+            $events[] = $event;
+            return null;
+        });
+        $context = $this->app->make(Context::class);
+        $context->begin(['distinctId' => 'origin']);
+        $exception = new RuntimeException('original failure');
+        $reporter = $this->app->make(ExceptionReporter::class);
+        $reporter->remember($exception, 'task', 'laravel.queue_job');
+        $context->begin(['distinctId' => 'later']);
+        $reporter->remember($exception, 'runtime', 'laravel.console_lifecycle');
+        $handler = $this->app->make(\Illuminate\Contracts\Debug\ExceptionHandler::class);
+        $handler->report($exception);
+        $handler->report($exception);
+        $this->assertCount(1, $events);
+        $this->assertSame('origin', $events[0]['distinct_id']);
+        $this->assertSame('laravel.queue_job', $events[0]['properties']['$exception_source'] ?? null);
+        $this->assertSame('task', $events[0]['properties']['$exception_list'][0]['mechanism']['type']);
+        $this->assertSame(['distinctId' => 'later'], $context->snapshot());
+        $manager = $this->app->make(PostHog::class);
+        $manager->captureException($exception, properties: ['$exception_source' => 'forged']);
+        $this->assertCount(2, $events);
+        $this->assertSame('later', $events[1]['distinct_id']);
+        $this->assertArrayNotHasKey('$exception_source', $events[1]['properties']);
+        $reporter->report(new RuntimeException('unknown hook'));
+        $this->assertCount(3, $events);
+        $this->assertArrayNotHasKey('$exception_source', $events[2]['properties']);
+        $this->assertSame(['distinctId' => 'later'], $context->snapshot());
+        $this->assertNull($manager->client()->getContext());
     }
 
     public function testDelayedFlagExposuresKeepOriginAfterRequestSwitchAndEnd(): void

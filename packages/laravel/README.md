@@ -62,8 +62,12 @@ Exception stacks are serialized by the PHP SDK.
 For a custom identity resolver, set `distinct_id` to an invokable container class.
 It receives the application and returns a string identifier or null. A non-null
 custom result replaces the request auth identifier. Otherwise auth/header fallback
-applies. Resolver errors do not break the application. Set `groups` to an invokable
-container class receiving the application and returning group identifiers. Explicit
+applies. Resolver errors do not break the application. With `sdk.debug=true`, failed
+identity, authenticated-user and group lookups log at most one debug message each
+per context scope through Laravel's logger. Diagnostics contain the exception class,
+not its message or resolved data; enable debug output on your Laravel log channel to
+see them. Set `groups` to an invokable container class receiving the application and
+returning group identifiers. Explicit
 context groups override matching resolver groups; exception snapshots inherit them.
 
 ## Scoped context and workers
@@ -82,6 +86,8 @@ app(Context::class)->with([
 
 `Context::begin()`, `data()`, `snapshot()` and `end()` support explicit integrations.
 `with()` restores the previous data and flag snapshots even when the callback throws.
+It accepts `distinct_id`/`session_id` aliases; canonical `distinctId`/`sessionId` keys
+win if both forms are supplied.
 The manager/facade also exposes `withContext($data, $callback, $options)`,
 `enterContext($data, $options)` and `getContext()`. These bridge Laravel context and
 raw-client context, accept `distinct_id`/`session_id` aliases, and merge properties
@@ -108,8 +114,9 @@ fall back to middleware cleanup and cannot provide after-response correlation.
 Queue events and Octane request/task/tick boundaries flush and clean context
 automatically. Console integration decorates the existing console kernel contract:
 nested `Artisan::call()` executions restore their caller in `finally`, while the root
-command stays active through kernel termination. Thrown objects retain their own
-snapshots; nonzero return codes never supply another exception's identity. The
+command stays active through kernel termination. Nested calls defer flushing to the
+outer command or HTTP termination. A standalone `Artisan::call()` still flushes on
+exit. Thrown objects retain their own snapshots; nonzero return codes never supply another exception's identity. The
 application's commands, custom kernel, and exception-reporting policy are preserved.
 Direct child-command `$this->call()`/`callSilent()`/`callSilently()` execution bypasses
 those kernel boundaries. Opt into isolation by adding `IsolatesCommandContext` to
@@ -167,8 +174,12 @@ try {
 }
 ```
 
-Manual captures and ordinary `report()` calls are handled. Failures reported from
-Laravel's routing pipeline or HTTP/console kernel failure paths, escaping request
+The manager/facade uses the named argument `properties:` for exception properties,
+not the core client's `additionalProperties:`. Other exception parameters match core.
+
+Manual captures and ordinary `report()` calls are handled and use mechanism `generic`
+unless a known integration boundary supplies a more specific category. Failures
+reported from Laravel's routing pipeline or HTTP/console kernel failure paths, escaping request
 middleware or queue execution, or reported by Octane's worker error listener are
 unhandled. Boundary detection inspects only framework call names, never arguments.
 Weakly held exception snapshots preserve the originating identity after cleanup;
@@ -176,6 +187,17 @@ automatic reports of the same exception object are deduplicated. A report alread
 emitted by an earlier framework listener cannot be retroactively relabeled by a
 later boundary event. Explicit manual capture is intentionally independent of
 automatic-report deduplication.
+
+Automatic reports include `$exception_source` from the first known SDK boundary:
+`laravel.queue_job`, `laravel.console_lifecycle`, or `laravel.octane_worker_error`.
+Normal HTTP pipeline failures are reported and rendered by Laravel before the outer
+middleware can catch them: their source is `laravel.reportable` and mechanism is
+`middleware`. The safety-net middleware catch supplies `laravel.middleware` only
+when an exception escapes to it, such as in a custom pipeline. Without a remembered
+boundary source, the registered Laravel reportable callback supplies `laravel.reportable`.
+Sources are never inferred from stack frames. Ordinary manual `captureException()`
+calls omit the source unless an integration explicitly supplies it through the typed
+`source` option.
 
 ## Feature flags
 
@@ -197,7 +219,11 @@ empty `flagKeys: []` returns an empty snapshot without evaluation.
 
 The full core signature is supported: `distinctId`, `groups`, `personProperties`,
 `groupProperties`, `onlyEvaluateLocally`, `disableGeoip`, and `flagKeys`.
-All other public PHP client methods are forwarded with current context:
+The manager also supports the core-compatible `getAllFlags()`, `getFeatureFlag()`,
+`getFeatureFlagResult()`, `getFeatureFlagPayload()`, and `isFeatureEnabled()` methods
+with current context, plus `loadFlags()` and `contextFromHeaders()`. These methods
+are declared explicitly; new core methods are not exposed automatically. Use
+`client()` for other lower-level PHP SDK operations:
 
 ```php
 $result = PostHog::getFeatureFlagResult('flag-key', 'account-123');
@@ -213,8 +239,10 @@ try {
 Array-form `capture()` forwards the PHP message unchanged, including its advanced
 options. Prefer `evaluateFlags()` over the legacy getters for shared flag decisions.
 Forwarded legacy flag getters also lazily load configured local definitions on first
-identified use, preserving local-only options. With the raw `client()` escape hatch,
-call `loadFlags()` explicitly before local evaluation if definitions have not loaded.
+identified use, preserving local-only options. Like `evaluateFlags()`, they inherit
+context groups when the groups argument is empty; explicit nonempty groups override
+them. With the raw `client()` escape hatch, call `loadFlags()` explicitly before local
+evaluation if definitions have not loaded.
 
 ### Shared local definitions
 
@@ -229,7 +257,12 @@ process-local, not distributed coordination.
 
 With a secret key, a worker can publish definitions; without it, workers only read
 the cache. Definitions load lazily during the first nonempty flag evaluation and
-refresh lazily after the interval. There is no background timer. The PHP client's
+refresh lazily after the interval. The interval only throttles within a single
+scoped manager: without a cache provider, each new request/job that evaluates flags
+with a secret key performs a blocking definition fetch, even within the interval.
+For production local evaluation, enable `flag_cache` with a shared store, or configure
+a custom provider. `posthog:doctor` warns about a secret key without a provider.
+No cache is enabled implicitly, and there is no background timer. The PHP client's
 `loadFlags()` remains available for an explicit refresh. You can instead supply a
 custom provider class in `sdk.flag_definition_cache_provider`.
 
@@ -246,6 +279,19 @@ can be cached without serializing closures. Callback classes must implement the
 corresponding SDK callable/interface contract. The Laravel library metadata and
 framework handler ownership are enforced by the wrapper. `release_id` sets release
 metadata; advanced SDK options remain accessible under `sdk`.
+
+Client construction remains lazy. Invalid SDK configuration raises an initialization
+error on first client use rather than silently disabling analytics. Run
+`php artisan posthog:doctor` as a deployment check: it constructs the client and
+reports initialization failures without printing credentials, loading flag
+definitions or sending a diagnostic event. Custom container callbacks/providers
+are resolved, so their constructors should not perform network work.
+
+The supported PHP surface consists of the manager, facade, documented `Context`
+methods, `IsolatesCommandContext` trait, test fake, service provider registration,
+and Laravel flag-definition cache provider. Classes and methods marked `@internal`
+are framework plumbing, not supported customer APIs or extension points, even when
+Laravel or other package classes require their methods to be public.
 
 ## Diagnostics
 
