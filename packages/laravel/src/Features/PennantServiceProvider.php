@@ -6,6 +6,7 @@ use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Pennant\FeatureManager;
 
+/** @internal */
 final class PennantServiceProvider extends ServiceProvider
 {
     public function boot(): void
