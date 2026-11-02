@@ -19,8 +19,9 @@ final class EmailsWithoutCurlTest extends TestCase
         $emails = (new Client('phc_key', $options, loadFeatureFlags: false, secretKey: 'phs_secret'))->emails();
         $errors = [];
 
+        $email = ['to' => 'user@example.com', 'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b'];
         $calls = [
-            fn() => $emails->send(['to' => 'user@example.com', 'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b']),
+            fn() => $emails->send($email),
             fn() => $emails->get('01a18356-c56c-0001-e494-7666bc915188'),
         ];
 
