@@ -27,7 +27,7 @@ Existing span attributes take precedence. The processor preserves the applicatio
 
 `emails()` sends one email to one recipient, from an email template made transactional in PostHog or from content your code rendered, and reads what happened to it.
 
-The client needs a project secret API key (`phs_...`) as `secretKey`. Sending needs the `hog_flow:write` scope, and reading a status needs `hog_flow:read`. A client whose `host` is PostHog Cloud sends to its region's app host. For any other `host`, such as a reverse proxy, set the `app_host` option to your PostHog app host, because the proxy must not receive the secret key.
+The client needs a project secret API key (`phs_...`) as `secretKey`. Sending needs the `hog_flow:write` scope, and reading a status needs `hog_flow:read`. A client whose `host` is PostHog Cloud sends to its region's app host. For any other `host`, such as a reverse proxy, set the `app_host` option to your PostHog app host: email requests never go to a custom `host`. Loading flag definitions still sends the secret key to `host`, so when your proxy must not see the key, also pass `loadFeatureFlags: false` and don't call `loadFlags()`.
 
 ```php
 PostHog::init('phc_...', ['host' => 'https://eu.i.posthog.com'], secretKey: 'phs_...');
