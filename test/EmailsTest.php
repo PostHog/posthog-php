@@ -17,7 +17,7 @@ class EmailsTest extends TestCase
     private const MESSAGE_ID = '01a18356-c56c-0001-e494-7666bc915188';
     private const SEND_URL = 'https://us.posthog.com/api/projects/@current/messaging/send/email/';
 
-    /** @var list<array{method: string, url: string, headers: list<string>, body: ?string, timeoutMs: int}> */
+    /** @var list<array{method: string, url: string, headers: list<string>, body: ?string, timeoutMs: int, atMs: int}> */
     private array $requests = [];
     /** @var list<array{int, string, list<string>}|EmailError> */
     private array $replies = [];
@@ -60,7 +60,8 @@ class EmailsTest extends TestCase
      */
     public function transport(string $method, string $url, array $headers, ?string $body, int $timeoutMs): array
     {
-        $this->requests[] = compact('method', 'url', 'headers', 'body', 'timeoutMs');
+        $atMs = (int) Clock::get()->now()->format('Uv');
+        $this->requests[] = compact('method', 'url', 'headers', 'body', 'timeoutMs', 'atMs');
         $reply = array_shift($this->replies) ?? [202, '{"message_id":"msg_1"}', []];
         if ($reply instanceof EmailError) {
             throw $reply;
@@ -584,22 +585,44 @@ class EmailsTest extends TestCase
         $this->assertCount(5, $this->requests);
     }
 
-    public function testAClientShutDownDuringTheRetryWaitSendsNothingMore(): void
+    public function testAClientShutDownByASignalDuringTheRetryWaitSendsNothingMore(): void
     {
-        $this->reply([503, '{"code":"unavailable"}', []], [202, '{"message_id":"msg_1"}', []]);
-        // Closed once the first attempt is made, as when a signal handler shuts the client down during the wait.
-        $emails = $this->emails(['isClosed' => fn(): bool => $this->requests !== []]);
+        $closed = false;
+        $emails = $this->emails(['isClosed' => function () use (&$closed): bool {
+            return $closed;
+        }]);
+        $shutDownBySignal = function () use (&$closed): void {
+            $closed = true;
+        };
 
+        Clock::set(new InterruptedClock($this->clock, 0.5, $shutDownBySignal));
+        $this->reply([503, '{"code":"unavailable"}', ['Retry-After: 2']], [202, '{"message_id":"msg_1"}', []]);
         $sendError = $this->sendError(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID], $emails);
         $sendRequests = count($this->requests);
-        $this->reply([503, '{"code":"unavailable"}', []], [200, '{}', []]);
+
+        $closed = false;
+        Clock::set(new InterruptedClock($this->clock, 0.5, $shutDownBySignal));
+        $this->reply([503, '{"code":"unavailable"}', ['Retry-After: 2']], [200, '{}', []]);
         $this->requests = [];
-        $getError = $this->getError(self::TEMPLATE_ID, $emails);
+        $getError = $this->getError(self::MESSAGE_ID, $emails);
 
         $this->assertSame('unavailable', $sendError->getErrorCode());
         $this->assertSame(1, $sendRequests);
         $this->assertSame('unavailable', $getError->getErrorCode());
         $this->assertCount(1, $this->requests);
+    }
+
+    public function testASignalDoesNotCutTheRetryWaitShort(): void
+    {
+        Clock::set(new InterruptedClock($this->clock, 1, static function (): void {
+        }));
+        $this->reply([429, '{"code":"throttled"}', ['Retry-After: 3']], [202, '{"message_id":"msg_1"}', []]);
+
+        $result = $this->emails()->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
+
+        $this->assertSame('msg_1', $result->getId());
+        $this->assertCount(2, $this->requests);
+        $this->assertSame(3000, $this->requests[1]['atMs'] - $this->requests[0]['atMs']);
     }
 
     public function testALongerRetryAfterIsWaitedFor(): void

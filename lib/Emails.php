@@ -7,6 +7,7 @@ use DateTimeImmutable;
 use InvalidArgumentException;
 use JsonException;
 use Symfony\Component\Clock\Clock;
+use Symfony\Component\Clock\ClockInterface;
 
 /**
  * Sends transactional email, from an email template made in PostHog or from content your code rendered,
@@ -467,14 +468,33 @@ final class Emails
                 if ($delayMs === null) {
                     throw $error;
                 }
-                Clock::get()->sleep($delayMs / 1000);
-                // A signal handler can shut the client down during the wait. A closed client sends nothing,
-                // so the operation settles with the failure it already has.
-                if (($this->isClosed)()) {
-                    throw $error;
-                }
+                $this->waitToRetry($delayMs, $error);
             }
         }
+    }
+
+    /**
+     * A handled signal cuts a sleep short, so this sleeps again until the retry is due. A signal handler can also
+     * shut the client down during the wait; a closed client sends nothing, so the operation settles with the
+     * failure it already has.
+     */
+    private function waitToRetry(int $delayMs, EmailError $error): void
+    {
+        $clock = Clock::get();
+        $retryAtUs = self::microseconds($clock) + $delayMs * 1000;
+        while (($remainingUs = $retryAtUs - self::microseconds($clock)) > 0) {
+            $clock->sleep($remainingUs / 1_000_000);
+            if (($this->isClosed)()) {
+                throw $error;
+            }
+        }
+    }
+
+    private static function microseconds(ClockInterface $clock): int
+    {
+        $now = $clock->now();
+
+        return (int) $now->format('U') * 1_000_000 + (int) $now->format('u');
     }
 
     private static function isRetryable(EmailError $error): bool
