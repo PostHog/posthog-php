@@ -53,7 +53,7 @@ final class ExceptionReporter
                 return ['handled' => false, 'mechanism' => 'runtime'];
             }
         }
-        return ['handled' => true, 'mechanism' => 'middleware'];
+        return ['handled' => true, 'mechanism' => 'generic'];
     }
 
     public function report(Throwable $exception, ?string $source = null): void

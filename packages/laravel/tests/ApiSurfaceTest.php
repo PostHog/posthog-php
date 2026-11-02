@@ -156,7 +156,7 @@ class ApiSurfaceTest extends TestCase
     {
         $methods = [
             'isFeatureEnabled', 'getFeatureFlag', 'getFeatureFlagResult', 'getFeatureFlagPayload',
-            'getAllFlags', 'loadFlags', 'contextFromHeaders',
+            'getAllFlags', 'loadFlags', 'contextFromHeaders', 'captureException', 'evaluateFlags',
         ];
         foreach ($methods as $method) {
             $signature = static fn ($parameter) => [
@@ -164,8 +164,13 @@ class ApiSurfaceTest extends TestCase
                 $parameter->isPassedByReference(), $parameter->isVariadic(),
                 $parameter->isDefaultValueAvailable() ? $parameter->getDefaultValue() : null,
             ];
+            $expected = array_map($signature, (new ReflectionMethod(Client::class, $method))->getParameters());
+            if ($method === 'captureException') {
+                $this->assertSame('additionalProperties', $expected[2][0]);
+                $expected[2][0] = 'properties';
+            }
             $this->assertSame(
-                array_map($signature, (new ReflectionMethod(Client::class, $method))->getParameters()),
+                $expected,
                 array_map($signature, (new ReflectionMethod(PostHog::class, $method))->getParameters()),
                 $method,
             );

@@ -11,6 +11,7 @@ use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Route;
 use Orchestra\Testbench\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PostHog\Client;
 use PostHog\HttpClient;
 use PostHog\HttpResponse;
@@ -217,11 +218,13 @@ class RuntimeTest extends TestCase
         $fake->assertExceptionCaptured(
             fn ($message) => $message['distinctId'] === 'failed-user'
                 && $message['options']['handled'] === false
+                && $message['options']['mechanism'] === 'middleware'
                 && ($message['options']['source'] ?? null) === 'laravel.reportable'
         );
         $fake->assertExceptionCaptured(
             fn ($message) => $message['distinctId'] === 'manual-user'
                 && $message['options']['handled'] === true
+                && $message['options']['mechanism'] === 'generic'
                 && ($message['options']['source'] ?? null) === 'laravel.reportable'
         );
     }
@@ -553,6 +556,70 @@ class RuntimeTest extends TestCase
         $fake->assertGroupIdentified();
         $fake->assertExceptionCaptured();
         $this->assertFalse($fake->client()->capture(['event' => 'escape', 'distinctId' => 'user']));
+    }
+
+    public static function invalidClientOptions(): array
+    {
+        return [
+            'consumer' => [['consumer' => 'invalid-consumer']],
+            'provider' => [['consumer' => 'noop', 'flag_definition_cache_provider' => \stdClass::class]],
+        ];
+    }
+
+    #[DataProvider('invalidClientOptions')]
+    public function testDoctorRejectsInvalidClientOptionsWithoutLeakingSecrets(array $options): void
+    {
+        $this->app['config']->set('posthog.sdk', $options);
+        $this->app->instance(PostHog::class, new PostHog($this->app));
+        $this->assertSame(1, \Illuminate\Support\Facades\Artisan::call('posthog:doctor'));
+        $output = \Illuminate\Support\Facades\Artisan::output();
+        $this->assertStringContainsString('PostHog client initialization failed', $output);
+        $this->assertStringContainsString('posthog.sdk', $output);
+        $this->assertStringNotContainsString('project-key', $output);
+    }
+
+    public function testUncachedDefinitionsLoadOncePerScopedManagerNotOncePerWorker(): void
+    {
+        $this->app['config']->set('posthog.secret_key', 'private-secret');
+        $this->app['config']->set('posthog.flag_cache.refresh_interval', 3600);
+        $http = $this->createMock(HttpClient::class);
+        $http->expects($this->exactly(3))->method('sendRequest')->willReturnCallback(function ($path) {
+            $this->assertStringStartsWith('/flags/definitions?', $path);
+            return new HttpResponse(json_encode(['flags' => []]), 200);
+        });
+        for ($i = 0; $i < 3; $i++) {
+            $this->app->forgetScopedInstances();
+            $manager = $this->app->make(PostHog::class);
+            $client = new Client(
+                'project-key',
+                ['consumer' => 'noop'],
+                $http,
+                loadFeatureFlags: false,
+                secretKey: 'private-secret',
+            );
+            (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $client);
+            for ($read = 0; $read < 2; $read++) {
+                $this->assertSame([], $manager->evaluateFlags('user', onlyEvaluateLocally: true)->getKeys());
+            }
+        }
+    }
+
+    public function testDoctorWarnsAboutUncachedDefinitionsWithoutFetching(): void
+    {
+        $this->app['config']->set('posthog.secret_key', 'private-secret');
+        $manager = $this->getMockBuilder(PostHog::class)
+            ->setConstructorArgs([$this->app])
+            ->onlyMethods(['loadFlags'])
+            ->getMock();
+        $manager->expects($this->never())->method('loadFlags');
+        $this->app->instance(PostHog::class, $manager);
+        $this->assertSame(0, \Illuminate\Support\Facades\Artisan::call('posthog:doctor'));
+        $output = \Illuminate\Support\Facades\Artisan::output();
+        $this->assertStringContainsString('each request or job', $output);
+        $this->assertStringNotContainsString('private-secret', $output);
+        $this->app['config']->set('posthog.flag_cache.enabled', true);
+        $this->assertSame(0, \Illuminate\Support\Facades\Artisan::call('posthog:doctor'));
+        $this->assertStringNotContainsString('each request or job', \Illuminate\Support\Facades\Artisan::output());
     }
 
     public function testCommandsNeverPrintKeysAndRequireExplicitSending(): void
