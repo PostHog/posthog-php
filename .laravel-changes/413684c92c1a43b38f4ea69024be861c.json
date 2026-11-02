@@ -1,5 +1,0 @@
-{
-  "package": "posthog-laravel",
-  "bump": "initial",
-  "summary": "Add the Laravel package with request and worker context, exception reporting, flags, and test fakes."
-}
