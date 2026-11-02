@@ -1,0 +1,5 @@
+{
+  "package": "posthog-laravel",
+  "bump": "initial",
+  "summary": "Add opt-in Laravel request, auth, domain, model and worker event collectors."
+}
