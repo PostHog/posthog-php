@@ -24,8 +24,8 @@ class RequestSummary
         } finally {
             try {
                 $this->collect($request, $response, $started);
-            } catch (Throwable) {
-                // Never mask an application failure, including a failing collector callback.
+            } catch (Throwable $exception) {
+                Collector::logFailure(__METHOD__, $exception);
             }
         }
     }

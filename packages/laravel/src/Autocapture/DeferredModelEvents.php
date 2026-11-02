@@ -39,19 +39,22 @@ class DeferredModelEvents
     public function defer(Connection $connection, string $event, array $properties, array $snapshot): void
     {
         $this->prune();
+        // Connection::afterCommit forwards to a shared manager without a connection name.
+        $matches = fn ($record) => $record->connection === $connection->getName()
+            && $record->level === $connection->transactionLevel();
+        $record = $this->transactions->callbackApplicableTransactions()->last($matches);
+        if ($record === null) {
+            // Laravel's testing manager excludes test-wrapper transactions from commit callbacks.
+            if ($this->transactions->getPendingTransactions()->contains($matches)) {
+                Collector::capture($event, $properties, $snapshot);
+            }
+            return;
+        }
         if (count($this->pending) >= self::MAX_EVENTS) {
             return;
         }
         $encoded = json_encode([$event, $properties, $snapshot], JSON_PRESERVE_ZERO_FRACTION);
         if ($encoded === false || strlen($encoded) > self::MAX_BYTES - $this->bytes) {
-            return;
-        }
-        // Connection::afterCommit forwards to a shared manager without a connection name.
-        $record = $this->transactions->getPendingTransactions()->last(
-            fn ($record) => $record->connection === $connection->getName()
-                && $record->level === $connection->transactionLevel(),
-        );
-        if ($record === null) {
             return;
         }
         // Laravel 12 can retain old records after a PDO reset, even after their payloads are discarded.

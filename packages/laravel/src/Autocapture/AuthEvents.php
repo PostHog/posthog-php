@@ -28,7 +28,8 @@ class AuthEvents
             }
             $properties = isset($event->guard) && is_string($event->guard) ? ['guard' => $event->guard] : [];
             Collector::capture('laravel_auth_' . $name, $properties, $snapshot);
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            Collector::logFailure(__METHOD__, $exception);
         }
     }
 }

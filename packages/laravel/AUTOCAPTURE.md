@@ -10,6 +10,14 @@ The collector classes and their service provider are internal implementation det
 not supported extension points. The documented configuration, publish tag and
 `@posthogFeature` Blade conditional are the supported integration surface.
 
+Collectors skip context resolution and model buffering when PostHog is disabled or
+its API key is empty. `PostHog::fake()` still enables collection for assertions.
+
+With `posthog.sdk.debug=true`, collector failures log at most once per collector
+site per Laravel container scope through Laravel's logger. Diagnostics include
+only the collector site and exception class, not exception messages or event data.
+Logger failures never escape into the application.
+
 ## Configuration
 
 Publish the optional configuration:
@@ -140,6 +148,11 @@ model connection's outer transaction commits**. Rollback (including a nested
 savepoint rollback) discards the corresponding pending events. No model or request
 object is retained. Outside a transaction, collection is immediate, even when a
 different connection has an open transaction.
+
+In tests using Laravel's `DatabaseTransactions` or `RefreshDatabase`, collection
+follows Laravel's after-commit rules: the test-wrapper transaction alone does not
+delay capture, while application-owned nested transactions still defer until
+commit and discard rolled-back changes.
 
 All connections share an internal pending budget of **1,000 events and 1 MiB of
 JSON-encoded event names, properties and correlation context**. If either limit

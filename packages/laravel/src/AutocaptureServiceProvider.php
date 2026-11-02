@@ -21,6 +21,7 @@ class AutocaptureServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__ . '/../config/autocapture.php', 'posthog-autocapture');
+        $this->app->scoped(Collector::class);
         $config = $this->app['config'];
         $settings = $config->get('posthog-autocapture', []);
         foreach ($config->get('posthog.autocapture', []) as $section => $values) {
@@ -77,7 +78,8 @@ class AutocaptureServiceProvider extends ServiceProvider
                 }
                 try {
                     return Container::getInstance()->make(PostHog::class)->evaluateFlags()->isEnabled($key);
-                } catch (Throwable) {
+                } catch (Throwable $exception) {
+                    Collector::logFailure(self::class . '::posthogFeature', $exception);
                     return false;
                 }
             });

@@ -47,7 +47,8 @@ class ModelEvents
                 $properties,
                 $snapshot,
             );
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            Collector::logFailure(__METHOD__, $exception);
         }
     }
 }

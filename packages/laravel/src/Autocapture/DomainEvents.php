@@ -10,6 +10,9 @@ class DomainEvents
     public function collect(object $event, array $mapping): void
     {
         try {
+            if (!Collector::enabled()) {
+                return;
+            }
             if (!isset($mapping['event']) || !is_string($mapping['event']) || $mapping['event'] === '') {
                 return;
             }
@@ -32,7 +35,8 @@ class DomainEvents
                 }
             }
             Collector::capture($mapping['event'], $properties);
-        } catch (Throwable) {
+        } catch (Throwable $exception) {
+            Collector::logFailure(__METHOD__, $exception);
         }
     }
 }

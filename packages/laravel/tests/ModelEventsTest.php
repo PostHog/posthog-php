@@ -256,6 +256,7 @@ class ModelEventsTest extends TestCase
         $committed = new CountedTransactionCollection();
         $transactions = $this->createStub(DatabaseTransactionsManager::class);
         $transactions->method('getPendingTransactions')->willReturn($pending);
+        $transactions->method('callbackApplicableTransactions')->willReturn($pending);
         $transactions->method('getCommittedTransactions')->willReturn($committed);
         $connection = new SQLiteConnection(new \PDO('sqlite::memory:'), '', '', ['name' => 'a']);
         $connection->beginTransaction();
