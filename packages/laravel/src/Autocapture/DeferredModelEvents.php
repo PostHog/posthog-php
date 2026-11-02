@@ -106,13 +106,12 @@ class DeferredModelEvents
             $root = $root->parent;
         }
         if ($connection->transactionLevel() === 1) {
-            $pending = $this->transactions->getPendingTransactions();
-            $committed = $this->transactions->getCommittedTransactions();
+            $managed = $this->managedTransactions();
             foreach ($this->pending as $key => $entry) {
                 $olderRoot = $entry['root']->get();
                 if (
                     $entry['connection']->get() === $connection && $olderRoot !== $root
-                    && ($pending->containsStrict($olderRoot) || $committed->containsStrict($olderRoot))
+                    && $olderRoot !== null && isset($managed[$olderRoot])
                 ) {
                     // Laravel 12 commit retries can leave rolled-back roots managed on the same PDO.
                     // Unmanaged roots may still be delivering successful commit callbacks; keep them.
@@ -163,11 +162,25 @@ class DeferredModelEvents
         }
     }
 
+    private function managedTransactions(): WeakMap
+    {
+        $managed = new WeakMap();
+        foreach (
+            [$this->transactions->getPendingTransactions(), $this->transactions->getCommittedTransactions()] as $set
+        ) {
+            foreach ($set as $record) {
+                $managed[$record] = true;
+            }
+        }
+        return $managed;
+    }
+
     private function prune(?DatabaseTransactionRecord $rolledBackRoot = null): void
     {
-        $pending = $this->transactions->getPendingTransactions();
-        $committed = $this->transactions->getCommittedTransactions();
-        $managed = static fn ($record) => $pending->containsStrict($record) || $committed->containsStrict($record);
+        if ($this->pending === [] && count($this->records) === 0) {
+            return;
+        }
+        $managed = $this->managedTransactions();
         foreach ($this->pending as $key => $entry) {
             $connection = $entry['connection']->get();
             $record = $entry['transaction']->get();
@@ -176,9 +189,9 @@ class DeferredModelEvents
                 $connection === null || $connection->getRawPdo() === null
                 || $entry['pdo']->get() !== $connection->getRawPdo()
                 || $record === null || $root === null
-                || ($rolledBackRoot !== null && $root === $rolledBackRoot && !$managed($record))
-                || (!$managed($record) && $managed($root))
-                || ($connection->transactionLevel() === 0 && $managed($record))
+                || ($rolledBackRoot !== null && $root === $rolledBackRoot && !isset($managed[$record]))
+                || (!isset($managed[$record]) && isset($managed[$root]))
+                || ($connection->transactionLevel() === 0 && isset($managed[$record]))
             ) {
                 $this->remove($key);
             }
@@ -187,7 +200,7 @@ class DeferredModelEvents
         }
         // Keep zero-payload registrations counted until Laravel releases their records.
         foreach ($this->records as $record => $count) {
-            if ($count === 0 && !$managed($record)) {
+            if ($count === 0 && !isset($managed[$record])) {
                 unset($this->records[$record]);
             }
         }
