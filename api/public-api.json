@@ -2109,11 +2109,11 @@
                         },
                         {
                             "name": "userAgent",
-                            "type": "string",
+                            "type": "?string",
                             "byReference": false,
                             "variadic": false,
                             "optional": true,
-                            "default": "posthog-php/4.20.0",
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         },

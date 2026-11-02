@@ -76,6 +76,7 @@ final class Emails
      * @param string|null $secretKey A project secret API key.
      * @param string $host The client's host. Used only when it is PostHog Cloud.
      * @param string|null $appHost The PostHog app host, for a host that is not PostHog Cloud.
+     * @param string|null $userAgent The User-Agent. Defaults to `posthog-php/<version>`.
      * @param Closure|null $transport `fn(string $method, string $url, list<string> $headers, ?string $body,
      *     int $timeoutMs): array{int, string, list<string>}` returning the status, body and header lines.
      *     It throws EmailError with the code `network_error` when no answer arrived.
@@ -87,7 +88,7 @@ final class Emails
         int $requestTimeoutMs = self::DEFAULT_REQUEST_TIMEOUT_MS,
         int $maxRetries = self::DEFAULT_MAX_RETRIES,
         ?string $migratedFrom = null,
-        string $userAgent = PostHog::LIBRARY . '/' . PostHog::VERSION,
+        ?string $userAgent = null,
         ?Closure $isDisabled = null,
         ?Closure $isClosed = null,
         ?Closure $transport = null
@@ -106,7 +107,7 @@ final class Emails
         $this->requestTimeoutMs = $requestTimeoutMs;
         $this->maxRetries = $maxRetries;
         $this->migratedFrom = $migratedFrom;
-        $this->userAgent = $userAgent;
+        $this->userAgent = $userAgent ?? PostHog::LIBRARY . '/' . PostHog::VERSION;
         $this->isDisabled = $isDisabled ?? static fn(): bool => false;
         $this->isClosed = $isClosed ?? static fn(): bool => false;
         $this->transport = $transport ?? Closure::fromCallable([self::class, 'curlTransport']);
