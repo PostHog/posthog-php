@@ -23,6 +23,43 @@ The registered processor also enables request span enrichment when `withContext(
 
 Existing span attributes take precedence. The processor preserves the application's provider, sampling, and exporters. See the [PHP tracing guide](https://posthog.com/docs/distributed-tracing/installation/php) and [Laravel guide](https://posthog.com/docs/libraries/laravel) for setup.
 
+## Transactional email
+
+`emails()` sends one email to one recipient, from an email template made transactional in PostHog or from content your code rendered, and reads what happened to it.
+
+The client needs a project secret API key (`phs_...`) as `secretKey`. Sending needs the `hog_flow:write` scope, and reading a status needs `hog_flow:read`. A client whose `host` is PostHog Cloud sends to its region's app host. For any other `host`, such as a reverse proxy, set the `app_host` option to your PostHog app host, because the proxy must not receive the secret key.
+
+```php
+PostHog::init('phc_...', ['host' => 'https://eu.i.posthog.com'], secretKey: 'phs_...');
+
+// A template made in PostHog, by its ID
+$result = PostHog::emails()->send([
+    'to' => 'user@example.com',
+    'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
+    'template_data' => ['name' => 'Ada'], // fills {{ variables.name }}
+    'distinct_id' => 'user_123',
+    'idempotency_key' => 'welcome:user_123',
+]);
+
+// Content your code rendered, named by a key
+PostHog::emails()->send([
+    'to' => 'user@example.com',
+    'template_key' => 'password-reset',
+    'subject' => 'Reset your password',
+    'html' => $html,
+    'distinct_id' => 'user_123',
+]);
+
+$status = PostHog::emails()->get($result->getId()); // queued, sent, delivered, bounced, ...
+```
+
+- **Two forms.** Pass `template_id` with optional `template_data`, or `template_key` with `subject` and `html`, `text` or both. The content form also takes `from` (a verified sender), `reply_to` and `capture_engagement` (default `true`). PostHog derives a missing `text` from the `html`. To send an email built with a template library such as React Email, render it to HTML in your app and pass `html`. The SDK adds no rendering dependency.
+- **Pass `distinct_id`.** Without it, the email's engagement events go to a person whose distinct ID is the email address.
+- **A result means queued**, not delivered. `send()` returns a `SendEmailResult` with the message ID. `get()` reads the status for 30 days after the send.
+- **Errors.** A send that is not queued throws `PostHog\EmailError`. Branch on `getErrorCode()`, such as `recipient_suppressed` or `missing_app_host`, or on `getErrorName()`, such as `validation_error`. An invalid argument throws before any request, with an `invalid_*` code.
+- **Retries.** Network errors, rate limits and an unavailable service are retried up to `email_request_max_retries` times (default 2) with the same idempotency key, so a retry never sends twice. Each request times out after `email_request_timeout_ms` (default 15000). When a job runner already retries the send, pass `'max_retries' => 0` and an `idempotency_key` derived from what the email is for, such as `welcome:user_123`. A generated key does not survive a job retry.
+- **Moving from another provider.** Set the `migrated_from` option, such as `'resend'`, so PostHog knows where your sends came from.
+
 ## Questions?
 
 ### [Join our Slack community.](https://join.slack.com/t/posthogusers/shared_invite/enQtOTY0MzU5NjAwMDY3LTc2MWQ0OTZlNjhkODk3ZDI3NDVjMDE1YjgxY2I4ZjI4MzJhZmVmNjJkN2NmMGJmMzc2N2U3Yjc3ZjI5NGFlZDQ)
