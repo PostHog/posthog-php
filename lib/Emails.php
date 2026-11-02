@@ -8,6 +8,8 @@ use InvalidArgumentException;
 use JsonException;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
+use Symfony\Component\Clock\MonotonicClock;
+use Symfony\Component\Clock\NativeClock;
 
 /**
  * Sends transactional email, from an email template made in PostHog or from content your code rendered,
@@ -481,6 +483,10 @@ final class Emails
     private function waitToRetry(int $delayMs, EmailError $error): void
     {
         $clock = Clock::get();
+        if ($clock instanceof NativeClock) {
+            // The wall clock can jump during the wait, so the deadline is kept on a clock that only moves forward.
+            $clock = new MonotonicClock();
+        }
         $retryAtUs = self::microseconds($clock) + $delayMs * 1000;
         while (($remainingUs = $retryAtUs - self::microseconds($clock)) > 0) {
             $clock->sleep($remainingUs / 1_000_000);
