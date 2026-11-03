@@ -56,7 +56,7 @@ for relative in ['packages/laravel', 'examples/laravel']:
 PY
 
 cd "$TEMP/packages/laravel"
-composer validate --no-check-version --no-check-publish
+composer validate --no-check-version --no-check-publish --no-check-all
 composer require --dev --no-update --no-interaction "orchestra/testbench:^$TESTBENCH.0" "laravel/framework:^$LARAVEL.0"
 composer update --prefer-dist --no-progress --no-interaction --no-scripts
 ./vendor/bin/phpunit --configuration phpunit.xml

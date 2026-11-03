@@ -20,7 +20,9 @@ Both release-metadata packages are private, so pnpm applies pending bumps withou
 
 ## Dependency and version policy
 
-Laravel's Composer manifest pins `posthog/posthog-php` to the **exact core version** recorded in the same release commit, not a caret range. Currently that pin is `4.20.1`.
+Laravel's Composer manifest pins `posthog/posthog-php` to the **exact core version** recorded in the same release commit, not a caret range. For example, a release built against PHP `4.20.1` requires exactly `4.20.1`.
+
+Laravel metadata validation uses Composer's `--no-check-all` to suppress its advisory against exact dependency constraints. Schema/publishing validation remains strict; the release validator separately enforces that the core dependency is the exact planned version.
 
 Release preparation runs **one unfiltered `pnpm version -r`** for the whole workspace. It then synchronizes:
 

@@ -200,7 +200,7 @@ jobs:
           set -euo pipefail
           mkdir "$RUNNER_TEMP/composer-check"
           tar -xzf "$RUNNER_TEMP/candidate/package.tar.gz" -C "$RUNNER_TEMP/composer-check"
-          composer validate --working-dir="$RUNNER_TEMP/composer-check" --strict --no-check-version
+          composer validate --working-dir="$RUNNER_TEMP/composer-check" --strict --no-check-version --no-check-all
           python3 - "$RUNNER_TEMP/composer-check/composer.json" "$GITHUB_WORKSPACE" <<'PY'
           import json, pathlib, sys
           path = pathlib.Path(sys.argv[1])
