@@ -10,6 +10,7 @@ on:
       - 'scripts/**'
       - 'pnpm-workspace.yaml'
       - '.github/workflows/laravel*.yml'
+      - '.github/workflows/release.yml'
   push:
     branches: [main]
     paths:
@@ -20,6 +21,7 @@ on:
       - 'scripts/**'
       - 'pnpm-workspace.yaml'
       - '.github/workflows/laravel*.yml'
+      - '.github/workflows/release.yml'
 
 permissions:
   contents: read

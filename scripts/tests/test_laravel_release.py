@@ -138,6 +138,48 @@ class LaravelReleaseTest(LaravelReleaseFixture):
             self.assertEqual(metadata["commit"], git(self.root, "rev-parse", "HEAD").decode().strip())
             self.assertEqual(metadata["tag"], "laravel-v0.1.1")
 
+    def test_root_license_link_is_embedded_as_a_regular_distribution_file(self):
+        self.write("LICENSE.md", "Root MIT license\n")
+        license_path = self.root / release.PACKAGE / "LICENSE.md"
+        license_path.unlink()
+        license_path.symlink_to("../../LICENSE.md")
+        snapshot(self.root)
+        with tarfile.open(self.prepare() / "package.tar.gz") as archive:
+            self.assertTrue(archive.getmember("LICENSE.md").isfile())
+            self.assertEqual(archive.extractfile("LICENSE.md").read(), b"Root MIT license\n")
+        self.assertTrue(license_path.is_symlink())
+
+    def test_license_link_rejects_other_targets_and_a_linked_root_license(self):
+        self.write("LICENSE.md", "MIT\n")
+        self.write("README.md", "Not a license\n")
+        license_path = self.root / release.PACKAGE / "LICENSE.md"
+        license_path.unlink()
+        license_path.symlink_to("../../README.md")
+        snapshot(self.root)
+        with self.assertRaisesRegex(ValueError, "regular distribution file"):
+            self.prepare()
+        license_path.unlink()
+        license_path.symlink_to("../../LICENSE.md")
+        (self.root / "LICENSE.md").unlink()
+        (self.root / "LICENSE.md").symlink_to("README.md")
+        snapshot(self.root)
+        with self.assertRaisesRegex(ValueError, "regular distribution file"):
+            self.prepare()
+
+    def test_initial_minor_release_starts_at_zero(self):
+        for name in ["package.json", "composer.json"]:
+            metadata = release.read_json(self.root / release.PACKAGE / name)
+            metadata["version"] = "0.0.0"
+            self.write(str(release.PACKAGE / name), json.dumps(metadata))
+        self.write("packages/laravel/src/PostHog.php", "<?php class PostHog { public const VERSION = '0.0.0'; }\n")
+        self.intent("minor")
+        snapshot(self.root)
+        out = self.prepare()
+        self.assertEqual(release.read_json(out / "candidate.json")["version"], "0.1.0")
+        git(self.root, "apply", str(out / "release.patch"))
+        self.assertEqual(release.read_json(self.root / release.PACKAGE / "composer.json")["version"], "0.1.0")
+        self.assertIn("VERSION = '0.1.0'", (self.root / release.PACKAGE / "src/PostHog.php").read_text())
+
     def test_mismatch_repository_override_and_symlink_fail_closed(self):
         self.write("packages/laravel/src/PostHog.php", "<?php class PostHog { public const VERSION = '9.0.0'; }\n")
         snapshot(self.root)

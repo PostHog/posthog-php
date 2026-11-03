@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
-from test_laravel_release import LaravelReleaseFixture, SCRIPT, git, snapshot
+from test_laravel_release import LaravelReleaseFixture, REPO, SCRIPT, git, snapshot
 
 
 class LaravelWorkflowScriptsTest(LaravelReleaseFixture):
@@ -55,6 +55,18 @@ if sys.argv[1] == 'update':
         self.assertTrue(all(e['metadata']['config']['platform']['php'] == '8.3.0' for e in example_entries))
         self.assertEqual(json.loads((self.root / 'examples/laravel/composer.json').read_text())['config']['platform']['php'], '8.2.0')
         self.assertNotIn("repositories", json.loads((self.root / "packages/laravel/composer.json").read_text()))
+
+
+class ReleaseWorkflowTest(unittest.TestCase):
+    def test_one_workflow_releases_core_before_checking_fresh_laravel_source(self):
+        self.assertFalse((REPO / ".github/workflows/laravel-release.yml").exists())
+        workflow = (REPO / ".github/workflows/release.yml").read_text()
+        self.assertIn("  publish-laravel:\n", workflow)
+        self.assertIn("    needs: [check-changesets, release]\n", workflow)
+        self.assertIn("needs.release.outputs.commit-hash || github.sha", workflow)
+        self.assertIn("needs.laravel-check-changesets.outputs.source", workflow)
+        self.assertIn("needs.verify-laravel-release.result == 'success'", workflow)
+        self.assertIn("needs.check-changesets.outputs.has-changesets != 'true' || needs.release.result == 'success'", workflow)
 
 
 class ReleaseChangeCheckTest(LaravelReleaseFixture):

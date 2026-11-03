@@ -93,6 +93,8 @@ def prepare(root, output, repository):
             if not allowed_distribution_file(relative):
                 continue
             path = work / name
+            if relative == "LICENSE.md" and path.is_symlink() and path.readlink() == Path("../../LICENSE.md"):
+                path = work / "LICENSE.md"
             if path.is_symlink() or not path.is_file():
                 raise ValueError(f"Not a regular distribution file: {name}")
             files[relative] = path.read_bytes()
