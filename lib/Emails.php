@@ -8,7 +8,6 @@ use DateTimeZone;
 use InvalidArgumentException;
 use JsonException;
 use Symfony\Component\Clock\Clock;
-use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\MonotonicClock;
 use Symfony\Component\Clock\NativeClock;
 
@@ -490,8 +489,9 @@ final class Emails
             // The wall clock can jump during the wait, so the deadline is kept on a clock that only moves forward.
             $clock = new MonotonicClock();
         }
-        $retryAtUs = self::microseconds($clock) + $delayMs * 1000;
-        while (($remainingUs = $retryAtUs - self::microseconds($clock)) > 0) {
+        // Measured from the start of the wait: microseconds since the epoch don't fit in an int on 32-bit PHP.
+        $start = $clock->now();
+        while (($remainingUs = $delayMs * 1000 - self::microsecondsBetween($start, $clock->now())) > 0) {
             $clock->sleep($remainingUs / 1_000_000);
             if (($this->isClosed)()) {
                 throw $error;
@@ -499,11 +499,12 @@ final class Emails
         }
     }
 
-    private static function microseconds(ClockInterface $clock): int
+    private static function microsecondsBetween(DateTimeImmutable $start, DateTimeImmutable $end): int
     {
-        $now = $clock->now();
+        // Read as floats: on 32-bit PHP an epoch after 2038 doesn't fit in an int.
+        $seconds = (int) ((float) $end->format('U') - (float) $start->format('U'));
 
-        return (int) $now->format('U') * 1_000_000 + (int) $now->format('u');
+        return $seconds * 1_000_000 + (int) $end->format('u') - (int) $start->format('u');
     }
 
     private static function isRetryable(EmailError $error): bool
@@ -719,22 +720,23 @@ final class Emails
         }
         if (is_numeric($value)) {
             $seconds = (float) $value;
-            if (!is_finite($seconds)) {
+        } else {
+            // The format's GMT is literal text, so without a zone PHP would read the time in its default zone.
+            $date = DateTimeImmutable::createFromFormat(DATE_RFC7231, $value, new DateTimeZone('UTC'));
+            if ($date === false) {
                 return null;
             }
-            // Clamped in seconds first: a huge value times 1000 would overflow the int cast, on 32-bit PHP too.
-            $maxSeconds = min(self::MAX_RETRY_AFTER_SECONDS, intdiv(PHP_INT_MAX, 1000));
-
-            return (int) (min(max(0.0, $seconds), $maxSeconds) * 1000);
+            // getTimestamp() throws on 32-bit PHP for a date after 2038, so the epoch is read as a float.
+            $seconds = (float) $date->format('U') - (float) Clock::get()->now()->format('U.u');
         }
-        // The format's GMT is literal text, so without a zone PHP would read the time in its default zone.
-        $date = DateTimeImmutable::createFromFormat(DATE_RFC7231, $value, new DateTimeZone('UTC'));
-        if ($date === false) {
+        if (!is_finite($seconds)) {
             return null;
         }
-        $nowMs = (int) Clock::get()->now()->format('Uv');
+        // Clamped in seconds first: milliseconds since the epoch, or a huge value times 1000, overflow an int,
+        // on 32-bit PHP soonest.
+        $maxSeconds = min(self::MAX_RETRY_AFTER_SECONDS, intdiv(PHP_INT_MAX, 1000));
 
-        return max(0, $date->getTimestamp() * 1000 - $nowMs);
+        return (int) (min(max(0.0, $seconds), $maxSeconds) * 1000);
     }
 
     /**

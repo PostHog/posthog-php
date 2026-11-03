@@ -3,6 +3,7 @@
 namespace PostHog\Test;
 
 use Closure;
+use DateTimeImmutable;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\EmailError;
@@ -17,7 +18,7 @@ class EmailsTest extends TestCase
     private const MESSAGE_ID = '01a18356-c56c-0001-e494-7666bc915188';
     private const SEND_URL = 'https://us.posthog.com/api/projects/@current/messaging/send/email/';
 
-    /** @var list<array{method: string, url: string, headers: list<string>, body: ?string, timeoutMs: int, atMs: int}> */
+    /** @var list<array{method: string, url: string, headers: list<string>, body: ?string, timeoutMs: int, at: DateTimeImmutable}> */
     private array $requests = [];
     /** @var list<array{int, string, list<string>}|EmailError> */
     private array $replies = [];
@@ -60,8 +61,8 @@ class EmailsTest extends TestCase
      */
     public function transport(string $method, string $url, array $headers, ?string $body, int $timeoutMs): array
     {
-        $atMs = (int) Clock::get()->now()->format('Uv');
-        $this->requests[] = compact('method', 'url', 'headers', 'body', 'timeoutMs', 'atMs');
+        $at = Clock::get()->now();
+        $this->requests[] = compact('method', 'url', 'headers', 'body', 'timeoutMs', 'at');
         $reply = array_shift($this->replies) ?? [202, '{"message_id":"msg_1"}', []];
         if ($reply instanceof EmailError) {
             throw $reply;
@@ -90,6 +91,14 @@ class EmailsTest extends TestCase
         }
 
         return null;
+    }
+
+    /**
+     * Epoch milliseconds overflow an int on 32-bit PHP, so a wait is measured as a difference of floats.
+     */
+    private static function msBetween(DateTimeImmutable $start, DateTimeImmutable $end): int
+    {
+        return (int) round(((float) $end->format('U.u') - (float) $start->format('U.u')) * 1000);
     }
 
     private function sendError(array $email, ?Emails $emails = null): EmailError
@@ -532,7 +541,7 @@ class EmailsTest extends TestCase
         $error = $this->sendError(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
 
         $this->assertCount(3, $this->requests);
-        $waitedMs = (int) $this->clock->now()->format('Uv') - (int) $start->format('Uv');
+        $waitedMs = self::msBetween($start, $this->clock->now());
         $this->assertGreaterThanOrEqual(800 + 1600, $waitedMs);
         $this->assertLessThanOrEqual(1200 + 2400, $waitedMs);
         $this->assertSame(
@@ -622,17 +631,17 @@ class EmailsTest extends TestCase
 
         $this->assertSame('msg_1', $result->getId());
         $this->assertCount(2, $this->requests);
-        $this->assertSame(3000, $this->requests[1]['atMs'] - $this->requests[0]['atMs']);
+        $this->assertSame(3000, self::msBetween($this->requests[0]['at'], $this->requests[1]['at']));
     }
 
     public function testALongerRetryAfterIsWaitedFor(): void
     {
         $this->reply([429, '{"code":"throttled"}', ['Retry-After: 7']], [202, '{"message_id":"msg_1"}', []]);
-        $start = (int) $this->clock->now()->format('Uv');
+        $start = $this->clock->now();
 
         $this->emails()->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
 
-        $this->assertSame(7000, (int) $this->clock->now()->format('Uv') - $start);
+        $this->assertSame(7000, self::msBetween($start, $this->clock->now()));
         $this->assertCount(2, $this->requests);
     }
 
@@ -649,11 +658,11 @@ class EmailsTest extends TestCase
         try {
             $at = gmdate(DATE_RFC7231, $this->clock->now()->getTimestamp() + 10);
             $this->reply([503, '{"code":"unavailable"}', ['retry-after: ' . $at]], [202, '{"message_id":"msg_1"}', []]);
-            $start = (int) $this->clock->now()->format('Uv');
+            $start = $this->clock->now();
 
             $this->emails()->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
 
-            $this->assertSame(10000, (int) $this->clock->now()->format('Uv') - $start);
+            $this->assertSame(10000, self::msBetween($start, $this->clock->now()));
         } finally {
             date_default_timezone_set($previousTimezone);
         }
@@ -672,9 +681,18 @@ class EmailsTest extends TestCase
         $this->assertEquals($start, $this->clock->now());
     }
 
-    public function testAHugeRetryAfterFailsAtOnceWithoutOverflowing(): void
+    public static function hugeRetryAfters(): array
     {
-        $this->reply([429, '{"code":"throttled"}', ['Retry-After: 9223372036854776']]);
+        return [
+            'seconds' => ['9223372036854776'],
+            'an HTTP date' => ['Fri, 31 Dec 9999 23:59:59 GMT'],
+        ];
+    }
+
+    #[DataProvider('hugeRetryAfters')]
+    public function testAHugeRetryAfterFailsAtOnceWithoutOverflowing(string $retryAfter): void
+    {
+        $this->reply([429, '{"code":"throttled"}', ["Retry-After: $retryAfter"]]);
 
         $error = $this->sendError(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
 
