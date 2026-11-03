@@ -30,53 +30,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Setup pnpm and Node.js
+        uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+        with:
+          version: 11.13.1
+          runtime: node@24
+          install: false
+
       - name: Check for change intents
         id: check
         env:
           TRIGGER_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-
-          count_releasable_intents() {
-            local ref=$1 count=0 path
-            for path in $(git ls-tree --name-only "$ref" .changeset/); do
-              [[ "$path" == *.md ]] || continue
-              if awk -v pattern="^[[:space:]]*['\"]?posthog-php['\"]?[[:space:]]*:[[:space:]]*(patch|minor|major)[[:space:]]*$" '
-                NR == 1 { if ($0 != "---") exit 1; next }
-                $0 == "---" { found_end = 1; exit }
-                $0 ~ pattern { releasable = 1 }
-                END { if (!found_end || !releasable) exit 1 }
-              ' <<< "$(git show "$ref:$path")"; then
-                count=$((count + 1))
-              fi
-            done
-            echo "$count"
-          }
-
-          # Serialized runs can be stale. If main moved on, skip only when no releasable
-          # intents remain there; a push that doesn't touch .changeset/ starts no release run.
-          main_sha=$(git rev-parse --verify origin/main)
-          if [ "$main_sha" != "$TRIGGER_SHA" ]; then
-            pending_count=$(count_releasable_intents "$main_sha")
-            if [ "$pending_count" -gt 0 ]; then
-              echo "main moved from $TRIGGER_SHA to $main_sha with $pending_count releasable change intent(s) still pending; dispatch the Release workflow on main" >&2
-              exit 1
-            fi
-
-            echo "has-changesets=false" >> "$GITHUB_OUTPUT"
-            echo "main is at $main_sha, not $TRIGGER_SHA, and has no pending change intents; skipping stale run"
-            exit 0
-          fi
-
-          releasable_count=$(count_releasable_intents "$TRIGGER_SHA")
-
-          if [ "$releasable_count" -gt 0 ]; then
-            echo "has-changesets=true" >> "$GITHUB_OUTPUT"
-            echo "Found $releasable_count releasable change intent(s)"
-          else
-            echo "has-changesets=false" >> "$GITHUB_OUTPUT"
-            echo "No releasable change intents found"
-          fi
+        run: bash scripts/check-release-changes.sh posthog-php
 
       - name: Send failure event to PostHog
         if: ${{ failure() }}
@@ -145,7 +110,7 @@ jobs:
           set -euo pipefail
 
           source_sha=$(git rev-parse HEAD)
-          pnpm version -r
+          pnpm --filter posthog-php version -r
           git add --intent-to-add .changeset/ledger.yaml
           new_version=$(node -p "require('./package.json').version")
 
@@ -184,9 +149,11 @@ jobs:
           git diff --binary > release.patch
           patch_sha256=$(sha256sum release.patch | awk '{print $1}')
 
-          echo "source-sha=$source_sha" >> "$GITHUB_OUTPUT"
-          echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
-          echo "patch-sha256=$patch_sha256" >> "$GITHUB_OUTPUT"
+          {
+            echo "source-sha=$source_sha"
+            echo "new-version=$new_version"
+            echo "patch-sha256=$patch_sha256"
+          } >> "$GITHUB_OUTPUT"
           echo "Release candidate $new_version prepared from $source_sha with patch sha256 $patch_sha256"
 
       - name: Upload release candidate patch

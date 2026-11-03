@@ -1,5 +1,0 @@
-{
-  "package": "posthog-laravel",
-  "bump": "initial",
-  "summary": "Add an optional read-only Laravel Pennant driver for PostHog feature flags."
-}

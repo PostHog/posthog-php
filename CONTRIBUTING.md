@@ -48,7 +48,8 @@ After the Composer install above, run PHP_CodeSniffer with the Composer-installe
 
 ## Laravel development
 
-`packages/laravel` is an independent Composer package, not a pnpm workspace project.
+`packages/laravel` is an independent Composer package and a pnpm workspace project
+for release metadata. Both packages record change intents in `.changeset/`.
 Its CI covers Laravel 12 on PHP 8.2–8.5 and Laravel 13 on PHP 8.3–8.5.
 From a committed checkout, run:
 
@@ -66,10 +67,10 @@ checkout or distribution metadata. The example's `composer test` runs when its
 The release fixtures use pnpm 11.13.1 and fake publishing tools; they never publish
 or use credentials. Root PHPCS checks remain scoped to `lib` and `test`.
 
-Record Laravel release changes with
-`python3 scripts/laravel_release.py intent patch "Summary"`, **not** `pnpm change`.
+Record Laravel release changes with `pnpm change`, selecting `posthog-laravel`.
+Select `posthog-php` as well when the change also affects the core SDK.
 See [the Laravel release guide](RELEASING.md#laravel-package-independent-releases)
-for the first-release intent and required administrator setup.
+for package-filtered releases and required administrator setup.
 
 ## Public API changes
 

@@ -18,7 +18,7 @@ from laravel_release import allowed_distribution_file
 
 SOURCE_FILES = {
     "packages/laravel/package.json", "packages/laravel/composer.json",
-    "packages/laravel/src/PostHog.php", "LARAVEL_CHANGELOG.md",
+    "packages/laravel/src/PostHog.php", "packages/laravel/CHANGELOG.md", ".changeset/ledger.yaml",
 }
 QUERY = """
 mutation($input: CreateCommitOnBranchInput!) {
@@ -38,7 +38,7 @@ def request(checkout, repository, mode, message):
     paths.update(filter(None, git("ls-files", "--others", "--exclude-standard", "-z").decode().split("\0")))
     additions, deletions = [], []
     for name in sorted(paths):
-        permitted = (name in SOURCE_FILES or bool(re.fullmatch(r"\.laravel-changes/[A-Za-z0-9_-]+\.json", name))) if mode == "source" else (
+        permitted = (name in SOURCE_FILES or bool(re.fullmatch(r"\.changeset/[A-Za-z0-9_-]+\.md", name))) if mode == "source" else (
             allowed_distribution_file(name) or name == "posthog-source.json"
         )
         path = checkout / name

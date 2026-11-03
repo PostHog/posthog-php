@@ -1,7 +1,6 @@
-# Laravel deliberately uses scripts/laravel_release.py and .laravel-changes/.
-# Do not add it here: the core publisher runs an unfiltered pnpm version -r.
 packages:
   - '.'
+  - 'packages/laravel'
 
 minimumReleaseAge: 10080
 

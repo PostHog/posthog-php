@@ -12,12 +12,9 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
-import uuid
 
 PACKAGE = Path("packages/laravel")
-INTENTS = Path(".laravel-changes")
-CHANGELOG = Path("LARAVEL_CHANGELOG.md")
-VERSION = re.compile(r"0|[1-9][0-9]*")
+CHANGELOG = PACKAGE / "CHANGELOG.md"
 FORBIDDEN = {"vendor", "tests", "test", "node_modules", "storage", "cache", "secrets"}
 
 
@@ -33,30 +30,11 @@ def write_json(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
-def version_parts(version):
-    parts = version.split(".")
-    if len(parts) != 3 or not all(VERSION.fullmatch(part) for part in parts):
-        raise ValueError(f"Not a stable version: {version}")
-    return [int(part) for part in parts]
-
-
-def next_version(current, bumps):
-    parts = version_parts(current)
-    if "initial" in bumps:
-        if set(bumps) != {"initial"} or current != "0.1.0":
-            raise ValueError("initial intents are only valid alone at 0.1.0")
-        return current
-    index = min({"major": 0, "minor": 1, "patch": 2}[bump] for bump in bumps)
-    parts[index] += 1
-    parts[index + 1:] = [0] * (2 - index)
-    return ".".join(map(str, parts))
-
-
 def allowed_distribution_file(name):
     path = PurePosixPath(name)
     if path.is_absolute() or any(p.startswith(".") or p.lower() in FORBIDDEN for p in path.parts):
         return False
-    return name in {"composer.json", "README.md", "LICENSE.md", "AUTOCAPTURE.md", "PENNANT.md"} or (
+    return name in {"composer.json", "README.md", "LICENSE.md", "CHANGELOG.md", "AUTOCAPTURE.md", "PENNANT.md"} or (
         len(path.parts) > 1 and path.parts[0] in {"src", "config"} and path.suffix == ".php"
     )
 
@@ -85,17 +63,7 @@ def prepare(root, output, repository):
         work = Path(temporary) / "source"
         run("git", "clone", "--quiet", "--no-hardlinks", "--no-local", str(root), str(work), cwd=root)
         run("git", "checkout", "--quiet", "--detach", source, cwd=work)
-        pending = sorted((work / INTENTS).glob("*.json"))
-        if not pending:
-            raise ValueError("No pending Laravel change intents")
-        intents = [read_json(path) for path in pending]
-        for intent in intents:
-            if set(intent) != {"package", "bump", "summary"} or intent["package"] != "posthog-laravel":
-                raise ValueError("Invalid Laravel change intent")
-            if intent["bump"] not in {"initial", "patch", "minor", "major"}:
-                raise ValueError("Invalid Laravel bump")
-            if not isinstance(intent["summary"], str) or not intent["summary"].strip():
-                raise ValueError("Empty Laravel release summary")
+        pending = sorted((work / ".changeset").glob("*.md"))
         metadata = read_json(work / PACKAGE / "package.json")
         composer = read_json(work / PACKAGE / "composer.json")
         current = metadata["version"]
@@ -103,25 +71,21 @@ def prepare(root, output, repository):
             raise ValueError("Laravel package.json/composer.json version mismatch")
         if composer["name"] != "posthog/posthog-laravel" or "repositories" in composer:
             raise ValueError("Expected production Laravel Composer metadata (no repository overrides)")
-        new = next_version(current, [intent["bump"] for intent in intents])
-        previous = (work / CHANGELOG).read_text() if (work / CHANGELOG).exists() else "# Laravel changelog\n\n"
-        if not previous.startswith("# Laravel changelog\n\n"):
-            raise ValueError("Invalid Laravel changelog header")
-        if f"## {new}\n" in previous:
-            raise ValueError(f"Laravel {new} has already been released")
-        notes = f"## {new}\n\n" + "\n".join("- " + i["summary"].strip() for i in intents) + "\n\n"
-        (work / CHANGELOG).write_text(previous.replace("# Laravel changelog\n\n", "# Laravel changelog\n\n" + notes, 1))
         runtime = work / PACKAGE / "src/PostHog.php"
         declaration = re.compile(r"(public const VERSION = ')([^']+)(';)")
         declarations = declaration.findall(runtime.read_text())
         if len(declarations) != 1 or declarations[0][1] != current:
             raise ValueError("Laravel runtime VERSION mismatch")
+        run("pnpm", "--filter", "posthog-laravel", "version", "-r", cwd=work)
+        new = read_json(work / PACKAGE / "package.json")["version"]
+        if new == current:
+            raise ValueError("No pending Laravel change intents")
         runtime.write_text(declaration.sub(lambda match: match[1] + new + match[3], runtime.read_text()))
-        metadata["version"] = composer["version"] = new
-        write_json(work / PACKAGE / "package.json", metadata)
+        composer["version"] = new
         write_json(work / PACKAGE / "composer.json", composer)
-        for path in pending:
-            path.unlink()
+        changelog = (work / CHANGELOG).read_text()
+        notes = changelog[changelog.index(f"## {new}\n"):].split("\n## ", 1)[0]
+        run("git", "add", "--intent-to-add", str(CHANGELOG), ".changeset/ledger.yaml", cwd=work)
         tracked = run("git", "ls-files", "-z", "--", str(PACKAGE), cwd=work).decode().split("\0")
         files = {}
         for name in filter(None, tracked):
@@ -139,11 +103,10 @@ def prepare(root, output, repository):
             "repository": repository, "commit": source, "tag": tag,
             "directory": PACKAGE.as_posix(), "version": new,
         }, indent=2) + "\n").encode()
-        run("git", "add", "--intent-to-add", str(CHANGELOG), cwd=work)
         patch = run("git", "diff", "--binary", cwd=work)
         changed = run("git", "diff", "--name-only", cwd=work).decode().splitlines()
         permitted = {str(PACKAGE / "composer.json"), str(PACKAGE / "package.json"),
-                     str(PACKAGE / "src/PostHog.php"), str(CHANGELOG)}
+                     str(PACKAGE / "src/PostHog.php"), str(CHANGELOG), ".changeset/ledger.yaml"}
         permitted.update(str(path.relative_to(work)) for path in pending)
         if not set(changed).issubset(permitted):
             raise ValueError(f"Unexpected release changes: {changed}")
@@ -199,10 +162,6 @@ def install(candidate, destination, repository):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    intent = sub.add_parser("intent")
-    intent.add_argument("bump", choices=["initial", "patch", "minor", "major"])
-    intent.add_argument("summary")
-    intent.add_argument("--root", type=Path, default=Path.cwd())
     candidate = sub.add_parser("prepare")
     candidate.add_argument("--root", type=Path, default=Path.cwd())
     candidate.add_argument("--output", type=Path, required=True)
@@ -212,15 +171,7 @@ def main():
     unpack.add_argument("--destination", type=Path, required=True)
     unpack.add_argument("--repository", required=True)
     args = parser.parse_args()
-    if args.command == "intent":
-        if not args.summary.strip():
-            parser.error("summary must not be empty")
-        directory = args.root / INTENTS
-        directory.mkdir(exist_ok=True)
-        path = directory / f"{uuid.uuid4().hex}.json"
-        write_json(path, {"package": "posthog-laravel", "bump": args.bump, "summary": args.summary})
-        print(path)
-    elif args.command == "prepare":
+    if args.command == "prepare":
         prepare(args.root.resolve(), args.output.resolve(), args.repository)
     else:
         install(args.candidate.resolve(), args.destination.resolve(), args.repository)

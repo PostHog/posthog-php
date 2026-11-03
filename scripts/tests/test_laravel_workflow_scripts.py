@@ -57,6 +57,47 @@ if sys.argv[1] == 'update':
         self.assertNotIn("repositories", json.loads((self.root / "packages/laravel/composer.json").read_text()))
 
 
+class ReleaseChangeCheckTest(LaravelReleaseFixture):
+    def check(self, package, trigger=None):
+        head = git(self.root, "rev-parse", "HEAD").decode().strip()
+        git(self.root, "update-ref", "refs/remotes/origin/main", head)
+        output = self.directory / "outputs"
+        output.unlink(missing_ok=True)
+        result = subprocess.run(
+            ["bash", str(SCRIPT.with_name("check-release-changes.sh")), package],
+            cwd=self.root,
+            env={**os.environ, "TRIGGER_SHA": trigger or head, "GITHUB_OUTPUT": str(output)},
+            capture_output=True, text=True,
+        )
+        return result, output.read_text() if output.exists() else ""
+
+    def test_checks_are_filtered_and_do_not_reconsume_shared_intents(self):
+        self.write(".changeset/mixed.md", '---\n"posthog-php": patch\n"posthog-laravel": minor\n---\n\nShared change\n')
+        snapshot(self.root)
+        for package in ["posthog-php", "posthog-laravel"]:
+            result, output = self.check(package)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("has-changesets=true", output)
+            snapshot(self.root)
+        self.assertEqual(json.loads((self.root / "package.json").read_text())["version"], "4.20.1")
+        self.assertEqual(json.loads((self.root / "packages/laravel/package.json").read_text())["version"], "0.2.0")
+        for package in ["posthog-php", "posthog-laravel"]:
+            result, output = self.check(package)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("has-changesets=false", output)
+
+    def test_stale_runs_only_fail_for_relevant_pending_changes(self):
+        trigger = git(self.root, "rev-parse", "HEAD").decode().strip()
+        self.write("new.txt", "main moved")
+        snapshot(self.root)
+        result, output = self.check("posthog-php", trigger)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("has-changesets=false", output)
+        result, _ = self.check("posthog-laravel", trigger)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("main moved", result.stderr)
+
+
 class ReleaseRefCheckTest(unittest.TestCase):
     def test_missing_refs_pass_but_network_permissions_existing_refs_and_same_repo_fail(self):
         with tempfile.TemporaryDirectory() as temporary:

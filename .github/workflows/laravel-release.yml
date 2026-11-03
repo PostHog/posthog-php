@@ -1,10 +1,9 @@
 name: Laravel Release
 
-# Separate intents and manual dispatch deliberately do not trigger the core publisher.
 on:
   push:
     branches: [main]
-    paths: ['.laravel-changes/*.json']
+    paths: ['.changeset/*.md']
   workflow_dispatch:
 
 permissions:
@@ -18,8 +17,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  prepare:
+  check-changesets:
     if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      has-changesets: ${{ steps.check.outputs.has-changesets }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+        with:
+          version: 11.13.1
+          runtime: node@24
+          install: false
+      - name: Check for Laravel change intents
+        id: check
+        env:
+          TRIGGER_SHA: ${{ github.sha }}
+        run: bash scripts/check-release-changes.sh posthog-laravel
+
+  prepare:
+    needs: check-changesets
+    if: needs.check-changesets.outputs.has-changesets == 'true'
     runs-on: ubuntu-latest
     outputs:
       source: ${{ steps.candidate.outputs.source }}
@@ -72,6 +94,11 @@ jobs:
         with:
           name: laravel-candidate-${{ needs.prepare.outputs.source }}
           path: ${{ runner.temp }}/candidate
+      - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+        with:
+          version: 11.13.1
+          runtime: node@24
+          install: false
       - name: Independently reproduce candidate bytes
         env:
           REPOSITORY: ${{ github.repository }}

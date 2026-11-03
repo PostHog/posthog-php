@@ -25,7 +25,9 @@ class CommitLaravelReleaseTest(LaravelReleaseFixture):
         self.assertIn("createCommitOnBranch", payload["query"])
         additions = {item["path"]: base64.b64decode(item["contents"]) for item in request["fileChanges"]["additions"]}
         self.assertEqual(json.loads(additions["packages/laravel/package.json"])["version"], "0.1.1")
-        self.assertEqual(request["fileChanges"]["deletions"], [{"path": ".laravel-changes/release.json"}])
+        self.assertEqual(request["fileChanges"]["deletions"], [{"path": ".changeset/release.md"}])
+        self.assertIn(".changeset/ledger.yaml", additions)
+        self.assertIn("packages/laravel/CHANGELOG.md", additions)
         self.assertFalse(any(name in additions for name in ["composer.json", "package.json", "lib/PostHog.php"]))
         self.write("composer.json", "unexpected core modification")
         with self.assertRaisesRegex(ValueError, "Unexpected source release change"):

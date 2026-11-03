@@ -1,6 +1,6 @@
 # Releasing
 
-The core PHP SDK uses [pnpm's native release management](https://pnpm.io/versioning) and an automated GitHub Actions workflow for releases. The [Laravel package](#laravel-package-independent-releases) has a separate release lane; its changes must not be recorded with `pnpm change`.
+The core PHP SDK and [Laravel package](#laravel-package-independent-releases) use [pnpm's native release management](https://pnpm.io/versioning), with shared `.changeset/` intents and independent, package-filtered publishing workflows.
 
 ## How to Release
 
@@ -12,7 +12,7 @@ When making a change that should be released, record a change intent:
 pnpm change
 ```
 
-Select `posthog-php`, choose the version bump (`patch`, `minor`, or `major`), and enter a short release summary. Commit the generated `.changeset/*.md` file with your pull request.
+Select `posthog-php`, `posthog-laravel`, or both, choose the version bump (`patch`, `minor`, or `major`), and enter a short release summary. Commit the generated `.changeset/*.md` file with your pull request.
 
 ### 2. Merge the Pull Request
 
@@ -21,7 +21,7 @@ After review, merge the PR to `main`. No GitHub release label is required.
 A push to `main` that includes `.changeset/*.md` changes automatically starts the release workflow. The workflow then:
 
 1. Checks for pending change intents. A run whose trigger commit is no longer the tip of `main` skips itself if no releasable intents remain there, and fails if some do, since a later push that didn't touch `.changeset/` starts no release run of its own. In that case, dispatch the Release workflow on `main`
-2. Uses `pnpm version -r` to determine and apply the version bump, consume the intents, update `CHANGELOG.md` and `.changeset/ledger.yaml`, and refresh `composer.lock`
+2. Uses `pnpm --filter posthog-php version -r` to apply only the core version bump, update `CHANGELOG.md` and `.changeset/ledger.yaml`, and refresh `composer.lock`. Laravel-only intents remain pending; mixed intents remain until both packages have released
 3. Prepares a release candidate patch for the triggering commit in a read-only job without release secrets, after verifying the release bump script hash
 4. Verifies the release candidate in a separate read-only job and fails if the tag or GitHub Release already exists
 5. Notifies the client libraries team in Slack for approval only after candidate preparation and verification both succeed
@@ -98,17 +98,19 @@ After rollback, add or restore the needed change intent and let the release work
 
 ## Laravel package: independent releases
 
-`packages/laravel` contains `posthog/posthog-laravel`, initially **0.1.0**, depending
-on `posthog/posthog-php ^4.20`. It is not part of the pnpm workspace. **Do not select
-it in `pnpm change`, add it to the workspace, or put Laravel intents in
-`.changeset/`.** Core and Laravel changes in the same PR need separate intents.
+`packages/laravel` contains `posthog/posthog-laravel`, depending on
+`posthog/posthog-php ^4.20`. Its pnpm workspace name is `posthog-laravel`.
+Both packages use `pnpm change` and `.changeset/*.md`, but each publisher runs
+`pnpm --filter <package> version -r` so versions remain independent. Never run an
+unfiltered `pnpm version -r` in a single-package publisher.
 
 Packagist reads `composer.json` at a repository's root, not under
 `packages/laravel`. The source repository therefore cannot itself be registered
 as this second Composer package. Publishing uses a separate, dedicated public
 **distribution repository**, recommended `PostHog/posthog-laravel`. Its root is
 replaced with only tracked package `composer.json`, `README.md`, `LICENSE.md`,
-`src/**/*.php`, `config/**/*.php`, and generated `posthog-source.json`. Hidden
+`CHANGELOG.md`, `AUTOCAPTURE.md`, `PENNANT.md`, `src/**/*.php`, `config/**/*.php`,
+and generated `posthog-source.json`. Hidden
 files, vendors, tests, environment files, locks, development tooling and non-PHP
 config files are excluded; symlinks fail preparation. Never keep unrelated files
 in that repository: obsolete distribution files are deleted on release.
@@ -153,26 +155,31 @@ has been performed as part of implementing these files.
 From the source repository root:
 
 ```bash
-# Once only, for the initial 0.1.0 release:
-python3 scripts/laravel_release.py intent initial "Initial Laravel package"
-
-# Subsequent releases (choose patch, minor, or major):
-python3 scripts/laravel_release.py intent patch "Describe the Laravel change"
+pnpm change posthog-laravel --bump patch --summary "Describe the Laravel change"
 ```
 
-Commit the generated `.laravel-changes/<id>.json` alongside the change. The
-largest pending bump wins. `initial` preserves 0.1.0 and cannot be combined with
-other bump types; the changelog prevents releasing that version twice. Later
-bumps follow normal SemVer (minor 0.1.0 becomes 0.2.0). Preparation synchronizes
-`packages/laravel/package.json`, `composer.json`, and `src/PostHog.php::VERSION`,
-updates root `LARAVEL_CHANGELOG.md`, and removes only the consumed Laravel intents.
-It does not change the root/core version, changelog, Composer lock, or intents.
+Or run `pnpm change` interactively and select one or both packages. Commit the
+resulting `.changeset/*.md` alongside the change. pnpm chooses the largest pending
+bump and records consumption per package in `.changeset/ledger.yaml`. A mixed
+intent remains until both packages have consumed it; the ledger prevents a second
+bump of the package already released.
 
-A push changing `.laravel-changes/*.json` on `main` starts **Laravel Release**;
-manual dispatch on `main` is also available. A stale trigger fails rather than
-publishing old source: dispatch again on current `main` if intents remain.
-There must be at least one pending Laravel intent. The core `Release` workflow
-and its script hash, signing, verification and approval protections are unchanged.
+Both release-metadata packages are private, so pnpm always applies the pending
+bump to the manifest version without consulting npm. The initial Laravel patch
+intent therefore produces **0.1.1** from the current 0.1.0. There is no custom
+`initial` bump or separate intent format.
+
+Laravel preparation runs `pnpm --filter posthog-laravel version -r`, synchronizes
+its Composer/runtime versions, and uses `packages/laravel/CHANGELOG.md` for release
+notes. It does not change the root/core version, changelog or Composer lock.
+
+A push changing `.changeset/*.md` on `main` starts both release workflows. Each
+checks its filtered pnpm plan and skips when it has no pending release, including
+when only the other package has changes. Manual dispatch on `main` is also
+available. Source freshness checks remain fail-closed: if the other publisher or
+another merge advances `main`, dispatch the remaining workflow on current `main`
+while its intents remain. The core bump-script hash, signing, verification and
+approval protections are unchanged.
 
 ### Candidate, approval and publication
 
@@ -216,13 +223,10 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -v
 actionlint .github/workflows/laravel.yml .github/workflows/laravel-release.yml
 ```
 
-The fixtures pin **pnpm 11.13.1**, including native core-only releases and
-selective-filter experiments: `--filter posthog-php version -r` leaves Laravel
-unchanged and retains a mixed intent until both packages are released (the
-ledger prevents rebumping core). This does **not** make registering Laravel safe:
-the existing core publisher runs **unfiltered** `pnpm version -r`. Keeping Laravel
-outside that workspace and using a different intent directory avoids consuming
-or bumping the other package, without refactoring core publishing.
+The fixtures pin **pnpm 11.13.1** and exercise both filtered release directions,
+shared-intent retention and ledger-based duplicate prevention, package-scoped
+pending checks, and deterministic candidate preparation. No custom code computes
+SemVer bumps or parses/consumes change intents.
 
 ### Partial-failure recovery
 
