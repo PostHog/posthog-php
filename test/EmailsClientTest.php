@@ -97,6 +97,33 @@ class EmailsClientTest extends TestCase
         $this->assertCount(1, $this->server->requests());
     }
 
+    public function testAnOversizedReplyIsNotReadOrRetried(): void
+    {
+        $this->server = new LocalHttpServer([
+            ['status' => 503, 'body' => '{"code":"unavailable"}', 'pad_body_bytes' => 2_000_000],
+            ['status' => 200, 'body' => '{"id":"01a18356-c56c-0001-e494-7666bc915188"}', 'pad_body_bytes' => 2_000_000],
+        ]);
+        $emails = $this->client()->emails();
+        $errors = [];
+
+        $calls = [
+            fn() => $emails->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]),
+            fn() => $emails->get('01a18356-c56c-0001-e494-7666bc915188'),
+        ];
+        foreach ($calls as $call) {
+            try {
+                $call();
+                $this->fail('No EmailError was thrown.');
+            } catch (EmailError $error) {
+                $errors[] = [$error->getErrorCode(), $error->getErrorName(), $error->getStatusCode()];
+            }
+        }
+
+        $expected = ['response_too_large', 'application_error', null];
+        $this->assertSame([$expected, $expected], $errors);
+        $this->assertCount(2, $this->server->requests());
+    }
+
     public function testAClosedPortIsANetworkError(): void
     {
         $this->server = new LocalHttpServer();

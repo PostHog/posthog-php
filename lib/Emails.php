@@ -44,6 +44,7 @@ final class Emails
         'eu.posthog.com' => self::EU_APP_HOST,
     ];
     private const MAX_RETRY_DELAY_MS = 30000;
+    private const MAX_RESPONSE_BYTES = 1_048_576;
     private const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iD';
     private const IDEMPOTENCY_KEY_PATTERN = '/^[\x21-\x7e]{1,255}$/D';
     private const TEMPLATE_KEY_PATTERN = '/^[a-zA-Z0-9_-]{1,400}$/D';
@@ -565,13 +566,22 @@ final class Emails
             );
         }
         $responseHeaders = [];
+        $responseBody = '';
+        $tooLarge = false;
         $curl = curl_init();
         curl_setopt_array($curl, [
             CURLOPT_URL => $url,
             CURLOPT_CUSTOMREQUEST => $method,
             // An empty Expect stops cURL from waiting for 100-continue before it sends a large body.
             CURLOPT_HTTPHEADER => [...$headers, 'Expect:'],
-            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_WRITEFUNCTION => static function ($curl, string $chunk) use (&$responseBody, &$tooLarge): int {
+                if (strlen($responseBody) + strlen($chunk) > self::MAX_RESPONSE_BYTES) {
+                    $tooLarge = true;
+                    return 0;
+                }
+                $responseBody .= $chunk;
+                return strlen($chunk);
+            },
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_TIMEOUT_MS => $timeoutMs,
             CURLOPT_CONNECTTIMEOUT_MS => $timeoutMs,
@@ -584,9 +594,16 @@ final class Emails
         if ($body !== null) {
             curl_setopt($curl, CURLOPT_POSTFIELDS, $body);
         }
-        $responseBody = curl_exec($curl);
+        $succeeded = curl_exec($curl);
         $status = (int) curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
-        if (!is_string($responseBody) || curl_errno($curl) !== 0 || $status === 0) {
+        if ($tooLarge) {
+            $limit = self::MAX_RESPONSE_BYTES;
+            throw new EmailError(
+                'response_too_large',
+                "PostHog answered with more than $limit bytes, so the SDK stopped reading."
+            );
+        }
+        if ($succeeded === false || curl_errno($curl) !== 0 || $status === 0) {
             throw new EmailError('network_error', 'The request to PostHog failed: ' . curl_error($curl));
         }
 
