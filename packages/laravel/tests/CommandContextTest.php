@@ -174,6 +174,7 @@ class CommandContextTest extends TestCase
         $mechanism = $this->events[0]['properties']['$exception_list'][0]['mechanism'];
         $this->assertFalse($mechanism['handled']);
         $this->assertSame('runtime', $mechanism['type']);
+        $this->assertSame('laravel.console_lifecycle', $this->events[0]['properties']['$exception_source'] ?? null);
     }
 
     public function testChildFailureExitCodeDoesNotReplaceRootIdentityThroughTermination(): void

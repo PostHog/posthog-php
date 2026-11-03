@@ -47,7 +47,9 @@ final class ConsoleLifecycle
             throw $exception;
         } finally {
             $this->calls--;
-            $this->leave();
+            $this->leave(
+                !$this->root && $this->calls === 0 && !$this->app->make(RequestLifecycle::class)->active(),
+            );
         }
     }
 
@@ -71,15 +73,17 @@ final class ConsoleLifecycle
     private function remember(Throwable $exception): void
     {
         try {
-            $this->app->make(ExceptionReporter::class)->remember($exception, 'runtime');
+            $this->app->make(ExceptionReporter::class)->remember($exception, 'runtime', 'laravel.console_lifecycle');
         } catch (Throwable) {
         }
     }
 
-    private function leave(): void
+    private function leave(bool $flush = true): void
     {
         try {
-            $this->app->make(PostHog::class)->flush();
+            if ($flush) {
+                $this->app->make(PostHog::class)->flush();
+            }
         } catch (Throwable) {
         } finally {
             $this->app->make(Context::class)->leave();
