@@ -11,7 +11,9 @@ esac
 ROOT=$(git rev-parse --show-toplevel)
 TEMP=$(mktemp -d)
 trap 'rm -rf "$TEMP"' EXIT
-git -C "$ROOT" archive HEAD | tar -x -C "$TEMP"
+SOURCE=$(git -C "$ROOT" rev-parse HEAD)
+git clone --quiet --no-hardlinks --no-local "$ROOT" "$TEMP"
+git -C "$TEMP" checkout --quiet --detach "$SOURCE"
 
 # Lint only tracked source, before Composer can populate dependency directories.
 while IFS= read -r -d '' file; do

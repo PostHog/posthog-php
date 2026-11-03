@@ -20,6 +20,7 @@ class LaravelWorkflowScriptsTest(LaravelReleaseFixture):
 
     def test_composer_overrides_and_example_tests_run_only_in_temporary_copy(self):
         self.write("examples/laravel/composer.json", '{"name":"posthog/laravel-example","scripts":{"test":"php artisan test"},"config":{"platform":{"php":"8.2.0"}}}')
+        self.write(".gitattributes", "/packages/laravel export-ignore\n")
         snapshot(self.root)
         self.write("packages/laravel/.env", "local-secret")
         self.write("packages/laravel/vendor/local.txt", "local vendor")
