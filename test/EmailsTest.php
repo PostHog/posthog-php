@@ -703,6 +703,7 @@ class EmailsTest extends TestCase
     {
         return [
             'seconds' => ['9223372036854776'],
+            'seconds past the float range' => [str_repeat('9', 309)],
             'an HTTP date' => ['Fri, 31 Dec 9999 23:59:59 GMT'],
         ];
     }

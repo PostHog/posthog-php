@@ -734,11 +734,8 @@ final class Emails
             // getTimestamp() throws on 32-bit PHP for a date after 2038, so the epoch is read as a float.
             $seconds = (float) $date->format('U') - (float) Clock::get()->now()->format('U.u');
         }
-        if (!is_finite($seconds)) {
-            return null;
-        }
         // Clamped in seconds first: milliseconds since the epoch, or a huge value times 1000, overflow an int,
-        // on 32-bit PHP soonest.
+        // on 32-bit PHP soonest. A value too long for a float reads as INF and clamps to the maximum too.
         $maxSeconds = min(self::MAX_RETRY_AFTER_SECONDS, intdiv(PHP_INT_MAX, 1000));
 
         return (int) (min(max(0.0, $seconds), $maxSeconds) * 1000);
