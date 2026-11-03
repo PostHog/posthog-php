@@ -8,4 +8,8 @@ importers:
 
   .: {}
 
-  packages/laravel: {}
+  packages/laravel:
+    dependencies:
+      posthog-php:
+        specifier: workspace:*
+        version: link:../..

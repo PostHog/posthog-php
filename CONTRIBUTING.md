@@ -68,9 +68,12 @@ The release fixtures use pnpm 11.13.1 and fake publishing tools; they never publ
 or use credentials. Root PHPCS checks remain scoped to `lib` and `test`.
 
 Record Laravel release changes with `pnpm change`, selecting `posthog-laravel`.
-Select `posthog-php` as well when the change also affects the core SDK.
+For core-only changes, select `posthog-php`: pnpm automatically adds a Laravel
+patch to update its exact Composer core dependency. Select both when both packages
+have code changes. One workspace version plan is committed before the packages
+are published separately, core first.
 See [the Laravel release guide](RELEASING.md#laravel-package-independent-releases)
-for package-filtered releases and required administrator setup.
+for dependency-aware releases and required administrator setup.
 
 ## Public API changes
 

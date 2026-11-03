@@ -5,7 +5,7 @@
     "license": "MIT",
     "require": {
         "php": ">=8.2",
-        "posthog/posthog-php": "^4.20",
+        "posthog/posthog-php": "4.20.1",
         "illuminate/support": "^12.0 || ^13.0",
         "illuminate/contracts": "^12.0 || ^13.0"
     },

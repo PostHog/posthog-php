@@ -25,7 +25,13 @@ missing() {
 # The distribution must already be a public, dedicated repository with a main branch.
 [ "$(gh api "repos/$DISTRIBUTION_REPOSITORY" --jq '.private')" = false ]
 gh api "repos/$DISTRIBUTION_REPOSITORY/git/ref/heads/main" --jq '.object.sha' > /dev/null
+if [ "${CORE_CHANGED:-false}" = true ]; then
+  [[ "${CORE_VERSION:?Core version is required}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+fi
 for endpoint in releases/tags git/ref/tags; do
+  if [ "${CORE_CHANGED:-false}" = true ]; then
+    missing "repos/$SOURCE_REPOSITORY/$endpoint/$CORE_VERSION"
+  fi
   missing "repos/$SOURCE_REPOSITORY/$endpoint/laravel-v$VERSION"
   missing "repos/$DISTRIBUTION_REPOSITORY/$endpoint/v$VERSION"
 done

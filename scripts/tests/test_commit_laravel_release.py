@@ -8,7 +8,7 @@ import sys
 from test_laravel_release import LaravelReleaseFixture, SCRIPT, git, snapshot
 
 sys.path.insert(0, str(SCRIPT.parent))
-spec = importlib.util.spec_from_file_location("commit_laravel_release", SCRIPT.with_name("commit_laravel_release.py"))
+spec = importlib.util.spec_from_file_location("commit_release", SCRIPT.with_name("commit_release.py"))
 commits = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(commits)
 
@@ -29,9 +29,24 @@ class CommitLaravelReleaseTest(LaravelReleaseFixture):
         self.assertIn(".changeset/ledger.yaml", additions)
         self.assertIn("packages/laravel/CHANGELOG.md", additions)
         self.assertFalse(any(name in additions for name in ["composer.json", "package.json", "lib/PostHog.php"]))
-        self.write("composer.json", "unexpected core modification")
+        self.write(".github/workflows/release.yml", "unexpected workflow modification")
         with self.assertRaisesRegex(ValueError, "Unexpected source release change"):
             commits.request(self.root, "PostHog/posthog-php", "source", "Release Laravel")
+
+    def test_one_source_payload_contains_both_versions_and_the_updated_pin(self):
+        self.write(".changeset/core.md", '---\n"posthog-php": patch\n---\n\nCore change\n')
+        snapshot(self.root)
+        git(self.root, "apply", "--index", str(self.prepare() / "release.patch"))
+        payload = commits.request(self.root, "PostHog/posthog-php", "source", "Update package versions")
+        changes = payload["variables"]["input"]["fileChanges"]
+        additions = {item["path"]: base64.b64decode(item["contents"]) for item in changes["additions"]}
+        self.assertEqual(json.loads(additions["package.json"])["version"], "4.20.1")
+        laravel = json.loads(additions["packages/laravel/composer.json"])
+        self.assertEqual(laravel["version"], "0.1.1")
+        self.assertEqual(laravel["require"]["posthog/posthog-php"], "4.20.1")
+        self.assertIn("composer.lock", additions)
+        self.assertIn("CHANGELOG.md", additions)
+        self.assertIn("packages/laravel/CHANGELOG.md", additions)
 
     def test_distribution_payload_removes_obsolete_files_but_cannot_add_secrets(self):
         # A standalone distribution repository may need to remove old development files.

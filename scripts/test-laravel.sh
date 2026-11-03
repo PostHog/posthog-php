@@ -14,6 +14,9 @@ trap 'rm -rf "$TEMP"' EXIT
 SOURCE=$(git -C "$ROOT" rev-parse HEAD)
 git clone --quiet --no-hardlinks --no-local "$ROOT" "$TEMP"
 git -C "$TEMP" checkout --quiet --detach "$SOURCE"
+if [ -n "${2:-}" ]; then
+  git -C "$TEMP" apply --index "$2"
+fi
 
 # Lint only tracked source, before Composer can populate dependency directories.
 while IFS= read -r -d '' file; do
@@ -22,13 +25,14 @@ while IFS= read -r -d '' file; do
   esac
 done < <(git -C "$ROOT" ls-files -z -- packages/laravel examples/laravel)
 
-# Tests use the checked-out core API before 4.20 is available on Packagist.
-# Never write these development repositories into the distribution metadata.
+# Test the exact source pair without putting path repositories in distribution metadata.
 python3 - "$TEMP" "$LARAVEL" <<'PY'
 import json
 from pathlib import Path
 import sys
 root = Path(sys.argv[1])
+core_version = json.loads((root / 'package.json').read_text())['version']
+laravel_version = json.loads((root / 'packages/laravel/package.json').read_text())['version']
 for relative in ['packages/laravel', 'examples/laravel']:
     path = root / relative / 'composer.json'
     if not path.exists():
@@ -36,12 +40,13 @@ for relative in ['packages/laravel', 'examples/laravel']:
     data = json.loads(path.read_text())
     repositories = [{
         'type': 'path', 'url': str(root),
-        'options': {'symlink': False, 'versions': {'posthog/posthog-php': '4.20.0'}},
+        'options': {'symlink': False, 'versions': {'posthog/posthog-php': core_version}},
     }]
     if relative.startswith('examples/'):
+        data['require']['posthog/posthog-laravel'] = laravel_version
         repositories.append({
             'type': 'path', 'url': str(root / 'packages/laravel'),
-            'options': {'symlink': False, 'versions': {'posthog/posthog-laravel': '0.1.0'}},
+            'options': {'symlink': False, 'versions': {'posthog/posthog-laravel': laravel_version}},
         })
     data['repositories'] = repositories
     if relative.startswith('examples/') and sys.argv[2] == '13':

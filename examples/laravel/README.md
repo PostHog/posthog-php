@@ -32,8 +32,9 @@ composer test
 ```
 
 The example's **development-only path repositories** point to `../..` (PHP SDK,
-version override `4.20.x-dev`) and `../../packages/laravel` (integration, override
-`0.1.0`). Run inside this repository, not as an isolated copy. They do not belong
+using its exact Composer manifest version) and `../../packages/laravel`
+(integration, override `0.1.0` for the initial development version). Run inside
+this repository, not as an isolated copy. They do not belong
 in a published package manifest. The lock does not replace the local source trees.
 
 ## Safe defaults and configuration

@@ -14,9 +14,10 @@ import subprocess
 import sys
 
 sys.dont_write_bytecode = True
-from laravel_release import allowed_distribution_file
+from release import allowed_distribution_file
 
 SOURCE_FILES = {
+    "package.json", "composer.json", "composer.lock", "lib/PostHog.php", "CHANGELOG.md",
     "packages/laravel/package.json", "packages/laravel/composer.json",
     "packages/laravel/src/PostHog.php", "packages/laravel/CHANGELOG.md", ".changeset/ledger.yaml",
 }

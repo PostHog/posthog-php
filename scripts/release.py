@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare Laravel releases without modifying the source checkout or using credentials."""
+"""Prepare one dependency-aware PHP/Laravel release candidate without publishing credentials."""
 
 import argparse
 import gzip
@@ -52,7 +52,7 @@ def archive(files):
     return output.getvalue()
 
 
-def prepare(root, output, repository):
+def prepare(root, output, repository, bump_script_sha256=None):
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ValueError("Expected owner/repository")
     if output.exists():
@@ -66,7 +66,12 @@ def prepare(root, output, repository):
         pending = sorted((work / ".changeset").glob("*.md"))
         metadata = read_json(work / PACKAGE / "package.json")
         composer = read_json(work / PACKAGE / "composer.json")
+        current_core = read_json(work / "package.json")["version"]
         current = metadata["version"]
+        if metadata.get("dependencies", {}).get("posthog-php") != "workspace:*":
+            raise ValueError("Laravel must declare its workspace dependency on posthog-php")
+        if composer["require"]["posthog/posthog-php"] != current_core:
+            raise ValueError("Laravel must pin the exact current core SDK version")
         if composer.get("version", current) != current:
             raise ValueError("Laravel package.json/composer.json version mismatch")
         if composer["name"] != "posthog/posthog-laravel" or "repositories" in composer:
@@ -76,12 +81,29 @@ def prepare(root, output, repository):
         declarations = declaration.findall(runtime.read_text())
         if len(declarations) != 1 or declarations[0][1] != current:
             raise ValueError("Laravel runtime VERSION mismatch")
-        run("pnpm", "--filter", "posthog-laravel", "version", "-r", cwd=work)
+        core_runtime = work / "lib/PostHog.php"
+        if read_json(work / "composer.json")["version"] != current_core or (
+            [match[1] for match in declaration.findall(core_runtime.read_text())] != [current_core]
+        ):
+            raise ValueError("Core SDK version mismatch")
+        run("pnpm", "version", "-r", cwd=work)
         new = read_json(work / PACKAGE / "package.json")["version"]
+        core_version = read_json(work / "package.json")["version"]
+        core_changed = core_version != current_core
         if new == current:
-            raise ValueError("No pending Laravel change intents")
+            if core_changed:
+                raise ValueError("Core release must include its Laravel dependent")
+            raise ValueError("No pending change intents")
+        if core_changed:
+            script = work / "scripts/bump-version.sh"
+            if hashlib.sha256(script.read_bytes()).hexdigest() != bump_script_sha256:
+                raise ValueError("Core bump script sha256 mismatch")
+            run("bash", str(script), core_version, cwd=work)
+            run("composer", "update", "--lock", "--no-install", "--no-interaction", "--no-audit", "--no-scripts", "--no-plugins", cwd=work)
+            run("git", "add", "--intent-to-add", "CHANGELOG.md", cwd=work)
         runtime.write_text(declaration.sub(lambda match: match[1] + new + match[3], runtime.read_text()))
         composer["version"] = new
+        composer["require"]["posthog/posthog-php"] = core_version
         write_json(work / PACKAGE / "composer.json", composer)
         changelog = (work / CHANGELOG).read_text()
         notes = changelog[changelog.index(f"## {new}\n"):].split("\n## ", 1)[0]
@@ -109,6 +131,8 @@ def prepare(root, output, repository):
         changed = run("git", "diff", "--name-only", cwd=work).decode().splitlines()
         permitted = {str(PACKAGE / "composer.json"), str(PACKAGE / "package.json"),
                      str(PACKAGE / "src/PostHog.php"), str(CHANGELOG), ".changeset/ledger.yaml"}
+        if core_changed:
+            permitted.update({"package.json", "composer.json", "composer.lock", "lib/PostHog.php", "CHANGELOG.md"})
         permitted.update(str(path.relative_to(work)) for path in pending)
         if not set(changed).issubset(permitted):
             raise ValueError(f"Unexpected release changes: {changed}")
@@ -117,11 +141,32 @@ def prepare(root, output, repository):
         (output / "release.patch").write_bytes(patch)
         (output / "package.tar.gz").write_bytes(payload)
         (output / "notes.md").write_text(notes + f"Source: {repository}@{source} ({PACKAGE})\n")
+        core_notes = ""
+        if core_changed:
+            changelog = (work / "CHANGELOG.md").read_text()
+            core_notes = changelog[changelog.index(f"## {core_version}\n"):].split("\n## ", 1)[0]
+        (output / "core-notes.md").write_text(core_notes)
         write_json(output / "candidate.json", {
-            "version": new, "source": source, "source_tag": tag, "distribution_tag": f"v{new}",
+            "version": new, "core_version": core_version, "core_changed": core_changed,
+            "laravel_changed": True, "source": source, "source_tag": tag, "distribution_tag": f"v{new}",
             "patch_sha256": hashlib.sha256(patch).hexdigest(),
             "archive_sha256": hashlib.sha256(payload).hexdigest(),
         })
+        validate(work, output)
+
+
+def validate(root, candidate):
+    manifest = read_json(candidate / "candidate.json")
+    for path, runtime, version in [
+        (Path(), Path("lib/PostHog.php"), manifest["core_version"]),
+        (PACKAGE, PACKAGE / "src/PostHog.php", manifest["version"]),
+    ]:
+        composer = read_json(root / path / "composer.json")
+        declared = re.findall(r"public const VERSION = '([^']+)';", (root / runtime).read_text())
+        if read_json(root / path / "package.json")["version"] != version or composer["version"] != version or declared != [version]:
+            raise ValueError(f"Version mismatch: {path}")
+    if read_json(root / PACKAGE / "composer.json")["require"]["posthog/posthog-php"] != manifest["core_version"]:
+        raise ValueError("Laravel core SDK pin mismatch")
 
 
 def install(candidate, destination, repository):
@@ -168,13 +213,19 @@ def main():
     candidate.add_argument("--root", type=Path, default=Path.cwd())
     candidate.add_argument("--output", type=Path, required=True)
     candidate.add_argument("--repository", required=True)
+    candidate.add_argument("--bump-script-sha256")
+    validation = sub.add_parser("validate")
+    validation.add_argument("--root", type=Path, default=Path.cwd())
+    validation.add_argument("--candidate", type=Path, required=True)
     unpack = sub.add_parser("install")
     unpack.add_argument("--candidate", type=Path, required=True)
     unpack.add_argument("--destination", type=Path, required=True)
     unpack.add_argument("--repository", required=True)
     args = parser.parse_args()
     if args.command == "prepare":
-        prepare(args.root.resolve(), args.output.resolve(), args.repository)
+        prepare(args.root.resolve(), args.output.resolve(), args.repository, args.bump_script_sha256)
+    elif args.command == "validate":
+        validate(args.root.resolve(), args.candidate.resolve())
     else:
         install(args.candidate.resolve(), args.destination.resolve(), args.repository)
 

@@ -3,16 +3,15 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
-import re
-import shlex
-import shutil
 import subprocess
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
 
-SCRIPT = Path(__file__).resolve().parents[1] / "laravel_release.py"
+SCRIPT = Path(__file__).resolve().parents[1] / "release.py"
 REPO = SCRIPT.parents[1]
 spec = importlib.util.spec_from_file_location("laravel_release", SCRIPT)
 release = importlib.util.module_from_spec(spec)
@@ -44,16 +43,29 @@ class LaravelReleaseFixture(unittest.TestCase):
         git(self.root, "init", "-q", "-b", "main")
         self.write("package.json", json.dumps({"name": "posthog-php", "version": "4.20.0", "private": True, "packageManager": "pnpm@11.13.1"}))
         self.write("pnpm-workspace.yaml", (REPO / "pnpm-workspace.yaml").read_text())
-        self.write("composer.json", '{"name":"posthog/posthog-php","version":"4.20.0"}\n')
+        self.write("composer.json", json.dumps({"name": "posthog/posthog-php", "version": "4.20.0"}, indent=2) + "\n")
+        self.write("composer.lock", '{"fixture_version":"4.20.0"}\n')
+        self.write("CHANGELOG.md", "# posthog-php\n\n## 4.20.0\n\nPrevious release\n")
+        self.write("scripts/bump-version.sh", (REPO / "scripts/bump-version.sh").read_text())
         self.write("lib/PostHog.php", "<?php class PostHog { public const VERSION = '4.20.0'; }\n")
-        self.write("packages/laravel/package.json", '{"name":"posthog-laravel","version":"0.1.0","private":true}\n')
-        self.write("packages/laravel/composer.json", '{"name":"posthog/posthog-laravel","version":"0.1.0","require":{"posthog/posthog-php":"^4.20"}}\n')
+        self.write("packages/laravel/package.json", '{"name":"posthog-laravel","version":"0.1.0","private":true,"dependencies":{"posthog-php":"workspace:*"}}\n')
+        self.write("packages/laravel/composer.json", '{"name":"posthog/posthog-laravel","version":"0.1.0","require":{"posthog/posthog-php":"4.20.0"}}\n')
         self.write("packages/laravel/src/PostHog.php", "<?php class PostHog { public const VERSION = '0.1.0'; }\n")
         self.write("packages/laravel/config/posthog.php", "<?php return [];\n")
         self.write("packages/laravel/README.md", "# PostHog Laravel\n")
         self.write("packages/laravel/LICENSE.md", "MIT\n")
         self.intent("patch")
         snapshot(self.root)
+        self.bin = self.directory / "bin"
+        self.bin.mkdir()
+        composer = self.bin / "composer"
+        composer.write_text('''#!/usr/bin/env python3
+import json, pathlib, sys
+assert sys.argv[1:] == ['update', '--lock', '--no-install', '--no-interaction', '--no-audit', '--no-scripts', '--no-plugins']
+version = json.loads(pathlib.Path('composer.json').read_text())['version']
+pathlib.Path('composer.lock').write_text(json.dumps({'fixture_version': version}) + '\\n')
+''')
+        composer.chmod(0o755)
 
     def write(self, name, data):
         path = self.root / name
@@ -65,14 +77,14 @@ class LaravelReleaseFixture(unittest.TestCase):
 
     def prepare(self, name="candidate"):
         out = self.directory / name
-        release.prepare(self.root, out, "PostHog/posthog-php")
+        with patch.dict(os.environ, {"PATH": f"{self.bin}:{os.environ['PATH']}"}):
+            release.prepare(self.root, out, "PostHog/posthog-php", hashlib.sha256((REPO / "scripts/bump-version.sh").read_bytes()).hexdigest())
         return out
 
 
 class LaravelReleaseTest(LaravelReleaseFixture):
     def test_version_sync_and_laravel_only_patch(self):
-        self.write(".changeset/core.md", '---\n"posthog-php": minor\n---\n\nCore change\n')
-        snapshot(self.root)
+        before = {name: (self.root / name).read_bytes() for name in ['package.json', 'composer.json', 'composer.lock', 'lib/PostHog.php', 'CHANGELOG.md']}
         status = git(self.root, "status", "--porcelain")
         out = self.prepare()
         self.assertEqual(status, git(self.root, "status", "--porcelain"))
@@ -81,7 +93,9 @@ class LaravelReleaseTest(LaravelReleaseFixture):
         self.assertEqual(json.loads((package / "package.json").read_text())["version"], "0.1.1")
         self.assertEqual(json.loads((package / "composer.json").read_text())["version"], "0.1.1")
         self.assertIn("VERSION = '0.1.1'", (package / "src/PostHog.php").read_text())
-        self.assertTrue((self.root / ".changeset/core.md").exists())
+        self.assertEqual(before, {name: (self.root / name).read_bytes() for name in before})
+        self.assertFalse(release.read_json(out / "candidate.json")["core_changed"])
+        self.assertEqual(release.read_json(package / "composer.json")["require"]["posthog/posthog-php"], "4.20.0")
         self.assertFalse((self.root / ".changeset/release.md").exists())
         self.assertIn("posthog-laravel@0.1.1:", (self.root / ".changeset/ledger.yaml").read_text())
         self.assertIn("Laravel change", (package / "CHANGELOG.md").read_text())
@@ -90,33 +104,56 @@ class LaravelReleaseTest(LaravelReleaseFixture):
         self.assertIn("4.20.0", (self.root / "lib/PostHog.php").read_text())
         self.assertEqual(git(self.root, "diff", "--cached", "--name-only"), b"")
 
-    def test_core_only_intent_cannot_prepare_laravel_release(self):
+    def test_core_only_change_releases_laravel_with_an_updated_exact_pin(self):
         (self.root / ".changeset/release.md").unlink()
         self.write(".changeset/core.md", '---\n"posthog-php": patch\n---\n\nCore only\n')
         snapshot(self.root)
-        with self.assertRaisesRegex(ValueError, "No pending Laravel change intents"):
-            self.prepare()
+        out = self.prepare()
+        git(self.root, "apply", str(out / "release.patch"))
+        self.assertEqual(release.read_json(self.root / "package.json")["version"], "4.20.1")
+        self.assertEqual(release.read_json(self.root / "composer.json")["version"], "4.20.1")
+        self.assertIn("VERSION = '4.20.1'", (self.root / "lib/PostHog.php").read_text())
+        laravel = release.read_json(self.root / release.PACKAGE / "composer.json")
+        self.assertEqual(laravel["version"], "0.1.1")
+        self.assertEqual(laravel["require"]["posthog/posthog-php"], "4.20.1")
+        self.assertFalse((self.root / ".changeset/core.md").exists())
+        self.assertIn("Core only", (out / "core-notes.md").read_text())
+        with tarfile.open(out / "package.tar.gz") as archive:
+            self.assertEqual(json.load(archive.extractfile("composer.json"))["require"]["posthog/posthog-php"], "4.20.1")
+
+    def test_joint_changes_use_one_plan_without_double_bumping_the_dependent(self):
+        self.write(".changeset/core.md", '---\n"posthog-php": minor\n---\n\nCore feature\n')
+        self.intent("minor")
+        snapshot(self.root)
+        out = self.prepare()
+        git(self.root, "apply", str(out / "release.patch"))
+        self.assertEqual(release.read_json(self.root / "package.json")["version"], "4.21.0")
+        laravel = release.read_json(self.root / release.PACKAGE / "composer.json")
+        self.assertEqual(laravel["version"], "0.2.0")
+        self.assertEqual(laravel["require"]["posthog/posthog-php"], "4.21.0")
+        self.assertEqual(list((self.root / ".changeset").glob("*.md")), [])
+        snapshot(self.root)
+        with self.assertRaisesRegex(ValueError, "No pending"):
+            self.prepare("second")
 
     def test_native_versioning_applies_the_largest_pending_bump(self):
         self.intent("minor", "second")
         snapshot(self.root)
         self.assertEqual(release.read_json(self.prepare() / "candidate.json")["version"], "0.2.0")
 
-    def test_shared_intent_is_retained_until_both_packages_release(self):
+    def test_shared_intent_is_consumed_once_by_both_packages(self):
         self.write(".changeset/mixed.md", '---\n"posthog-php": patch\n"posthog-laravel": minor\n---\n\nShared change\n')
         snapshot(self.root)
         out = self.prepare()
         git(self.root, "apply", str(out / "release.patch"))
-        self.assertTrue((self.root / ".changeset/mixed.md").exists())
-        self.assertFalse((self.root / ".changeset/release.md").exists())
-        self.assertEqual(release.read_json(self.root / "package.json")["version"], "4.20.0")
-        snapshot(self.root)
-        with self.assertRaisesRegex(ValueError, "No pending Laravel change intents"):
-            self.prepare("second")
-        subprocess.check_output(["pnpm", "--filter", "posthog-php", "version", "-r"], cwd=self.root, stderr=subprocess.STDOUT)
-        self.assertEqual(release.read_json(self.root / "package.json")["version"], "4.20.1")
-        self.assertEqual(release.read_json(self.root / release.PACKAGE / "package.json")["version"], "0.2.0")
         self.assertFalse((self.root / ".changeset/mixed.md").exists())
+        self.assertFalse((self.root / ".changeset/release.md").exists())
+        ledger = (self.root / ".changeset/ledger.yaml").read_text()
+        self.assertIn("posthog-php@4.20.1:", ledger)
+        self.assertIn("posthog-laravel@0.2.0:", ledger)
+        snapshot(self.root)
+        with self.assertRaisesRegex(ValueError, "No pending change intents"):
+            self.prepare("second")
 
     def test_archive_is_deterministic_and_excludes_development_files(self):
         self.write("packages/laravel/AUTOCAPTURE.md", "# Automatic collection\n")
@@ -133,7 +170,7 @@ class LaravelReleaseTest(LaravelReleaseFixture):
             self.assertEqual(set(archive.getnames()), {"composer.json", "README.md", "LICENSE.md", "CHANGELOG.md", "AUTOCAPTURE.md", "PENNANT.md", "src/PostHog.php", "config/posthog.php", "posthog-source.json"})
             self.assertFalse(any(b"secret" in archive.extractfile(item).read() for item in archive))
             composer = json.load(archive.extractfile("composer.json"))
-            self.assertEqual(composer["require"]["posthog/posthog-php"], "^4.20")
+            self.assertEqual(composer["require"]["posthog/posthog-php"], "4.20.0")
             metadata = json.load(archive.extractfile("posthog-source.json"))
             self.assertEqual(metadata["commit"], git(self.root, "rev-parse", "HEAD").decode().strip())
             self.assertEqual(metadata["tag"], "laravel-v0.1.1")
@@ -232,41 +269,22 @@ class LaravelReleaseTest(LaravelReleaseFixture):
             release.install(out, destination, "PostHog/posthog-laravel")
         self.assertTrue((destination / "keep").exists())
 
-    @unittest.skipUnless(shutil.which("pnpm"), "pnpm 11.13.1 is required")
-    def test_native_core_release_does_not_consume_laravel_intents(self):
+    def test_modified_core_bump_script_is_rejected_before_execution(self):
         self.write(".changeset/core.md", '---\n"posthog-php": patch\n---\n\nCore change\n')
+        self.write("scripts/bump-version.sh", "exit 73\n")
         snapshot(self.root)
-        before = {p: p.read_bytes() for p in (self.root / release.PACKAGE).rglob("*") if p.is_file()}
-        intent = (self.root / ".changeset/release.md").read_bytes()
-        workflow = (REPO / ".github/workflows/release.yml").read_text()
-        command = re.search(r"^\s+(pnpm[^\n]*version -r)$", workflow, re.MULTILINE).group(1)
-        output = subprocess.check_output(shlex.split(command), cwd=self.root, stderr=subprocess.STDOUT)
-        self.assertIn(b"4.20.1", output)
-        self.assertEqual(json.loads((self.root / "package.json").read_text())["version"], "4.20.1")
-        self.assertFalse((self.root / ".changeset/core.md").exists())
-        self.assertEqual((self.root / ".changeset/release.md").read_bytes(), intent)
-        self.assertEqual(before, {p: p.read_bytes() for p in before})
+        with self.assertRaisesRegex(ValueError, "bump script sha256 mismatch"):
+            self.prepare()
 
-    @unittest.skipUnless(shutil.which("pnpm"), "pnpm 11.13.1 is required")
-    def test_preparation_respects_core_consumption_of_shared_intent(self):
-        self.write(".changeset/mixed.md", '---\n"posthog-php": patch\n"posthog-laravel": minor\n---\n\nShared change\n')
-        snapshot(self.root)
-        def apply(package):
-            subprocess.check_output(["pnpm", "--filter", package, "version", "-r", "--no-git-checks"], cwd=self.root, stderr=subprocess.STDOUT)
-        apply("posthog-php")
-        self.assertEqual(release.read_json(self.root / "package.json")["version"], "4.20.1")
-        self.assertEqual(release.read_json(self.root / release.PACKAGE / "package.json")["version"], "0.1.0")
-        self.assertTrue((self.root / ".changeset/mixed.md").exists())
-        apply("posthog-php")
-        self.assertEqual(release.read_json(self.root / "package.json")["version"], "4.20.1")
-        snapshot(self.root)
-        git(self.root, "apply", str(self.prepare() / "release.patch"))
-        self.assertEqual(release.read_json(self.root / release.PACKAGE / "package.json")["version"], "0.2.0")
-        self.assertEqual(release.read_json(self.root / "package.json")["version"], "4.20.1")
-        self.assertFalse((self.root / ".changeset/mixed.md").exists())
-        ledger = (self.root / ".changeset/ledger.yaml").read_text()
-        self.assertIn("posthog-php@4.20.1:", ledger)
-        self.assertIn("posthog-laravel@0.2.0:", ledger)
+    def test_candidate_validation_checks_both_versions_and_the_exact_pin(self):
+        out = self.prepare()
+        git(self.root, "apply", str(out / "release.patch"))
+        release.validate(self.root, out)
+        composer = release.read_json(self.root / release.PACKAGE / "composer.json")
+        composer["require"]["posthog/posthog-php"] = "^4.20"
+        self.write("packages/laravel/composer.json", json.dumps(composer))
+        with self.assertRaisesRegex(ValueError, "pin mismatch"):
+            release.validate(self.root, out)
 
 
 if __name__ == "__main__":
