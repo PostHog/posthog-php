@@ -15,3 +15,4 @@ xdebug.log
 .DS_Store
 .env
 node_modules/
+/.laravel-changes/
