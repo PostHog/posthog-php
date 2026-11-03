@@ -11,6 +11,7 @@ use Laravel\Pennant\Contracts\Driver;
 use LogicException;
 use PostHog\Laravel\PostHog;
 
+/** @internal */
 final class PostHogDriver implements Driver, DefinesFeaturesExternally
 {
     public function get(string $feature, mixed $scope): mixed

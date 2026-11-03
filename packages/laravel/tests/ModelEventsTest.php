@@ -2,8 +2,12 @@
 
 namespace PostHog\Laravel\Tests;
 
+use Illuminate\Database\DatabaseTransactionRecord;
+use Illuminate\Database\DatabaseTransactionsManager;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Database\Events\TransactionCommitting;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\SQLiteConnection;
 use Illuminate\Support\Facades\DB;
 use Orchestra\Testbench\TestCase;
 use PostHog\Laravel\Autocapture\DeferredModelEvents;
@@ -11,6 +15,7 @@ use PostHog\Laravel\Context;
 use PostHog\Laravel\Facades\PostHog;
 use PostHog\Laravel\PostHogServiceProvider;
 use PostHog\Laravel\Tests\Fixtures\CollectedRecord;
+use PostHog\Laravel\Tests\Fixtures\CountedTransactionCollection;
 use RuntimeException;
 
 class ModelEventsTest extends TestCase
@@ -242,6 +247,49 @@ class ModelEventsTest extends TestCase
         DB::commit();
         PostHog::assertCapturedCount(1000);
         $this->assertUsage(0, 0);
+    }
+
+    public function testTransactionMembershipWorkStaysLinearAtCapacity(): void
+    {
+        $root = new DatabaseTransactionRecord('a', 1);
+        $pending = new CountedTransactionCollection([$root]);
+        $committed = new CountedTransactionCollection();
+        $transactions = $this->createStub(DatabaseTransactionsManager::class);
+        $transactions->method('getPendingTransactions')->willReturn($pending);
+        $transactions->method('callbackApplicableTransactions')->willReturn($pending);
+        $transactions->method('getCommittedTransactions')->willReturn($committed);
+        $connection = new SQLiteConnection(new \PDO('sqlite::memory:'), '', '', ['name' => 'a']);
+        $connection->beginTransaction();
+        $connection->beginTransaction();
+        $buffer = new DeferredModelEvents($transactions);
+        $buffer->committing(new TransactionCommitting($connection));
+        $this->assertSame(0, $pending->inspections + $committed->inspections);
+        for ($i = 0; $i < 1000; $i++) {
+            $pending->push(new DatabaseTransactionRecord('a', 2, $root));
+            $buffer->defer($connection, 'model changed', [], ['distinctId' => 'actor']);
+            $committed->push($pending->pop());
+        }
+        $this->assertSame(1000, $buffer->pendingUsage()['count']);
+        foreach (['overflow', 'commit', 'begin'] as $operation) {
+            $pending->inspections = $committed->inspections = 0;
+            if ($operation === 'overflow') {
+                $buffer->defer($connection, 'drop newest', [], ['distinctId' => 'actor']);
+            } elseif ($operation === 'commit') {
+                $buffer->committing(new TransactionCommitting($connection));
+            } else {
+                $pending->push(new DatabaseTransactionRecord('a', 1));
+                $connection->rollBack(0);
+                $connection->beginTransaction();
+                $buffer->beginning(new TransactionBeginning($connection));
+            }
+            $this->assertLessThanOrEqual(
+                4 * ($pending->count() + $committed->count()),
+                $pending->inspections + $committed->inspections,
+                $operation . ' must not rescan transaction collections for each buffered event.',
+            );
+            $this->assertSame($operation === 'begin' ? 0 : 1000, $buffer->pendingUsage()['count']);
+        }
+        PostHog::assertNothingCaptured();
     }
 
     public function testConnectionResetsCannotAccumulateUnboundedOrphanedCallbacks(): void

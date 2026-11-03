@@ -99,6 +99,37 @@ class AutocaptureTest extends TestCase
         $this->assertSame('off', trim(Blade::render("@posthogFeature('flag')\n on\n@else\n off\n@endposthogFeature")));
     }
 
+    public function testDisabledRequestCollectionBypassesPostResponseChecks(): void
+    {
+        $request = Request::create('/off');
+        $response = response('ok');
+        $original = $this->app['config'];
+        $nextCalled = false;
+        $checksAfterNext = [];
+        $config = $this->createMock(\Illuminate\Config\Repository::class);
+        $config->expects($this->exactly(2))->method('get')->willReturnCallback(
+            function () use (&$nextCalled, &$checksAfterNext) {
+                $checksAfterNext[] = $nextCalled;
+                return false;
+            },
+        );
+        $this->app->instance('config', $config);
+        try {
+            $this->assertSame($response, (new RequestSummary())->handle(
+                $request,
+                function ($actual) use ($request, $response, &$nextCalled) {
+                    $this->assertSame($request, $actual);
+                    $nextCalled = true;
+                    return $response;
+                },
+            ));
+        } finally {
+            $this->app->instance('config', $original);
+        }
+        $this->assertTrue($nextCalled);
+        $this->assertSame([false, false], $checksAfterNext, 'Disabled collection must bypass post-response work.');
+    }
+
     public function testPublishedCollectorConfigAndNestedOverridesAreHonored(): void
     {
         $path = $this->app->configPath('posthog-autocapture.php');
@@ -417,7 +448,7 @@ class AutocaptureTest extends TestCase
             },
         ], $http, loadFeatureFlags: false);
         $manager = $this->app->make(\PostHog\Laravel\PostHog::class);
-        (new \ReflectionProperty(\PostHog\Laravel\PostHog::class, 'sdk'))->setValue($manager, $sdk);
+        (new \ReflectionProperty(\PostHog\Laravel\PostHog::class, 'client'))->setValue($manager, $sdk);
         foreach (['first', 'second'] as $id) {
             $this->identity($id);
             $snapshot = $manager->evaluateFlags();

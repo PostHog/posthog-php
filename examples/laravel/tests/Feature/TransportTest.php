@@ -129,7 +129,7 @@ final class TransportTest extends TestCase
         ], $http, loadFeatureFlags: false);
         $manager = app(Manager::class);
         // Match the runtime's transport-injection tests without exposing an application API for test wiring.
-        (new \ReflectionProperty(Manager::class, 'sdk'))->setValue($manager, $client);
+        (new \ReflectionProperty(Manager::class, 'client'))->setValue($manager, $client);
         PostHog::swap($manager);
     }
 }

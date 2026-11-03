@@ -6,7 +6,8 @@ use Illuminate\Contracts\Container\Container;
 use Throwable;
 use WeakMap;
 
-class ExceptionReporter
+/** @internal */
+final class ExceptionReporter
 {
     private WeakMap $snapshots;
     private WeakMap $reported;
@@ -22,11 +23,14 @@ class ExceptionReporter
         $this->snapshots[$exception] ??= ['data' => $this->app->make(Context::class)->snapshot()];
     }
 
-    public function remember(Throwable $exception, string $mechanism): void
+    public function remember(Throwable $exception, string $mechanism, ?string $source = null): void
     {
         $this->rememberContext($exception);
         $snapshot = $this->snapshots[$exception];
         $snapshot['options'] ??= ['handled' => false, 'mechanism' => $mechanism];
+        if ($source !== null) {
+            $snapshot['options']['source'] ??= $source;
+        }
         $this->snapshots[$exception] = $snapshot;
     }
 
@@ -49,10 +53,10 @@ class ExceptionReporter
                 return ['handled' => false, 'mechanism' => 'runtime'];
             }
         }
-        return ['handled' => true, 'mechanism' => 'middleware'];
+        return ['handled' => true, 'mechanism' => 'generic'];
     }
 
-    public function report(Throwable $exception): void
+    public function report(Throwable $exception, ?string $source = null): void
     {
         if (isset($this->reported[$exception]) || !$this->app['config']->get('posthog.capture_exceptions', true)) {
             return;
@@ -60,10 +64,16 @@ class ExceptionReporter
         $this->reported[$exception] = true;
         $snapshot = $this->snapshots[$exception] ?? ['data' => $this->app->make(Context::class)->snapshot()];
         $options = $snapshot['options'] ?? $this->reportOptions();
+        if ($source !== null) {
+            $options['source'] ??= $source;
+        }
         $manager = $this->app->make(PostHog::class);
         try {
-            $manager->reportException($exception, $snapshot['data'], $options);
-            $manager->flush();
+            $manager->withContext(
+                $snapshot['data'],
+                fn () => $manager->captureException($exception, options: $options),
+                ['fresh' => true],
+            );
         } catch (Throwable) {
             // Reporting must never replace the application's original failure.
         }

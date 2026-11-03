@@ -358,6 +358,6 @@ class PennantTest extends TestCase
                 return $event;
             },
         ], $http, loadFeatureFlags: false);
-        (new \ReflectionProperty(PostHog::class, 'sdk'))->setValue($this->app->make(PostHog::class), $sdk);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($this->app->make(PostHog::class), $sdk);
     }
 }
