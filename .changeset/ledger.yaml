@@ -109,3 +109,7 @@ posthog-php@4.20.0:
   dir: ""
   intents:
     - young-onions-hide
+posthog-php@4.20.1:
+  dir: ""
+  intents:
+    - salty-signs-poke
