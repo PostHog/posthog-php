@@ -65,7 +65,11 @@ A change intent for Laravel alone can be created non-interactively:
 pnpm change posthog-laravel --bump patch --summary "Describe the Laravel change"
 ```
 
-The initial intent already requests a minor bump from 0.0.0 to 0.1.0.
+The initial release is intentionally deferred until administrator setup is ready. To release 0.1.0 from the 0.0.0 seed, add a minor intent then:
+
+```bash
+pnpm change posthog-laravel --bump minor --summary "Initial Laravel package"
+```
 
 ### Administrator prerequisites
 
