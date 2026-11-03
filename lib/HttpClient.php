@@ -51,7 +51,7 @@ class HttpClient
     /**
      * Create an HTTP client.
      *
-     * @param string $host PostHog host, optionally including an HTTP or HTTPS scheme.
+     * @param string $host PostHog host without protocol.
      * @param bool $useSsl Whether to use HTTPS.
      * @param int $maximumBackoffDuration Maximum retry backoff duration in milliseconds.
      * @param bool $compressRequests Whether to gzip request bodies.
@@ -68,11 +68,7 @@ class HttpClient
         ?Closure $errorHandler = null,
         int $curlTimeoutMilliseconds = 10000
     ) {
-        if (preg_match('#^https?://#i', $host, $matches)) {
-            $useSsl = strtolower($matches[0]) === 'https://';
-            $host = substr($host, strlen($matches[0]));
-        }
-        $this->host = rtrim($host, '/');
+        $this->host = $host;
         $this->useSsl = $useSsl;
         $this->maximumBackoffDurationMs = $maximumBackoffDuration;
         $this->compressRequests = $compressRequests;
