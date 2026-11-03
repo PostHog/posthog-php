@@ -45,6 +45,7 @@ final class Emails
     ];
     private const MAX_RETRY_DELAY_MS = 30000;
     private const MAX_RESPONSE_BYTES = 1_048_576;
+    private const MAX_RETRY_AFTER_SECONDS = 31_536_000.0;
     private const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iD';
     private const IDEMPOTENCY_KEY_PATTERN = '/^[\x21-\x7e]{1,255}$/D';
     private const TEMPLATE_KEY_PATTERN = '/^[a-zA-Z0-9_-]{1,400}$/D';
@@ -718,7 +719,8 @@ final class Emails
         }
         if (is_numeric($value)) {
             $seconds = (float) $value;
-            return is_finite($seconds) ? (int) min(max(0.0, $seconds) * 1000, PHP_INT_MAX) : null;
+            // Clamped in seconds first: a huge value times 1000 would overflow the int cast.
+            return is_finite($seconds) ? (int) (min(max(0.0, $seconds), self::MAX_RETRY_AFTER_SECONDS) * 1000) : null;
         }
         // The format's GMT is literal text, so without a zone PHP would read the time in its default zone.
         $date = DateTimeImmutable::createFromFormat(DATE_RFC7231, $value, new DateTimeZone('UTC'));

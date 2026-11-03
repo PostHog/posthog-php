@@ -672,6 +672,17 @@ class EmailsTest extends TestCase
         $this->assertEquals($start, $this->clock->now());
     }
 
+    public function testAHugeRetryAfterFailsAtOnceWithoutOverflowing(): void
+    {
+        $this->reply([429, '{"code":"throttled"}', ['Retry-After: 9223372036854776']]);
+
+        $error = $this->sendError(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
+
+        $this->assertSame('throttled', $error->getErrorCode());
+        $this->assertSame(31_536_000_000, $error->getRetryAfterMs());
+        $this->assertCount(1, $this->requests);
+    }
+
     public function testGetReadsTheStatus(): void
     {
         $this->reply([200, json_encode([
