@@ -112,6 +112,8 @@ class ReleaseWorkflowTest(unittest.TestCase):
         workflow = (REPO / ".github/workflows/release.yml").read_text()
         self.assertEqual(workflow.count("--mode source"), 1)
         self.assertIn("    needs: [prepare-release-candidate, release]\n", workflow)
+        publish_gate = workflow.split("  publish-laravel:\n", 1)[1].split("    runs-on:", 1)[0]
+        self.assertIn("if: always() && !cancelled() && needs.release.result == 'success'", publish_gate)
         self.assertIn("needs.release.outputs.commit-hash", workflow)
         self.assertIn("needs.prepare-release-candidate.outputs.core-changed == 'true'", workflow)
         self.assertNotIn("--filter", workflow)

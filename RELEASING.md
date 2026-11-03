@@ -16,7 +16,7 @@ Select the affected packages, bump types (`patch`, `minor`, or `major`), and a r
 
 An automatically generated Laravel patch is appropriate for a backwards-compatible core update. An incompatible core change also needs the corresponding Laravel code changes and an explicit appropriate bump.
 
-Both release-metadata packages are private, so pnpm applies pending bumps without consulting npm. Laravel starts at **0.0.0**, and its initial **minor** intent produces **0.1.0**. There is no custom initial-release bump or separate intent format.
+Both release-metadata packages are private, so pnpm applies pending bumps without consulting npm. Laravel starts at **0.0.0**, and its initial **minor** intent produces **0.1.0**. Preparation rejects an initial 0.0.x release, including a dependency-only patch from a core change; add an explicit Laravel minor or major intent first. There is no custom initial-release bump or separate intent format.
 
 ## Dependency and version policy
 
@@ -120,6 +120,8 @@ Ensure `.changeset/*.md` contains at least one `patch`, `minor`, or `major` inte
 ### Partial publication
 
 One source version commit and publishing to two repositories cannot be transactional. A failure can leave committed versions without tags, core published but Laravel unpublished, or a distribution tag without its source release.
+
+A retry of `publish-laravel` can reuse an unchanged distribution commit when both Laravel release refs are still unused. Reuse requires the complete committed file tree to match the approved archive byte-for-byte and GitHub to verify the commit signature; it never creates a replacement commit merely because the previous signature lookup or release request failed. An already-created tag/release still requires inspecting the existing publication rather than blindly retrying.
 
 Inspect the retained candidate artifacts, signatures, checksums, shared source commit, and existing tags/releases before recovery. Complete only the missing publication at the **same recorded version**, using the original artifacts and commit. In particular, wait for Packagist indexing rather than creating another release intent. An all-workflow rerun after versions were consumed does not create a new candidate automatically.
 

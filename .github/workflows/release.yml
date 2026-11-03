@@ -79,7 +79,6 @@ jobs:
       version: ${{ steps.candidate.outputs.version }}
       core-version: ${{ steps.candidate.outputs.core_version }}
       core-changed: ${{ steps.candidate.outputs.core_changed }}
-      laravel-changed: ${{ steps.candidate.outputs.laravel_changed }}
       patch-sha256: ${{ steps.candidate.outputs.patch_sha256 }}
       archive-sha256: ${{ steps.candidate.outputs.archive_sha256 }}
       manifest-sha256: ${{ steps.candidate.outputs.manifest_sha256 }}
@@ -330,7 +329,7 @@ jobs:
 
   publish-laravel:
     needs: [prepare-release-candidate, release]
-    if: always() && !cancelled() && needs.release.result == 'success' && needs.prepare-release-candidate.outputs.laravel-changed == 'true'
+    if: always() && !cancelled() && needs.release.result == 'success'
     runs-on: ubuntu-latest
     # Administrators MUST configure required reviewers and main-only deployment rules first.
     environment: Laravel Release
@@ -418,7 +417,7 @@ jobs:
           VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
           SOURCE: ${{ needs.prepare-release-candidate.outputs.source }}
         run: |
-          python3 scripts/commit_release.py --checkout "$GITHUB_WORKSPACE/laravel-distribution" --repository "$REPOSITORY" --mode distribution --message "Release v$VERSION from source $SOURCE" >> "$GITHUB_OUTPUT"
+          python3 scripts/commit_release.py --checkout "$GITHUB_WORKSPACE/laravel-distribution" --repository "$REPOSITORY" --mode distribution --candidate "$RUNNER_TEMP/candidate" --message "Release v$VERSION from source $SOURCE" >> "$GITHUB_OUTPUT"
       - name: Publish distribution version
         env:
           GH_TOKEN: ${{ secrets.LARAVEL_DISTRIBUTION_TOKEN }}

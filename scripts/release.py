@@ -10,6 +10,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 
@@ -19,7 +20,14 @@ FORBIDDEN = {"vendor", "tests", "test", "node_modules", "storage", "cache", "sec
 
 
 def run(*args, cwd):
-    return subprocess.check_output(args, cwd=cwd, stderr=subprocess.PIPE)
+    try:
+        return subprocess.check_output(args, cwd=cwd, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as error:
+        if error.output:
+            print(error.output.decode(errors="replace"), end="", file=sys.stdout, flush=True)
+        if error.stderr:
+            print(error.stderr.decode(errors="replace"), end="", file=sys.stderr, flush=True)
+        raise
 
 
 def read_json(path):
@@ -94,6 +102,8 @@ def prepare(root, output, repository, bump_script_sha256=None):
             if core_changed:
                 raise ValueError("Core release must include its Laravel dependent")
             raise ValueError("No pending change intents")
+        if current == "0.0.0" and new.split(".")[:2] == ["0", "0"]:
+            raise ValueError("Initial Laravel release requires a minor or major intent")
         if core_changed:
             script = work / "scripts/bump-version.sh"
             if hashlib.sha256(script.read_bytes()).hexdigest() != bump_script_sha256:
@@ -148,7 +158,7 @@ def prepare(root, output, repository, bump_script_sha256=None):
         (output / "core-notes.md").write_text(core_notes)
         write_json(output / "candidate.json", {
             "version": new, "core_version": core_version, "core_changed": core_changed,
-            "laravel_changed": True, "source": source, "source_tag": tag, "distribution_tag": f"v{new}",
+            "source": source, "source_tag": tag, "distribution_tag": f"v{new}",
             "patch_sha256": hashlib.sha256(patch).hexdigest(),
             "archive_sha256": hashlib.sha256(payload).hexdigest(),
         })
@@ -169,14 +179,11 @@ def validate(root, candidate):
         raise ValueError("Laravel core SDK pin mismatch")
 
 
-def install(candidate, destination, repository):
-    """Replace a dedicated distribution checkout; never extract tar paths unchecked."""
+def distribution_files(candidate):
     manifest = read_json(candidate / "candidate.json")
     payload = (candidate / "package.tar.gz").read_bytes()
     if hashlib.sha256(payload).hexdigest() != manifest["archive_sha256"]:
         raise ValueError("Distribution archive digest mismatch")
-    if not (destination / ".git").exists():
-        raise ValueError("Destination must be a dedicated distribution Git checkout")
     files = {}
     with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as tar:
         for entry in tar:
@@ -187,6 +194,14 @@ def install(candidate, destination, repository):
             files[entry.name] = tar.extractfile(entry).read()
     if json.loads(files["composer.json"])["version"] != manifest["version"]:
         raise ValueError("Distribution version mismatch")
+    return files
+
+
+def install(candidate, destination, repository):
+    """Replace a dedicated distribution checkout; never extract tar paths unchecked."""
+    files = distribution_files(candidate)
+    if not (destination / ".git").exists():
+        raise ValueError("Destination must be a dedicated distribution Git checkout")
     source = json.loads(files["posthog-source.json"])
     if repository.lower() == source["repository"].lower() or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
         raise ValueError("Distribution repository must be separate from source")

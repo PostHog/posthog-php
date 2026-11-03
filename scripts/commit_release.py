@@ -14,7 +14,7 @@ import subprocess
 import sys
 
 sys.dont_write_bytecode = True
-from release import allowed_distribution_file
+from release import allowed_distribution_file, distribution_files
 
 SOURCE_FILES = {
     "package.json", "composer.json", "composer.lock", "lib/PostHog.php", "CHANGELOG.md",
@@ -54,6 +54,8 @@ def request(checkout, repository, mode, message):
         else:
             deletions.append({"path": name})
     if not paths:
+        if mode == "distribution":
+            return None
         raise ValueError("No release changes")
     return {"query": QUERY, "variables": {"input": {
         "branch": {"repositoryNameWithOwner": repository, "branchName": "main"},
@@ -63,19 +65,47 @@ def request(checkout, repository, mode, message):
     }}}
 
 
+def matching_distribution_commit(checkout, repository, candidate):
+    files = distribution_files(candidate)
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=checkout)
+    head = git("rev-parse", "HEAD").decode().strip()
+    committed = {}
+    for entry in filter(None, git("ls-tree", "-r", "-z", head).split(b"\0")):
+        metadata, name = entry.split(b"\t", 1)
+        if not metadata.startswith(b"100644 blob "):
+            raise ValueError("Distribution HEAD does not match the approved candidate")
+        name = name.decode()
+        committed[name] = git("show", f"{head}:{name}")
+    if committed != files:
+        raise ValueError("Distribution HEAD does not match the approved candidate")
+    verified = subprocess.check_output([
+        "gh", "api", f"repos/{repository}/commits/{head}", "--jq", ".commit.verification.verified",
+    ]).decode().strip()
+    if verified != "true":
+        raise ValueError("Matching distribution commit must have a verified signature")
+    return head
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkout", type=Path, required=True)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--mode", choices=["source", "distribution"], required=True)
     parser.add_argument("--message", required=True)
+    parser.add_argument("--candidate", type=Path)
     args = parser.parse_args()
     payload = request(args.checkout, args.repository, args.mode, args.message)
-    result = subprocess.check_output(["gh", "api", "graphql", "--input", "-"], input=json.dumps(payload).encode())
-    response = json.loads(result)
-    if response.get("errors"):
-        raise RuntimeError(response["errors"])
-    commit = response["data"]["createCommitOnBranch"]["commit"]["oid"]
+    if payload is None:
+        if args.candidate is None:
+            raise ValueError("Distribution retry requires the approved candidate")
+        commit = matching_distribution_commit(args.checkout, args.repository, args.candidate)
+    else:
+        result = subprocess.check_output(["gh", "api", "graphql", "--input", "-"], input=json.dumps(payload).encode())
+        response = json.loads(result)
+        if response.get("errors"):
+            raise RuntimeError(response["errors"])
+        commit = response["data"]["createCommitOnBranch"]["commit"]["oid"]
     if not re.fullmatch(r"[a-f0-9]{40}", commit):
         raise ValueError("Invalid commit returned by GitHub")
     print(f"commit-hash={commit}")

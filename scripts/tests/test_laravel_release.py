@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -202,6 +203,35 @@ class LaravelReleaseTest(LaravelReleaseFixture):
         snapshot(self.root)
         with self.assertRaisesRegex(ValueError, "regular distribution file"):
             self.prepare()
+
+    def test_failed_subprocess_diagnostics_are_visible(self):
+        self.write("failing-tool.py", "import sys\nprint('preparation output')\nprint('dependency conflict details', file=sys.stderr)\nsys.exit(37)\n")
+        result = subprocess.run([
+            sys.executable, "-c",
+            "import release, sys; release.run(sys.executable, sys.argv[1], cwd=sys.argv[2])",
+            str(self.root / "failing-tool.py"), str(self.root),
+        ], env={**os.environ, "PYTHONPATH": str(SCRIPT.parent)}, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("preparation output", result.stdout)
+        self.assertIn("dependency conflict details", result.stderr)
+        self.assertIn("exit status 37", result.stderr)
+
+    def test_initial_patch_releases_are_rejected_including_core_dependency_bumps(self):
+        for name in ["package.json", "composer.json"]:
+            metadata = release.read_json(self.root / release.PACKAGE / name)
+            metadata["version"] = "0.0.0"
+            self.write(str(release.PACKAGE / name), json.dumps(metadata))
+        self.write("packages/laravel/src/PostHog.php", "<?php class PostHog { public const VERSION = '0.0.0'; }\n")
+        for kind in ["laravel", "core"]:
+            with self.subTest(kind=kind):
+                (self.root / ".changeset/release.md").unlink(missing_ok=True)
+                if kind == "laravel":
+                    self.intent("patch")
+                else:
+                    self.write(".changeset/core.md", '---\n"posthog-php": patch\n---\n\nCore only\n')
+                snapshot(self.root)
+                with self.assertRaisesRegex(ValueError, "Initial Laravel release requires a minor or major intent"):
+                    self.prepare("candidate-" + kind)
 
     def test_initial_minor_release_starts_at_zero(self):
         for name in ["package.json", "composer.json"]:
