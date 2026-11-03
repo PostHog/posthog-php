@@ -4,6 +4,7 @@ namespace PostHog;
 
 use Closure;
 use DateTimeImmutable;
+use DateTimeZone;
 use InvalidArgumentException;
 use JsonException;
 use Symfony\Component\Clock\Clock;
@@ -702,7 +703,8 @@ final class Emails
             $seconds = (float) $value;
             return is_finite($seconds) ? (int) min(max(0.0, $seconds) * 1000, PHP_INT_MAX) : null;
         }
-        $date = DateTimeImmutable::createFromFormat(DATE_RFC7231, $value);
+        // The format's GMT is literal text, so without a zone PHP would read the time in its default zone.
+        $date = DateTimeImmutable::createFromFormat(DATE_RFC7231, $value, new DateTimeZone('UTC'));
         if ($date === false) {
             return null;
         }

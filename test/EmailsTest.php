@@ -636,15 +636,27 @@ class EmailsTest extends TestCase
         $this->assertCount(2, $this->requests);
     }
 
-    public function testARetryAfterAsAnHttpDateIsWaitedFor(): void
+    public static function defaultTimezones(): array
     {
-        $at = $this->clock->now()->modify('+10 seconds')->format(DATE_RFC7231);
-        $this->reply([503, '{"code":"unavailable"}', ['retry-after: ' . $at]], [202, '{"message_id":"msg_1"}', []]);
-        $start = (int) $this->clock->now()->format('Uv');
+        return [['UTC'], ['Asia/Tokyo'], ['America/Los_Angeles']];
+    }
 
-        $this->emails()->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
+    #[DataProvider('defaultTimezones')]
+    public function testARetryAfterAsAnHttpDateIsWaitedForInAnyDefaultTimezone(string $timezone): void
+    {
+        $previousTimezone = date_default_timezone_get();
+        date_default_timezone_set($timezone);
+        try {
+            $at = gmdate(DATE_RFC7231, $this->clock->now()->getTimestamp() + 10);
+            $this->reply([503, '{"code":"unavailable"}', ['retry-after: ' . $at]], [202, '{"message_id":"msg_1"}', []]);
+            $start = (int) $this->clock->now()->format('Uv');
 
-        $this->assertSame(10000, (int) $this->clock->now()->format('Uv') - $start);
+            $this->emails()->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
+
+            $this->assertSame(10000, (int) $this->clock->now()->format('Uv') - $start);
+        } finally {
+            date_default_timezone_set($previousTimezone);
+        }
     }
 
     public function testARetryAfterOverThirtySecondsFailsAtOnce(): void
