@@ -270,19 +270,23 @@ class EmailsTest extends TestCase
             'warnings' => [
                 ['code' => 'unverified_link', 'detail' => 'A link points to an unknown domain.', 'fix' => 'Check it.'],
                 'not a warning',
+                ['code' => "odd\ncode", 'detail' => "Two\nlines\\"],
             ],
         ]), []]);
 
         $result = $this->emails()->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
 
         $this->assertTrue($result->isReplayed());
-        $this->assertCount(1, $result->getWarnings());
+        $this->assertCount(2, $result->getWarnings());
         $warning = $result->getWarnings()[0];
         $this->assertSame('unverified_link', $warning->getCode());
         $this->assertSame('A link points to an unknown domain.', $warning->getMessage());
         $this->assertSame('Check it.', $warning->getFix());
         $this->assertSame(
-            ['[PostHog][Emails] Email warning unverified_link: A link points to an unknown domain.'],
+            [
+                '[PostHog][Emails] Email warning unverified_link: A link points to an unknown domain.',
+                '[PostHog][Emails] Email warning odd\\ncode: Two\\nlines\\\\',
+            ],
             $errorMessages
         );
     }

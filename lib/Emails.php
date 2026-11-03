@@ -190,7 +190,9 @@ final class Emails
             return self::parseSendReply(...$this->request('POST', $appHost . self::SEND_PATH, $headers, $body));
         });
         foreach ($result->getWarnings() as $warning) {
-            error_log('[PostHog][Emails] Email warning ' . $warning->getCode() . ': ' . $warning->getMessage());
+            // The fields come from the reply, so control characters are escaped to keep each warning on one log line.
+            $line = $warning->getCode() . ': ' . $warning->getMessage();
+            error_log('[PostHog][Emails] Email warning ' . addcslashes($line, "\0..\37\177\\"));
         }
 
         return $result;
