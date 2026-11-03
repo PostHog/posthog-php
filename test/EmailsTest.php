@@ -598,6 +598,20 @@ class EmailsTest extends TestCase
         $this->assertCount(5, $this->requests);
     }
 
+    public function testAClientShutDownDuringTheRequestDoesNotWaitToRetry(): void
+    {
+        // As if a signal handler called shutdown() while the first attempt was in flight.
+        $emails = $this->emails(['isClosed' => fn(): bool => $this->requests !== []]);
+        $this->reply([429, '{"code":"throttled"}', ['Retry-After: 30']], [202, '{"message_id":"msg_1"}', []]);
+        $start = $this->clock->now();
+
+        $error = $this->sendError(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID], $emails);
+
+        $this->assertSame('throttled', $error->getErrorCode());
+        $this->assertCount(1, $this->requests);
+        $this->assertSame(0, self::msBetween($start, $this->clock->now()));
+    }
+
     public function testAClientShutDownByASignalDuringTheRetryWaitSendsNothingMore(): void
     {
         $closed = false;

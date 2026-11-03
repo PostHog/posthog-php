@@ -7,7 +7,7 @@ namespace Symfony\Component\Clock;
 
 use PostHog\Test\FakeTimer;
 
-function hrtime(bool $asNumber = false): array|int
+function hrtime(bool $asNumber = false): array|int|float
 {
     return FakeTimer::hrtime($asNumber);
 }

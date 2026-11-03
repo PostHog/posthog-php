@@ -17,11 +17,14 @@ final class FakeTimer
     public static ?int $interruptFirstSleepAfterUs = null;
     private static int $sleeps = 0;
 
-    public static function hrtime(bool $asNumber): array|int
+    public static function hrtime(bool $asNumber): array|int|float
     {
-        $ns = self::$nowUs * 1000;
+        // Split from microseconds: nanoseconds pass PHP_INT_MAX after about 2 s on 32-bit PHP.
+        $seconds = intdiv(self::$nowUs, 1_000_000);
+        $ns = self::$nowUs % 1_000_000 * 1000;
 
-        return $asNumber ? $ns : [intdiv($ns, 1_000_000_000), $ns % 1_000_000_000];
+        // Like the real hrtime(true), the number is a float on 32-bit PHP.
+        return $asNumber ? $seconds * 1_000_000_000 + $ns : [$seconds, $ns];
     }
 
     public static function sleep(int $us): void

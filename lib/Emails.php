@@ -481,8 +481,8 @@ final class Emails
 
     /**
      * A handled signal cuts a sleep short, so this sleeps again until the retry is due. A signal handler can also
-     * shut the client down during the wait; a closed client sends nothing, so the operation settles with the
-     * failure it already has.
+     * shut the client down, during the request or the wait; a closed client neither waits nor sends, so the
+     * operation settles with the failure it already has.
      */
     private function waitToRetry(int $delayMs, EmailError $error): void
     {
@@ -493,12 +493,15 @@ final class Emails
         }
         // Measured from the start of the wait: microseconds since the epoch don't fit in an int on 32-bit PHP.
         $start = $clock->now();
-        while (($remainingUs = $delayMs * 1000 - self::microsecondsBetween($start, $clock->now())) > 0) {
-            $clock->sleep($remainingUs / 1_000_000);
-            if (($this->isClosed)()) {
-                throw $error;
+        while (!($this->isClosed)()) {
+            $remainingUs = $delayMs * 1000 - self::microsecondsBetween($start, $clock->now());
+            if ($remainingUs <= 0) {
+                return;
             }
+            $clock->sleep($remainingUs / 1_000_000);
         }
+
+        throw $error;
     }
 
     private static function microsecondsBetween(DateTimeImmutable $start, DateTimeImmutable $end): int
