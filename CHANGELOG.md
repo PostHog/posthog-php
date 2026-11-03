@@ -1,3 +1,9 @@
+## 4.20.1
+
+### Patch Changes
+
+- Fix URL-style hosts for feature flag evaluation and definition requests.
+
 ## 4.20.0
 
 ### Minor Changes
