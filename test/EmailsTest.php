@@ -679,7 +679,8 @@ class EmailsTest extends TestCase
         $error = $this->sendError(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
 
         $this->assertSame('throttled', $error->getErrorCode());
-        $this->assertSame(31_536_000_000, $error->getRetryAfterMs());
+        // A year, or what fits in an int on 32-bit PHP.
+        $this->assertSame(min(31_536_000, intdiv(PHP_INT_MAX, 1000)) * 1000, $error->getRetryAfterMs());
         $this->assertCount(1, $this->requests);
     }
 
