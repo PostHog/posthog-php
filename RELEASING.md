@@ -97,15 +97,12 @@ python3 scripts/release.py prepare \
 This only prepares local artifacts; it does not publish. The workflow pins the reviewed bump-script hash independently rather than deriving trust from the checked-out script.
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -v
 bash scripts/test-laravel.sh 12
 bash scripts/test-laravel.sh 13
 # Test a prepared version patch in the disposable source copy:
 bash scripts/test-laravel.sh 12 /tmp/sdk-candidate/release.patch
 actionlint .github/workflows/laravel.yml .github/workflows/release.yml
 ```
-
-Fixtures use pnpm 11.13.1, disposable repositories, fake Composer/gh clients, and no publishing credentials. They cover core-only automatic Laravel patching, Laravel-only core preservation, joint changes, exact pins, single-consumption ledgers, signed commit requests, deterministic archives, and secret/path/symlink exclusion.
 
 ## Troubleshooting and recovery
 
