@@ -1,3 +1,7 @@
+posthog-laravel@0.1.0:
+  dir: packages/laravel
+  intents:
+    - twelve-donuts-go
 posthog-php@4.12.1:
   dir: ""
   intents:
