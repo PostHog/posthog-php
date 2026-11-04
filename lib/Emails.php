@@ -104,6 +104,7 @@ final class Emails
         if ($maxRetries < 0) {
             throw new InvalidArgumentException('email_request_max_retries must be a nonnegative integer.');
         }
+        $migratedFrom = StringNormalizer::normalizeOptional($migratedFrom);
         if ($migratedFrom !== null && preg_match(self::HEADER_TOKEN_PATTERN, $migratedFrom) !== 1) {
             throw new InvalidArgumentException("migrated_from must be visible ASCII characters, such as 'resend'.");
         }
@@ -129,8 +130,8 @@ final class Emails
      *   400), `subject`, and `html`, `text` or both. PostHog derives a missing `text` from the `html`, and
      *   sends the content as is without storing it. To send a React email, render it to HTML in your app
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
-     *   `reply_to` (one address or a list) and `capture_engagement` (default true; a project whose admin
-     *   turned engagement capture off captures nothing, whatever the send asks).
+     *   `reply_to` (one address or a list; an empty list is left out) and `capture_engagement` (default
+     *   true; a project whose admin turned engagement capture off captures nothing, whatever the send asks).
      *
      * Both forms take `to` (one address), `distinct_id` (the recipient's distinct ID in your product;
      * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
@@ -350,7 +351,7 @@ final class Emails
             }
             $content['from'] = $email['from'];
         }
-        if (array_key_exists('reply_to', $email)) {
+        if (array_key_exists('reply_to', $email) && $email['reply_to'] !== []) {
             $content['reply_to'] = self::addresses($email['reply_to']);
         }
         $captureEngagement = $email['capture_engagement'] ?? true;
@@ -368,7 +369,7 @@ final class Emails
     private static function addresses(mixed $value): array
     {
         $addresses = is_string($value) ? [$value] : $value;
-        if (!is_array($addresses) || !array_is_list($addresses) || $addresses === []) {
+        if (!is_array($addresses) || !array_is_list($addresses)) {
             throw self::invalid('invalid_form', 'reply_to must be one address or a list of addresses.', 'reply_to');
         }
         foreach ($addresses as $address) {

@@ -370,6 +370,8 @@ class Client implements FeatureFlagEvaluationsHost
         $this->flagsEtag = null;
         $this->flagDefinitionsLoaded = false;
         $this->minimalFlagCalledEvents = false;
+        // The email service checks its options when it is built, so a bad one fails here, not at the first send.
+        $this->emails();
 
         if ($this->enabled) {
             ExceptionCapture::configure($this, $options['error_tracking'] ?? []);
