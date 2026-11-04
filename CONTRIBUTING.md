@@ -56,7 +56,6 @@ From a committed checkout, run:
 ```bash
 bash scripts/test-laravel.sh 12
 bash scripts/test-laravel.sh 13
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -v
 ```
 
 The framework checks lint tracked package/example PHP files, then install and test in
@@ -64,8 +63,7 @@ an automatically cleaned temporary source copy. They inject local Composer path
 repositories for the checked-out core and Laravel package there, never into your
 checkout or distribution metadata. The example's `composer test` runs when its
 `composer.json` is available; a missing test command then fails rather than skips.
-The release fixtures use pnpm 11.13.1 and fake publishing tools; they never publish
-or use credentials. Root PHPCS checks remain scoped to `lib` and `test`.
+Root PHPCS checks remain scoped to `lib` and `test`.
 
 Record Laravel release changes with `pnpm change`, selecting `posthog-laravel`.
 For core-only changes, select `posthog-php`: pnpm automatically adds a Laravel

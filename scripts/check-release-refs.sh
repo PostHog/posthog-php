@@ -32,6 +32,6 @@ for endpoint in releases/tags git/ref/tags; do
   if [ "${CORE_CHANGED:-false}" = true ]; then
     missing "repos/$SOURCE_REPOSITORY/$endpoint/$CORE_VERSION"
   fi
-  missing "repos/$SOURCE_REPOSITORY/$endpoint/laravel-v$VERSION"
+  missing "repos/$SOURCE_REPOSITORY/$endpoint/posthog-laravel-v$VERSION"
   missing "repos/$DISTRIBUTION_REPOSITORY/$endpoint/v$VERSION"
 done
