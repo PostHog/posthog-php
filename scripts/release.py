@@ -158,7 +158,7 @@ def prepare(root, output, repository, bump_script_sha256=None):
         (output / "core-notes.md").write_text(core_notes)
         write_json(output / "candidate.json", {
             "version": new, "core_version": core_version, "core_changed": core_changed,
-            "source": source, "source_tag": tag, "distribution_tag": f"v{new}",
+            "source": source, "source_tag": tag, "distribution_tag": new,
             "patch_sha256": hashlib.sha256(patch).hexdigest(),
             "archive_sha256": hashlib.sha256(payload).hexdigest(),
         })
