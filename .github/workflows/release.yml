@@ -302,7 +302,10 @@ jobs:
         with:
           client-id: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_APP_ID }}
           private-key: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
           permission-contents: write
+          skip-token-revoke: false
       - name: Atomic GitHub-signed shared version commit
         id: commit-version-bump
         env:
@@ -332,7 +335,7 @@ jobs:
     if: always() && !cancelled() && needs.release.result == 'success'
     runs-on: ubuntu-latest
     # Administrators MUST configure required reviewers and main-only deployment rules first.
-    environment: Laravel Release
+    environment: Release
     permissions:
       contents: read
       actions: read
@@ -348,7 +351,7 @@ jobs:
           path: ${{ runner.temp }}/candidate
       - name: Recheck refs, main and approved candidate digests
         env:
-          GH_TOKEN: ${{ secrets.LARAVEL_SOURCE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           SOURCE_REPOSITORY: ${{ github.repository }}
           DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
           VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
@@ -356,10 +359,8 @@ jobs:
           EXPECTED_PATCH: ${{ needs.prepare-release-candidate.outputs.patch-sha256 }}
           EXPECTED_ARCHIVE: ${{ needs.prepare-release-candidate.outputs.archive-sha256 }}
           EXPECTED_MANIFEST: ${{ needs.prepare-release-candidate.outputs.manifest-sha256 }}
-          DISTRIBUTION_TOKEN: ${{ secrets.LARAVEL_DISTRIBUTION_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "$GH_TOKEN" && test -n "$DISTRIBUTION_TOKEN"
           test "$(gh api "repos/$SOURCE_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$EXPECTED_SOURCE"
           bash scripts/check-release-refs.sh
           echo "$EXPECTED_PATCH  $RUNNER_TEMP/candidate/release.patch" | sha256sum --check --strict
@@ -392,18 +393,48 @@ jobs:
           done
       - name: Require signed source commit
         env:
-          GH_TOKEN: ${{ secrets.LARAVEL_SOURCE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           COMMIT: ${{ needs.release.outputs.commit-hash }}
         run: |
           test -n "$COMMIT"
           test "$(gh api "repos/$REPOSITORY/commits/$COMMIT" --jq '.commit.verification.verified')" = true
+      - name: Resolve distribution repository
+        id: distribution-repository
+        env:
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+          import re
+
+          source = os.environ["GITHUB_REPOSITORY"]
+          owner = source.split("/", 1)[0]
+          distribution = os.environ["DISTRIBUTION_REPOSITORY"]
+          distribution_owner, _, name = distribution.partition("/")
+          # With owner set, an empty repositories input grants access to every installed repository.
+          if (distribution_owner.lower() != owner.lower()
+              or distribution.lower() == source.lower()
+              or not re.fullmatch(r"[A-Za-z0-9_.-]+", name)):
+              raise SystemExit("Distribution repository must be a different repository in the source organization")
+          print(f"name={name}")
+          PY
+      - name: Get distribution GitHub App token
+        id: distribution-releaser
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_APP_ID }}
+          private-key: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.distribution-repository.outputs.name }}
+          permission-contents: write
+          skip-token-revoke: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
           ref: main
           path: laravel-distribution
-          token: ${{ secrets.LARAVEL_DISTRIBUTION_TOKEN }}
+          token: ${{ steps.distribution-releaser.outputs.token }}
           persist-credentials: false
       - name: Replace dedicated distribution tree with package-only files
         env:
@@ -412,7 +443,7 @@ jobs:
       - name: Atomic GitHub-signed distribution commit
         id: distribution-commit
         env:
-          GH_TOKEN: ${{ secrets.LARAVEL_DISTRIBUTION_TOKEN }}
+          GH_TOKEN: ${{ steps.distribution-releaser.outputs.token }}
           REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
           VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
           SOURCE: ${{ needs.prepare-release-candidate.outputs.source }}
@@ -420,7 +451,7 @@ jobs:
           python3 scripts/commit_release.py --checkout "$GITHUB_WORKSPACE/laravel-distribution" --repository "$REPOSITORY" --mode distribution --candidate "$RUNNER_TEMP/candidate" --message "Release v$VERSION from source $SOURCE" >> "$GITHUB_OUTPUT"
       - name: Publish distribution version
         env:
-          GH_TOKEN: ${{ secrets.LARAVEL_DISTRIBUTION_TOKEN }}
+          GH_TOKEN: ${{ steps.distribution-releaser.outputs.token }}
           REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
           COMMIT: ${{ steps.distribution-commit.outputs.commit-hash }}
           VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
@@ -429,9 +460,19 @@ jobs:
           test -n "$COMMIT"
           test "$(gh api "repos/$REPOSITORY/commits/$COMMIT" --jq '.commit.verification.verified')" = true
           gh release create "v$VERSION" --repo "$REPOSITORY" --target "$COMMIT" --title "v$VERSION" --notes-file "$RUNNER_TEMP/candidate/notes.md"
+      - name: Get source GitHub App token
+        id: source-releaser
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_APP_ID }}
+          private-key: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          skip-token-revoke: false
       - name: Publish independent source release and archive
         env:
-          GH_TOKEN: ${{ secrets.LARAVEL_SOURCE_TOKEN }}
+          GH_TOKEN: ${{ steps.source-releaser.outputs.token }}
           REPOSITORY: ${{ github.repository }}
           COMMIT: ${{ needs.release.outputs.commit-hash }}
           VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
