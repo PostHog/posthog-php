@@ -403,22 +403,7 @@ jobs:
         id: distribution-repository
         env:
           DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
-        run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import os
-          import re
-
-          source = os.environ["GITHUB_REPOSITORY"]
-          owner = source.split("/", 1)[0]
-          distribution = os.environ["DISTRIBUTION_REPOSITORY"]
-          distribution_owner, _, name = distribution.partition("/")
-          # With owner set, an empty repositories input grants access to every installed repository.
-          if (distribution_owner.lower() != owner.lower()
-              or distribution.lower() == source.lower()
-              or not re.fullmatch(r"[A-Za-z0-9_.-]+", name)):
-              raise SystemExit("Distribution repository must be a different repository in the source organization")
-          print(f"name={name}")
-          PY
+        run: python3 scripts/resolve_distribution_repository.py >> "$GITHUB_OUTPUT"
       - name: Get distribution GitHub App token
         id: distribution-releaser
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
