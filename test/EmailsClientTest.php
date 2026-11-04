@@ -8,9 +8,6 @@ use PostHog\Client;
 use PostHog\EmailError;
 use PostHog\PostHog;
 
-/**
- * Sends through Client::emails() over real HTTP to a loopback server.
- */
 class EmailsClientTest extends TestCase
 {
     private const TEMPLATE_ID = '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b';

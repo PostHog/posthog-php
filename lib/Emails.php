@@ -233,7 +233,7 @@ final class Emails
     }
 
     /**
-     * @return array{string, string, int} The JSON body, the idempotency key and the retry limit.
+     * @return array{string, string, int}
      */
     private function prepareSend(array $email): array
     {
@@ -414,7 +414,7 @@ final class Emails
     }
 
     /**
-     * @return array{string, string} The app host and the secret key.
+     * @return array{string, string}
      */
     private function connect(string $notDone, string $keyNeeded): array
     {
@@ -480,11 +480,6 @@ final class Emails
         }
     }
 
-    /**
-     * A handled signal cuts a sleep short, so this sleeps again until the retry is due. A signal handler can also
-     * shut the client down, during the request or the wait; a closed client neither waits nor sends, so the
-     * operation settles with the failure it already has.
-     */
     private function waitToRetry(int $delayMs, EmailError $error): void
     {
         $clock = self::forwardOnlyClock();
@@ -759,10 +754,6 @@ final class Emails
         return min(self::MAX_RETRY_AFTER_SECONDS, intdiv(PHP_INT_MAX, 1000));
     }
 
-    /**
-     * The app host for a send, or null when the client can't tell it. PostHog Cloud ingestion hosts don't
-     * serve the app API, so they map to their region's app host.
-     */
     private static function resolveAppHost(string $host, ?string $appHost): ?string
     {
         $appHost = StringNormalizer::normalizeOptional($appHost);

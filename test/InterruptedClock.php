@@ -8,9 +8,6 @@ use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\DatePoint;
 use Symfony\Component\Clock\MockClock;
 
-/**
- * A mock clock whose first sleep a signal cuts short: it ends after $interruptAfterSeconds and runs the handler.
- */
 final class InterruptedClock implements ClockInterface
 {
     private bool $interrupted = false;
