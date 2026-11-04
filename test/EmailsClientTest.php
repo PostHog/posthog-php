@@ -148,6 +148,9 @@ class EmailsClientTest extends TestCase
             'zero timeout' => [['email_request_timeout_ms' => 0]],
             'timeout not a number' => [['email_request_timeout_ms' => 'soon']],
             'negative retries' => [['email_request_max_retries' => -1]],
+            'retries as a word' => [['email_request_max_retries' => 'two']],
+            'timeout with a unit' => [['email_request_timeout_ms' => '15seconds']],
+            'timeout as a fraction' => [['email_request_timeout_ms' => 1.5]],
             'migrated_from with a space' => [['migrated_from' => 'Resend Inc']],
         ];
     }
@@ -162,13 +165,31 @@ class EmailsClientTest extends TestCase
         new Client('phc_project', $options, loadFeatureFlags: false, secretKey: 'phs_secret');
     }
 
+    public function testNumericStringEmailOptionsAreRead(): void
+    {
+        $this->server = new LocalHttpServer([
+            ['status' => 503, 'body' => '{"code":"unavailable"}'],
+            ['status' => 202, 'body' => '{"message_id":"msg_1"}'],
+        ]);
+
+        $error = null;
+        try {
+            $client = $this->client(['email_request_max_retries' => '0', 'email_request_timeout_ms' => '5000']);
+            $client->emails()->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
+        } catch (EmailError $error) {
+        }
+
+        $this->assertSame('unavailable', $error?->getErrorCode());
+        $this->assertCount(1, $this->server->requests());
+    }
+
     public function testAnEmptyMigratedFromCountsAsLeftOut(): void
     {
         $this->server = new LocalHttpServer([['status' => 202, 'body' => '{"message_id":"msg_1"}']]);
 
         $this->client(['migrated_from' => ''])->emails()->send([
-            'to' => 'user@example.com',
-            'template_id' => self::TEMPLATE_ID,
+        'to' => 'user@example.com',
+        'template_id' => self::TEMPLATE_ID,
         ]);
 
         $this->assertArrayNotHasKey('x-posthog-migrated-from', $this->server->requests()[0]['headers']);
