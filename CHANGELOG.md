@@ -1,3 +1,9 @@
+## 4.20.2
+
+### Patch Changes
+
+- Test the release process
+
 ## 4.20.1
 
 ### Patch Changes
