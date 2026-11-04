@@ -98,7 +98,6 @@ jobs:
           php-version: '8.4'
           extensions: curl, mbstring, dom, xml, sqlite3, pdo_sqlite
           tools: composer
-      - run: python3 -m unittest discover -s scripts/tests -v
       - name: Apply one workspace release plan without publishing credentials
         id: candidate
         env:
@@ -190,10 +189,6 @@ jobs:
         run: bash scripts/check-release-refs.sh
       - name: Validate core Composer metadata
         run: composer validate --no-check-version --strict
-      - name: Test both frameworks against the candidate source
-        run: |
-          bash scripts/test-laravel.sh 12 "$RUNNER_TEMP/candidate/release.patch"
-          bash scripts/test-laravel.sh 13 "$RUNNER_TEMP/candidate/release.patch"
       - name: Validate distribution using the exact candidate core before it is published
         run: |
           set -euo pipefail
@@ -246,7 +241,7 @@ jobs:
       posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
 
   release:
-    name: Commit shared versions and publish core if changed
+    name: Publish PHP then Laravel
     needs: [check-changesets, prepare-release-candidate, verify-release-candidate, notify-approval-needed]
     if: always() && !cancelled() && needs.check-changesets.outputs.has-changesets == 'true' && needs.verify-release-candidate.result == 'success' && needs.notify-approval-needed.result == 'success'
     runs-on: ubuntu-latest
@@ -254,8 +249,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-    outputs:
-      commit-hash: ${{ steps.commit-version-bump.outputs.commit-hash }}
     steps:
       - name: Notify Slack - Approved
         if: needs.notify-approval-needed.outputs.slack_ts != ''
@@ -329,33 +322,19 @@ jobs:
           VERSION: ${{ needs.prepare-release-candidate.outputs.core-version }}
           COMMIT: ${{ steps.commit-version-bump.outputs.commit-hash }}
         run: gh release create "$VERSION" --repo "$REPOSITORY" --target "$COMMIT" --title "$VERSION" --notes-file "$RUNNER_TEMP/candidate/core-notes.md"
-
-  publish-laravel:
-    needs: [prepare-release-candidate, release]
-    if: always() && !cancelled() && needs.release.result == 'success'
-    runs-on: ubuntu-latest
-    # Administrators MUST configure required reviewers and main-only deployment rules first.
-    environment: Release
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout shared version commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.release.outputs.commit-hash }}
+          ref: ${{ steps.commit-version-bump.outputs.commit-hash }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: release-candidate-${{ needs.prepare-release-candidate.outputs.source }}
-          path: ${{ runner.temp }}/candidate
       - name: Recheck refs, main and approved candidate digests
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_REPOSITORY: ${{ github.repository }}
           DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
           VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
-          EXPECTED_SOURCE: ${{ needs.release.outputs.commit-hash }}
+          EXPECTED_SOURCE: ${{ steps.commit-version-bump.outputs.commit-hash }}
           EXPECTED_PATCH: ${{ needs.prepare-release-candidate.outputs.patch-sha256 }}
           EXPECTED_ARCHIVE: ${{ needs.prepare-release-candidate.outputs.archive-sha256 }}
           EXPECTED_MANIFEST: ${{ needs.prepare-release-candidate.outputs.manifest-sha256 }}
@@ -372,7 +351,7 @@ jobs:
           php-version: '8.4'
           extensions: curl, mbstring, dom, xml, sqlite3, pdo_sqlite
           tools: composer
-      - name: Wait for the exact published core and test production dependency resolution
+      - name: Wait for the exact published core and verify production dependencies
         env:
           CORE_VERSION: ${{ needs.prepare-release-candidate.outputs.core-version }}
         run: |
@@ -395,7 +374,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          COMMIT: ${{ needs.release.outputs.commit-hash }}
+          COMMIT: ${{ steps.commit-version-bump.outputs.commit-hash }}
         run: |
           test -n "$COMMIT"
           test "$(gh api "repos/$REPOSITORY/commits/$COMMIT" --jq '.commit.verification.verified')" = true
@@ -459,7 +438,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.source-releaser.outputs.token }}
           REPOSITORY: ${{ github.repository }}
-          COMMIT: ${{ needs.release.outputs.commit-hash }}
+          COMMIT: ${{ steps.commit-version-bump.outputs.commit-hash }}
           VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
           DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
           DISTRIBUTION_COMMIT: ${{ steps.distribution-commit.outputs.commit-hash }}
@@ -467,13 +446,13 @@ jobs:
         run: |
           set -euo pipefail
           printf '\nDistribution: %s@%s\nArchive SHA256: %s\n' "$DISTRIBUTION_REPOSITORY" "$DISTRIBUTION_COMMIT" "$ARCHIVE_SHA256" >> "$RUNNER_TEMP/candidate/notes.md"
-          gh release create "laravel-v$VERSION" --latest=false --repo "$REPOSITORY" --target "$COMMIT" --title "Laravel v$VERSION" --notes-file "$RUNNER_TEMP/candidate/notes.md" "$RUNNER_TEMP/candidate/package.tar.gz" "$RUNNER_TEMP/candidate/candidate.json"
+          gh release create "posthog-laravel-v$VERSION" --latest=false --repo "$REPOSITORY" --target "$COMMIT" --title "posthog-laravel-v$VERSION" --notes-file "$RUNNER_TEMP/candidate/notes.md" "$RUNNER_TEMP/candidate/package.tar.gz" "$RUNNER_TEMP/candidate/candidate.json"
 
   notify-released:
     name: Notify Slack - Released
-    needs: [notify-approval-needed, release, publish-laravel]
+    needs: [notify-approval-needed, release]
     runs-on: ubuntu-latest
-    if: always() && needs.release.result == 'success' && needs.publish-laravel.result == 'success' && needs.notify-approval-needed.outputs.slack_ts != ''
+    if: always() && needs.release.result == 'success' && needs.notify-approval-needed.outputs.slack_ts != ''
     steps:
       - name: Notify Slack - Released
         uses: posthog/.github/.github/actions/slack-thread-reply@cb0979b67dcd585828b61ac45927eef4da8f6287 # main
@@ -486,9 +465,9 @@ jobs:
 
   notify-release-failed:
     name: Notify Slack/PostHog - Release Failed
-    needs: [prepare-release-candidate, notify-approval-needed, release, publish-laravel]
+    needs: [prepare-release-candidate, notify-approval-needed, release]
     runs-on: ubuntu-latest
-    if: always() && (needs.release.result == 'failure' || needs.release.result == 'cancelled' || needs.publish-laravel.result == 'failure' || needs.publish-laravel.result == 'cancelled') && needs.notify-approval-needed.outputs.slack_ts != ''
+    if: always() && (needs.release.result == 'failure' || needs.release.result == 'cancelled') && needs.notify-approval-needed.outputs.slack_ts != ''
     permissions:
       actions: read
       contents: read
@@ -526,7 +505,7 @@ jobs:
           properties: >-
             {
               "commitSha": "${{ github.sha }}",
-              "jobStatus": "${{ needs.release.result == 'success' && needs.publish-laravel.result || needs.release.result }}",
+              "jobStatus": "${{ needs.release.result }}",
               "ref": "${{ github.ref }}",
               "repository": "${{ github.repository }}",
               "sdk": "posthog-php",

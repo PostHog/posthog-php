@@ -132,7 +132,7 @@ def prepare(root, output, repository, bump_script_sha256=None):
             files[relative] = path.read_bytes()
         if not {"composer.json", "README.md", "LICENSE.md"}.issubset(files) or not any(n.startswith("src/") for n in files):
             raise ValueError("Incomplete Laravel package")
-        tag = f"laravel-v{new}"
+        tag = f"posthog-laravel-v{new}"
         files["posthog-source.json"] = (json.dumps({
             "repository": repository, "commit": source, "tag": tag,
             "directory": PACKAGE.as_posix(), "version": new,

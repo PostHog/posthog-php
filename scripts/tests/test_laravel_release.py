@@ -174,7 +174,7 @@ class LaravelReleaseTest(LaravelReleaseFixture):
             self.assertEqual(composer["require"]["posthog/posthog-php"], "4.20.0")
             metadata = json.load(archive.extractfile("posthog-source.json"))
             self.assertEqual(metadata["commit"], git(self.root, "rev-parse", "HEAD").decode().strip())
-            self.assertEqual(metadata["tag"], "laravel-v0.1.1")
+            self.assertEqual(metadata["tag"], "posthog-laravel-v0.1.1")
 
     def test_root_license_link_is_embedded_as_a_regular_distribution_file(self):
         self.write("LICENSE.md", "Root MIT license\n")

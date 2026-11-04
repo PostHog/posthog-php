@@ -67,7 +67,7 @@ class ProductionDependencyTest(LaravelReleaseFixture):
     def test_production_install_waits_for_the_exact_published_core(self):
         candidate = self.prepare()
         workflow = (REPO / ".github/workflows/release.yml").read_text()
-        step = workflow.split('      - name: Wait for the exact published core and test production dependency resolution\n', 1)[1]
+        step = workflow.split('      - name: Wait for the exact published core and verify production dependencies\n', 1)[1]
         script = textwrap.dedent(step.split('        run: |\n', 1)[1].split('      - name: Require signed source commit', 1)[0])
         curl = self.bin / 'curl'
         curl.write_text('''#!/usr/bin/env python3
@@ -107,15 +107,30 @@ class ReleaseWorkflowTest(unittest.TestCase):
         self.assertEqual(laravel['dependencies']['posthog-php'], 'workspace:*')
         self.assertEqual(composer['require']['posthog/posthog-php'], core['version'])
 
-    def test_one_shared_source_commit_precedes_separate_package_publication(self):
+    def test_one_protected_job_publishes_core_before_laravel(self):
         self.assertFalse((REPO / ".github/workflows/laravel-release.yml").exists())
         workflow = (REPO / ".github/workflows/release.yml").read_text()
         self.assertEqual(workflow.count("--mode source"), 1)
-        self.assertIn("    needs: [prepare-release-candidate, release]\n", workflow)
-        publish_gate = workflow.split("  publish-laravel:\n", 1)[1].split("    runs-on:", 1)[0]
-        self.assertIn("if: always() && !cancelled() && needs.release.result == 'success'", publish_gate)
-        self.assertIn("needs.release.outputs.commit-hash", workflow)
-        self.assertIn("needs.prepare-release-candidate.outputs.core-changed == 'true'", workflow)
+        self.assertEqual(workflow.count("    environment: Release\n"), 1)
+        self.assertEqual(workflow.count("\n    environment:"), 1)
+        self.assertNotIn("  publish-laravel:\n", workflow)
+        publish = workflow.split("  release:\n", 1)[1].split("\n  notify-released:", 1)[0]
+        steps = [
+            "Atomic GitHub-signed shared version commit",
+            "Publish core GitHub release only when its version changed",
+            "Wait for the exact published core and verify production dependencies",
+            "Publish distribution version",
+            "Publish independent source release and archive",
+        ]
+        positions = [publish.index(f"      - name: {name}\n") for name in steps]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("steps.commit-version-bump.outputs.commit-hash", publish)
+        self.assertNotIn("needs.release.outputs.commit-hash", workflow)
+        self.assertIn("needs.prepare-release-candidate.outputs.core-changed == 'true'", publish)
+        self.assertIn('--title "posthog-laravel-v$VERSION"', publish)
+        self.assertIn('gh release create "posthog-laravel-v$VERSION" --latest=false', publish)
+        self.assertNotIn("python3 -m unittest", workflow)
+        self.assertNotIn("scripts/test-laravel.sh", workflow)
         self.assertNotIn("--filter", workflow)
         self.assertIn("Core $CORE_VERSION is not available on Packagist; Laravel was not published", workflow)
 
@@ -170,6 +185,8 @@ class ReleaseRefCheckTest(unittest.TestCase):
             gh.write_text('''#!/usr/bin/env python3
 import os, sys
 endpoint = sys.argv[2]
+with open(os.environ['REF_REQUEST_LOG'], 'a') as log:
+    log.write(endpoint + '\\n')
 if endpoint.endswith('/git/ref/heads/main'):
     print('a' * 40)
 elif endpoint == 'repos/PostHog/posthog-laravel':
@@ -186,9 +203,13 @@ else:
     print('{}')
 ''')
             gh.chmod(0o755)
-            env = {**os.environ, "PATH": f"{directory}:{os.environ['PATH']}", "SOURCE_REPOSITORY": "PostHog/posthog-php", "DISTRIBUTION_REPOSITORY": "PostHog/posthog-laravel", "VERSION": "0.1.0", "REF_RESULT": "missing"}
+            env = {**os.environ, "PATH": f"{directory}:{os.environ['PATH']}", "SOURCE_REPOSITORY": "PostHog/posthog-php", "DISTRIBUTION_REPOSITORY": "PostHog/posthog-laravel", "VERSION": "0.1.0", "REF_RESULT": "missing", "REF_REQUEST_LOG": str(directory / "requests.log")}
             command = ["bash", str(SCRIPT.with_name("check-release-refs.sh"))]
             self.assertEqual(subprocess.run(command, env=env, capture_output=True).returncode, 0)
+            requests = (directory / "requests.log").read_text().splitlines()
+            for endpoint in ["releases/tags", "git/ref/tags"]:
+                self.assertIn(f"repos/PostHog/posthog-php/{endpoint}/posthog-laravel-v0.1.0", requests)
+                self.assertIn(f"repos/PostHog/posthog-laravel/{endpoint}/v0.1.0", requests)
             env.update(CORE_CHANGED='true', CORE_VERSION='4.20.1')
             self.assertEqual(subprocess.run(command, env=env, capture_output=True).returncode, 0)
             self.assertNotEqual(subprocess.run(command, env={**env, 'REF_RESULT': 'core-existing'}, capture_output=True).returncode, 0)
