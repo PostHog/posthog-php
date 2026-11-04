@@ -322,6 +322,10 @@ jobs:
           VERSION: ${{ needs.prepare-release-candidate.outputs.core-version }}
           COMMIT: ${{ steps.commit-version-bump.outputs.commit-hash }}
         run: gh release create "$VERSION" --repo "$REPOSITORY" --target "$COMMIT" --title "$VERSION" --notes-file "$RUNNER_TEMP/candidate/core-notes.md"
+      - name: Revoke source release token before dependency checks
+        env:
+          GH_TOKEN: ${{ steps.releaser.outputs.token }}
+        run: gh api --method DELETE /installation/token
       - name: Checkout shared version commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
