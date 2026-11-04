@@ -55,8 +55,7 @@ class Context
             }
             $config = $this->app['config'];
             if (
-                $config->get('posthog.capture_ip', true) && $config->get('posthog.enabled', true)
-                && trim((string) $config->get('posthog.api_key')) !== ''
+                $config->get('posthog.capture_ip', true) && $this->app->make(PostHog::class)->enabled()
                 && !array_key_exists('$ip', $data['properties'] ?? [])
             ) {
                 try {

@@ -185,6 +185,19 @@ class RequestIpTest extends TestCase
         }
     }
 
+    public function testFakeWithoutAProjectKeyStillCollectsIpUnlessOptedOut(): void
+    {
+        $this->app['config']->set('posthog.api_key', null);
+        $this->app['config']->set('posthog.enabled', false);
+        $fake = PostHog::fake();
+        $this->request();
+        PostHog::capture('fake request');
+        $fake->assertCaptured('fake request', fn ($event) => ($event['properties']['$ip'] ?? null) === '198.51.100.23');
+        $this->app['config']->set('posthog.capture_ip', false);
+        PostHog::capture('opted out');
+        $fake->assertCaptured('opted out', fn ($event) => !array_key_exists('$ip', $event['properties']));
+    }
+
     public function testOptOutDoesNotRemoveApplicationProvidedIp(): void
     {
         $this->app['config']->set('posthog.capture_ip', false);
