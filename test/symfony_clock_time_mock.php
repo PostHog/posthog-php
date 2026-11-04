@@ -1,8 +1,6 @@
 <?php
 
 // phpcs:disable PSR1.Files.SideEffects
-// Gives Symfony's clocks the FakeTimer's monotonic timer and sleeps. Load it only in a separate process, before any
-// Symfony clock sleeps or reads hrtime().
 namespace Symfony\Component\Clock;
 
 use PostHog\Test\FakeTimer;

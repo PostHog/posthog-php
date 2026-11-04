@@ -96,9 +96,6 @@ class EmailsTest extends TestCase
         return null;
     }
 
-    /**
-     * Epoch milliseconds overflow an int on 32-bit PHP, so a wait is measured as a difference of floats.
-     */
     private static function msBetween(DateTimeImmutable $start, DateTimeImmutable $end): int
     {
         return (int) round(((float) $end->format('U.u') - (float) $start->format('U.u')) * 1000);
@@ -737,8 +734,8 @@ class EmailsTest extends TestCase
 
     public function testAClientShutDownDuringTheRequestDoesNotWaitToRetry(): void
     {
-        // As if a signal handler called shutdown() while the first attempt was in flight.
-        $emails = $this->emails(['isClosed' => fn(): bool => $this->requests !== []]);
+        $closedOnceTheFirstAttemptIsInFlight = fn(): bool => $this->requests !== [];
+        $emails = $this->emails(['isClosed' => $closedOnceTheFirstAttemptIsInFlight]);
         $this->reply([429, '{"code":"throttled"}', ['Retry-After: 30']], [202, '{"message_id":"msg_1"}', []]);
         $start = $this->clock->now();
 
@@ -853,8 +850,8 @@ class EmailsTest extends TestCase
         $error = $this->sendError(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
 
         $this->assertSame('throttled', $error->getErrorCode());
-        // A year, or on 32-bit PHP the most whole seconds of milliseconds an int holds.
-        $this->assertSame(PHP_INT_SIZE === 8 ? 31_536_000_000 : 2_147_483_000, $error->getRetryAfterMs());
+        $aYearOrWhatA32BitIntHoldsInMs = PHP_INT_SIZE === 8 ? 31_536_000_000 : 2_147_483_000;
+        $this->assertSame($aYearOrWhatA32BitIntHoldsInMs, $error->getRetryAfterMs());
         $this->assertCount(1, $this->requests);
     }
 
