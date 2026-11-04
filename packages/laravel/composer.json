@@ -1,8 +1,25 @@
 {
   "name": "posthog/posthog-laravel",
   "description": "PostHog for Laravel",
+  "keywords": [
+    "posthog",
+    "laravel"
+  ],
+  "homepage": "https://posthog.com/docs/libraries/laravel",
   "version": "0.1.2",
   "license": "MIT",
+  "authors": [
+    {
+      "name": "PostHog",
+      "email": "engineering@posthog.com",
+      "homepage": "https://posthog.com/"
+    }
+  ],
+  "support": {
+    "issues": "https://github.com/PostHog/posthog-php/issues",
+    "source": "https://github.com/PostHog/posthog-php/tree/main/packages/laravel",
+    "docs": "https://posthog.com/docs/libraries/laravel"
+  },
   "require": {
     "php": ">=8.2",
     "posthog/posthog-php": "4.20.2",
