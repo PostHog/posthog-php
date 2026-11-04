@@ -7,7 +7,7 @@ use PostHog\Laravel\Context;
 use PostHog\Laravel\PostHog;
 use Throwable;
 
-/** @internal Collectors retain correlation IDs and groups, never arbitrary context payloads. */
+/** @internal Collectors retain correlation IDs, groups and IP, never arbitrary context payloads. */
 class Collector
 {
     private array $loggedFailures = [];
@@ -21,9 +21,14 @@ class Collector
 
     public static function snapshot(): array
     {
-        return array_intersect_key(Container::getInstance()->make(Context::class)->snapshot(), [
+        $data = Container::getInstance()->make(Context::class)->snapshot();
+        $snapshot = array_intersect_key($data, [
             'distinctId' => true, 'sessionId' => true, 'groups' => true,
         ]);
+        if (array_key_exists('$ip', $data['properties'] ?? [])) {
+            $snapshot['properties']['$ip'] = $data['properties']['$ip'];
+        }
+        return $snapshot;
     }
 
     public static function capture(string $event, array $properties, ?array $snapshot = null): void

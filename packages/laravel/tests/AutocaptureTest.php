@@ -180,7 +180,8 @@ class AutocaptureTest extends TestCase
             ['first-private', 'first-private', 'second-private', 'second-private'],
             array_column($messages, 'distinctId'),
         );
-        $this->assertSame(['route', 'method', 'status_code', 'duration_ms'], array_keys($messages[0]['properties']));
+        $this->assertSame(['$ip', 'route', 'method', 'status_code', 'duration_ms'], array_keys($messages[0]['properties']));
+        $this->assertSame('127.0.0.1', $messages[0]['properties']['$ip']);
         $this->assertSame('/orders/{order}', $messages[0]['properties']['route']);
         $this->assertSame('https://app.example:8443/orders/{order}', $messages[1]['properties']['$current_url']);
         $this->assertSame('/orders/{order}', $messages[1]['properties']['$pathname']);

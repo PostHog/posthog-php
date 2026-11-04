@@ -52,12 +52,35 @@ analytics input, **never authentication or authorization**. Set `header_context=
 to ignore both headers. No anonymous ID is generated for requests without identity.
 
 Captures include the request method and matched route template (for example
-`/orders/{order}`), never concrete route parameters. Explicit event properties win.
+`/orders/{order}`), never concrete route parameters. Request context also adds the
+visitor's IP address as `$ip` using Laravel's `request()->ip()`. Captures, exceptions
+and enabled automatic collectors inherit it. Explicit event or scoped `$ip` values,
+including `null`, win. Identification, alias and group-identify calls retain their
+explicit-message behavior rather than inheriting capture metadata.
+
+IP collection is on by default, matching the other backend framework integrations.
+To disable automatic IP collection, set `POSTHOG_CAPTURE_IP=false` (or
+`posthog.capture_ip=false`). This does not remove IPs your application explicitly
+supplies. Configure Laravel's trusted proxies before collecting events behind a
+reverse proxy or load balancer. The SDK does not parse forwarding headers itself or
+change the application's proxy trust configuration. Without trusted-proxy setup,
+Laravel may return a proxy address instead of the visitor address.
+
+IPs are resolved only during HTTP request context, not inferred for standalone
+commands or jobs. Request IPs are not copied into queue payload metadata. Deferred
+model events and exception snapshots retain the originating IP in memory; later
+requests cannot replace it. Fresh context scopes exclude inherited request IPs.
+
+GeoIP enrichment remains disabled by default (`sdk.disableGeoip=true`), independently
+of IP collection. Supplying `$ip` alone does not turn geographic enrichment on.
+Use `sdk.disableGeoip=false` or a per-capture `disableGeoip: false` option only when
+you want that enrichment. IP addresses can be personal data; apply your consent and
+retention policies and use `sdk.before_send` to redact or drop them.
+
 By default there is no collection of raw URLs, query strings, request bodies,
-cookies, email, IP addresses, or user profile fields. GeoIP is disabled by default
-(`sdk.disableGeoip=true`). Application-supplied properties and exception messages may
-still contain sensitive information; use `sdk.before_send` to redact or drop events.
-Exception stacks are serialized by the PHP SDK.
+cookies, email, or user profile fields. Application-supplied properties and exception
+messages may still contain sensitive information. Exception stacks are serialized
+by the PHP SDK.
 
 For a custom identity resolver, set `distinct_id` to an invokable container class.
 It receives the application and returns a string identifier or null. A non-null
