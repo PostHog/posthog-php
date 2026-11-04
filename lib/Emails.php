@@ -141,7 +141,8 @@ final class Emails
      *   is left out.
      * - `attachments` is a list of at most 10 files, 512 KB in total. Each file is an array with
      *   `filename`, `content` (the file's bytes, such as `file_get_contents()` returns; the client encodes
-     *   them as Base64), and optional `content_type` and `content_id`. Reference a `content_id` of `logo`
+     *   them as Base64, so pass `base64_decode($content)` when you hold Base64, such as from a Resend
+     *   payload), and optional `content_type` and `content_id`. Reference a `content_id` of `logo`
      *   in the HTML as `<img src="cid:logo">` to show the file inline. PostHog can't fetch a file from a
      *   path or URL.
      *
@@ -204,8 +205,8 @@ final class Emails
      *     attachments?: list<array{
      *         filename: string,
      *         content: string,
-     *         content_type?: string,
-     *         content_id?: string
+     *         content_type?: string|null,
+     *         content_id?: string|null
      *     }>|null,
      *     capture_engagement?: bool|null
      * } $email
@@ -442,6 +443,9 @@ final class Emails
      */
     private static function attachment(string $field, mixed $file): array
     {
+        if (is_array($file)) {
+            $file = array_filter($file, static fn($value): bool => $value !== null);
+        }
         if (!is_array($file) || ($file !== [] && array_is_list($file))) {
             throw self::invalidAttachment(
                 "An attachment is an array with a filename and the file's bytes as its content.",
@@ -462,8 +466,8 @@ final class Emails
                 );
             }
         }
-        if (!is_string($file['filename'] ?? null)) {
-            throw self::invalidAttachment('An attachment needs its filename as a string.', "{$field}__filename");
+        if (!self::isUtf8Text($file['filename'] ?? null)) {
+            throw self::invalidAttachment('An attachment needs its filename as a UTF-8 string.', "{$field}__filename");
         }
         if (!is_string($file['content'] ?? null)) {
             throw self::invalidAttachment(
@@ -471,14 +475,13 @@ final class Emails
                 "{$field}__content"
             );
         }
-        // PHP strings are bytes, so the content is always the file itself and is always encoded here.
         $attachment = ['filename' => $file['filename'], 'content' => base64_encode($file['content'])];
         foreach (['content_type', 'content_id'] as $name) {
             if (!array_key_exists($name, $file)) {
                 continue;
             }
-            if (!is_string($file[$name])) {
-                throw self::invalidAttachment("An attachment's $name must be a string.", "{$field}__$name");
+            if (!self::isUtf8Text($file[$name])) {
+                throw self::invalidAttachment("An attachment's $name must be a UTF-8 string.", "{$field}__$name");
             }
             $attachment[$name] = $file[$name];
         }
@@ -486,9 +489,11 @@ final class Emails
         return $attachment;
     }
 
-    /**
-     * The message never holds the file's content, so the error is safe to log.
-     */
+    private static function isUtf8Text(mixed $value): bool
+    {
+        return is_string($value) && mb_check_encoding($value, 'UTF-8');
+    }
+
     private static function invalidAttachment(string $message, string $field): EmailError
     {
         return new EmailError('invalid_attachment', $message . ' No email was sent.', field: $field);

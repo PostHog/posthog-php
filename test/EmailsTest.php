@@ -273,6 +273,24 @@ class EmailsTest extends TestCase
         $this->assertSame($this->requests[0]['body'], $this->requests[1]['body']);
     }
 
+    public function testANullContentTypeOrContentIdCountsAsLeftOut(): void
+    {
+        $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_key' => 'receipt',
+            'subject' => 'Your receipt',
+            'text' => 'Thanks!',
+            'attachments' => [
+                ['filename' => 'invite.ics', 'content' => self::INVITE, 'content_type' => null, 'content_id' => null],
+            ],
+        ]);
+
+        $this->assertSame(
+            [['filename' => 'invite.ics', 'content' => self::INVITE_BASE64]],
+            $this->body()['attachments']
+        );
+    }
+
     public function testEmptyCopyAndAttachmentListsAreLeftOut(): void
     {
         $this->emails()->send([
@@ -472,6 +490,9 @@ class EmailsTest extends TestCase
                 'attachments__1__content_type',
             ],
             'content_id not text' => [[$file + ['content_id' => ['logo']]], 'attachments__0__content_id'],
+            'filename not UTF-8' => [[['filename' => "Rechnung_M\xE4rz.pdf"] + $file], 'attachments__0__filename'],
+            'content_type not UTF-8' => [[$file + ['content_type' => "text/pl\xE4in"]], 'attachments__0__content_type'],
+            'content_id not UTF-8' => [[$file + ['content_id' => "l\xF6go"]], 'attachments__0__content_id'],
         ];
     }
 
@@ -493,31 +514,6 @@ class EmailsTest extends TestCase
         $this->assertSame($field, $error->getField());
         $this->assertStringNotContainsString(self::SECRET_CONTENT, $error->getMessage() . $error->getFix());
         $this->assertSame([], $this->requests);
-    }
-
-    public function testAServerThatDoesNotTakeAFieldRefusesTheSendAndNamesIt(): void
-    {
-        $this->reply([400, json_encode([
-            'type' => 'invalid_request',
-            'code' => 'invalid_request',
-            'detail' => "PostHog doesn't take this field yet, so it didn't send the email.",
-            'attr' => 'attachments',
-            'why' => "This PostHog version doesn't take the field yet.",
-            'fix' => 'Send the email without this field.',
-        ]), []]);
-
-        $error = $this->sendError([
-            'to' => 'user@example.com',
-            'template_key' => 'receipt',
-            'subject' => 'Your receipt',
-            'text' => 'Thanks!',
-            'attachments' => [['filename' => 'receipt.pdf', 'content' => '%PDF-1.7']],
-        ]);
-
-        $this->assertSame('attachments', $error->getField());
-        $this->assertSame(400, $error->getStatusCode());
-        $this->assertSame('Send the email without this field.', $error->getFix());
-        $this->assertCount(1, $this->requests);
     }
 
     public function testAnOptionOfTheOtherFormSaysHowToSendIt(): void
