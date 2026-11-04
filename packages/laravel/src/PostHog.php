@@ -12,7 +12,7 @@ use Throwable;
 
 class PostHog
 {
-    public const VERSION = '0.1.1';
+    public const VERSION = '0.1.2';
 
     private ?Client $client = null;
     private ?int $definitionsLoadedAt = null;

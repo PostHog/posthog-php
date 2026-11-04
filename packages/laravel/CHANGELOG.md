@@ -1,5 +1,11 @@
 # posthog-laravel
 
+## 0.1.2
+
+### Patch Changes
+
+- Capture Laravel automatic events without an identity as personless events with a fresh UUID per event.
+
 ## 0.1.1
 
 ### Patch Changes

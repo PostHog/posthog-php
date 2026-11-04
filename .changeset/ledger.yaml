@@ -6,6 +6,10 @@ posthog-laravel@0.1.1:
   dir: packages/laravel
   intents:
     - grumpy-years-bake
+posthog-laravel@0.1.2:
+  dir: packages/laravel
+  intents:
+    - four-tables-brake
 posthog-php@4.12.1:
   dir: ""
   intents:
