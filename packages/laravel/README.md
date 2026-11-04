@@ -49,7 +49,40 @@ Identity precedence: an explicit API `distinctId` wins, then an explicitly scope
 `Context` identity, then the custom identity resolver or authenticated request user's
 auth identifier, then `X-PostHog-Distinct-Id` as an anonymous analytics fallback. `X-PostHog-Session-Id` provides session correlation. Headers are untrusted
 analytics input, **never authentication or authorization**. Set `header_context=false`
-to ignore both headers. No anonymous ID is generated for requests without identity.
+to ignore both headers. By default, no persistent anonymous ID is generated for requests
+without identity.
+
+### Anonymous visitor fallback
+
+For session-based Laravel applications without a browser identity, opt in with:
+
+```dotenv
+POSTHOG_ANONYMOUS_ID_ENABLED=true
+```
+
+This sets `posthog.anonymous_id`. After explicit context, the custom resolver,
+authenticated user and frontend distinct-ID header have been checked, the integration
+uses a random UUID stored under `_posthog_anonymous_id` in the existing Laravel
+session. The ID is unrelated to the authentication session ID and survives ordinary
+session-ID regeneration. Invalidating or expiring the session resets it. Different
+sessions get different IDs; this is not a permanent cross-device visitor identifier.
+
+The `web` middleware group prepares the fallback before Laravel saves the session,
+so request collectors and after-response captures can use the same identity.
+Automatic preparation applies to the `web` group; captures in other stateful groups
+can resolve the fallback while their Laravel session is started.
+
+No session is started, no separate analytics cookie is installed, and no ID is
+created for stateless requests, standalone jobs/commands, disabled SDKs, or empty
+project keys. Fresh context scopes do not inherit the fallback. Queue jobs may
+inherit it through the existing bounded queue-context propagation. Only a frontend
+**distinct-ID** header suppresses the fallback; a session-ID header still supplies
+session correlation. Higher-priority identities always win, including after login.
+
+Enabling this option persists an analytics identifier in the application's session;
+apply your application's consent policy before enabling it. It does not emit an
+`$identify` event or automatically merge anonymous history when someone logs in.
+Use the browser SDK's identity flow or explicit aliasing when that linkage is needed.
 
 Captures include the request method and matched route template (for example
 `/orders/{order}`), never concrete route parameters. Explicit event properties win.

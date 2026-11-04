@@ -5,9 +5,11 @@ namespace PostHog\Laravel;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Route;
+use Illuminate\Support\Str;
 use PostHog\ContextScope;
 use PostHog\FeatureFlagEvaluations;
 use PostHog\PostHog as CorePostHog;
+use PostHog\Uuid;
 use Throwable;
 
 class Context
@@ -74,6 +76,12 @@ class Context
         if (is_scalar($id) && (string) $id !== '') {
             $data['distinctId'] = (string) $id;
         }
+        if (!isset($data['distinctId']) || $data['distinctId'] === '') {
+            $anonymousId = $this->anonymousDistinctId();
+            if ($anonymousId !== null) {
+                $data['distinctId'] = $anonymousId;
+            }
+        }
         $groupsResolver = $this->app['config']->get('posthog.groups');
         if ($groupsResolver !== null) {
             try {
@@ -86,6 +94,38 @@ class Context
             }
         }
         return $data;
+    }
+
+    private function anonymousDistinctId(): ?string
+    {
+        $config = $this->app['config'];
+        if (
+            $this->request === null || !$config->get('posthog.anonymous_id', false)
+            || !$config->get('posthog.enabled', true) || trim((string) $config->get('posthog.api_key')) === ''
+        ) {
+            return null;
+        }
+        $id = $this->request->attributes->get('posthog.anonymous_id');
+        if (is_string($id) && Str::isUuid($id, version: 4)) {
+            return $id;
+        }
+        try {
+            if (!$this->request->hasSession() || !$this->request->session()->isStarted()) {
+                return null;
+            }
+            $session = $this->request->session();
+            $id = $session->get('_posthog_anonymous_id');
+            if (!is_string($id) || !Str::isUuid($id, version: 4)) {
+                $id = Uuid::v4();
+                $session->put('_posthog_anonymous_id', $id);
+            }
+            // Laravel saves and closes the session before outer collectors and termination callbacks run.
+            $this->request->attributes->set('posthog.anonymous_id', $id);
+            return $id;
+        } catch (Throwable $exception) {
+            $this->logResolverFailure('anonymous identity', $exception);
+            return null;
+        }
     }
 
     private function logResolverFailure(string $resolver, Throwable $exception): void

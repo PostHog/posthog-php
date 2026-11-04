@@ -9,6 +9,7 @@ return [
     'capture_exceptions' => true,
     'header_context' => true,
     'queue_context' => true,
+    'anonymous_id' => env('POSTHOG_ANONYMOUS_ID_ENABLED', false),
     // Invokable container class; receives the application and returns a distinct ID or null.
     'distinct_id' => null,
     // Invokable container class; receives the application and returns group identifiers.

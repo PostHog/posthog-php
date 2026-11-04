@@ -10,6 +10,7 @@ use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobExceptionOccurred;
 use Illuminate\Queue\Events\Looping;
+use PostHog\Laravel\Middleware\AnonymousIdentity;
 use PostHog\Laravel\Middleware\RequestContext as RequestContextMiddleware;
 use Illuminate\Support\ServiceProvider;
 use Throwable;
@@ -59,6 +60,7 @@ class PostHogServiceProvider extends ServiceProvider
         }
         $this->callAfterResolving(Kernel::class, function ($kernel) {
             $kernel->prependMiddleware(RequestContextMiddleware::class);
+            $kernel->appendMiddlewareToGroup('web', AnonymousIdentity::class);
             if (method_exists($kernel, 'whenRequestLifecycleIsLongerThan')) {
                 $kernel->whenRequestLifecycleIsLongerThan(-INF, static function () {
                     Container::getInstance()->make(RequestLifecycle::class)->finish();

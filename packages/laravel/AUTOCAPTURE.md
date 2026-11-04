@@ -83,8 +83,11 @@ an opaque identifier rather than email if your application customizes that metho
 Application-selected attributes/property mappings may contain PII: allowlist only
 fields you intend to send and use `sdk.before_send` for additional redaction.
 
-Events require an existing analytics identity; collectors do not invent anonymous
-IDs. HTTP uses the runtime's lazy authenticated identity/header fallback. Queue jobs
+Events require an analytics identity; collectors do not invent anonymous IDs.
+HTTP uses the runtime's lazy authenticated identity/header fallback, or its opt-in
+session-backed anonymous visitor fallback (`POSTHOG_ANONYMOUS_ID_ENABLED=true`).
+The latter persists a dedicated random analytics UUID in an existing Laravel session;
+it does not derive an ID from credentials or start sessions for stateless routes. Queue jobs
 use the runtime's bounded queue context propagation or explicit job context. Console
 and scheduler events need explicit context or a configured identity resolver. Failed
 login/lockout events may use existing anonymous context but **never** the attempted
