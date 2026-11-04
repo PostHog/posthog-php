@@ -2,6 +2,10 @@ posthog-laravel@0.1.0:
   dir: packages/laravel
   intents:
     - twelve-donuts-go
+posthog-laravel@0.1.1:
+  dir: packages/laravel
+  intents:
+    - grumpy-years-bake
 posthog-php@4.12.1:
   dir: ""
   intents:
@@ -117,3 +121,7 @@ posthog-php@4.20.1:
   dir: ""
   intents:
     - salty-signs-poke
+posthog-php@4.20.2:
+  dir: ""
+  intents:
+    - grumpy-years-bake
