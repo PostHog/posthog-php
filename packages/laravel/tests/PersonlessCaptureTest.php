@@ -138,6 +138,11 @@ class PersonlessCaptureTest extends TestCase
 
     public function testAnonymousModelEventsRespectTransactionsAndDoNotBorrowLaterIdentity(): void
     {
+        $resolvedId = null;
+        $this->app->instance('changing-identity', function () use (&$resolvedId) {
+            return $resolvedId;
+        });
+        $this->app['config']->set('posthog.distinct_id', 'changing-identity');
         $this->app['config']->set('posthog.autocapture.models', [
             'enabled' => true, 'allow' => [CollectedRecord::class => ['state']],
         ]);
@@ -155,6 +160,7 @@ class PersonlessCaptureTest extends TestCase
         CollectedRecord::create(['state' => 'rolled back', 'email' => 'private']);
         DB::rollBack();
         $this->assertSame([], $this->events);
+        $resolvedId = 'later-user';
         $context->begin(['distinctId' => 'later-user', 'sessionId' => 'later-session']);
         DB::commit();
         $this->assertCount(2, $this->events);
@@ -167,6 +173,7 @@ class PersonlessCaptureTest extends TestCase
             $this->assertSame(['team' => 'original'], $event['properties']['$groups']);
         }
         $this->assertSame('later-user', $context->data()['distinctId']);
+        $resolvedId = null;
         $context->begin();
         CollectedRecord::create(['state' => 'immediate', 'email' => 'private']);
         $this->assertCount(3, $this->events);

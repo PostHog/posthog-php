@@ -28,7 +28,7 @@ class Collector
 
     public static function capture(string $event, array $properties, ?array $snapshot = null): void
     {
-        $context = null;
+        $scope = null;
         try {
             $app = Container::getInstance();
             if (!self::enabled()) {
@@ -36,9 +36,7 @@ class Collector
             }
             $snapshot ??= self::snapshot();
             $id = $snapshot['distinctId'] ?? null;
-            $context = $app->make(Context::class);
-            $context->enter();
-            $context->begin($snapshot);
+            $scope = $app->make(Context::class)->enterResolvedContext($snapshot);
             $app->make(PostHog::class)->capture([
                 'event' => $event, 'properties' => $properties,
                 'distinctId' => is_scalar($id) ? (string) $id : null, 'groups' => $snapshot['groups'] ?? [],
@@ -46,7 +44,7 @@ class Collector
         } catch (Throwable $exception) {
             self::logFailure(__METHOD__, $exception);
         } finally {
-            $context?->leave();
+            $scope?->close();
         }
     }
 
