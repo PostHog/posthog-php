@@ -8,6 +8,7 @@ use DateTimeZone;
 use InvalidArgumentException;
 use JsonException;
 use Symfony\Component\Clock\Clock;
+use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\MonotonicClock;
 use Symfony\Component\Clock\NativeClock;
 
@@ -45,6 +46,7 @@ final class Emails
     private const MAX_RETRY_DELAY_MS = 30000;
     private const MAX_RESPONSE_BYTES = 1_048_576;
     private const MAX_RETRY_AFTER_SECONDS = 31_536_000;
+    private const NO_EXPECT_100_CONTINUE = 'Expect:';
     private const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iD';
     private const IDEMPOTENCY_KEY_PATTERN = '/^[\x21-\x7e]{1,255}$/D';
     private const TEMPLATE_KEY_PATTERN = '/^[a-zA-Z0-9_-]{1,400}$/D';
@@ -191,9 +193,8 @@ final class Emails
             return self::parseSendReply(...$this->request('POST', $appHost . self::SEND_PATH, $headers, $body));
         });
         foreach ($result->getWarnings() as $warning) {
-            // The fields come from the reply, so control characters are escaped to keep each warning on one log line.
             $line = $warning->getCode() . ': ' . $warning->getMessage();
-            error_log('[PostHog][Emails] Email warning ' . addcslashes($line, "\0..\37\177\\"));
+            error_log('[PostHog][Emails] Email warning ' . self::onOneLogLine($line));
         }
 
         return $result;
@@ -427,7 +428,6 @@ final class Emails
             throw new EmailError('client_closed', "The PostHog client is shut down, so $notDone.");
         }
         if ($this->appHost === null) {
-            // A custom host is often an ingestion proxy, which must not receive the secret key.
             throw new EmailError(
                 'missing_app_host',
                 "The client's host is not PostHog Cloud, so the client can't tell where to send email. "
@@ -487,12 +487,7 @@ final class Emails
      */
     private function waitToRetry(int $delayMs, EmailError $error): void
     {
-        $clock = Clock::get();
-        if ($clock instanceof NativeClock) {
-            // The wall clock can jump during the wait, so the deadline is kept on a clock that only moves forward.
-            $clock = new MonotonicClock();
-        }
-        // Measured from the start of the wait: microseconds since the epoch don't fit in an int on 32-bit PHP.
+        $clock = self::forwardOnlyClock();
         $start = $clock->now();
         while (!($this->isClosed)()) {
             $remainingUs = $delayMs * 1000 - self::microsecondsBetween($start, $clock->now());
@@ -505,17 +500,37 @@ final class Emails
         throw $error;
     }
 
+    private static function forwardOnlyClock(): ClockInterface
+    {
+        $clock = Clock::get();
+
+        return $clock instanceof NativeClock ? new MonotonicClock() : $clock;
+    }
+
     private static function microsecondsBetween(DateTimeImmutable $start, DateTimeImmutable $end): int
     {
-        // Read as floats: on 32-bit PHP an epoch after 2038 doesn't fit in an int.
-        $seconds = (int) ((float) $end->format('U') - (float) $start->format('U'));
+        $seconds = (int) (self::wholeEpochSecondsAsFloat($end) - self::wholeEpochSecondsAsFloat($start));
 
         return $seconds * 1_000_000 + (int) $end->format('u') - (int) $start->format('u');
     }
 
+    private static function wholeEpochSecondsAsFloat(DateTimeImmutable $time): float
+    {
+        return (float) $time->format('U');
+    }
+
+    private static function epochSecondsAsFloat(DateTimeImmutable $time): float
+    {
+        return (float) $time->format('U.u');
+    }
+
+    private static function onOneLogLine(string $text): string
+    {
+        return addcslashes($text, "\0..\37\177\\");
+    }
+
     private static function isRetryable(EmailError $error): bool
     {
-        // A send carries an idempotency key, so a retry can't queue a second email. A status read changes nothing.
         $status = $error->getStatusCode();
         if ($status === null) {
             return $error->getErrorCode() === 'network_error';
@@ -524,7 +539,6 @@ final class Emails
             return $error->getErrorCode() === 'idempotency_key_in_flight';
         }
         if ($status === 429) {
-            // Waiting doesn't fix a monthly quota.
             return $error->getErrorCode() !== 'quota_limited';
         }
 
@@ -537,7 +551,6 @@ final class Emails
             return null;
         }
         $retryAfterMs = $error->getRetryAfterMs();
-        // Retrying before a longer Retry-After would break the server's rate limit.
         if ($retryAfterMs !== null && $retryAfterMs > self::MAX_RETRY_DELAY_MS) {
             return null;
         }
@@ -580,8 +593,7 @@ final class Emails
         curl_setopt_array($curl, [
             CURLOPT_URL => $url,
             CURLOPT_CUSTOMREQUEST => $method,
-            // An empty Expect stops cURL from waiting for 100-continue before it sends a large body.
-            CURLOPT_HTTPHEADER => [...$headers, 'Expect:'],
+            CURLOPT_HTTPHEADER => [...$headers, self::NO_EXPECT_100_CONTINUE],
             CURLOPT_WRITEFUNCTION => static function ($curl, string $chunk) use (&$responseBody, &$tooLarge): int {
                 if (strlen($responseBody) + strlen($chunk) > self::MAX_RESPONSE_BYTES) {
                     $tooLarge = true;
@@ -727,19 +739,24 @@ final class Emails
         if (is_numeric($value)) {
             $seconds = (float) $value;
         } else {
-            // The format's GMT is literal text, so without a zone PHP would read the time in its default zone.
-            $date = DateTimeImmutable::createFromFormat(DATE_RFC7231, $value, new DateTimeZone('UTC'));
-            if ($date === false) {
+            $date = self::httpDateInUtc($value);
+            if ($date === null) {
                 return null;
             }
-            // getTimestamp() throws on 32-bit PHP for a date after 2038, so the epoch is read as a float.
-            $seconds = (float) $date->format('U') - (float) Clock::get()->now()->format('U.u');
+            $seconds = self::epochSecondsAsFloat($date) - self::epochSecondsAsFloat(Clock::get()->now());
         }
-        // Clamped in seconds first: milliseconds since the epoch, or a huge value times 1000, overflow an int,
-        // on 32-bit PHP soonest. A value too long for a float reads as INF and clamps to the maximum too.
-        $maxSeconds = min(self::MAX_RETRY_AFTER_SECONDS, intdiv(PHP_INT_MAX, 1000));
 
-        return (int) (min(max(0.0, $seconds), $maxSeconds) * 1000);
+        return (int) (min(max(0.0, $seconds), self::longestRetryAfterSecondsAnIntHoldsInMs()) * 1000);
+    }
+
+    private static function httpDateInUtc(string $value): ?DateTimeImmutable
+    {
+        return DateTimeImmutable::createFromFormat(DATE_RFC7231, $value, new DateTimeZone('UTC')) ?: null;
+    }
+
+    private static function longestRetryAfterSecondsAnIntHoldsInMs(): int
+    {
+        return min(self::MAX_RETRY_AFTER_SECONDS, intdiv(PHP_INT_MAX, 1000));
     }
 
     /**

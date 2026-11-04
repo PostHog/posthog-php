@@ -370,8 +370,7 @@ class Client implements FeatureFlagEvaluationsHost
         $this->flagsEtag = null;
         $this->flagDefinitionsLoaded = false;
         $this->minimalFlagCalledEvents = false;
-        // The email service checks its options when it is built, so a bad one fails here, not at the first send.
-        $this->emails();
+        $this->refuseBadEmailOptions();
 
         if ($this->enabled) {
             ExceptionCapture::configure($this, $options['error_tracking'] ?? []);
@@ -497,19 +496,33 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function emails(): Emails
     {
-        // A new service per call: it refers to the client, and the client never refers to it, so dropping
-        // both still runs the client's destructor, which flushes queued events.
         return new Emails(
             $this->secretKey,
             $this->options['host'],
             appHost: $this->options['app_host'] ?? null,
-            requestTimeoutMs: (int) ($this->options['email_request_timeout_ms'] ?? Emails::DEFAULT_REQUEST_TIMEOUT_MS),
-            maxRetries: (int) ($this->options['email_request_max_retries'] ?? Emails::DEFAULT_MAX_RETRIES),
+            requestTimeoutMs: $this->integerOption('email_request_timeout_ms', Emails::DEFAULT_REQUEST_TIMEOUT_MS),
+            maxRetries: $this->integerOption('email_request_max_retries', Emails::DEFAULT_MAX_RETRIES),
             migratedFrom: $this->options['migrated_from'] ?? null,
             userAgent: $this->options['library_name'] . '/' . $this->options['library_version'],
             isDisabled: fn(): bool => !$this->enabled,
             isClosed: fn(): bool => $this->shutdownComplete,
         );
+    }
+
+    private function refuseBadEmailOptions(): void
+    {
+        $this->emails();
+    }
+
+    private function integerOption(string $name, int $default): int
+    {
+        $value = $this->options[$name] ?? $default;
+        $integer = is_string($value) ? filter_var($value, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE) : $value;
+        if (!is_int($integer)) {
+            throw new InvalidArgumentException("$name must be a whole number, such as $default.");
+        }
+
+        return $integer;
     }
 
     /**
