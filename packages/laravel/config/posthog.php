@@ -26,6 +26,7 @@ return [
     'sdk' => array_filter([
         'disableGeoip' => true,
         'timeout' => $decimal($consumer === 'socket' ? 'POSTHOG_SOCKET_TIMEOUT_SECONDS' : 'POSTHOG_TIMEOUT_MS'),
+        'http_timeout_ms' => $decimal('POSTHOG_TIMEOUT_MS'),
         'batch_size' => $integer('POSTHOG_BATCH_SIZE'),
         'max_queue_size' => $integer('POSTHOG_MAX_QUEUE_SIZE'),
         'flush_interval_seconds' => $decimal('POSTHOG_FLUSH_INTERVAL_SECONDS'),

@@ -264,7 +264,10 @@ class Client implements FeatureFlagEvaluationsHost
      * to 10000 events, `batch_size` defaults to 100 events, and `flush_interval_seconds` defaults
      * to 5 seconds. The interval is checked when another event is enqueued because PHP has no
      * portable in-process background timer. For the socket consumer, `timeout` is passed to
-     * pfsockopen() and is in seconds.
+     * pfsockopen() and is in seconds. `http_timeout_ms` independently controls SDK HTTP requests,
+     * including local flag-definition fetches. It defaults to 10000ms with the socket consumer,
+     * or inherits `timeout` for other consumers. Direct flag evaluation requests instead use
+     * `feature_flag_request_timeout_ms`.
      *
      * Feature flag requests to `/flags/?v=2` retry transient curl/network errors and HTTP 502/504.
      * `feature_flag_request_max_retries` defaults to 1; set it to 0 to disable these retries.
@@ -275,6 +278,7 @@ class Client implements FeatureFlagEvaluationsHost
      *     host?: string,
      *     ssl?: bool,
      *     timeout?: int|float,
+     *     http_timeout_ms?: int|float,
      *     verify_batch_events_request?: bool,
      *     feature_flag_request_timeout_ms?: int,
      *     feature_flag_request_max_retries?: int,
@@ -343,6 +347,8 @@ class Client implements FeatureFlagEvaluationsHost
         $Consumer = self::CONSUMERS[$this->options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($this->apiKey, $this->options, $httpClient);
         $this->maximumBackoffDurationMs = (int) ($options['maximum_backoff_duration'] ?? 10000);
+        $httpTimeoutMilliseconds = $options['http_timeout_ms']
+            ?? (($this->options['consumer'] ?? null) === 'socket' ? 10000 : ($options['timeout'] ?? 10000));
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $this->options['host'],
             $options['ssl'] ?? true,
@@ -350,7 +356,7 @@ class Client implements FeatureFlagEvaluationsHost
             false,
             $options["debug"] ?? false,
             null,
-            (int) ($options['timeout'] ?? 10000)
+            (int) ceil($httpTimeoutMilliseconds)
         );
         $this->featureFlagsRequestTimeout = (int) ($options['feature_flag_request_timeout_ms'] ?? 3000);
         $this->featureFlagRequestMaxRetries = max(0, (int) ($options['feature_flag_request_max_retries'] ?? 1));

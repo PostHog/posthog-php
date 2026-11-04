@@ -130,7 +130,27 @@ class EnvironmentConfigTest extends TestCase
         }
     }
 
-    public function testInactiveTransportTimeoutDoesNotOverrideTheDefault(): void
+    public function testSocketSecondsDoNotChangeTheHttpTimeoutMilliseconds(): void
+    {
+        foreach ([[null, 10000], ['2500', 2500], ['0', 0], ['0.5', 1]] as [$milliseconds, $expected]) {
+            $config = $this->withEnvironment([
+                'POSTHOG_CONSUMER' => 'socket',
+                'POSTHOG_SOCKET_TIMEOUT_SECONDS' => '0.25',
+                'POSTHOG_TIMEOUT_MS' => (string) $milliseconds,
+            ], fn () => $this->configuration());
+            $sdk = $this->client($config);
+            $http = (new \ReflectionProperty(Client::class, 'httpClient'))->getValue($sdk);
+            $this->assertSame(
+                $expected,
+                (new \ReflectionProperty(HttpClient::class, 'curlTimeoutMilliseconds'))->getValue($http)
+            );
+            $transport = (new \ReflectionProperty(Client::class, 'consumer'))->getValue($sdk);
+            $options = (new \ReflectionProperty(Consumer::class, 'options'))->getValue($transport);
+            $this->assertSame(0.25, $options['timeout']);
+        }
+    }
+
+    public function testInactiveTransportTimeoutDoesNotOverrideEventDelivery(): void
     {
         foreach ([
             ['POSTHOG_CONSUMER' => 'socket', 'POSTHOG_TIMEOUT_MS' => '2500'],

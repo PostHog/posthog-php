@@ -273,12 +273,12 @@ See [Pennant setup, scope mapping and cache behavior](PENNANT.md).
 
 ## Environment-based SDK tuning
 
-The package configuration maps these environment variables to the existing PHP SDK
-options under `posthog.sdk`:
+The package configuration maps these environment variables to PHP SDK options
+under `posthog.sdk`:
 
 | Environment variable | SDK option | SDK default when unset |
 | --- | --- | --- |
-| `POSTHOG_TIMEOUT_MS` | `timeout` for cURL consumers | 10000 milliseconds |
+| `POSTHOG_TIMEOUT_MS` | `timeout` for cURL delivery; `http_timeout_ms` for SDK HTTP requests | 10000 milliseconds |
 | `POSTHOG_SOCKET_TIMEOUT_SECONDS` | `timeout` for the socket consumer | 5 seconds |
 | `POSTHOG_BATCH_SIZE` | `batch_size` | 100 events |
 | `POSTHOG_MAX_QUEUE_SIZE` | `max_queue_size` | 10000 events |
@@ -296,11 +296,18 @@ POSTHOG_BATCH_SIZE=50
 POSTHOG_FF_REQUEST_MAX_RETRIES=0
 ```
 
-The timeout variable is selected by `POSTHOG_CONSUMER`: `socket` uses
+The event-delivery timeout is selected by `POSTHOG_CONSUMER`: `socket` uses
 `POSTHOG_SOCKET_TIMEOUT_SECONDS`; cURL consumers use `POSTHOG_TIMEOUT_MS`.
-The inactive transport's timeout variable is ignored, so milliseconds cannot
-accidentally become seconds. For example, use `POSTHOG_CONSUMER=socket` with
-`POSTHOG_SOCKET_TIMEOUT_SECONDS=0.25` for a quarter-second socket timeout.
+The inactive transport's timeout does not affect event delivery. For example, use
+`POSTHOG_CONSUMER=socket` with `POSTHOG_SOCKET_TIMEOUT_SECONDS=0.25` for a
+quarter-second socket timeout.
+
+`POSTHOG_TIMEOUT_MS` also controls SDK HTTP requests, including local flag-definition
+fetches, even when events use the socket consumer. Those requests retain their
+10000-millisecond default when it is unset; socket seconds never become HTTP
+milliseconds. Positive fractional milliseconds round up rather than disabling the
+timeout. Explicit `POSTHOG_TIMEOUT_MS=0` disables the HTTP timeout.
+`POSTHOG_FF_REQUEST_TIMEOUT_MS` separately controls remote flag evaluation requests.
 There is no ambiguous `POSTHOG_TIMEOUT` mapping.
 
 Unset or empty variables leave the SDK's defaults in control. Numeric strings are
