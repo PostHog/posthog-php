@@ -464,7 +464,7 @@ class AutocaptureTest extends TestCase
         $this->assertSame(['first', 'second'], array_column($exposures, 'distinct_id'));
     }
 
-    public function testOutcomeExclusionsAndNoIdentityDoNotInventAnonymousEvents(): void
+    public function testOutcomeExclusionsDoNotSuppressPersonlessDomainEvents(): void
     {
         $fake = PostHog::fake();
         $this->enable('jobs');
@@ -475,8 +475,9 @@ class AutocaptureTest extends TestCase
         $this->app['events']->dispatch(new JobProcessing('sync', $job));
         $this->identity();
         $this->app['events']->dispatch(new JobProcessed('sync', $job));
-        $this->app['events']->dispatch(new OrderCompleted());
         $fake->assertNothingCaptured();
+        $this->app['events']->dispatch(new OrderCompleted());
+        $fake->assertCaptured('order_completed', fn ($event) => $event['distinctId'] === null);
     }
 
     public function testCollectorFailureNeverMasksOriginalExceptionOrLeaksContextProperties(): void
