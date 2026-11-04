@@ -1,5 +1,11 @@
 # posthog-laravel
 
+## 0.1.3
+
+### Patch Changes
+
+- Add Laravel package authors, keywords, homepage, and support links
+
 ## 0.1.2
 
 ### Patch Changes
