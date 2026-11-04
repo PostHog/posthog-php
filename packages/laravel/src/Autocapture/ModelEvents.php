@@ -20,8 +20,7 @@ class ModelEvents
                 return;
             }
             $snapshot = Collector::snapshot();
-            $id = $snapshot['distinctId'] ?? null;
-            if (!is_scalar($id) || (string) $id === '' || !Collector::jsonSafe($snapshot)) {
+            if (!Collector::jsonSafe($snapshot)) {
                 return;
             }
             $attributes = [];

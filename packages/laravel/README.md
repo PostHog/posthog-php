@@ -49,7 +49,17 @@ Identity precedence: an explicit API `distinctId` wins, then an explicitly scope
 `Context` identity, then the custom identity resolver or authenticated request user's
 auth identifier, then `X-PostHog-Distinct-Id` as an anonymous analytics fallback. `X-PostHog-Session-Id` provides session correlation. Headers are untrusted
 analytics input, **never authentication or authorization**. Set `header_context=false`
-to ignore both headers. No anonymous ID is generated for requests without identity.
+to ignore both headers.
+
+Without an explicit or contextual identity, captures and exception events use a fresh
+random UUID **for each event** and default to `$process_person_profile=false`. An
+explicit `$process_person_profile` property still wins. Enabled automatic collectors
+use the same personless capture behavior. These IDs are not persistent visitor IDs:
+they are never stored in Laravel sessions, cookies, request context or queue metadata,
+and do not link events from the same anonymous visitor. A frontend session-ID header
+can still correlate events through `$session_id` without supplying a person identity.
+Feature-flag evaluation never generates an identity: without one, it returns an empty
+snapshot without loading definitions, making flag requests or sending exposure events.
 
 Captures include the request method and matched route template (for example
 `/orders/{order}`), never concrete route parameters. Explicit event properties win.

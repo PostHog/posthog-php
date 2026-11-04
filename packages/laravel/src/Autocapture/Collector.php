@@ -36,15 +36,12 @@ class Collector
             }
             $snapshot ??= self::snapshot();
             $id = $snapshot['distinctId'] ?? null;
-            if (!is_scalar($id) || (string) $id === '') {
-                return;
-            }
             $context = $app->make(Context::class);
             $context->enter();
             $context->begin($snapshot);
             $app->make(PostHog::class)->capture([
                 'event' => $event, 'properties' => $properties,
-                'distinctId' => (string) $id, 'groups' => $snapshot['groups'] ?? [],
+                'distinctId' => is_scalar($id) ? (string) $id : null, 'groups' => $snapshot['groups'] ?? [],
             ]);
         } catch (Throwable $exception) {
             self::logFailure(__METHOD__, $exception);

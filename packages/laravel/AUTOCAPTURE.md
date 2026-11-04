@@ -83,12 +83,18 @@ an opaque identifier rather than email if your application customizes that metho
 Application-selected attributes/property mappings may contain PII: allowlist only
 fields you intend to send and use `sdk.before_send` for additional redaction.
 
-Events require an existing analytics identity; collectors do not invent anonymous
-IDs. HTTP uses the runtime's lazy authenticated identity/header fallback. Queue jobs
-use the runtime's bounded queue context propagation or explicit job context. Console
-and scheduler events need explicit context or a configured identity resolver. Failed
-login/lockout events may use existing anonymous context but **never** the attempted
-user identifier. Missing credentials or disabled SDK configuration cannot send traffic.
+Events use existing analytics identity when available. Without one, the PHP SDK
+assigns a fresh random UUID to **each event** and sets `$process_person_profile=false`
+unless an explicit event property overrides it. These personless IDs are not stored
+in sessions, cookies or context and are not propagated to jobs or used to evaluate
+feature flags. They do not provide a persistent anonymous visitor identity.
+HTTP uses the runtime's lazy authenticated identity/header fallback. Queue jobs use
+the runtime's bounded queue context propagation or explicit job context. Console and
+scheduler events use context or a configured identity resolver when available and
+are otherwise personless. Failed login/lockout events may use existing analytics
+context or personless capture but **never** the attempted user identifier. Existing
+session correlation and groups are preserved. Missing credentials or disabled SDK
+configuration cannot send traffic.
 Failures in analytics do not change application responses or replace original errors.
 
 ## Exact event schemas
@@ -157,8 +163,8 @@ commit and discard rolled-back changes.
 All connections share an internal pending budget of **1,000 events and 1 MiB of
 JSON-encoded event names, properties and correlation context**. If either limit
 would be exceeded, the newest event is dropped (including an oversized allowlisted
-attribute); there are no additional configuration options. Events without a usable
-identity consume no pending capacity. Commit and rollback release capacity;
+attribute); there are no additional configuration options. Personless model events
+consume the same pending budget. Commit and rollback release capacity;
 abandoned/disconnected transactions are also discarded before the next admission.
 Callback registration happens only after admission, once per transaction record,
 and is also capped at 1,000 records (including stale records retained by Laravel
