@@ -2,6 +2,7 @@
 
 namespace PostHog\Test;
 
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\EmailError;
@@ -139,6 +140,38 @@ class EmailsClientTest extends TestCase
             $this->assertNull($error->getStatusCode());
             $this->assertStringNotContainsString('phs_secret', $error->getMessage());
         }
+    }
+
+    public static function badEmailOptions(): array
+    {
+        return [
+            'zero timeout' => [['email_request_timeout_ms' => 0]],
+            'timeout not a number' => [['email_request_timeout_ms' => 'soon']],
+            'negative retries' => [['email_request_max_retries' => -1]],
+            'migrated_from with a space' => [['migrated_from' => 'Resend Inc']],
+        ];
+    }
+
+    #[DataProvider('badEmailOptions')]
+    public function testABadEmailOptionIsRefusedWhenTheClientIsBuilt(array $options): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        $options += ['consumer' => 'noop'];
+
+        new Client('phc_project', $options, loadFeatureFlags: false, secretKey: 'phs_secret');
+    }
+
+    public function testAnEmptyMigratedFromCountsAsLeftOut(): void
+    {
+        $this->server = new LocalHttpServer([['status' => 202, 'body' => '{"message_id":"msg_1"}']]);
+
+        $this->client(['migrated_from' => ''])->emails()->send([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+        ]);
+
+        $this->assertArrayNotHasKey('x-posthog-migrated-from', $this->server->requests()[0]['headers']);
     }
 
     public function testTheClientWithoutAProjectKeyIsDisabledForEmail(): void

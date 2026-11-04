@@ -107,6 +107,7 @@ final class Emails
         if ($maxRetries < 0) {
             throw new InvalidArgumentException('email_request_max_retries must be a nonnegative integer.');
         }
+        $migratedFrom = StringNormalizer::normalizeOptional($migratedFrom);
         if ($migratedFrom !== null && preg_match(self::HEADER_TOKEN_PATTERN, $migratedFrom) !== 1) {
             throw new InvalidArgumentException("migrated_from must be visible ASCII characters, such as 'resend'.");
         }
@@ -132,9 +133,10 @@ final class Emails
      *   400), `subject`, and `html`, `text` or both. PostHog derives a missing `text` from the `html`, and
      *   sends the content as is without storing it. To send a React email, render it to HTML in your app
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
-     *   `reply_to` (one address or a list), `cc` and `bcc` (one address or a list of at most 10; an empty
-     *   list is left out), `attachments` and `capture_engagement` (default true; a project whose admin
-     *   turned engagement capture off captures nothing, whatever the send asks).
+     *   `reply_to`, `cc` and `bcc` (one address or a list; at most 10 for `cc` and `bcc`), `attachments`
+     *   and `capture_engagement` (default true; a project whose admin turned engagement capture off
+     *   captures nothing, whatever the send asks). An empty `reply_to`, `cc`, `bcc` or `attachments` list
+     *   is left out.
      * - `attachments` is a list of at most 10 files, 512 KB in total. Each file is an array with
      *   `filename`, `content` (the file's bytes, such as `file_get_contents()` returns; the client encodes
      *   them as Base64), and optional `content_type` and `content_id`. Reference a `content_id` of `logo`
@@ -383,11 +385,7 @@ final class Emails
             }
             $content['from'] = $email['from'];
         }
-        if (array_key_exists('reply_to', $email)) {
-            $content['reply_to'] = self::addresses('reply_to', $email['reply_to']);
-        }
-        foreach (['cc', 'bcc'] as $field) {
-            // An empty list is left out, so a list built per email needs no check before the send.
+        foreach (['reply_to', 'cc', 'bcc'] as $field) {
             if (array_key_exists($field, $email) && $email[$field] !== []) {
                 $content[$field] = self::addresses($field, $email[$field]);
             }
@@ -410,7 +408,7 @@ final class Emails
     private static function addresses(string $field, mixed $value): array
     {
         $addresses = is_string($value) ? [$value] : $value;
-        if (!is_array($addresses) || !array_is_list($addresses) || $addresses === []) {
+        if (!is_array($addresses) || !array_is_list($addresses)) {
             throw self::invalid('invalid_form', "$field must be one address or a list of addresses.", $field);
         }
         foreach ($addresses as $address) {

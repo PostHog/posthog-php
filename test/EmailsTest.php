@@ -211,7 +211,7 @@ class EmailsTest extends TestCase
         ], $this->body());
     }
 
-    public function testNullOptionsCountAsLeftOut(): void
+    public function testNullOptionsAndAnEmptyReplyToCountAsLeftOut(): void
     {
         $this->emails()->send([
             'to' => 'user@example.com',
@@ -220,7 +220,7 @@ class EmailsTest extends TestCase
             'html' => '<p>Thanks!</p>',
             'text' => null,
             'from' => null,
-            'reply_to' => null,
+            'reply_to' => [],
             'cc' => null,
             'bcc' => null,
             'attachments' => null,
@@ -413,7 +413,6 @@ class EmailsTest extends TestCase
             'html not a string' => [['html' => ['<p>']] + $code, 'invalid_form', 'html'],
             'empty from' => [$code + ['from' => ''], 'invalid_form', 'from'],
             'blank reply_to' => [$code + ['reply_to' => ['a@example.com', ' ']], 'invalid_form', 'reply_to'],
-            'empty reply_to list' => [$code + ['reply_to' => []], 'invalid_form', 'reply_to'],
             'blank cc' => [$code + ['cc' => ' '], 'invalid_form', 'cc'],
             'bcc not text' => [$code + ['bcc' => [123]], 'invalid_form', 'bcc'],
             'cc as a map' => [$code + ['cc' => ['boss' => 'boss@example.com']], 'invalid_form', 'cc'],
@@ -858,8 +857,8 @@ class EmailsTest extends TestCase
         $error = $this->sendError(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
 
         $this->assertSame('throttled', $error->getErrorCode());
-        // A year, or what fits in an int on 32-bit PHP.
-        $this->assertSame(min(31_536_000, intdiv(PHP_INT_MAX, 1000)) * 1000, $error->getRetryAfterMs());
+        // A year, or on 32-bit PHP the most whole seconds of milliseconds an int holds.
+        $this->assertSame(PHP_INT_SIZE === 8 ? 31_536_000_000 : 2_147_483_000, $error->getRetryAfterMs());
         $this->assertCount(1, $this->requests);
     }
 
