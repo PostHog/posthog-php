@@ -19,10 +19,7 @@
             "type": "path",
             "url": "../..",
             "options": {
-                "symlink": true,
-                "versions": {
-                    "posthog/posthog-php": "4.20.x-dev"
-                }
+                "symlink": true
             }
         },
         {

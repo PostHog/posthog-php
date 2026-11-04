@@ -1,97 +1,136 @@
 # Releasing
 
-This repository uses [pnpm's native release management](https://pnpm.io/versioning) and an automated GitHub Actions workflow for releases.
+The PHP SDK and Laravel integration use [pnpm's native release management](https://pnpm.io/versioning), shared `.changeset/` intents, and one `.github/workflows/release.yml`. Like Ruby/Rails, they have independent versions but release according to their dependency direction.
 
-## How to Release
-
-### 1. Record a Change Intent
-
-When making a change that should be released, record a change intent:
+## Record a change
 
 ```bash
 pnpm change
 ```
 
-Select `posthog-php`, choose the version bump (`patch`, `minor`, or `major`), and enter a short release summary. Commit the generated `.changeset/*.md` file with your pull request.
+Select the affected packages, bump types (`patch`, `minor`, or `major`), and a release summary. Commit the generated `.changeset/*.md` with the change.
 
-### 2. Merge the Pull Request
+- **Core PHP change:** select `posthog-php`. Laravel declares `"posthog-php": "workspace:*"` in its release metadata, so pnpm automatically includes a Laravel patch release to update its exact core SDK pin.
+- **Laravel-only change:** select `posthog-laravel`. Core is neither bumped nor republished.
+- **Both packages changed:** select both with the appropriate bump types. pnpm combines explicit bumps and dependency propagation in one plan; Laravel is not bumped twice.
 
-After review, merge the PR to `main`. No GitHub release label is required.
+An automatically generated Laravel patch is appropriate for a backwards-compatible core update. An incompatible core change also needs the corresponding Laravel code changes and an explicit appropriate bump.
 
-A push to `main` that includes `.changeset/*.md` changes automatically starts the release workflow. The workflow then:
+Both release-metadata packages are private, so pnpm applies pending bumps without consulting npm. Laravel starts at **0.0.0**, and its initial **minor** intent produces **0.1.0**. Preparation rejects an initial 0.0.x release, including a dependency-only patch from a core change; add an explicit Laravel minor or major intent first. There is no custom initial-release bump or separate intent format.
 
-1. Checks for pending change intents. A run whose trigger commit is no longer the tip of `main` skips itself if no releasable intents remain there, and fails if some do, since a later push that didn't touch `.changeset/` starts no release run of its own. In that case, dispatch the Release workflow on `main`
-2. Uses `pnpm version -r` to determine and apply the version bump, consume the intents, update `CHANGELOG.md` and `.changeset/ledger.yaml`, and refresh `composer.lock`
-3. Prepares a release candidate patch for the triggering commit in a read-only job without release secrets, after verifying the release bump script hash
-4. Verifies the release candidate in a separate read-only job and fails if the tag or GitHub Release already exists
-5. Notifies the client libraries team in Slack for approval only after candidate preparation and verification both succeed
-6. Waits for one approval from a maintainer via the GitHub `Release` environment
-7. Applies the verified release candidate patch, creates a signed release commit, tags the release, and creates a GitHub Release
-8. Notifies Slack and records PostHog failure events from separate follow-up jobs, outside the approved publishing job
+## Dependency and version policy
 
-### Manual Trigger
+Laravel's Composer manifest pins `posthog/posthog-php` to the **exact core version** recorded in the same release commit, not a caret range. For example, a release built against PHP `4.20.1` requires exactly `4.20.1`.
 
-You can also manually trigger the release workflow from the Actions tab with `workflow_dispatch`. Manual runs still require at least one pending, releasable change intent.
+Laravel metadata validation uses Composer's `--no-check-all` to suppress its advisory against exact dependency constraints. Schema/publishing validation remains strict; the release validator separately enforces that the core dependency is the exact planned version.
 
-## Version Bumping
+Release preparation runs **one unfiltered `pnpm version -r`** for the whole workspace. It then synchronizes:
 
-The pending change intents determine the next version:
+- Core `package.json`, `composer.json`, `lib/PostHog.php::VERSION`, `composer.lock`, and `CHANGELOG.md` when core changes.
+- Laravel `package.json`, `composer.json`, `src/PostHog.php::VERSION`, and `CHANGELOG.md`, including its exact Composer core dependency.
+- Shared `.changeset/ledger.yaml` and consumed intent files.
 
-- **patch**: bug fixes, documentation updates, and internal changes
-- **minor**: backwards-compatible features
-- **major**: breaking changes
+Do not version the packages separately with filters: pnpm can propagate a core bump into its dependent even with a filter, and separate plans can double-bump Laravel. One signed source commit contains the complete plan; publishing is package-specific and ordered core first.
 
-When multiple intents are pending, the workflow uses the largest requested bump.
+## Automated release flow
+
+Merging `.changeset/*.md` changes into `main` starts **Release**. Manual dispatch on `main` uses the same flow and requires pending intents.
+
+1. A read-only job checks the complete dependency-aware plan. A stale trigger skips only if current `main` has no pending releases; otherwise it fails and asks for a new dispatch on current `main`.
+2. Read-only preparation clones the exact committed source, applies the single pnpm plan, verifies the core bump-script hash before executing it, and refreshes the core Composer lock only when core changes. It produces a shared version patch, package-specific notes, a deterministic Laravel archive, and a digest manifest. Local modifications, vendors, and secrets never enter the candidate.
+3. A separate read-only job independently reproduces all candidate bytes, checks planned source/distribution refs are unused, validates both versions and the exact dependency pin, and tests Laravel 12/13 against the patched candidate source. Distribution dependency resolution uses the exact candidate core via a temporary path repository because a new core version is not published yet. The archive itself never contains that override.
+4. Slack approval notification precedes the protected **Release** environment. After approval, publishing rechecks source freshness, refs, and artifact digests, then creates **one atomic GitHub-signed source version commit** with `expectedHeadOid`. The existing PHP releaser GitHub App performs this commit. No Composer installs, package scripts, or git hooks run with that App token.
+5. Core gets a GitHub release only if its version changed. Existing numeric PHP tags remain unchanged, for example `4.20.2`. Laravel-only releases do not republish core.
+6. Laravel publication runs afterward in the protected **Laravel Release** environment. Before publishing, it waits up to approximately ten minutes for the exact core version on Packagist and installs the unmodified distribution without development dependencies, scripts, plugins, or path overrides. These Composer steps receive no publishing tokens. If indexing or dependency resolution fails, Laravel is not published.
+7. Laravel's dedicated distribution repository receives an atomic GitHub-signed package-only commit and **`vX.Y.Z`** release. Source gets **`laravel-vX.Y.Z`** against the same shared version commit used by the core release, with archive and manifest attachments. Its source release is not marked latest, preserving the core latest-release pointer.
+8. Slack success/failure notifications run after publication. An unrelated advance of `main` fails freshness checks rather than publishing stale source.
 
 ## Composer distribution archives
 
-The root `.gitattributes` excludes `packages/laravel/` from the core Composer distribution. Laravel source stays in Git and has its own publishing flow. Tools that need the complete repository must use a Git checkout, not the core distribution archive. In particular, a whole-repository `git archive` no longer includes Laravel source or tests.
+The root `.gitattributes` excludes `packages/laravel/` from the core Composer distribution. Tools needing the full source must use a Git checkout, not a whole-repository `git archive`.
 
-## Troubleshooting
+Packagist reads `composer.json` at a repository root, so Laravel publishes through a separate public **distribution repository**, recommended `PostHog/posthog-laravel`. Source remains in `packages/laravel`.
 
-### No releasable change intents found
+The distribution contains package `composer.json`, README, license, changelog, autocapture/Pennant guides, PHP source/config, and generated `posthog-source.json`. Tests, vendors, hidden files, locks, local configuration, and secrets are excluded. Obsolete files in the dedicated distribution repository are removed.
 
-If the release workflow reports that no releasable change intents were found, make sure your PR includes at least one `.changeset/*.md` file generated by `pnpm change` with a `patch`, `minor`, or `major` bump.
+`packages/laravel/LICENSE.md` links to `../../LICENSE.md` in Git. Preparation embeds the regular root license contents in the archive. Other symlinks, alternate license targets, and a symlinked root license fail preparation.
 
-### Updating the release bump script
+## Laravel package: independent releases
 
-The release workflow validates `scripts/bump-version.sh` with a hardcoded SHA256 before executing it. If you modify `scripts/bump-version.sh`, recompute its hash and update `EXPECTED_BUMP_SCRIPT_SHA256` in `.github/workflows/release.yml` in the same PR:
+The packages do not share version numbers: a core patch can produce PHP `4.20.2` and Laravel `0.1.1`, with Laravel pinned to PHP `4.20.2`. A later Laravel-only patch can produce Laravel `0.1.2` while retaining that exact PHP pin.
+
+A change intent for Laravel alone can be created non-interactively:
 
 ```bash
-sha256sum scripts/bump-version.sh
+pnpm change posthog-laravel --bump patch --summary "Describe the Laravel change"
 ```
 
-### Manual recovery after a failed release
+The initial release is intentionally deferred until administrator setup is ready. To release 0.1.0 from the 0.0.0 seed, add a minor intent then:
 
-Most failures happen before anything is published. If the workflow fails before the `Commit version bump` step, no commit, tag, or GitHub Release should exist.
+```bash
+pnpm change posthog-laravel --bump minor --summary "Initial Laravel package"
+```
 
-If the signed release commit was created but `Create GitHub release` failed, prefer completing the release manually instead of rolling back:
+### Administrator prerequisites
+
+These actions are **not** performed by release tooling or tests. Configure them before enabling publication: core changes now also plan a Laravel release.
+
+1. Create a dedicated public distribution repository and initialize its `main` with a signed bootstrap commit. Set `LARAVEL_DISTRIBUTION_REPOSITORY` to its `owner/repository`; it must differ from the source repository.
+2. Protect both **Release** and **Laravel Release** environments with maintainer approval, no self-review, and protected-main-only deployment rules. Keep normal PR/branch protections. Naming an environment in YAML does not configure these rules.
+3. Keep the existing PHP releaser App credentials in **Release**. Its Contents write access must support GitHub's `createCommitOnBranch` API and verified GitHub-signed commits without disabling signature requirements.
+4. Store environment-only `LARAVEL_SOURCE_TOKEN` and `LARAVEL_DISTRIBUTION_TOKEN` in **Laravel Release**, scoped narrowly to the respective repositories. Source needs release/tag access; distribution needs Contents write access including signed `createCommitOnBranch` requests and releases. Do not expose these tokens to preparation, verification, or Composer steps.
+5. Register `posthog/posthog-laravel` on Packagist using the distribution repository and configure its normal GitHub update integration. Check ownership and signed-commit permissions. No repository, Packagist registration, webhook, credential, or approval rule is created by this workflow.
+6. Land the separately documented server-side `posthog-laravel` library registration before shipping the integration.
+
+Missing configuration fails closed. Distribution preparation/verification must be able to read the public repository without publishing credentials.
+
+## Preview and test
+
+From a committed checkout, choose a candidate output path that does not already exist:
+
+```bash
+python3 scripts/release.py prepare \
+  --repository PostHog/posthog-php --output /tmp/sdk-candidate \
+  --bump-script-sha256 "$(shasum -a 256 scripts/bump-version.sh | awk '{print $1}')"
+```
+
+This only prepares local artifacts; it does not publish. The workflow pins the reviewed bump-script hash independently rather than deriving trust from the checked-out script.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/tests -v
+bash scripts/test-laravel.sh 12
+bash scripts/test-laravel.sh 13
+# Test a prepared version patch in the disposable source copy:
+bash scripts/test-laravel.sh 12 /tmp/sdk-candidate/release.patch
+actionlint .github/workflows/laravel.yml .github/workflows/release.yml
+```
+
+Fixtures use pnpm 11.13.1, disposable repositories, fake Composer/gh clients, and no publishing credentials. They cover core-only automatic Laravel patching, Laravel-only core preservation, joint changes, exact pins, single-consumption ledgers, signed commit requests, deterministic archives, and secret/path/symlink exclusion.
+
+## Troubleshooting and recovery
+
+### No pending change intents
+
+Ensure `.changeset/*.md` contains at least one `patch`, `minor`, or `major` intent that pnpm has not already consumed. Do not restore a consumed intent merely to retry publishing: it can generate a second version bump.
+
+### Updating the core bump script
+
+`scripts/bump-version.sh` is hash-pinned in `release.yml`. If it changes, recompute its SHA256 and update `EXPECTED_BUMP_SCRIPT_SHA256` in the same reviewed PR. Preparation rejects a mismatch before executing the script.
+
+### Partial publication
+
+One source version commit and publishing to two repositories cannot be transactional. A failure can leave committed versions without tags, core published but Laravel unpublished, or a distribution tag without its source release.
+
+A retry of `publish-laravel` can reuse an unchanged distribution commit when both Laravel release refs are still unused. Reuse requires the complete committed file tree to match the approved archive byte-for-byte and GitHub to verify the commit signature; it never creates a replacement commit merely because the previous signature lookup or release request failed. An already-created tag/release still requires inspecting the existing publication rather than blindly retrying.
+
+Inspect the retained candidate artifacts, signatures, checksums, shared source commit, and existing tags/releases before recovery. Complete only the missing publication at the **same recorded version**, using the original artifacts and commit. In particular, wait for Packagist indexing rather than creating another release intent. An all-workflow rerun after versions were consumed does not create a new candidate automatically.
+
+For a missing core GitHub release, after verifying the source commit and notes:
 
 ```bash
 VERSION=<version>
-COMMIT_SHA=<signed-release-commit-sha>
-
-CHANGELOG_ENTRY=$(awk -v defText="see CHANGELOG.md" '/^## /{if (flag) exit; flag=1} flag && /^##$/{exit} flag; END{if (!flag) print defText}' CHANGELOG.md)
-gh release create "$VERSION" --target "$COMMIT_SHA" --title "$VERSION" --notes "$CHANGELOG_ENTRY"
+COMMIT_SHA=<verified-shared-version-commit>
+gh release create "$VERSION" --target "$COMMIT_SHA" --title "$VERSION" --notes-file /path/to/candidate/core-notes.md
 ```
 
-If the wrong GitHub Release or tag was created, delete both before retrying:
-
-```bash
-VERSION=<version>
-
-gh release delete "$VERSION" --yes --cleanup-tag || true
-git push origin ":refs/tags/$VERSION" || true
-```
-
-If the signed version bump commit itself is wrong and must be undone, revert it with a new commit rather than force-pushing `main`:
-
-```bash
-git switch main
-git pull --ff-only
-RELEASE_COMMIT=<signed-release-commit-sha>
-git revert "$RELEASE_COMMIT"
-git push origin main
-```
-
-After rollback, add or restore the needed change intent and let the release workflow prepare a new release candidate.
+Never move an already published tag, overwrite distribution history, or rewrite source commits. Correct bad published versions with signed follow-up commits and a new intent/version. If an incorrect version commit must be undone, use a new signed `git revert`, not a force-push. Do not delete an already distributed version to make a retry look successful.
