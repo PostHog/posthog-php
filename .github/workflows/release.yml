@@ -249,6 +249,10 @@ jobs:
     permissions:
       actions: read
       contents: read
+    outputs:
+      core-published: ${{ steps.publish-core.outcome == 'success' }}
+      distribution-published: ${{ steps.publish-distribution.outcome == 'success' }}
+      laravel-published: ${{ steps.publish-laravel.outcome == 'success' }}
     steps:
       - name: Notify Slack - Approved
         if: needs.notify-approval-needed.outputs.slack_ts != ''
@@ -315,6 +319,7 @@ jobs:
           test -n "$COMMIT"
           test "$(gh api "repos/$REPOSITORY/commits/$COMMIT" --jq '.commit.verification.verified')" = true
       - name: Publish core GitHub release only when its version changed
+        id: publish-core
         if: needs.prepare-release-candidate.outputs.core-changed == 'true'
         env:
           GH_TOKEN: ${{ steps.releaser.outputs.token }}
@@ -416,8 +421,9 @@ jobs:
           VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
           SOURCE: ${{ needs.prepare-release-candidate.outputs.source }}
         run: |
-          python3 scripts/commit_release.py --checkout "$GITHUB_WORKSPACE/laravel-distribution" --repository "$REPOSITORY" --mode distribution --candidate "$RUNNER_TEMP/candidate" --message "Release v$VERSION from source $SOURCE" >> "$GITHUB_OUTPUT"
+          python3 scripts/commit_release.py --checkout "$GITHUB_WORKSPACE/laravel-distribution" --repository "$REPOSITORY" --mode distribution --candidate "$RUNNER_TEMP/candidate" --message "Release $VERSION from source $SOURCE" >> "$GITHUB_OUTPUT"
       - name: Publish distribution version
+        id: publish-distribution
         env:
           GH_TOKEN: ${{ steps.distribution-releaser.outputs.token }}
           REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
@@ -427,7 +433,7 @@ jobs:
           set -euo pipefail
           test -n "$COMMIT"
           test "$(gh api "repos/$REPOSITORY/commits/$COMMIT" --jq '.commit.verification.verified')" = true
-          gh release create "v$VERSION" --repo "$REPOSITORY" --target "$COMMIT" --title "v$VERSION" --notes-file "$RUNNER_TEMP/candidate/notes.md"
+          gh release create "$VERSION" --repo "$REPOSITORY" --target "$COMMIT" --title "$VERSION" --notes-file "$RUNNER_TEMP/candidate/notes.md"
       - name: Get source GitHub App token
         id: source-releaser
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -439,6 +445,7 @@ jobs:
           permission-contents: write
           skip-token-revoke: false
       - name: Publish independent source release and archive
+        id: publish-laravel
         env:
           GH_TOKEN: ${{ steps.source-releaser.outputs.token }}
           REPOSITORY: ${{ github.repository }}
@@ -454,7 +461,7 @@ jobs:
 
   notify-released:
     name: Notify Slack - Released
-    needs: [notify-approval-needed, release]
+    needs: [prepare-release-candidate, notify-approval-needed, release]
     runs-on: ubuntu-latest
     if: always() && needs.release.result == 'success' && needs.notify-approval-needed.outputs.slack_ts != ''
     steps:
@@ -464,7 +471,7 @@ jobs:
           slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
           slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
           thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-          message: "🚀 Updated PHP/Laravel packages released successfully!"
+          message: "🚀 Released ${{ needs.prepare-release-candidate.outputs.core-changed == 'true' && format('posthog-php@{0} and ', needs.prepare-release-candidate.outputs.core-version) || '' }}posthog-laravel@${{ needs.prepare-release-candidate.outputs.version }} successfully!"
           emoji_reaction: "rocket"
 
   notify-release-failed:
@@ -528,7 +535,11 @@ jobs:
           slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
           slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
           thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-          message: "❌ PHP/Laravel release failed or was cancelled! <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>"
+          message: |
+            ❌ Release workflow failed or was cancelled.
+            ${{ needs.prepare-release-candidate.outputs.core-changed == 'true' && format('posthog-php@{0}: {1}', needs.prepare-release-candidate.outputs.core-version, needs.release.outputs.core-published == 'true' && 'published' || 'not completed') || 'posthog-php: unchanged (no release planned)' }}
+            posthog-laravel@${{ needs.prepare-release-candidate.outputs.version }}: ${{ needs.release.outputs.laravel-published == 'true' && 'published' || needs.release.outputs.distribution-published == 'true' && 'mirror published; source release incomplete' || 'not completed' }}
+            <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>
           emoji_reaction: "x"
 
       - name: Notify Slack - Rejected
