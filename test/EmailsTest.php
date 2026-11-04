@@ -17,6 +17,9 @@ class EmailsTest extends TestCase
     private const TEMPLATE_ID = '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b';
     private const MESSAGE_ID = '01a18356-c56c-0001-e494-7666bc915188';
     private const SEND_URL = 'https://us.posthog.com/api/projects/@current/messaging/send/email/';
+    private const INVITE = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n";
+    private const INVITE_BASE64 = 'QkVHSU46VkNBTEVOREFSDQpFTkQ6VkNBTEVOREFSDQo=';
+    private const SECRET_CONTENT = 'secret-file-content';
 
     /** @var list<array{method: string, url: string, headers: list<string>, body: ?string, timeoutMs: int, at: DateTimeImmutable}> */
     private array $requests = [];
@@ -218,6 +221,9 @@ class EmailsTest extends TestCase
             'text' => null,
             'from' => null,
             'reply_to' => null,
+            'cc' => null,
+            'bcc' => null,
+            'attachments' => null,
             'capture_engagement' => null,
             'distinct_id' => null,
             'idempotency_key' => null,
@@ -228,6 +234,61 @@ class EmailsTest extends TestCase
             'template_key' => 'receipt',
             'subject' => 'Your receipt',
             'html' => '<p>Thanks!</p>',
+            'capture_engagement' => true,
+            'to' => 'user@example.com',
+        ], $this->body());
+    }
+
+    public function testCodeSendPostsCopiesAndAttachmentsEncodedOnceForEveryAttempt(): void
+    {
+        $this->reply([503, '{"code":"unavailable"}', []], [202, '{"message_id":"msg_1"}', []]);
+        $png = "\x89PNG\r\n\x1a\n\x00";
+
+        $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_key' => 'invite',
+            'subject' => 'You are invited',
+            'html' => '<img src="cid:logo">',
+            'cc' => 'manager@example.com',
+            'bcc' => ['audit@example.com', 'archive@example.com'],
+            'attachments' => [
+                ['filename' => 'invite.ics', 'content' => self::INVITE, 'content_type' => 'text/calendar'],
+                ['filename' => 'logo.png', 'content' => $png, 'content_id' => 'logo'],
+            ],
+        ]);
+
+        $this->assertSame([
+            'template_key' => 'invite',
+            'subject' => 'You are invited',
+            'html' => '<img src="cid:logo">',
+            'cc' => ['manager@example.com'],
+            'bcc' => ['audit@example.com', 'archive@example.com'],
+            'attachments' => [
+                ['filename' => 'invite.ics', 'content' => self::INVITE_BASE64, 'content_type' => 'text/calendar'],
+                ['filename' => 'logo.png', 'content' => 'iVBORw0KGgoA', 'content_id' => 'logo'],
+            ],
+            'capture_engagement' => true,
+            'to' => 'user@example.com',
+        ], $this->body());
+        $this->assertSame($this->requests[0]['body'], $this->requests[1]['body']);
+    }
+
+    public function testEmptyCopyAndAttachmentListsAreLeftOut(): void
+    {
+        $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_key' => 'receipt',
+            'subject' => 'Your receipt',
+            'text' => 'Thanks!',
+            'cc' => [],
+            'bcc' => [],
+            'attachments' => [],
+        ]);
+
+        $this->assertSame([
+            'template_key' => 'receipt',
+            'subject' => 'Your receipt',
+            'text' => 'Thanks!',
             'capture_engagement' => true,
             'to' => 'user@example.com',
         ], $this->body());
@@ -330,7 +391,14 @@ class EmailsTest extends TestCase
                 'invalid_form',
                 'capture_engagement',
             ],
-            'unknown option' => [$template + ['cc' => 'boss@example.com'], 'invalid_form', 'cc'],
+            'unknown option' => [$template + ['headers' => ['X-A' => 'b']], 'invalid_form', 'headers'],
+            'cc with a template' => [$template + ['cc' => 'boss@example.com'], 'invalid_form', 'cc'],
+            'bcc with a template' => [$template + ['bcc' => ['boss@example.com']], 'invalid_form', 'bcc'],
+            'attachments with a template' => [
+                $template + ['attachments' => [['filename' => 'a.txt', 'content' => 'hi']]],
+                'invalid_form',
+                'attachments',
+            ],
             'template_data with code' => [$code + ['template_data' => ['a' => 1]], 'invalid_form', 'template_data'],
             'bad template key' => [['template_key' => 'pass word'] + $code, 'invalid_template_key', 'template_key'],
             'template key too long' => [
@@ -346,6 +414,9 @@ class EmailsTest extends TestCase
             'empty from' => [$code + ['from' => ''], 'invalid_form', 'from'],
             'blank reply_to' => [$code + ['reply_to' => ['a@example.com', ' ']], 'invalid_form', 'reply_to'],
             'empty reply_to list' => [$code + ['reply_to' => []], 'invalid_form', 'reply_to'],
+            'blank cc' => [$code + ['cc' => ' '], 'invalid_form', 'cc'],
+            'bcc not text' => [$code + ['bcc' => [123]], 'invalid_form', 'bcc'],
+            'cc as a map' => [$code + ['cc' => ['boss' => 'boss@example.com']], 'invalid_form', 'cc'],
             'capture_engagement not a bool' => [
                 $code + ['capture_engagement' => 'no'],
                 'invalid_form',
@@ -377,6 +448,77 @@ class EmailsTest extends TestCase
         $this->assertSame($field, $error->getField());
         $this->assertNull($error->getStatusCode());
         $this->assertSame([], $this->requests);
+    }
+
+    public static function attachmentErrors(): array
+    {
+        $file = ['filename' => 'a.txt', 'content' => self::SECRET_CONTENT];
+
+        return [
+            'one file, not a list' => [$file, 'attachments'],
+            'content, not a list' => [self::SECRET_CONTENT, 'attachments'],
+            'file not an array' => [[self::SECRET_CONTENT], 'attachments__0'],
+            'file as a list' => [[['a.txt', self::SECRET_CONTENT]], 'attachments__0'],
+            'no content' => [[['filename' => 'a.txt']], 'attachments__0__content'],
+            'content as a list of bytes' => [
+                [['filename' => 'a.txt', 'content' => array_map('ord', str_split(self::SECRET_CONTENT))]],
+                'attachments__0__content',
+            ],
+            'no filename' => [[['content' => self::SECRET_CONTENT]], 'attachments__0__filename'],
+            'filename not text' => [[['filename' => 1] + $file], 'attachments__0__filename'],
+            'path' => [[$file + ['path' => '/tmp/a.txt']], 'attachments__0__path'],
+            'unknown field' => [[$file + ['contentType' => 'text/plain']], 'attachments__0__contentType'],
+            'second file with content_type not text' => [
+                [$file, $file + ['content_type' => 1]],
+                'attachments__1__content_type',
+            ],
+            'content_id not text' => [[$file + ['content_id' => ['logo']]], 'attachments__0__content_id'],
+        ];
+    }
+
+    #[DataProvider('attachmentErrors')]
+    public function testAnAttachmentTheClientCannotSendIsRefusedWithoutRepeatingItsContent(
+        mixed $attachments,
+        string $field
+    ): void {
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_key' => 'receipt',
+            'subject' => 'Your receipt',
+            'text' => 'Thanks!',
+            'attachments' => $attachments,
+        ]);
+
+        $this->assertSame('invalid_attachment', $error->getErrorCode());
+        $this->assertSame('validation_error', $error->getErrorName());
+        $this->assertSame($field, $error->getField());
+        $this->assertStringNotContainsString(self::SECRET_CONTENT, $error->getMessage() . $error->getFix());
+        $this->assertSame([], $this->requests);
+    }
+
+    public function testAServerThatDoesNotTakeAFieldRefusesTheSendAndNamesIt(): void
+    {
+        $this->reply([400, json_encode([
+            'type' => 'invalid_request',
+            'code' => 'invalid_request',
+            'detail' => "PostHog doesn't take this field yet, so it didn't send the email.",
+            'attr' => 'attachments',
+            'why' => "This PostHog version doesn't take the field yet.",
+            'fix' => 'Send the email without this field.',
+        ]), []]);
+
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_key' => 'receipt',
+            'subject' => 'Your receipt',
+            'text' => 'Thanks!',
+            'attachments' => [['filename' => 'receipt.pdf', 'content' => '%PDF-1.7']],
+        ]);
+
+        $this->assertSame('attachments', $error->getField());
+        $this->assertSame(400, $error->getStatusCode());
+        $this->assertSame('Send the email without this field.', $error->getFix());
+        $this->assertCount(1, $this->requests);
     }
 
     public function testAnOptionOfTheOtherFormSaysHowToSendIt(): void

@@ -58,11 +58,22 @@ PostHog::emails()->send([
     'distinct_id' => 'user_123',
 ]);
 
+// With copies and a file: content is the file's bytes, and the SDK encodes them
+PostHog::emails()->send([
+    'to' => 'user@example.com',
+    'template_key' => 'receipt',
+    'subject' => 'Your receipt',
+    'html' => $html,
+    'bcc' => 'finance@example.com',
+    'attachments' => [['filename' => 'receipt.pdf', 'content' => file_get_contents($receiptPath)]],
+]);
+
 // Later, such as in a job: for a few seconds after the send, get() throws not_found
 $status = PostHog::emails()->get($result->getId()); // queued, sent, delivered, bounced, ...
 ```
 
-- **Two forms.** Pass `template_id` with optional `template_data`, or `template_key` with `subject` and `html`, `text` or both. The content form also takes `from` (a verified sender), `reply_to` and `capture_engagement` (default `true`). PostHog derives a missing `text` from the `html`. To send an email built with a template library such as React Email, render it to HTML in your app and pass `html`. The SDK adds no rendering dependency.
+- **Two forms.** Pass `template_id` with optional `template_data`, or `template_key` with `subject` and `html`, `text` or both. The content form also takes `from` (a verified sender), `reply_to`, `cc`, `bcc`, `attachments` and `capture_engagement` (default `true`). PostHog derives a missing `text` from the `html`. To send an email built with a template library such as React Email, render it to HTML in your app and pass `html`. The SDK adds no rendering dependency.
+- **Copies and files.** `cc` and `bcc` take one address or a list of up to 10. `attachments` takes up to 10 files, 512 KB in total, each with `filename`, `content` (the file's bytes) and optional `content_type` and `content_id`. Show a file inline with `<img src="cid:logo">` and `'content_id' => 'logo'`. A PostHog version that doesn't take these fields yet refuses the send with an error naming the field, and never drops it.
 - **Pass `distinct_id`.** Without it, the email's engagement events go to a person whose distinct ID is the email address.
 - **A result means queued**, not delivered. `send()` returns a `SendEmailResult` with the message ID. `get()` reads the status for 30 days after the send. For a few seconds after the send, it throws `not_found`.
 - **Errors.** A send that is not queued throws `PostHog\EmailError`. Branch on `getErrorCode()`, such as `recipient_suppressed` or `missing_app_host`, or on `getErrorName()`, such as `validation_error`. An invalid argument throws before any request, with an `invalid_*` code.
