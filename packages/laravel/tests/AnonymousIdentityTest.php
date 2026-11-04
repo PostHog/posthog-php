@@ -226,6 +226,30 @@ class AnonymousIdentityTest extends TestCase
         $this->assertNotSame($id, $this->app->make(Context::class)->data()['distinctId']);
     }
 
+    #[DataProvider('shortCircuitResponses')]
+    public function testWebMiddlewarePreparesIdentityWhenRoutingStopsEarly(string $path, int $status): void
+    {
+        $this->app['config']->set('posthog.anonymous_id', true);
+        $this->app['config']->set('posthog.autocapture.requests.enabled', true);
+        $fake = PostHog::fake();
+        Route::get('/login', fn () => 'login')->name('login');
+        Route::middleware(['web', 'auth'])->get('/protected', fn () => 'unreachable');
+        Route::bind('missing', fn () => abort(404));
+        Route::middleware('web')->get('/missing/{missing}', fn () => 'unreachable');
+        $this->get($path)->assertStatus($status);
+        $fake->assertCaptured('laravel_request', fn ($event) =>
+            Str::isUuid($event['distinctId'], version: 4) && $event['properties']['status_code'] === $status);
+        $session = $this->app['session.store'];
+        $restored = new Store('restored', $session->getHandler(), $session->getId());
+        $restored->start();
+        $this->assertSame($fake->recorded('capture')[0]['message']['distinctId'], $restored->get('_posthog_anonymous_id'));
+    }
+
+    public static function shortCircuitResponses(): array
+    {
+        return [['/protected', 302], ['/missing/123', 404]];
+    }
+
     public function testWebRequestsWithFrontendIdentityDoNotCreateAnAnonymousId(): void
     {
         $this->app['config']->set('posthog.anonymous_id', true);

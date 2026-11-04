@@ -61,6 +61,7 @@ class PostHogServiceProvider extends ServiceProvider
         $this->callAfterResolving(Kernel::class, function ($kernel) {
             $kernel->prependMiddleware(RequestContextMiddleware::class);
             $kernel->appendMiddlewareToGroup('web', AnonymousIdentity::class);
+            $kernel->addToMiddlewarePriorityAfter(\Illuminate\Session\Middleware\StartSession::class, AnonymousIdentity::class);
             if (method_exists($kernel, 'whenRequestLifecycleIsLongerThan')) {
                 $kernel->whenRequestLifecycleIsLongerThan(-INF, static function () {
                     Container::getInstance()->make(RequestLifecycle::class)->finish();
