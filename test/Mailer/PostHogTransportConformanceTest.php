@@ -146,6 +146,26 @@ final class PostHogTransportConformanceTest extends TestCase
                 ],
                 [],
             ],
+            'a name that only starts the content ID the HTML refers to' => [
+                fn() => self::shipped()->html('<img src="cid:logo\'v2@shop.example">')->addPart(
+                    (new DataPart(base64_decode('iVBORw0KGgo='), 'logo.png', 'image/png'))
+                        ->asInline()->setName('logo')->setContentId('logo\'v2@shop.example')
+                ),
+                ['html' => '<img src="cid:logo\'v2@shop.example">'] + self::RENDERED + [
+                    'template_key' => 'posthog-php-mailer',
+                    'attachments' => [self::logo('logo.png', 'logo\'v2@shop.example')],
+                ],
+                [],
+            ],
+            'a part the HTML refers to from CSS' => [
+                fn() => self::shipped()->html('<div style="background-image: url(\'cid:logo\')"></div>')
+                    ->embed(base64_decode('iVBORw0KGgo='), 'logo', 'image/png'),
+                ['html' => '<div style="background-image: url(\'cid:logo\')"></div>'] + self::RENDERED + [
+                    'template_key' => 'posthog-php-mailer',
+                    'attachments' => [self::logo('logo', 'logo')],
+                ],
+                [],
+            ],
             'an inline part with its own content ID the HTML does not refer to' => [
                 fn() => self::shipped()->addPart(
                     (new DataPart(base64_decode('iVBORw0KGgo='), 'logo.png', 'image/png'))
@@ -226,6 +246,34 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->assertSame(['invoice.pdf', 'logo'], array_column($this->body()['attachments'], 'filename'));
         $this->assertSame('logo', $this->body()['attachments'][1]['content_id']);
         $this->assertArrayNotHasKey('content_id', $this->body()['attachments'][0]);
+    }
+
+    public function testABodyFromAStreamThatCannotRewindSendsInFull(): void
+    {
+        $html = self::streamThatCannotRewind('<p>On its way.</p><img src="cid:logo">');
+        $text = self::streamThatCannotRewind('On its way.');
+        $email = self::shipped()->html($html)->text($text)
+            ->embed(base64_decode('iVBORw0KGgo='), 'logo', 'image/png');
+
+        $this->transport()->send($email);
+
+        $this->assertSame('<p>On its way.</p><img src="cid:logo">', $this->body()['html']);
+        $this->assertSame('On its way.', $this->body()['text']);
+        $this->assertSame('logo', $this->body()['attachments'][0]['content_id']);
+        $this->assertSame($html, $email->getHtmlBody(), 'The app\'s own email keeps its body.');
+    }
+
+    /**
+     * @return resource
+     */
+    private static function streamThatCannotRewind(string $content)
+    {
+        [$read, $write] = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        fwrite($write, $content);
+        fclose($write);
+        self::assertFalse(stream_get_meta_data($read)['seekable']);
+
+        return $read;
     }
 
     public function testTheReservedHeadersNeverGoOut(): void

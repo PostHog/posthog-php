@@ -136,14 +136,24 @@ final class EmailMapper
      */
     private function renderedContent(Email $email, string $templateKey, ?bool $captureEngagement): array
     {
-        self::refuseUnsupportedParts($email);
+        // A stream body reads once: Symfony reads the HTML again when it builds the body the walk below checks, which
+        // leaves a stream that can't rewind empty. Read each body once and walk a clone that holds them as strings.
         $html = self::text($email->getHtmlBody());
+        $text = self::text($email->getTextBody());
+        $email = clone $email;
+        if ($html !== null) {
+            $email->html($html, $email->getHtmlCharset() ?? 'utf-8');
+        }
+        if ($text !== null) {
+            $email->text($text, $email->getTextCharset() ?? 'utf-8');
+        }
+        self::refuseUnsupportedParts($email);
 
         return [
             'template_key' => $templateKey,
             'subject' => $email->getSubject(),
             'html' => $html,
-            'text' => self::text($email->getTextBody()),
+            'text' => $text,
             'from' => ($from = $email->getFrom()[0] ?? null) === null ? null : self::mailbox($from),
             'reply_to' => self::addresses($email->getReplyTo()),
             'cc' => self::addresses($email->getCc()),
@@ -315,10 +325,25 @@ final class EmailMapper
         return $part->getContentId();
     }
 
+    /**
+     * Whether the HTML holds a complete `cid:` reference to this content ID. A quoted
+     * reference runs to its closing quote, so `"cid:logo'v2@shop.example"` refers to
+     * `logo'v2@shop.example` and not to `logo`. An unquoted one, such as `url(cid:logo)`,
+     * ends at whitespace, a quote, `>` or `)`.
+     */
     private static function refersTo(?string $html, string $contentId): bool
     {
-        return $html !== null
-            && preg_match('/\\b(?i:cid:)' . preg_quote($contentId, '/') . '(?=[\\s"\'>)]|$)/', $html) === 1;
+        if ($html === null) {
+            return false;
+        }
+        preg_match_all('/(["\'])cid:(.*?)\\1|(?<!["\'])\\bcid:([^\\s"\'>)]+)/i', $html, $matches, PREG_SET_ORDER);
+        foreach ($matches as $match) {
+            if (($match[3] ?? $match[2]) === $contentId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
