@@ -124,6 +124,22 @@ class EmailError extends RuntimeException
         return $this->retryAfterMs;
     }
 
+    /**
+     * Whether sending the email again with the same idempotency key can succeed: no answer arrived, the
+     * same key is still being sent, PostHog throttled the request, or the service was unavailable. The
+     * client already retried these up to its retry limit.
+     */
+    public function isRetryable(): bool
+    {
+        return match ($this->statusCode) {
+            null => $this->errorCode === 'network_error',
+            409 => $this->errorCode === 'idempotency_key_in_flight',
+            429 => $this->errorCode !== 'quota_limited',
+            503 => true,
+            default => false,
+        };
+    }
+
     private static function nameFor(?int $status, string $code): string
     {
         if ($code === 'missing_secret_key' || $status === 401) {

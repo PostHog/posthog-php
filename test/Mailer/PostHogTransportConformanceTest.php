@@ -1,0 +1,286 @@
+<?php
+
+namespace PostHog\Test\Mailer;
+
+use Closure;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
+use PostHog\Mailer\PostHogTransport;
+use Symfony\Component\Mailer\Envelope;
+use Symfony\Component\Mailer\Exception\LogicException;
+use Symfony\Component\Mailer\Header\TagHeader;
+use Symfony\Component\Mailer\RemoteTemplateEmail;
+use Symfony\Component\Mime\Address;
+use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\Part\DataPart;
+
+/**
+ * The adapter contract's conformance cases, sent through the real Emails sender with HTTP stubbed.
+ * Case 06 doesn't apply: Symfony Mailer has no name of its own for an email.
+ */
+final class PostHogTransportConformanceTest extends TestCase
+{
+    use SendsThroughStubbedHttp;
+
+    private const TEMPLATE_ID = '0190f0c2-7d1e-7a3b-9c2e-5f1a2b3c4d5e';
+    private const RENDERED = [
+        'to' => 'ana@example.com',
+        'from' => 'Shop <shop@example.com>',
+        'subject' => 'Your order shipped',
+        'html' => '<p>On its way.</p>',
+        'text' => 'On its way.',
+    ];
+
+    private static function shipped(): Email
+    {
+        return (new Email())
+            ->from(new Address('shop@example.com', 'Shop'))
+            ->to(new Address('ana@example.com', 'Ana'))
+            ->subject('Your order shipped')
+            ->html('<p>On its way.</p>')
+            ->text('On its way.');
+    }
+
+    public static function sends(): array
+    {
+        return [
+            '01 rendered minimal' => [
+                fn() => self::shipped(),
+                self::RENDERED + ['template_key' => 'posthog-php-mailer'],
+                [],
+            ],
+            '02 display names' => [
+                fn() => self::shipped()->cc(new Address('bo@example.com', 'Bo'))
+                    ->replyTo(new Address('help@example.com', 'Help')),
+                self::RENDERED + [
+                    'cc' => ['bo@example.com'],
+                    'reply_to' => ['help@example.com'],
+                    'template_key' => 'posthog-php-mailer',
+                ],
+                [],
+            ],
+            '03 cc, bcc and reply-to' => [
+                fn() => self::shipped()->cc('bo@example.com')->bcc('audit@example.com')
+                    ->replyTo('a@example.com', 'b@example.com'),
+                self::RENDERED + [
+                    'cc' => ['bo@example.com'],
+                    'bcc' => ['audit@example.com'],
+                    'reply_to' => ['a@example.com', 'b@example.com'],
+                    'template_key' => 'posthog-php-mailer',
+                ],
+                [],
+            ],
+            '04 attachments and inline' => [
+                fn() => self::shipped()->html('<img src="cid:logo">')
+                    ->addPart(new DataPart(base64_decode('JVBERi0xLjQK'), 'invoice.pdf', 'application/pdf'))
+                    ->addPart((new DataPart(base64_decode('iVBORw0KGgo='), 'logo.png', 'image/png'))
+                        ->asInline()->setName('logo')),
+                ['html' => '<img src="cid:logo">'] + self::RENDERED + [
+                    'template_key' => 'posthog-php-mailer',
+                    'attachments' => [
+                        ['filename' => 'invoice.pdf', 'content' => 'JVBERi0xLjQK', 'content_type' => 'application/pdf'],
+                        [
+                            'filename' => 'logo.png',
+                            'content' => 'iVBORw0KGgo=',
+                            'content_type' => 'image/png',
+                            'content_id' => 'logo',
+                        ],
+                    ],
+                ],
+                [],
+            ],
+            '05 PostHog options' => [
+                fn() => self::withHeaders(self::shipped(), [
+                    'X-PostHog-Distinct-Id' => 'user_42',
+                    'X-PostHog-Template-Key' => 'order-shipped',
+                    'X-PostHog-Idempotency-Key' => 'order-981-shipped',
+                    'X-PostHog-Capture-Engagement' => 'false',
+                ]),
+                self::RENDERED + [
+                    'template_key' => 'order-shipped',
+                    'distinct_id' => 'user_42',
+                    'capture_engagement' => false,
+                ],
+                ['Idempotency-Key' => 'order-981-shipped'],
+            ],
+            '14 tracking that agrees' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=false; clicks=false']),
+                self::RENDERED + ['template_key' => 'posthog-php-mailer', 'capture_engagement' => false],
+                [],
+            ],
+        ];
+    }
+
+    /**
+     * @param Closure(): Email $email
+     * @param array<string, mixed> $body
+     * @param array<string, string> $headers
+     */
+    #[DataProvider('sends')]
+    public function testAnEmailSendsOneRequest(Closure $email, array $body, array $headers): void
+    {
+        $sent = $this->transport()->send($email());
+
+        $this->assertCount(1, $this->requests);
+        $this->assertEquals($body + ['capture_engagement' => true], $this->body());
+        $this->assertMatchesRegularExpression(
+            '#^posthog-php-mailer/[0-9A-Za-z.+-]+$#',
+            $this->header('X-PostHog-Integration')
+        );
+        foreach ($headers as $name => $value) {
+            $this->assertSame($value, $this->header($name));
+        }
+        $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $sent->getMessageId());
+    }
+
+    public function testTheReservedHeadersNeverGoOut(): void
+    {
+        $this->transport()->send(self::withHeaders(self::shipped(), [
+            'X-PostHog-Distinct-Id' => 'user_42',
+            'X-PostHog-Template-Key' => 'order-shipped',
+            'X-PostHog-Idempotency-Key' => 'order-981-shipped',
+            'X-PostHog-Capture-Engagement' => 'true',
+        ]));
+
+        $postHogHeaders = array_values(array_filter(
+            array_map(static fn(string $line): string => explode(':', $line, 2)[0], $this->requests[0]['headers']),
+            static fn(string $name): bool => stripos($name, 'X-PostHog-') === 0
+        ));
+        $this->assertSame(['X-PostHog-Integration'], $postHogHeaders);
+        $this->assertArrayNotHasKey('headers', $this->body());
+    }
+
+    public function testCase07TheDefaultTemplateKeyComesFromConfig(): void
+    {
+        $this->transport(defaultTemplateKey: 'transactional')->send(self::shipped());
+
+        $this->assertSame('transactional', $this->body()['template_key']);
+    }
+
+    public static function refusals(): array
+    {
+        return [
+            '08 invalid template key' => [
+                fn() => self::withHeaders(self::shipped(), ['X-PostHog-Template-Key' => 'order shipped!']),
+                'invalid_template_key',
+            ],
+            '09 multiple to' => [fn() => self::shipped()->addTo('bo@example.com'), 'multiple_to'],
+            '09 no to' => [fn() => self::shipped()->to()->cc('bo@example.com'), 'multiple_to'],
+            '10 inline without cid' => [
+                fn() => self::shipped()->addPart((new DataPart(base64_decode('iVBORw0KGgo='), null, 'image/png'))
+                    ->asInline()),
+                'inline_without_cid',
+            ],
+            '11 a custom header' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Campaign' => 'spring']),
+                'unsupported_header',
+            ],
+            '12 tags' => [
+                function () {
+                    $email = self::shipped();
+                    $email->getHeaders()->add(new TagHeader('receipts'));
+                    return $email;
+                },
+                'tags',
+            ],
+            '12 metadata' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Metadata-Order' => '981']),
+                'metadata',
+            ],
+            '14 mixed tracking' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=true; clicks=false']),
+                'mixed_tracking',
+            ],
+            'a priority other than normal' => [
+                fn() => self::shipped()->priority(Email::PRIORITY_HIGH),
+                'unsupported_priority',
+            ],
+            'two From addresses' => [fn() => self::shipped()->addFrom('ops@example.com'), 'unsupported_header'],
+        ];
+    }
+
+    /**
+     * @param Closure(): Email $email
+     */
+    #[DataProvider('refusals')]
+    public function testAnEmailPostHogCannotCarryIsRefusedBeforeAnyRequest(Closure $email, string $code): void
+    {
+        $this->assertRefused($code, fn() => $this->transport()->send($email()));
+    }
+
+    public function testCase13AnEnvelopeThatDiffersFromTheHeadersIsRefused(): void
+    {
+        $envelope = new Envelope(new Address('bounce@example.com'), [new Address('ana@example.com')]);
+
+        $this->assertRefused('envelope_mismatch', fn() => $this->transport()->send(self::shipped(), $envelope));
+    }
+
+    public function testCase15ARemoteTemplateEmailSendsTheTemplate(): void
+    {
+        $this->requireRemoteTemplates();
+        $email = (new RemoteTemplateEmail())
+            ->from('shop@example.com')
+            ->to(new Address('ana@example.com', 'Ana'))
+            ->template(self::TEMPLATE_ID, ['order' => '981']);
+        $email->getHeaders()->addTextHeader('X-PostHog-Distinct-Id', 'user_42');
+
+        $this->transport()->send($email);
+
+        $this->assertEquals([
+            'to' => 'ana@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'message_data' => ['order' => '981'],
+            'distinct_id' => 'user_42',
+        ], $this->body());
+        $this->assertMatchesRegularExpression('#^posthog-php-mailer/#', $this->header('X-PostHog-Integration'));
+    }
+
+    public function testCase16ATemplateIsRefusedWhenTemplatesAreOff(): void
+    {
+        $this->requireRemoteTemplates();
+        $email = (new RemoteTemplateEmail())->from('shop@example.com')->to('ana@example.com')
+            ->template(self::TEMPLATE_ID);
+
+        $this->assertRefused('template_unsupported', fn() => $this->transport(templates: false)->send($email));
+    }
+
+    public function testCase17ATemplateWithContentIsRefused(): void
+    {
+        $this->requireRemoteTemplates();
+        $email = (new RemoteTemplateEmail())->from(new Address('shop@example.com', 'Shop'))
+            ->to(new Address('ana@example.com', 'Ana'))->subject('Your order shipped')
+            ->template(self::TEMPLATE_ID);
+
+        $this->assertRefused('template_with_content', fn() => $this->transport()->send($email));
+    }
+
+    private function requireRemoteTemplates(): void
+    {
+        if (!class_exists(RemoteTemplateEmail::class)) {
+            $this->markTestSkipped('RemoteTemplateEmail arrives in Symfony Mailer 8.2.');
+        }
+    }
+
+    private function assertRefused(string $code, Closure $send): void
+    {
+        try {
+            $send();
+            $this->fail("The email was not refused with $code.");
+        } catch (LogicException $refusal) {
+            $this->assertStringStartsWith("PostHog cannot send this email: $code. ", $refusal->getMessage());
+        }
+        $this->assertSame([], $this->requests);
+    }
+
+    /**
+     * @param array<string, string> $headers
+     */
+    private static function withHeaders(Email $email, array $headers): Email
+    {
+        foreach ($headers as $name => $value) {
+            $email->getHeaders()->addTextHeader($name, $value);
+        }
+
+        return $email;
+    }
+}
