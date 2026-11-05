@@ -51,9 +51,10 @@ final class Emails
     private const IDEMPOTENCY_KEY_PATTERN = '/^[\x21-\x7e]{1,255}$/D';
     private const TEMPLATE_KEY_PATTERN = '/^[a-zA-Z0-9_-]{1,400}$/D';
     private const HEADER_TOKEN_PATTERN = '/^[\x21-\x7e]+$/D';
+    private const INTEGRATION_PATTERN = '#^[a-z0-9-]{1,40}/[0-9A-Za-z.+-]{1,40}$#D';
     private const TIMESTAMP_PATTERN = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/D';
 
-    private const SHARED_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'max_retries'];
+    private const SHARED_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'max_retries', 'integration'];
     private const TEMPLATE_FIELDS = ['template_id', 'template_data'];
     private const CODE_FIELDS = [
         'template_key', 'subject', 'html', 'text', 'from', 'reply_to', 'cc', 'bcc', 'attachments', 'capture_engagement',
@@ -153,6 +154,10 @@ final class Emails
      * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
      * and `max_retries`. A null value counts as left out.
      *
+     * A library that sends email for an app, such as a mailer transport, names itself with `integration`,
+     * `<name>/<version>` such as `laravel/1.4.0`. The client sends it as the `X-PostHog-Integration`
+     * header of that send, so PostHog can tell which integration sent the email. Apps leave it out.
+     *
      * A send with an idempotency key PostHog already accepted queues nothing and returns the first send's
      * result. Without a key, the client makes a UUID that covers its own retries. Pass a key derived from
      * what the email is for, such as `welcome:user_123`, to cover retries outside this call too, and pass
@@ -192,6 +197,7 @@ final class Emails
      *     distinct_id?: string|null,
      *     idempotency_key?: string|null,
      *     max_retries?: int|null,
+     *     integration?: string|null,
      *     template_id?: string,
      *     template_data?: array<string, mixed>|null,
      *     template_key?: string,
@@ -218,11 +224,12 @@ final class Emails
      */
     public function send(array $email): SendEmailResult
     {
-        [$body, $idempotencyKey, $maxRetries] = $this->prepareSend($email);
+        [$body, $idempotencyKey, $maxRetries, $integration] = $this->prepareSend($email);
         [$appHost, $secretKey] = $this->connect(self::SEND_NOT_DONE, self::SEND_KEY_NEEDED);
         $headers = $this->headers($secretKey, [
             'Content-Type: application/json',
             'Idempotency-Key: ' . $idempotencyKey,
+            ...($integration === null ? [] : ['X-PostHog-Integration: ' . $integration]),
         ]);
         $result = $this->withRetries($maxRetries, function () use ($appHost, $headers, $body): SendEmailResult {
             return self::parseSendReply(...$this->request('POST', $appHost . self::SEND_PATH, $headers, $body));
@@ -268,7 +275,7 @@ final class Emails
     }
 
     /**
-     * @return array{string, string, int}
+     * @return array{string, string, int, ?string}
      */
     private function prepareSend(array $email): array
     {
@@ -304,6 +311,7 @@ final class Emails
         if (!is_int($maxRetries) || $maxRetries < 0) {
             throw self::invalid('invalid_max_retries', 'max_retries must be a nonnegative integer.', 'max_retries');
         }
+        $integration = self::integration($email['integration'] ?? null);
         $payload['to'] = $to;
         if ($distinctId !== null) {
             $payload['distinct_id'] = $distinctId;
@@ -318,7 +326,24 @@ final class Emails
             );
         }
 
-        return [$body, $idempotencyKey ?? Uuid::v4(), $maxRetries];
+        return [$body, $idempotencyKey ?? Uuid::v4(), $maxRetries, $integration];
+    }
+
+    private static function integration(mixed $integration): ?string
+    {
+        if ($integration === null) {
+            return null;
+        }
+        if (!is_string($integration) || preg_match(self::INTEGRATION_PATTERN, $integration) !== 1) {
+            throw self::invalid(
+                'invalid_integration',
+                "integration must be <name>/<version>, such as 'laravel/1.4.0': a name of lowercase letters, digits "
+                . 'and hyphens, and a version of letters, digits, dots, plus signs and hyphens, at most 40 each.',
+                'integration'
+            );
+        }
+
+        return $integration;
     }
 
     /**
