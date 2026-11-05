@@ -304,6 +304,68 @@ custom provider class in `sdk.flag_definition_cache_provider`.
 An optional read-only PostHog store supports Pennant boolean and variant reads.
 See [Pennant setup, scope mapping and cache behavior](PENNANT.md).
 
+## Environment-based SDK tuning
+
+The package configuration maps these environment variables to PHP SDK options
+under `posthog.sdk`:
+
+| Environment variable | SDK option | SDK default when unset |
+| --- | --- | --- |
+| `POSTHOG_TIMEOUT_MS` | `timeout` for cURL delivery; `http_timeout_ms` for SDK HTTP requests | 10000 milliseconds |
+| `POSTHOG_SOCKET_TIMEOUT_SECONDS` | `timeout` for the socket consumer | 5 seconds |
+| `POSTHOG_BATCH_SIZE` | `batch_size` | 100 events |
+| `POSTHOG_MAX_QUEUE_SIZE` | `max_queue_size` | 10000 events |
+| `POSTHOG_FLUSH_INTERVAL_SECONDS` | `flush_interval_seconds` | 5 seconds |
+| `POSTHOG_COMPRESS_REQUEST` | `compress_request` | `false` |
+| `POSTHOG_CONSUMER` | `consumer` | `lib_curl` |
+| `POSTHOG_FF_REQUEST_TIMEOUT_MS` | `feature_flag_request_timeout_ms` | 3000 milliseconds |
+| `POSTHOG_FF_REQUEST_MAX_RETRIES` | `feature_flag_request_max_retries` | 1 retry |
+
+For example, with the default cURL consumer:
+
+```dotenv
+POSTHOG_TIMEOUT_MS=5000
+POSTHOG_BATCH_SIZE=50
+POSTHOG_FF_REQUEST_MAX_RETRIES=0
+```
+
+The event-delivery timeout is selected by `POSTHOG_CONSUMER`: `socket` uses
+`POSTHOG_SOCKET_TIMEOUT_SECONDS`; cURL consumers use `POSTHOG_TIMEOUT_MS`.
+The inactive transport's timeout does not affect event delivery. For example, use
+`POSTHOG_CONSUMER=socket` with `POSTHOG_SOCKET_TIMEOUT_SECONDS=0.25` for a
+quarter-second socket timeout.
+
+`POSTHOG_TIMEOUT_MS` also controls SDK HTTP requests, including local flag-definition
+fetches, even when events use the socket consumer. Those requests retain their
+10000-millisecond default when it is unset; socket seconds never become HTTP
+milliseconds. Positive fractional milliseconds round up rather than disabling the
+timeout. Explicit `POSTHOG_TIMEOUT_MS=0` disables the HTTP timeout.
+`POSTHOG_FF_REQUEST_TIMEOUT_MS` separately controls remote flag evaluation requests.
+There is no ambiguous `POSTHOG_TIMEOUT` mapping.
+
+Unset or empty variables leave the SDK's defaults in control. Numeric strings are
+converted to integers or floats, including fractional socket timeouts and flush
+intervals. Explicit `false` compression and `0` retries are preserved. A zero flush
+interval means flush on every enqueue; otherwise the interval is checked when
+another event is enqueued, not by a background timer. HTTP, job and command lifecycle
+flushes still apply. Consumer names are `lib_curl`, `socket`, `fork_curl`, `file` and
+`noop`; `noop` disables event delivery, not feature-flag requests.
+
+If you already published `config/posthog.php`, update it using the package's
+[`config/posthog.php`](config/posthog.php) as a reference. Copy the numeric conversion
+helpers and consumer lookup above `return`, as well as the environment-mapped `sdk`
+section. Updating the package or running `posthog:install` does not overwrite an
+existing published config file. Keep your custom SDK settings and callback classes
+when updating that section.
+You can also configure the existing SDK options directly there instead of using
+environment variables. No new flag fallback or local-only evaluation behavior is
+introduced by these mappings.
+
+Environment variables are read only while loading Laravel configuration. After
+changing them in a deployment that caches config, rebuild it with
+`php artisan config:cache` and restart long-running workers. Do not call `env()`
+from runtime SDK callbacks or application services; use `config()` instead.
+
 ## Configuration callbacks and full PHP access
 
 `posthog.sdk` passes PHP SDK options through. `before_send`, `error_handler`, and
