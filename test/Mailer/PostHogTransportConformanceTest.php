@@ -221,6 +221,9 @@ final class PostHogTransportConformanceTest extends TestCase
             ->embed(base64_decode('iVBORw0KGgo='), 'logo', 'image/png');
         $email->toString();
         $this->assertTrue($email->getAttachments()[0]->hasContentId(), 'Rendering gave the part a content ID.');
+        if ($email->getAttachments()[0]->getName() !== 'logo') {
+            $this->markTestSkipped('Symfony Mime before 6.4.37 and 7.4.9 renames the part when the app renders the email.');
+        }
 
         $this->transport()->send($email);
 
@@ -246,6 +249,21 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->assertSame(['invoice.pdf', 'logo'], array_column($this->body()['attachments'], 'filename'));
         $this->assertSame('logo', $this->body()['attachments'][1]['content_id']);
         $this->assertArrayNotHasKey('content_id', $this->body()['attachments'][0]);
+    }
+
+    public function testACustomBodyThatHoldsTheEmailsOwnPartsSends(): void
+    {
+        $email = self::shipped()->attach(base64_decode('JVBERi0xLjQK'), 'invoice.pdf', 'application/pdf');
+        $email->setBody(new MixedPart(
+            new AlternativePart(new TextPart('On its way.'), new TextPart('<p>On its way.</p>', 'utf-8', 'html')),
+            $email->getAttachments()[0]
+        ));
+
+        $this->transport()->send($email);
+
+        $this->assertSame('<p>On its way.</p>', $this->body()['html']);
+        $this->assertSame('On its way.', $this->body()['text']);
+        $this->assertSame(['invoice.pdf'], array_column($this->body()['attachments'], 'filename'));
     }
 
     public function testABodyFromAStreamThatCannotRewindSendsInFull(): void
@@ -367,6 +385,13 @@ final class PostHogTransportConformanceTest extends TestCase
             ],
             'a second text part' => [
                 fn() => self::shipped()->setBody(new MixedPart(new TextPart('On its way.'), new TextPart('Again.'))),
+                'unsupported_part',
+            ],
+            'a text part that differs from the email\'s text' => [
+                fn() => self::shipped()->setBody(new AlternativePart(
+                    new TextPart('Something else.'),
+                    new TextPart('<p>On its way.</p>', 'utf-8', 'html')
+                )),
                 'unsupported_part',
             ],
             'an HTML part when the email has no HTML body' => [

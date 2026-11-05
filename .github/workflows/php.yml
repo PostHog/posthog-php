@@ -127,6 +127,12 @@ jobs:
           - php-version: "8.2"
             symfony: "6.4.*"
             stability: stable
+          # The first 6.4 release: before 6.4.37, Symfony renames inline parts when it builds the body.
+          # Composer blocks it for security advisories, which don't apply to a test run.
+          - php-version: "8.2"
+            symfony: "6.4.0"
+            stability: stable
+            allow-insecure: true
           # Symfony Mailer 8.2 adds remote templates; move to stable once 8.2.0 ships.
           - php-version: "8.4"
             symfony: "8.2.*"
@@ -146,10 +152,12 @@ jobs:
         env:
           SYMFONY: ${{ matrix.symfony }}
           STABILITY: ${{ matrix.stability }}
+          ALLOW_INSECURE: ${{ matrix.allow-insecure || 'false' }}
         run: |
           composer config minimum-stability "$STABILITY"
+          if [ "$ALLOW_INSECURE" = "true" ]; then composer config policy.advisories.block false; fi
           composer config prefer-stable true
-          composer require --dev --no-update "symfony/mailer:$SYMFONY" "symfony/framework-bundle:$SYMFONY"
+          composer require --dev --no-update "symfony/mailer:$SYMFONY" "symfony/mime:$SYMFONY" "symfony/framework-bundle:$SYMFONY"
           composer update --with-all-dependencies --prefer-dist --no-progress
 
       - name: Run the Symfony Mailer tests

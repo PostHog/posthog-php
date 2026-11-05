@@ -2,12 +2,14 @@
 
 namespace PostHog\Internal\Mailer;
 
+use ReflectionMethod;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\Exception\LogicException;
 use Symfony\Component\Mailer\RemoteTemplateEmail;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\Header\UnstructuredHeader;
+use Symfony\Component\Mime\Message;
 use Symfony\Component\Mime\Part\AbstractMultipartPart;
 use Symfony\Component\Mime\Part\DataPart;
 use Symfony\Component\Mime\Part\TextPart;
@@ -136,18 +138,10 @@ final class EmailMapper
      */
     private function renderedContent(Email $email, string $templateKey, ?bool $captureEngagement): array
     {
-        // A stream body reads once: Symfony reads the HTML again when it builds the body the walk below checks, which
-        // leaves a stream that can't rewind empty. Read each body once and walk a clone that holds them as strings.
+        // Read each body once: a stream that can't rewind is empty on a second read.
         $html = self::text($email->getHtmlBody());
         $text = self::text($email->getTextBody());
-        $email = clone $email;
-        if ($html !== null) {
-            $email->html($html, $email->getHtmlCharset() ?? 'utf-8');
-        }
-        if ($text !== null) {
-            $email->text($text, $email->getTextCharset() ?? 'utf-8');
-        }
-        self::refuseUnsupportedParts($email);
+        self::refuseUnsupportedParts($email, $text, $html);
 
         return [
             'template_key' => $templateKey,
@@ -168,30 +162,38 @@ final class EmailMapper
 
     /**
      * The send carries the email's text, HTML and attachments, so a body set with setBody() may hold only those: at
-     * most one text and one HTML part, each only when the email has that body, and the email's own attachments.
-     * A body Symfony generates holds nothing else.
+     * most one text and one HTML part, each holding the email's own text or HTML, and the email's own attachments.
+     *
+     * A body Symfony generates holds nothing else, so only a custom body is walked. Message::getBody() returns it
+     * without building the generated body. Building it reads a stream body, and older Symfony Mime releases, such
+     * as 6.4.0, rename each part the HTML refers to after its generated content ID.
      */
-    private static function refuseUnsupportedParts(Email $email): void
+    private static function refuseUnsupportedParts(Email $email, ?string $text, ?string $html): void
     {
-        $expected = ['plain' => $email->getTextBody() !== null, 'html' => $email->getHtmlBody() !== null];
-        $parts = [$email->getBody()];
+        $custom = (new ReflectionMethod(Message::class, 'getBody'))->invoke($email);
+        $expected = ['plain' => $text, 'html' => $html];
+        $parts = $custom === null ? [] : [$custom];
         while (($part = array_shift($parts)) !== null) {
+            $type = "{$part->getMediaType()}/{$part->getMediaSubtype()}";
             if ($part instanceof AbstractMultipartPart) {
                 array_push($parts, ...$part->getParts());
             } elseif ($part instanceof DataPart) {
                 if (!in_array($part, $email->getAttachments(), true)) {
                     throw self::refusal(
                         'unsupported_part',
-                        "The body holds a {$part->getMediaType()}/{$part->getMediaSubtype()} part that is not "
-                        . 'one of its attachments.'
+                        "The body holds a $type part that is not one of its attachments."
                     );
                 }
-            } elseif ($part instanceof TextPart && ($expected[$part->getMediaSubtype()] ?? false)) {
-                $expected[$part->getMediaSubtype()] = false;
+            } elseif (
+                $part instanceof TextPart
+                && ($expected[$part->getMediaSubtype()] ?? null) !== null
+                && $part->getBody() === $expected[$part->getMediaSubtype()]
+            ) {
+                $expected[$part->getMediaSubtype()] = null;
             } else {
                 throw self::refusal(
                     'unsupported_part',
-                    "It can't carry the {$part->getMediaType()}/{$part->getMediaSubtype()} part of the body."
+                    "It can't carry the $type part of the body: a body part must hold the email's own text or HTML."
                 );
             }
         }
