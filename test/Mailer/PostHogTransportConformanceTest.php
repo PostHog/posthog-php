@@ -103,6 +103,34 @@ final class PostHogTransportConformanceTest extends TestCase
                 ],
                 ['Idempotency-Key' => 'order-981-shipped'],
             ],
+            'a sender name with a comma, quoted' => [
+                fn() => self::shipped()->from(new Address('shop@example.com', 'Shop, Inc')),
+                ['from' => '"Shop, Inc" <shop@example.com>'] + self::RENDERED
+                    + ['template_key' => 'posthog-php-mailer'],
+                [],
+            ],
+            'an inline part named in the HTML' => [
+                fn() => self::shipped()->html('<img src="cid:logo">')
+                    ->embed(base64_decode('iVBORw0KGgo='), 'logo', 'image/png'),
+                ['html' => '<img src="cid:logo">'] + self::RENDERED + [
+                    'template_key' => 'posthog-php-mailer',
+                    'attachments' => [[
+                        'filename' => 'logo',
+                        'content' => 'iVBORw0KGgo=',
+                        'content_type' => 'image/png',
+                        'content_id' => 'logo',
+                    ]],
+                ],
+                [],
+            ],
+            'the engagement header wins over X-Track' => [
+                fn() => self::withHeaders(self::shipped(), [
+                    'X-PostHog-Capture-Engagement' => 'false',
+                    'X-Track' => 'opens=true; clicks=true',
+                ]),
+                self::RENDERED + ['template_key' => 'posthog-php-mailer', 'capture_engagement' => false],
+                [],
+            ],
             '14 tracking that agrees' => [
                 fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=false; clicks=false']),
                 self::RENDERED + ['template_key' => 'posthog-php-mailer', 'capture_engagement' => false],
@@ -167,9 +195,18 @@ final class PostHogTransportConformanceTest extends TestCase
             '09 multiple to' => [fn() => self::shipped()->addTo('bo@example.com'), 'multiple_to'],
             '09 no to' => [fn() => self::shipped()->to()->cc('bo@example.com'), 'multiple_to'],
             '10 inline without cid' => [
+                fn() => self::shipped()->addPart((new DataPart(base64_decode('iVBORw0KGgo='), 'logo.png', 'image/png'))
+                    ->asInline()),
+                'inline_without_cid',
+            ],
+            '10 inline without a name' => [
                 fn() => self::shipped()->addPart((new DataPart(base64_decode('iVBORw0KGgo='), null, 'image/png'))
                     ->asInline()),
                 'inline_without_cid',
+            ],
+            'an engagement header that is not true or false' => [
+                fn() => self::withHeaders(self::shipped(), ['X-PostHog-Capture-Engagement' => 'yes']),
+                'unsupported_header',
             ],
             '11 a custom header' => [
                 fn() => self::withHeaders(self::shipped(), ['X-Campaign' => 'spring']),
@@ -233,6 +270,52 @@ final class PostHogTransportConformanceTest extends TestCase
             'distinct_id' => 'user_42',
         ], $this->body());
         $this->assertMatchesRegularExpression('#^posthog-php-mailer/#', $this->header('X-PostHog-Integration'));
+    }
+
+    public function testATemplateEmailChecksButDoesNotSendTheRenderedOptions(): void
+    {
+        $this->requireRemoteTemplates();
+        $email = self::withHeaders(
+            (new RemoteTemplateEmail())->from('shop@example.com')->to('ana@example.com')->template(self::TEMPLATE_ID),
+            ['X-PostHog-Template-Key' => 'order-shipped', 'X-PostHog-Capture-Engagement' => 'false']
+        );
+
+        $this->transport()->send($email);
+
+        $this->assertEquals(
+            ['to' => 'ana@example.com', 'template_id' => self::TEMPLATE_ID, 'message_data' => []],
+            $this->body()
+        );
+    }
+
+    /**
+     * @return array<string, array{array<string, string>, string}>
+     */
+    public static function templateRefusals(): array
+    {
+        return [
+            'an invalid template key' => [['X-PostHog-Template-Key' => 'order shipped!'], 'invalid_template_key'],
+            'an engagement header that is not true or false' => [
+                ['X-PostHog-Capture-Engagement' => 'yes'],
+                'unsupported_header',
+            ],
+            'mixed tracking' => [['X-Track' => 'opens=true; clicks=false'], 'mixed_tracking'],
+        ];
+    }
+
+    /**
+     * @param array<string, string> $headers
+     */
+    #[DataProvider('templateRefusals')]
+    public function testATemplateEmailStillRefusesABadOption(array $headers, string $code): void
+    {
+        $this->requireRemoteTemplates();
+        $email = self::withHeaders(
+            (new RemoteTemplateEmail())->from('shop@example.com')->to('ana@example.com')->template(self::TEMPLATE_ID),
+            $headers
+        );
+
+        $this->assertRefused($code, fn() => $this->transport()->send($email));
     }
 
     public function testCase16ATemplateIsRefusedWhenTemplatesAreOff(): void

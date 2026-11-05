@@ -42,9 +42,12 @@ final class EmailMapper
         $to = $this->onlyRecipient($email);
         $options = $this->headerOptions($email);
         $this->refuseEnvelopeMismatch($email, $envelope);
+        // Checked on both forms; the template form doesn't send them.
+        $templateKey = $this->templateKey($options[self::TEMPLATE_KEY] ?? null);
+        $captureEngagement = self::captureEngagement($email, $options[self::CAPTURE_ENGAGEMENT] ?? null);
         $template = $email instanceof RemoteTemplateEmail ? $email->getRemoteTemplate() : null;
         $send = $template === null
-            ? $this->renderedContent($email, $options)
+            ? $this->renderedContent($email, $templateKey, $captureEngagement)
             : $this->templateContent($email, $template->getReference(), $template->getVariables());
 
         return array_filter(
@@ -123,22 +126,26 @@ final class EmailMapper
     }
 
     /**
-     * @param array<string, string> $options
      * @return array<string, mixed>
      */
-    private function renderedContent(Email $email, array $options): array
+    private function renderedContent(Email $email, string $templateKey, ?bool $captureEngagement): array
     {
+        $html = self::text($email->getHtmlBody());
+
         return [
-            'template_key' => $this->templateKey($options[self::TEMPLATE_KEY] ?? null),
+            'template_key' => $templateKey,
             'subject' => $email->getSubject(),
-            'html' => self::text($email->getHtmlBody()),
+            'html' => $html,
             'text' => self::text($email->getTextBody()),
             'from' => ($from = $email->getFrom()[0] ?? null) === null ? null : self::mailbox($from),
             'reply_to' => self::addresses($email->getReplyTo()),
             'cc' => self::addresses($email->getCc()),
             'bcc' => self::addresses($email->getBcc()),
-            'attachments' => array_map(self::attachment(...), $email->getAttachments()),
-            'capture_engagement' => self::captureEngagement($email, $options[self::CAPTURE_ENGAGEMENT] ?? null),
+            'attachments' => array_map(
+                static fn(DataPart $part): array => self::attachment($part, $html),
+                $email->getAttachments()
+            ),
+            'capture_engagement' => $captureEngagement,
         ];
     }
 
@@ -179,11 +186,24 @@ final class EmailMapper
         return $explicit;
     }
 
-    private static function captureEngagement(Email $email, ?string $explicit): bool|string|null
+    /**
+     * The X-PostHog-Capture-Engagement header wins; else Symfony's X-Track, when opens and clicks agree.
+     */
+    private static function captureEngagement(Email $email, ?string $explicit): ?bool
     {
+        if ($explicit !== null) {
+            return match ($explicit) {
+                'true' => true,
+                'false' => false,
+                default => throw self::refusal(
+                    'unsupported_header',
+                    'X-PostHog-Capture-Engagement must be "true" or "false".'
+                ),
+            };
+        }
         $choices = array_values(array_unique(array_filter(
-            [self::flag($explicit), ...self::tracking($email)],
-            static fn($choice): bool => $choice !== null
+            self::tracking($email),
+            static fn(?bool $choice): bool => $choice !== null
         ), SORT_REGULAR));
         if (count($choices) > 1) {
             throw self::refusal(
@@ -215,32 +235,38 @@ final class EmailMapper
         return array_values($flags);
     }
 
-    private static function flag(?string $value): bool|string|null
-    {
-        return match ($value === null ? null : strtolower(trim($value))) {
-            null => null,
-            'true' => true,
-            'false' => false,
-            default => $value,
-        };
-    }
-
     /**
      * @return array<string, string>
      */
-    private static function attachment(DataPart $part): array
+    private static function attachment(DataPart $part, ?string $html): array
     {
         $attachment = ['filename' => $part->getFilename(), 'content' => $part->getBody()];
         $attachment['content_type'] = $part->getContentType();
         if ($part->getDisposition() === 'inline') {
-            $contentId = $part->hasContentId() ? $part->getContentId() : $part->getName();
-            if ($contentId === null) {
-                throw self::refusal('inline_without_cid', 'An inline attachment needs a name the HTML refers to.');
-            }
-            $attachment['content_id'] = $contentId;
+            $attachment['content_id'] = self::contentId($part, $html);
         }
 
         return $attachment;
+    }
+
+    /**
+     * An inline part's explicit content ID, else its name when the HTML refers to it as `cid:<name>`.
+     */
+    private static function contentId(DataPart $part, ?string $html): string
+    {
+        if ($part->hasContentId()) {
+            return $part->getContentId();
+        }
+        $name = $part->getName();
+        $reference = '/\\b(?i:cid:)' . preg_quote((string) $name, '/') . '(?=[\\s"\'>)]|$)/';
+        if ($name === null || $html === null || preg_match($reference, $html) !== 1) {
+            throw self::refusal(
+                'inline_without_cid',
+                'An inline attachment needs a content ID, or a name the HTML refers to as cid:<name>.'
+            );
+        }
+
+        return $name;
     }
 
     /**
@@ -252,9 +278,18 @@ final class EmailMapper
         return array_values(array_map(static fn(Address $address): string => $address->getAddress(), $addresses));
     }
 
+    /**
+     * The sender with its display name, quoted when the name has a character RFC 5322 reserves, such as a comma.
+     */
     private static function mailbox(Address $address): string
     {
-        return $address->getName() === '' ? $address->getAddress() : "{$address->getName()} <{$address->getAddress()}>";
+        $name = $address->getName();
+        if ($name === '') {
+            return $address->getAddress();
+        }
+
+        return (strpbrk($name, '()<>[]:;@\\,."') === false ? $name : $address->getEncodedName())
+            . " <{$address->getAddress()}>";
     }
 
     /**
