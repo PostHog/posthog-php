@@ -25,7 +25,12 @@
 		"squizlabs/php_codesniffer": "^4.0",
 		"ext-zlib": "*",
 		"open-telemetry/api": "^1.0",
-		"open-telemetry/sdk": "^1.0"
+		"open-telemetry/sdk": "^1.0",
+		"symfony/framework-bundle": "^6.4|^7.0|^8.0",
+		"symfony/mailer": "^6.4|^7.0|^8.0"
+	},
+	"suggest": {
+		"symfony/mailer": "Send Symfony Mailer email through PostHog with the posthog+api:// transport."
 	},
 	"autoload": {
 		"psr-4": {

@@ -666,25 +666,9 @@ final class Emails
         return addcslashes($text, "\0..\37\177\\");
     }
 
-    private static function isRetryable(EmailError $error): bool
-    {
-        $status = $error->getStatusCode();
-        if ($status === null) {
-            return $error->getErrorCode() === 'network_error';
-        }
-        if ($status === 409) {
-            return $error->getErrorCode() === 'idempotency_key_in_flight';
-        }
-        if ($status === 429) {
-            return $error->getErrorCode() !== 'quota_limited';
-        }
-
-        return $status === 503;
-    }
-
     private static function retryDelayMs(EmailError $error, int $attempt, int $maxRetries): ?int
     {
-        if ($attempt >= $maxRetries || !self::isRetryable($error)) {
+        if ($attempt >= $maxRetries || !$error->isRetryable()) {
             return null;
         }
         $retryAfterMs = $error->getRetryAfterMs();
