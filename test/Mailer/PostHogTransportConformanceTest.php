@@ -13,6 +13,9 @@ use Symfony\Component\Mailer\RemoteTemplateEmail;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\Part\DataPart;
+use Symfony\Component\Mime\Part\Multipart\AlternativePart;
+use Symfony\Component\Mime\Part\Multipart\MixedPart;
+use Symfony\Component\Mime\Part\TextPart;
 
 /**
  * The adapter contract's conformance cases, sent through the real Emails sender with HTTP stubbed.
@@ -212,6 +215,19 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->assertSame('用户42', $this->body()['distinct_id']);
     }
 
+    public function testAMultipartEmailWithAnAttachmentAndAnInlineImageSends(): void
+    {
+        $email = self::shipped()->html('<p>On its way.</p><img src="cid:logo">')
+            ->attach(base64_decode('JVBERi0xLjQK'), 'invoice.pdf', 'application/pdf')
+            ->embed(base64_decode('iVBORw0KGgo='), 'logo', 'image/png');
+
+        $this->transport()->send($email);
+
+        $this->assertSame(['invoice.pdf', 'logo'], array_column($this->body()['attachments'], 'filename'));
+        $this->assertSame('logo', $this->body()['attachments'][1]['content_id']);
+        $this->assertArrayNotHasKey('content_id', $this->body()['attachments'][0]);
+    }
+
     public function testTheReservedHeadersNeverGoOut(): void
     {
         $this->transport()->send(self::withHeaders(self::shipped(), [
@@ -285,6 +301,32 @@ final class PostHogTransportConformanceTest extends TestCase
             '14 mixed tracking' => [
                 fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=true; clicks=false']),
                 'mixed_tracking',
+            ],
+            'an AMP alternative set as the body' => [
+                fn() => self::shipped()->setBody(new AlternativePart(
+                    new TextPart('On its way.'),
+                    new TextPart('<p>On its way.</p>', 'utf-8', 'html'),
+                    new TextPart('<p>On its way.</p>', 'utf-8', 'x-amp-html')
+                )),
+                'unsupported_part',
+            ],
+            'a body part that is not an attachment' => [
+                fn() => self::shipped()->setBody(new MixedPart(
+                    new TextPart('On its way.'),
+                    new DataPart(base64_decode('JVBERi0xLjQK'), 'invoice.pdf', 'application/pdf')
+                )),
+                'unsupported_part',
+            ],
+            'a second text part' => [
+                fn() => self::shipped()->setBody(new MixedPart(new TextPart('On its way.'), new TextPart('Again.'))),
+                'unsupported_part',
+            ],
+            'an HTML part when the email has no HTML body' => [
+                fn() => self::shipped()->html(null)->setBody(new AlternativePart(
+                    new TextPart('On its way.'),
+                    new TextPart('<p>On its way.</p>', 'utf-8', 'html')
+                )),
+                'unsupported_part',
             ],
             'a priority other than normal' => [
                 fn() => self::shipped()->priority(Email::PRIORITY_HIGH),

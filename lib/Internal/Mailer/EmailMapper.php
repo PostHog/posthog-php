@@ -8,7 +8,9 @@ use Symfony\Component\Mailer\RemoteTemplateEmail;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\Header\UnstructuredHeader;
+use Symfony\Component\Mime\Part\AbstractMultipartPart;
 use Symfony\Component\Mime\Part\DataPart;
+use Symfony\Component\Mime\Part\TextPart;
 
 /**
  * @internal Turns a Symfony Email into the options of one PostHog send, or refuses it.
@@ -134,6 +136,7 @@ final class EmailMapper
      */
     private function renderedContent(Email $email, string $templateKey, ?bool $captureEngagement): array
     {
+        self::refuseUnsupportedParts($email);
         $html = self::text($email->getHtmlBody());
 
         return [
@@ -151,6 +154,37 @@ final class EmailMapper
             ),
             'capture_engagement' => $captureEngagement,
         ];
+    }
+
+    /**
+     * The send carries the email's text, HTML and attachments, so a body set with setBody() may hold only those: at
+     * most one text and one HTML part, each only when the email has that body, and the email's own attachments.
+     * A body Symfony generates holds nothing else.
+     */
+    private static function refuseUnsupportedParts(Email $email): void
+    {
+        $expected = ['plain' => $email->getTextBody() !== null, 'html' => $email->getHtmlBody() !== null];
+        $parts = [$email->getBody()];
+        while (($part = array_shift($parts)) !== null) {
+            if ($part instanceof AbstractMultipartPart) {
+                array_push($parts, ...$part->getParts());
+            } elseif ($part instanceof DataPart) {
+                if (!in_array($part, $email->getAttachments(), true)) {
+                    throw self::refusal(
+                        'unsupported_part',
+                        "The body holds a {$part->getMediaType()}/{$part->getMediaSubtype()} part that is not "
+                        . 'one of its attachments.'
+                    );
+                }
+            } elseif ($part instanceof TextPart && ($expected[$part->getMediaSubtype()] ?? false)) {
+                $expected[$part->getMediaSubtype()] = false;
+            } else {
+                throw self::refusal(
+                    'unsupported_part',
+                    "It can't carry the {$part->getMediaType()}/{$part->getMediaSubtype()} part of the body."
+                );
+            }
+        }
     }
 
     /**
