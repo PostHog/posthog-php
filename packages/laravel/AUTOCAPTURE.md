@@ -76,9 +76,16 @@ and pageview events. Zero drops both; the default 1 captures every eligible requ
 ### Privacy and identity
 
 Collectors emit only the properties listed below, plus normal SDK metadata and
-explicit identity, session correlation and groups. Arbitrary context properties are not copied. Collection
-never reads request bodies, query values, cookies, credentials, email, IP addresses,
-job arguments or full model/event payloads. Auth uses `getAuthIdentifier()`; configure
+explicit identity, session correlation, groups and request IP. Arbitrary context
+properties are not copied. When `posthog.capture_ip` is enabled (the default), the
+runtime's Laravel-resolved visitor IP is inherited as `$ip`. Set
+`POSTHOG_CAPTURE_IP=false` to disable automatic IP collection. Explicit event or
+context `$ip` values, including null, still win. Configure Laravel's trusted proxies
+for proxied deployments. This does not enable GeoIP enrichment, which remains off
+by default. IP addresses can be personal data; apply your consent and retention
+policies and use `sdk.before_send` for redaction. Request IPs are not propagated
+through queue payload metadata. Collection never reads request bodies, query values,
+cookies, credentials, email, job arguments or full model/event payloads. Auth uses `getAuthIdentifier()`; configure
 an opaque identifier rather than email if your application customizes that method.
 Application-selected attributes/property mappings may contain PII: allowlist only
 fields you intend to send and use `sdk.before_send` for additional redaction.

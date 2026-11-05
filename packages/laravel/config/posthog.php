@@ -7,6 +7,7 @@ return [
     'secret_key' => env('POSTHOG_SECRET_KEY'),
     'release_id' => env('POSTHOG_RELEASE_ID'),
     'capture_exceptions' => true,
+    'capture_ip' => env('POSTHOG_CAPTURE_IP', true),
     'header_context' => true,
     'queue_context' => true,
     // Invokable container class; receives the application and returns a distinct ID or null.
