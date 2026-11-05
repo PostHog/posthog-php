@@ -1,3 +1,9 @@
+## 4.21.0
+
+### Minor Changes
+
+- Separate socket delivery timeouts from SDK HTTP deadlines and add http_timeout_ms for explicit HTTP configuration.
+
 ## 4.20.2
 
 ### Patch Changes
