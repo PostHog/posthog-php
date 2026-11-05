@@ -17,8 +17,9 @@ use Symfony\Component\Clock\NativeClock;
  * and reads the status of each email it sent.
  *
  * Get it from the client with `$client->emails()` or `PostHog::emails()`. The client needs a project
- * secret API key (`phs_...`) as `$secretKey`: sending needs the `hog_flow:write` scope, reading a status
- * needs `hog_flow:read`. A client on PostHog Cloud sends to its region's app host. For any other `host`,
+ * secret API key (`phs_...`) as `$secretKey`: sending needs the `transactional_email:write` scope, reading
+ * a status needs `transactional_email:read` or `transactional_email:write`. Keys made with `hog_flow:write`
+ * still work. A client on PostHog Cloud sends to its region's app host. For any other `host`,
  * such as a reverse proxy, set the `app_host` option, because the proxy must not receive the secret key.
  *
  * Each request times out after `email_request_timeout_ms` (15000 by default). Network errors, rate
@@ -63,9 +64,9 @@ final class Emails
     private const SEND_NOT_DONE = 'no email was sent';
     private const GET_NOT_DONE = 'no email status was read';
     private const SEND_KEY_NEEDED = 'Sending email needs a secret key, a project secret API key with the '
-        . 'hog_flow:write scope.';
+        . 'transactional_email:write scope.';
     private const GET_KEY_NEEDED = 'Reading an email status needs a secret key, a project secret API key with the '
-        . 'hog_flow:read or hog_flow:write scope.';
+        . 'transactional_email:read or transactional_email:write scope.';
 
     private ?string $secretKey;
     private ?string $appHost;
