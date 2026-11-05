@@ -304,16 +304,19 @@ custom provider class in `sdk.flag_definition_cache_provider`.
 An optional read-only PostHog store supports Pennant boolean and variant reads.
 See [Pennant setup, scope mapping and cache behavior](PENNANT.md).
 
-## Queued event delivery
+## Laravel queued event delivery
 
 Delivery runs in the current PHP process by default. To hand event batches to
 Laravel workers instead, opt in:
 
 ```dotenv
-POSTHOG_QUEUE_ENABLED=true
-POSTHOG_QUEUE_CONNECTION=redis
-POSTHOG_QUEUE=posthog
+POSTHOG_LARAVEL_QUEUE_ENABLED=true
+POSTHOG_LARAVEL_QUEUE_CONNECTION=redis
+POSTHOG_LARAVEL_QUEUE_NAME=posthog
 ```
+
+This Laravel queue is separate from the SDK's in-memory event buffer. SDK
+batching remains active in both delivery modes.
 
 Run a worker for that connection and queue, with an appropriate retry policy:
 
@@ -321,12 +324,12 @@ Run a worker for that connection and queue, with an appropriate retry policy:
 php artisan queue:work redis --queue=posthog --tries=3 --backoff=10
 ```
 
-The corresponding configuration is `posthog.queue.enabled`,
-`posthog.queue.connection`, and `posthog.queue.queue`. Omitting the connection or
+The corresponding configuration is `posthog.laravel_queue.enabled`,
+`posthog.laravel_queue.connection`, and `posthog.laravel_queue.name`. Omitting the connection or
 queue uses Laravel's defaults. A `sync` connection executes delivery inline: it
 provides neither off-process delivery nor persistent jobs. Rebuild cached config
 and restart workers after changing settings. Already-published `config/posthog.php`
-files must also receive the new `queue` section from the package config.
+files must also receive the new `laravel_queue` section from the package config.
 
 Events still use SDK batching. Batch-size thresholds and lifecycle flushes dispatch
 one job per prepared batch, without making a PostHog ingestion request in the

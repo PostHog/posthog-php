@@ -56,8 +56,9 @@ class PostHog
         if (!isset($options['flag_definition_cache_provider']) && ($config['flag_cache']['enabled'] ?? false)) {
             $options['flag_definition_cache_provider'] = $this->app->make(FlagDefinitionCacheProvider::class);
         }
-        $queuedConsumer = ($config['queue']['enabled'] ?? false) && ($options['consumer'] ?? null) !== 'noop'
-            ? new QueuedConsumer($config['api_key'], $options, $this->app->make(Dispatcher::class), $config['queue'])
+        $laravelQueue = $config['laravel_queue'] ?? [];
+        $queuedConsumer = ($laravelQueue['enabled'] ?? false) && ($options['consumer'] ?? null) !== 'noop'
+            ? new QueuedConsumer($config['api_key'], $options, $this->app->make(Dispatcher::class), $laravelQueue)
             : null;
         return $this->client = new LaravelClient(
             $config['api_key'],

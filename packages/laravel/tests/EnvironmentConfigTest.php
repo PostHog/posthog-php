@@ -17,7 +17,7 @@ class EnvironmentConfigTest extends TestCase
         'POSTHOG_TIMEOUT_MS', 'POSTHOG_SOCKET_TIMEOUT_SECONDS', 'POSTHOG_BATCH_SIZE', 'POSTHOG_MAX_QUEUE_SIZE',
         'POSTHOG_FLUSH_INTERVAL_SECONDS', 'POSTHOG_COMPRESS_REQUEST', 'POSTHOG_CONSUMER',
         'POSTHOG_FF_REQUEST_TIMEOUT_MS', 'POSTHOG_FF_REQUEST_MAX_RETRIES',
-        'POSTHOG_QUEUE_ENABLED', 'POSTHOG_QUEUE_CONNECTION', 'POSTHOG_QUEUE',
+        'POSTHOG_LARAVEL_QUEUE_ENABLED', 'POSTHOG_LARAVEL_QUEUE_CONNECTION', 'POSTHOG_LARAVEL_QUEUE_NAME',
     ];
 
     protected function getPackageProviders($app): array
@@ -116,18 +116,19 @@ class EnvironmentConfigTest extends TestCase
         }
     }
 
-    public function testQueuedDeliveryConfigurationIsOptInTypedAndCacheable(): void
+    public function testLaravelQueueDeliveryConfigurationIsOptInTypedAndCacheable(): void
     {
         $default = $this->withEnvironment([], fn () => $this->configuration());
-        $this->assertSame(['enabled' => false, 'connection' => null, 'queue' => null], $default['queue']);
+        $this->assertArrayHasKey('laravel_queue', $default);
+        $this->assertSame(['enabled' => false, 'connection' => null, 'name' => null], $default['laravel_queue']);
         $config = $this->withEnvironment([
-            'POSTHOG_QUEUE_ENABLED' => 'true', 'POSTHOG_QUEUE_CONNECTION' => 'redis', 'POSTHOG_QUEUE' => 'analytics',
+            'POSTHOG_LARAVEL_QUEUE_ENABLED' => 'true', 'POSTHOG_LARAVEL_QUEUE_CONNECTION' => 'redis', 'POSTHOG_LARAVEL_QUEUE_NAME' => 'analytics',
         ], fn () => $this->configuration());
-        $this->assertSame(['enabled' => true, 'connection' => 'redis', 'queue' => 'analytics'], $config['queue']);
+        $this->assertSame(['enabled' => true, 'connection' => 'redis', 'name' => 'analytics'], $config['laravel_queue']);
         $cached = eval('return ' . var_export($config, true) . ';');
-        $this->withEnvironment(['POSTHOG_QUEUE_ENABLED' => 'false'], function () use ($cached) {
-            $this->assertFalse($this->configuration()['queue']['enabled']);
-            $this->assertSame(['enabled' => true, 'connection' => 'redis', 'queue' => 'analytics'], $cached['queue']);
+        $this->withEnvironment(['POSTHOG_LARAVEL_QUEUE_ENABLED' => 'false'], function () use ($cached) {
+            $this->assertFalse($this->configuration()['laravel_queue']['enabled']);
+            $this->assertSame(['enabled' => true, 'connection' => 'redis', 'name' => 'analytics'], $cached['laravel_queue']);
         });
     }
 

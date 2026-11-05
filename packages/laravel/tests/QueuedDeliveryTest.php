@@ -33,8 +33,8 @@ class QueuedDeliveryTest extends TestCase
     protected function defineEnvironment($app): void
     {
         $app['config']->set('posthog.api_key', 'project-key');
-        $app['config']->set('posthog.queue', [
-            'enabled' => true, 'connection' => 'redis', 'queue' => 'analytics',
+        $app['config']->set('posthog.laravel_queue', [
+            'enabled' => true, 'connection' => 'redis', 'name' => 'analytics',
         ]);
     }
 
@@ -183,7 +183,7 @@ class QueuedDeliveryTest extends TestCase
     public function testDirectDeliveryRemainsTheDefault(): void
     {
         Bus::fake();
-        $this->app['config']->set('posthog.queue.enabled', false);
+        $this->app['config']->set('posthog.laravel_queue.enabled', false);
         $manager = $this->app->make(PostHog::class);
         $consumer = (new ReflectionProperty(Client::class, 'consumer'))->getValue($manager->client());
         $http = $this->createMock(HttpClient::class);
@@ -302,7 +302,7 @@ class QueuedDeliveryTest extends TestCase
 
     public function testSyncQueueDeliversInlineWithoutRecursingOrLeakingContext(): void
     {
-        $this->app['config']->set('posthog.queue.connection', 'sync');
+        $this->app['config']->set('posthog.laravel_queue.connection', 'sync');
         $this->app['config']->set('posthog.sdk.batch_size', 1);
         $this->app['config']->set('posthog.autocapture.jobs.enabled', true);
         $requests = [];
@@ -356,8 +356,8 @@ class QueuedDeliveryTest extends TestCase
     {
         $queue = $this->databaseQueue('default-events');
         $this->app['config']->set('queue.default', 'database');
-        $this->app['config']->set('posthog.queue.connection', null);
-        $this->app['config']->set('posthog.queue.queue', null);
+        $this->app['config']->set('posthog.laravel_queue.connection', null);
+        $this->app['config']->set('posthog.laravel_queue.name', null);
         $manager = $this->app->make(PostHog::class);
         $manager->capture('default queue', distinctId: 'actor');
         $this->assertTrue($manager->flush());
@@ -388,7 +388,7 @@ class QueuedDeliveryTest extends TestCase
             'driver' => 'database', 'connection' => 'testing', 'table' => 'jobs', 'queue' => $defaultQueue,
             'retry_after' => 90, 'after_commit' => false,
         ]);
-        $this->app['config']->set('posthog.queue.connection', 'database');
+        $this->app['config']->set('posthog.laravel_queue.connection', 'database');
         $this->app['db']->connection()->getSchemaBuilder()->create('jobs', function (Blueprint $table) {
             $table->id();
             $table->string('queue')->index();

@@ -46,7 +46,7 @@ final class QueuedConsumer extends LibCurl
         $events = json_encode(json_decode($payload, flags: JSON_THROW_ON_ERROR)->batch, JSON_THROW_ON_ERROR);
         $job = new DeliverEvents($events);
         $job->onConnection($this->settings['connection'] ?? null);
-        $job->onQueue($this->settings['queue'] ?? null);
+        $job->onQueue($this->settings['name'] ?? null);
         try {
             $this->dispatcher->dispatch($job);
             return true;
