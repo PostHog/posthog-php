@@ -274,8 +274,15 @@ class Client implements FeatureFlagEvaluationsHost
      * `disableGeoip` defaults to false for compatibility with existing releases. It applies to events
      * and remote flag evaluation. Per-call options override this setting; false allows GeoIP enrichment.
      *
+     * Transactional email ({@see emails()}) uses `app_host`, `email_request_timeout_ms` (default 15000),
+     * `email_request_max_retries` (default 2) and `migrated_from`.
+     *
      * @param array{
      *     host?: string,
+     *     app_host?: string,
+     *     email_request_timeout_ms?: int,
+     *     email_request_max_retries?: int,
+     *     migrated_from?: string,
      *     ssl?: bool,
      *     timeout?: int|float,
      *     http_timeout_ms?: int|float,
@@ -311,6 +318,7 @@ class Client implements FeatureFlagEvaluationsHost
      * @param string|null $secretKey Credential for fetching local feature flag definitions and remote config.
      *     Accepts either a Personal API Key (`phx_...`) or a Project Secret API Key (`phs_...`).
      *     Defaults to null. When both $secretKey and $personalAPIKey are provided, $secretKey wins.
+     *     Transactional email needs a Project Secret API Key.
      */
     public function __construct(
         ?string $apiKey = null,
@@ -368,6 +376,7 @@ class Client implements FeatureFlagEvaluationsHost
         $this->flagsEtag = null;
         $this->flagDefinitionsLoaded = false;
         $this->minimalFlagCalledEvents = false;
+        $this->refuseBadEmailOptions();
 
         if ($this->enabled) {
             ExceptionCapture::configure($this, $options['error_tracking'] ?? []);
@@ -480,6 +489,46 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         return $flushed;
+    }
+
+    /**
+     * Transactional email: send one email from a template made in PostHog or from content your code
+     * rendered, and read the status of an email it sent. Needs a Project Secret API Key (`phs_...`) as
+     * $secretKey. A client on PostHog Cloud sends to its region's app host. For any other host, such as a
+     * reverse proxy, set the `app_host` option. A client without a project API key sends no email and
+     * throws EmailError with the code `client_disabled`.
+     *
+     * The client captures no event for a send. The send and its engagement events come from PostHog.
+     */
+    public function emails(): Emails
+    {
+        return new Emails(
+            $this->secretKey,
+            $this->options['host'],
+            appHost: $this->options['app_host'] ?? null,
+            requestTimeoutMs: $this->integerOption('email_request_timeout_ms', Emails::DEFAULT_REQUEST_TIMEOUT_MS),
+            maxRetries: $this->integerOption('email_request_max_retries', Emails::DEFAULT_MAX_RETRIES),
+            migratedFrom: $this->options['migrated_from'] ?? null,
+            userAgent: $this->options['library_name'] . '/' . $this->options['library_version'],
+            isDisabled: fn(): bool => !$this->enabled,
+            isClosed: fn(): bool => $this->shutdownComplete,
+        );
+    }
+
+    private function refuseBadEmailOptions(): void
+    {
+        $this->emails();
+    }
+
+    private function integerOption(string $name, int $default): int
+    {
+        $value = $this->options[$name] ?? $default;
+        $integer = is_string($value) ? filter_var($value, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE) : $value;
+        if (!is_int($integer)) {
+            throw new InvalidArgumentException("$name must be a whole number, such as $default.");
+        }
+
+        return $integer;
     }
 
     /**

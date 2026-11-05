@@ -42,8 +42,15 @@ class PostHog
      * `disableGeoip` defaults to false for compatibility with existing releases. It applies to events
      * and remote flag evaluation. Per-call options override this setting; false allows GeoIP enrichment.
      *
+     * Transactional email (see Client::emails()) uses `app_host`, `email_request_timeout_ms` (default 15000),
+     * `email_request_max_retries` (default 2) and `migrated_from`.
+     *
      * @param array{
      *     host?: string,
+     *     app_host?: string,
+     *     email_request_timeout_ms?: int,
+     *     email_request_max_retries?: int,
+     *     migrated_from?: string,
      *     ssl?: bool,
      *     timeout?: int|float,
      *     http_timeout_ms?: int|float,
@@ -611,6 +618,18 @@ class PostHog
         self::checkClient();
 
         return self::$client->shutdown();
+    }
+
+    /**
+     * Transactional email on the default client. See Client::emails().
+     *
+     * @return Emails
+     */
+    public static function emails(): Emails
+    {
+        self::checkClient();
+
+        return self::$client->emails();
     }
 
     /**

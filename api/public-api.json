@@ -302,6 +302,13 @@
                         }
                     ]
                 },
+                "emails": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\Emails",
+                    "parameters": []
+                },
                 "enterContext": {
                     "static": false,
                     "abstract": false,
@@ -1667,6 +1674,516 @@
                     "final": false,
                     "returnType": "void",
                     "parameters": []
+                }
+            }
+        },
+        "PostHog\\EmailError": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": "RuntimeException",
+            "implements": [
+                "Stringable",
+                "Throwable"
+            ],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "errorCode",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "message",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "statusCode",
+                            "type": "?int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "why",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "fix",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "docsUrl",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "field",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "retryAfterMs",
+                            "type": "?int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "previous",
+                            "type": "?Throwable",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getDocsUrl": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": []
+                },
+                "getErrorCode": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                },
+                "getErrorName": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                },
+                "getField": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": []
+                },
+                "getFix": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": []
+                },
+                "getRetryAfterMs": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?int",
+                    "parameters": []
+                },
+                "getStatusCode": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?int",
+                    "parameters": []
+                },
+                "getWhy": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\EmailStatus": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "id",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "status",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "createdAt",
+                            "type": "DateTimeImmutable",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "statusAt",
+                            "type": "DateTimeImmutable",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "reason",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getCreatedAt": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "DateTimeImmutable",
+                    "parameters": []
+                },
+                "getId": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                },
+                "getReason": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": []
+                },
+                "getStatus": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                },
+                "getStatusAt": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "DateTimeImmutable",
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\EmailWarning": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "code",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "message",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "fix",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getCode": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                },
+                "getFix": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": []
+                },
+                "getMessage": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\Emails": {
+            "type": "class",
+            "abstract": false,
+            "final": true,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": {
+                "DEFAULT_MAX_RETRIES": {
+                    "type": "int",
+                    "value": 2
+                },
+                "DEFAULT_REQUEST_TIMEOUT_MS": {
+                    "type": "int",
+                    "value": 15000
+                }
+            },
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "secretKey",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "host",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "appHost",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "requestTimeoutMs",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 15000,
+                            "defaultConstant": "self::DEFAULT_REQUEST_TIMEOUT_MS",
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "maxRetries",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": 2,
+                            "defaultConstant": "self::DEFAULT_MAX_RETRIES",
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "migratedFrom",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "userAgent",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "isDisabled",
+                            "type": "?Closure",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "isClosed",
+                            "type": "?Closure",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "transport",
+                            "type": "?Closure",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "get": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\EmailStatus",
+                    "parameters": [
+                        {
+                            "name": "messageId",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "send": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\SendEmailResult",
+                    "parameters": [
+                        {
+                            "name": "email",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
                 }
             }
         },
@@ -3881,6 +4398,13 @@
                         }
                     ]
                 },
+                "emails": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\Emails",
+                    "parameters": []
+                },
                 "enterContext": {
                     "static": true,
                     "abstract": false,
@@ -4931,6 +5455,77 @@
                     "abstract": false,
                     "final": false,
                     "returnType": "string",
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\SendEmailResult": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "id",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "replayed",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "warnings",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getId": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                },
+                "getWarnings": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": []
+                },
+                "isReplayed": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
                     "parameters": []
                 }
             }
