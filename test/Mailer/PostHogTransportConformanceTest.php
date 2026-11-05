@@ -123,6 +123,37 @@ final class PostHogTransportConformanceTest extends TestCase
                 ],
                 [],
             ],
+            'an attached part the HTML refers to sends inline' => [
+                fn() => self::shipped()->html('<img src="cid:logo.png">')
+                    ->attach(base64_decode('iVBORw0KGgo='), 'logo.png', 'image/png'),
+                ['html' => '<img src="cid:logo.png">'] + self::RENDERED + [
+                    'template_key' => 'posthog-php-mailer',
+                    'attachments' => [self::logo('logo.png', 'logo.png')],
+                ],
+                [],
+            ],
+            'an inline part the HTML refers to by its content ID' => [
+                fn() => self::shipped()->html('<img src="cid:logo@shop.example">')->addPart(
+                    (new DataPart(base64_decode('iVBORw0KGgo='), 'logo.png', 'image/png'))
+                        ->asInline()->setContentId('logo@shop.example')
+                ),
+                ['html' => '<img src="cid:logo@shop.example">'] + self::RENDERED + [
+                    'template_key' => 'posthog-php-mailer',
+                    'attachments' => [self::logo('logo.png', 'logo@shop.example')],
+                ],
+                [],
+            ],
+            'an inline part with its own content ID the HTML does not refer to' => [
+                fn() => self::shipped()->addPart(
+                    (new DataPart(base64_decode('iVBORw0KGgo='), 'logo.png', 'image/png'))
+                        ->asInline()->setContentId('logo@shop.example')
+                ),
+                self::RENDERED + [
+                    'template_key' => 'posthog-php-mailer',
+                    'attachments' => [self::logo('logo.png', 'logo@shop.example')],
+                ],
+                [],
+            ],
             'the engagement header wins over X-Track' => [
                 fn() => self::withHeaders(self::shipped(), [
                     'X-PostHog-Capture-Engagement' => 'false',
@@ -159,6 +190,26 @@ final class PostHogTransportConformanceTest extends TestCase
             $this->assertSame($value, $this->header($name));
         }
         $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $sent->getMessageId());
+    }
+
+    public function testAPartSymfonyGaveAContentIdSendsUnderTheNameTheHtmlRefersTo(): void
+    {
+        $email = self::shipped()->html('<img src="cid:logo">')
+            ->embed(base64_decode('iVBORw0KGgo='), 'logo', 'image/png');
+        $email->toString();
+        $this->assertTrue($email->getAttachments()[0]->hasContentId(), 'Rendering gave the part a content ID.');
+
+        $this->transport()->send($email);
+
+        $this->assertSame('<img src="cid:logo">', $this->body()['html']);
+        $this->assertSame('logo', $this->body()['attachments'][0]['content_id']);
+    }
+
+    public function testADistinctIdThatIsNotAsciiReachesPostHogUnchanged(): void
+    {
+        $this->transport()->send(self::withHeaders(self::shipped(), ['X-PostHog-Distinct-Id' => '用户42']));
+
+        $this->assertSame('用户42', $this->body()['distinct_id']);
     }
 
     public function testTheReservedHeadersNeverGoOut(): void
@@ -223,6 +274,13 @@ final class PostHogTransportConformanceTest extends TestCase
             '12 metadata' => [
                 fn() => self::withHeaders(self::shipped(), ['X-Metadata-Order' => '981']),
                 'metadata',
+            ],
+            '14 mixed tracking, even with the engagement header' => [
+                fn() => self::withHeaders(self::shipped(), [
+                    'X-PostHog-Capture-Engagement' => 'true',
+                    'X-Track' => 'opens=true; clicks=false',
+                ]),
+                'mixed_tracking',
             ],
             '14 mixed tracking' => [
                 fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=true; clicks=false']),
@@ -353,6 +411,19 @@ final class PostHogTransportConformanceTest extends TestCase
             $this->assertStringStartsWith("PostHog cannot send this email: $code. ", $refusal->getMessage());
         }
         $this->assertSame([], $this->requests);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function logo(string $filename, string $contentId): array
+    {
+        return [
+            'filename' => $filename,
+            'content' => 'iVBORw0KGgo=',
+            'content_type' => 'image/png',
+            'content_id' => $contentId,
+        ];
     }
 
     /**

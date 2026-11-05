@@ -7,6 +7,7 @@ use Symfony\Component\Mailer\Exception\LogicException;
 use Symfony\Component\Mailer\RemoteTemplateEmail;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\Header\UnstructuredHeader;
 use Symfony\Component\Mime\Part\DataPart;
 
 /**
@@ -76,7 +77,10 @@ final class EmailMapper
         foreach ($email->getHeaders()->all() as $header) {
             $name = strtolower($header->getName());
             if (in_array($name, self::OPTION_HEADERS, true)) {
-                $options[$name] = $header->getBodyAsString();
+                // The raw value: getBodyAsString() MIME-encodes a value that isn't ASCII, such as a distinct ID.
+                $options[$name] = $header instanceof UnstructuredHeader
+                    ? $header->getValue()
+                    : $header->getBodyAsString();
                 continue;
             }
             self::refuseHeader($name);
@@ -187,20 +191,10 @@ final class EmailMapper
     }
 
     /**
-     * The X-PostHog-Capture-Engagement header wins; else Symfony's X-Track, when opens and clicks agree.
+     * Symfony's X-Track must set opens and clicks alike. The X-PostHog-Capture-Engagement header wins over it.
      */
     private static function captureEngagement(Email $email, ?string $explicit): ?bool
     {
-        if ($explicit !== null) {
-            return match ($explicit) {
-                'true' => true,
-                'false' => false,
-                default => throw self::refusal(
-                    'unsupported_header',
-                    'X-PostHog-Capture-Engagement must be "true" or "false".'
-                ),
-            };
-        }
         $choices = array_values(array_unique(array_filter(
             self::tracking($email),
             static fn(?bool $choice): bool => $choice !== null
@@ -211,8 +205,18 @@ final class EmailMapper
                 'It captures opens and clicks together; set them to the same value.'
             );
         }
+        if ($explicit === null) {
+            return $choices[0] ?? null;
+        }
 
-        return $choices[0] ?? null;
+        return match ($explicit) {
+            'true' => true,
+            'false' => false,
+            default => throw self::refusal(
+                'unsupported_header',
+                'X-PostHog-Capture-Engagement must be "true" or "false".'
+            ),
+        };
     }
 
     /**
@@ -242,31 +246,45 @@ final class EmailMapper
     {
         $attachment = ['filename' => $part->getFilename(), 'content' => $part->getBody()];
         $attachment['content_type'] = $part->getContentType();
-        if ($part->getDisposition() === 'inline') {
-            $attachment['content_id'] = self::contentId($part, $html);
+        $contentId = self::contentId($part, $html);
+        if ($contentId !== null) {
+            $attachment['content_id'] = $contentId;
         }
 
         return $attachment;
     }
 
     /**
-     * An inline part's explicit content ID, else its name when the HTML refers to it as `cid:<name>`.
+     * The content ID the HTML refers to, `cid:<name>` before `cid:<content ID>`, so a part sends inline under the
+     * reference the HTML uses. Symfony gives a referenced part a generated content ID when it renders the body, but
+     * the HTML sent still says `cid:<name>`. An inline part the HTML doesn't refer to sends its own content ID.
      */
-    private static function contentId(DataPart $part, ?string $html): string
+    private static function contentId(DataPart $part, ?string $html): ?string
     {
-        if ($part->hasContentId()) {
+        $name = $part->getName();
+        if ($name !== null && self::refersTo($html, $name)) {
+            return $name;
+        }
+        if ($part->hasContentId() && self::refersTo($html, $part->getContentId())) {
             return $part->getContentId();
         }
-        $name = $part->getName();
-        $reference = '/\\b(?i:cid:)' . preg_quote((string) $name, '/') . '(?=[\\s"\'>)]|$)/';
-        if ($name === null || $html === null || preg_match($reference, $html) !== 1) {
+        if ($part->getDisposition() !== 'inline') {
+            return null;
+        }
+        if (!$part->hasContentId()) {
             throw self::refusal(
                 'inline_without_cid',
                 'An inline attachment needs a content ID, or a name the HTML refers to as cid:<name>.'
             );
         }
 
-        return $name;
+        return $part->getContentId();
+    }
+
+    private static function refersTo(?string $html, string $contentId): bool
+    {
+        return $html !== null
+            && preg_match('/\\b(?i:cid:)' . preg_quote($contentId, '/') . '(?=[\\s"\'>)]|$)/', $html) === 1;
     }
 
     /**
