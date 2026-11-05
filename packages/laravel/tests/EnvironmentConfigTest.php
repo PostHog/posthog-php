@@ -122,7 +122,9 @@ class EnvironmentConfigTest extends TestCase
         $this->assertArrayHasKey('laravel_queue', $default);
         $this->assertSame(['enabled' => false, 'connection' => null, 'name' => null], $default['laravel_queue']);
         $config = $this->withEnvironment([
-            'POSTHOG_LARAVEL_QUEUE_ENABLED' => 'true', 'POSTHOG_LARAVEL_QUEUE_CONNECTION' => 'redis', 'POSTHOG_LARAVEL_QUEUE_NAME' => 'analytics',
+            'POSTHOG_LARAVEL_QUEUE_ENABLED' => 'true',
+            'POSTHOG_LARAVEL_QUEUE_CONNECTION' => 'redis',
+            'POSTHOG_LARAVEL_QUEUE_NAME' => 'analytics',
         ], fn () => $this->configuration());
         $this->assertSame(['enabled' => true, 'connection' => 'redis', 'name' => 'analytics'], $config['laravel_queue']);
         $cached = eval('return ' . var_export($config, true) . ';');
