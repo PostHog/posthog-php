@@ -3,6 +3,9 @@
 namespace PostHog\Laravel;
 
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Queue\MaxAttemptsExceededException;
+use PostHog\Laravel\Delivery\DeliveryFailed;
+use PostHog\Laravel\Jobs\DeliverEvents;
 use Throwable;
 use WeakMap;
 
@@ -58,7 +61,12 @@ final class ExceptionReporter
 
     public function report(Throwable $exception, ?string $source = null): void
     {
-        if (isset($this->reported[$exception]) || !$this->app['config']->get('posthog.capture_exceptions', true)) {
+        if (
+            $exception instanceof DeliveryFailed || isset($this->reported[$exception])
+            || ($exception instanceof MaxAttemptsExceededException
+                && $exception->job?->resolveQueuedJobClass() === DeliverEvents::class)
+            || !$this->app['config']->get('posthog.capture_exceptions', true)
+        ) {
             return;
         }
         $this->reported[$exception] = true;

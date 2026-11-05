@@ -304,6 +304,70 @@ custom provider class in `sdk.flag_definition_cache_provider`.
 An optional read-only PostHog store supports Pennant boolean and variant reads.
 See [Pennant setup, scope mapping and cache behavior](PENNANT.md).
 
+## Queued event delivery
+
+Delivery runs in the current PHP process by default. To hand event batches to
+Laravel workers instead, opt in:
+
+```dotenv
+POSTHOG_QUEUE_ENABLED=true
+POSTHOG_QUEUE_CONNECTION=redis
+POSTHOG_QUEUE=posthog
+```
+
+Run a worker for that connection and queue, with an appropriate retry policy:
+
+```bash
+php artisan queue:work redis --queue=posthog --tries=3 --backoff=10
+```
+
+The corresponding configuration is `posthog.queue.enabled`,
+`posthog.queue.connection`, and `posthog.queue.queue`. Omitting the connection or
+queue uses Laravel's defaults. A `sync` connection executes delivery inline: it
+provides neither off-process delivery nor persistent jobs. Rebuild cached config
+and restart workers after changing settings. Already-published `config/posthog.php`
+files must also receive the new `queue` section from the package config.
+
+Events still use SDK batching. Batch-size thresholds and lifecycle flushes dispatch
+one job per prepared batch, without making a PostHog ingestion request in the
+producer. `capture()` can therefore return before a Laravel job has been persisted;
+`flush()`/`shutdown()` drain the in-process buffer into Laravel, not through the
+worker to PostHog. A successful flush acknowledges handoff, **not delivery**. If the
+queue backend rejects dispatch, an explicit flush returns false and the batch
+remains in memory for a later attempt. There is no fallback to direct HTTP.
+Laravel's connection-level `after_commit` behavior still applies: a deferred job
+is not persisted until commit, and a rollback discards it.
+
+Workers send verified HTTP using the SDK's cURL transport. Transient transport and
+HTTP failures escape the job so Laravel can retry; terminal rejections mark it
+failed immediately. Laravel controls the outer retry budget/backoff and failed-job
+storage; the SDK's bounded HTTP retries still apply within an attempt. Configure a
+bounded `POSTHOG_TIMEOUT_MS`, allow enough worker time for those attempts, and keep
+the queue's `retry_after` (or visibility timeout) longer than the worker timeout.
+Monitor failed jobs and retry them after correcting configuration or outages.
+Retries can deliver a batch more than once; there is no exactly-once guarantee, and
+multiple workers can reorder batches. Retries retain the original event UUIDs and
+timestamps for ingestion deduplication.
+
+The worker uses its current project key and host; configure producers and workers
+for the same project. API and secret keys are not serialized into jobs. Prepared
+events do include their original identity, session, groups and event properties,
+including a collected request IP. Unlike the bounded context metadata on ordinary
+application jobs, the delivery payload is the complete event batch: protect queue
+storage accordingly. Capture hooks run before persistence and are not rerun by the
+worker; worker context cannot replace the original attribution. Disabling PostHog
+or selecting `noop` in workers discards pending batches without sending them; pause
+workers instead when you need to retain pending delivery jobs.
+
+Queue mode uses verified cURL delivery regardless of the direct transport selection;
+`consumer=noop` still disables event delivery. Compression and HTTP timeout settings
+apply in the worker, including `http_timeout_ms` rather than socket seconds. Queue
+backend payload limits also apply; lower the SDK batch size if needed. Feature-flag
+requests remain synchronous, while their exposure events use queued delivery.
+Internal delivery jobs and their delivery failures are excluded from automatic
+analytics reporting to prevent recursive queues. This feature is independent of
+`queue_context`, which propagates context into your application's existing jobs.
+
 ## Environment-based SDK tuning
 
 The package configuration maps these environment variables to PHP SDK options

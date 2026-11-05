@@ -17,6 +17,7 @@ class EnvironmentConfigTest extends TestCase
         'POSTHOG_TIMEOUT_MS', 'POSTHOG_SOCKET_TIMEOUT_SECONDS', 'POSTHOG_BATCH_SIZE', 'POSTHOG_MAX_QUEUE_SIZE',
         'POSTHOG_FLUSH_INTERVAL_SECONDS', 'POSTHOG_COMPRESS_REQUEST', 'POSTHOG_CONSUMER',
         'POSTHOG_FF_REQUEST_TIMEOUT_MS', 'POSTHOG_FF_REQUEST_MAX_RETRIES',
+        'POSTHOG_QUEUE_ENABLED', 'POSTHOG_QUEUE_CONNECTION', 'POSTHOG_QUEUE',
     ];
 
     protected function getPackageProviders($app): array
@@ -113,6 +114,21 @@ class EnvironmentConfigTest extends TestCase
             $options = (new \ReflectionProperty(Consumer::class, 'options'))->getValue($consumer);
             $this->assertSame(5, $options['timeout']);
         }
+    }
+
+    public function testQueuedDeliveryConfigurationIsOptInTypedAndCacheable(): void
+    {
+        $default = $this->withEnvironment([], fn () => $this->configuration());
+        $this->assertSame(['enabled' => false, 'connection' => null, 'queue' => null], $default['queue']);
+        $config = $this->withEnvironment([
+            'POSTHOG_QUEUE_ENABLED' => 'true', 'POSTHOG_QUEUE_CONNECTION' => 'redis', 'POSTHOG_QUEUE' => 'analytics',
+        ], fn () => $this->configuration());
+        $this->assertSame(['enabled' => true, 'connection' => 'redis', 'queue' => 'analytics'], $config['queue']);
+        $cached = eval('return ' . var_export($config, true) . ';');
+        $this->withEnvironment(['POSTHOG_QUEUE_ENABLED' => 'false'], function () use ($cached) {
+            $this->assertFalse($this->configuration()['queue']['enabled']);
+            $this->assertSame(['enabled' => true, 'connection' => 'redis', 'queue' => 'analytics'], $cached['queue']);
+        });
     }
 
     public function testTimeoutUnitsAreSelectedByConsumer(): void

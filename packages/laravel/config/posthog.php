@@ -20,6 +20,11 @@ return [
     'capture_ip' => env('POSTHOG_CAPTURE_IP', true),
     'header_context' => true,
     'queue_context' => true,
+    'queue' => [
+        'enabled' => env('POSTHOG_QUEUE_ENABLED', false),
+        'connection' => env('POSTHOG_QUEUE_CONNECTION'),
+        'queue' => env('POSTHOG_QUEUE'),
+    ],
     // Invokable container class; receives the application and returns a distinct ID or null.
     'distinct_id' => null,
     // Invokable container class; receives the application and returns group identifiers.
