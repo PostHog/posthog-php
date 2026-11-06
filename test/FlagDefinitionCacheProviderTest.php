@@ -814,7 +814,7 @@ class FlagDefinitionCacheProviderTest extends TestCase
         ];
     }
 
-    public function testUnresolvableFlagWarningIsLoggedOncePerClientForApiAndCacheLoads(): void
+    public function testUnresolvableFlagWarningsAreOnlyLoggedForFreshApiResponses(): void
     {
         $definitions = $this->sampleFlagDefinitionData();
         $definitions['flags'][0]['ensure_experience_continuity'] = true;
@@ -823,24 +823,58 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $provider = new MockFlagDefinitionCacheProvider();
         $provider->shouldFetch = false;
         $provider->cachedData = $definitions;
-        $cacheHttpClient = new MockedHttpClient(host: 'app.posthog.com');
-        $cacheClient = $this->createClient($provider, $cacheHttpClient);
-        $this->assertWarningCount($warning, 1);
-        $cacheClient->loadFlags();
-        $this->assertWarningCount($warning, 1);
-        $this->assertSame([], $cacheHttpClient->calls ?? []);
-
-        $provider = new MockFlagDefinitionCacheProvider();
         $httpClient = new MockedHttpClient(host: 'app.posthog.com', flagEndpointResponse: $definitions);
         $client = $this->createClient($provider, $httpClient);
-        $this->assertWarningCount($warning, 2);
+        $this->assertWarningCount($warning, 0);
+        $client->loadFlags();
+        $this->assertWarningCount($warning, 0);
+        $this->assertSame([], $httpClient->calls ?? []);
+
+        $provider->shouldFetch = true;
+        $client->loadFlags();
+        $this->assertWarningCount($warning, 1);
 
         $provider->shouldFetch = false;
         $provider->cachedData = $provider->storedData;
         $client->loadFlags();
-        $this->assertSame(1, $provider->getCallCount);
+        $this->assertWarningCount($warning, 1);
+        $provider->shouldFetch = true;
+        $client->loadFlags();
+        $this->assertSame(3, $provider->getCallCount);
+        $this->assertCount(2, $httpClient->calls);
+        $this->assertWarningCount($warning, 1);
+    }
+
+    public function testCachedDefinitionsDoNotRepeatWarningsAcrossClients(): void
+    {
+        global $errorMessages;
+        $definitions = ['flags' => [
+            self::warningDefinition('continuity', UnresolvedFlagReason::EXPERIENCE_CONTINUITY, []),
+            self::warningDefinition('unsupported', UnresolvedFlagReason::UNSUPPORTED_DEFINITION, []),
+        ], 'group_type_mapping' => [], 'cohorts' => []];
+        $provider = new MockFlagDefinitionCacheProvider();
+        $httpClient = new MockedHttpClient(host: 'app.posthog.com', flagEndpointResponse: $definitions);
+        $client = $this->createClient($provider, $httpClient);
+        $this->assertWarningCount('(reason: experience_continuity): continuity.', 1);
+        $this->assertWarningCount('(reason: unsupported_definition): unsupported.', 1);
+
+        $provider->shouldFetch = false;
+        $provider->cachedData = $provider->storedData;
+        for ($request = 0; $request < 3; $request++) {
+            $cacheHttpClient = new MockedHttpClient(host: 'app.posthog.com');
+            $cacheClient = $this->createClient($provider, $cacheHttpClient);
+            $snapshot = $cacheClient->evaluateFlags('user', onlyEvaluateLocally: true);
+
+            $this->assertCount(2, $errorMessages);
+            $this->assertSame([
+                'continuity' => UnresolvedFlagReason::EXPERIENCE_CONTINUITY,
+                'unsupported' => UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
+            ], $snapshot->getUnresolvedFlags());
+            $this->assertSame([], $cacheHttpClient->calls ?? []);
+        }
         $this->assertCount(1, $httpClient->calls);
-        $this->assertWarningCount($warning, 2);
+        $this->assertSame(1, $provider->onReceivedCallCount);
+        $this->assertSame(3, $provider->getCallCount);
     }
 
     public static function definitionLoadSourceProvider(): iterable
@@ -896,12 +930,15 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $httpClient = new MockedHttpClient(host: 'app.posthog.com', flagEndpointResponse: $definitions);
         $client = $this->createClient($provider, $httpClient);
 
-        $this->assertCount(2, $errorMessages);
-        foreach ($expectedNames as $reason => $names) {
-            $this->assertWarningCount('(reason: ' . $reason . '): ' . implode(', ', $names) . '.', 1);
+        $expectedWarningCount = $fromApi ? 2 : 0;
+        $this->assertCount($expectedWarningCount, $errorMessages);
+        if ($fromApi) {
+            foreach ($expectedNames as $reason => $names) {
+                $this->assertWarningCount('(reason: ' . $reason . '): ' . implode(', ', $names) . '.', 1);
+            }
+            $this->assertStringContainsString('5 flag(s)', $errorMessages[0]);
+            $this->assertStringContainsString('5 flag(s)', $errorMessages[1]);
         }
-        $this->assertStringContainsString('5 flag(s)', $errorMessages[0]);
-        $this->assertStringContainsString('5 flag(s)', $errorMessages[1]);
         $this->assertSame($definitions['flags'], $client->featureFlags);
         $snapshot = $client->evaluateFlags('user', onlyEvaluateLocally: true);
         $this->assertSame(['client-value'], $snapshot->getKeys());
@@ -909,7 +946,7 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $this->assertSame($expectedUnresolved, $snapshot->getUnresolvedFlags());
 
         $client->loadFlags();
-        $this->assertCount(2, $errorMessages);
+        $this->assertCount($expectedWarningCount, $errorMessages);
         if ($fromApi) {
             $httpClient->setFlagEndpointResponseQueue([['responseCode' => 304]]);
             $client->loadFlags();
@@ -917,7 +954,7 @@ class FlagDefinitionCacheProviderTest extends TestCase
         } else {
             $this->assertSame([], $httpClient->calls ?? []);
         }
-        $this->assertCount(2, $errorMessages);
+        $this->assertCount($expectedWarningCount, $errorMessages);
     }
 
     public static function warningRuntimeTransitionProvider(): iterable
@@ -943,7 +980,8 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $httpClient = new MockedHttpClient(host: 'app.posthog.com', flagEndpointResponse: $definitions);
         $client = $this->createClient($provider, $httpClient);
         $warning = "(reason: $reason): checkout.";
-        $this->assertWarningCount($warning, 1);
+        $warningsPerVersion = $source === 'cache' ? 0 : 1;
+        $this->assertWarningCount($warning, $warningsPerVersion);
 
         $clientOnly = $original;
         $clientOnly['evaluation_runtime'] = 'client';
@@ -951,22 +989,22 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $provider->cachedData['flags'] = [$clientOnly];
         $httpClient->setFlagEndpointResponseQueue([['response' => $provider->cachedData]]);
         $client->loadFlags();
-        $this->assertWarningCount($warning, 1);
+        $this->assertWarningCount($warning, $warningsPerVersion);
         $this->assertSame($clientOnly, $client->featureFlagsByKey['checkout']);
 
         $provider->shouldFetch = $source !== 'cache';
         $provider->cachedData = $definitions;
         $httpClient->setFlagEndpointResponseQueue([['response' => $definitions], ['response' => $definitions]]);
         $client->loadFlags();
-        $this->assertWarningCount($warning, 2);
+        $this->assertWarningCount($warning, 2 * $warningsPerVersion);
         $client->loadFlags();
-        $this->assertWarningCount($warning, 2);
+        $this->assertWarningCount($warning, 2 * $warningsPerVersion);
 
         $definitions['flags'][0]['version'] = 2;
         $provider->cachedData = $definitions;
         $httpClient->setFlagEndpointResponseQueue([['response' => $definitions]]);
         $client->loadFlags();
-        $this->assertWarningCount($warning, 3);
+        $this->assertWarningCount($warning, 3 * $warningsPerVersion);
         $paths = array_column($httpClient->calls ?? [], 'path');
         $this->assertSame(array_fill(0, $source === 'cache' ? 0 : ($source === 'API' ? 5 : 4), '/flags/definitions?send_cohorts&token=random_key'), $paths);
     }
@@ -995,12 +1033,22 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $this->assertCount(2, $errorMessages);
         $this->assertSame($provider->cachedData['flags'], $client->featureFlags);
 
+        $provider->shouldFetch = true;
+        $httpClient->setFlagEndpointResponseQueue([['response' => $provider->cachedData]]);
+        $client->loadFlags();
+        $this->assertCount(2, $errorMessages);
+
         // Object key order is immaterial, but evaluation condition order is part of a definition.
+        $provider->shouldFetch = false;
         $provider->cachedData['flags'][0]['filters']['groups'] = array_reverse($provider->cachedData['flags'][0]['filters']['groups']);
+        $client->loadFlags();
+        $this->assertCount(2, $errorMessages);
+        $provider->shouldFetch = true;
+        $httpClient->setFlagEndpointResponseQueue([['response' => $provider->cachedData]]);
         $client->loadFlags();
         $this->assertWarningCount('(reason: experience_continuity): continuity.', 2);
         $this->assertWarningCount('(reason: unsupported_definition): unsupported.', 1);
-        $this->assertSame(['/flags/definitions?send_cohorts&token=random_key'], array_column($httpClient->calls, 'path'));
+        $this->assertSame(array_fill(0, 3, '/flags/definitions?send_cohorts&token=random_key'), array_column($httpClient->calls, 'path'));
     }
 
     private function assertWarningCount(string $expected, int $count): void

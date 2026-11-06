@@ -1772,7 +1772,7 @@ class Client implements FeatureFlagEvaluationsHost
                 if ($cachedData !== null) {
                     $normalizedData = $this->normalizeFlagDefinitionCacheData($cachedData);
                     if ($normalizedData !== null) {
-                        $this->applyFlagDefinitions($normalizedData);
+                        $this->applyFlagDefinitions($normalizedData, false);
                         if ($this->debug) {
                             error_log("[PostHog][Client] Using cached flag definitions from external cache");
                         }
@@ -1878,17 +1878,19 @@ class Client implements FeatureFlagEvaluationsHost
         $this->flagsEtag = $response->getEtag();
 
         $data = $this->normalizeFlagDefinitionData($payload);
-        $this->applyFlagDefinitions($data);
+        $this->applyFlagDefinitions($data, true);
         $this->storeFlagDefinitionsInCacheProvider($data);
     }
 
     /**
      * Warn about flags whose definition local evaluation cannot resolve. Each flag is warned about
-     * once per client until its definition changes.
+     * once per client until its definition changes. Cache loads reconcile history without emitting
+     * warnings on every PHP-FPM request.
      *
+     * @param bool $emitWarnings Whether this load fetched a fresh API response.
      * @return void
      */
-    private function warnAboutUnresolvableFlags(): void
+    private function warnAboutUnresolvableFlags(bool $emitWarnings): void
     {
         $flagKeysByReason = [
             UnresolvedFlagReason::EXPERIENCE_CONTINUITY => [],
@@ -1922,12 +1924,18 @@ class Client implements FeatureFlagEvaluationsHost
             }
             $fingerprint = ($flag['version'] ?? '') . ':'
                 . sha1(serialize($this->sortFlagDefinitionKeys($flag))) . ':' . $reason;
-            $warnedFlags[$flag['key']] = $fingerprint;
-            if (($this->warnedUnresolvableFlags[$flag['key']] ?? null) !== $fingerprint) {
+            $alreadyWarned = ($this->warnedUnresolvableFlags[$flag['key']] ?? null) === $fingerprint;
+            if ($emitWarnings || $alreadyWarned) {
+                $warnedFlags[$flag['key']] = $fingerprint;
+            }
+            if ($emitWarnings && !$alreadyWarned) {
                 $flagKeysByReason[$reason][] = $flag['key'];
             }
         }
         $this->warnedUnresolvableFlags = $warnedFlags;
+        if (!$emitWarnings) {
+            return;
+        }
 
         $experienceContinuityFlags = $flagKeysByReason[UnresolvedFlagReason::EXPERIENCE_CONTINUITY];
         if (count($experienceContinuityFlags) > 0) {
@@ -2047,9 +2055,10 @@ class Client implements FeatureFlagEvaluationsHost
      * Apply flag definitions to in-memory state.
      *
      * @param array<string, mixed> $data
+     * @param bool $emitWarnings Whether this load fetched a fresh API response.
      * @return void
      */
-    private function applyFlagDefinitions(array $data): void
+    private function applyFlagDefinitions(array $data, bool $emitWarnings): void
     {
         $this->featureFlags = $data['flags'];
         $this->groupTypeMapping = $data['group_type_mapping'];
@@ -2066,7 +2075,7 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         $this->flagDefinitionsLoaded = true;
-        $this->warnAboutUnresolvableFlags();
+        $this->warnAboutUnresolvableFlags($emitWarnings);
     }
 
     /**
