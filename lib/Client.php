@@ -1879,9 +1879,6 @@ class Client implements FeatureFlagEvaluationsHost
 
         $data = $this->normalizeFlagDefinitionData($payload);
         $this->applyFlagDefinitions($data);
-        // Only a fresh response warns: PHP builds a client per request, and a 304 or a shared-cache
-        // load carries definitions that a fresh response already warned about.
-        $this->warnAboutUnresolvableFlags();
         $this->storeFlagDefinitionsInCacheProvider($data);
     }
 
@@ -1897,12 +1894,15 @@ class Client implements FeatureFlagEvaluationsHost
             UnresolvedFlagReason::EXPERIENCE_CONTINUITY => [],
             UnresolvedFlagReason::UNSUPPORTED_DEFINITION => [],
         ];
-        // Rebuilt from the current definitions, so a flag that is deleted or becomes resolvable is
-        // forgotten and warns again if it later returns to an unresolvable definition.
+        // Rebuilt from the current definitions, so deleted, resolvable or client-only flags are
+        // forgotten and warn again if they later return to an eligible unresolvable definition.
         $warnedFlags = [];
         $uncheckedFlags = [];
         foreach ($this->featureFlags as $flag) {
-            if (!is_array($flag) || !is_string($flag['key'] ?? null)) {
+            if (
+                !is_array($flag) || !is_string($flag['key'] ?? null)
+                || ($flag['evaluation_runtime'] ?? null) === 'client'
+            ) {
                 continue;
             }
             try {
@@ -1920,7 +1920,8 @@ class Client implements FeatureFlagEvaluationsHost
             if ($reason === null) {
                 continue;
             }
-            $fingerprint = ($flag['version'] ?? '') . ':' . sha1(serialize($flag)) . ':' . $reason;
+            $fingerprint = ($flag['version'] ?? '') . ':'
+                . sha1(serialize($this->sortFlagDefinitionKeys($flag))) . ':' . $reason;
             $warnedFlags[$flag['key']] = $fingerprint;
             if (($this->warnedUnresolvableFlags[$flag['key']] ?? null) !== $fingerprint) {
                 $flagKeysByReason[$reason][] = $flag['key'];
@@ -1964,6 +1965,25 @@ class Client implements FeatureFlagEvaluationsHost
                 implode(', ', $uncheckedFlags)
             ));
         }
+    }
+
+    /**
+     * Sort object keys recursively for warning deduplication without changing condition list order.
+     *
+     * @param array<mixed> $definition
+     * @return array<mixed>
+     */
+    private function sortFlagDefinitionKeys(array $definition): array
+    {
+        if (!array_is_list($definition)) {
+            ksort($definition, SORT_STRING);
+        }
+        foreach ($definition as $key => $value) {
+            if (is_array($value)) {
+                $definition[$key] = $this->sortFlagDefinitionKeys($value);
+            }
+        }
+        return $definition;
     }
 
     /**
@@ -2046,6 +2066,7 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         $this->flagDefinitionsLoaded = true;
+        $this->warnAboutUnresolvableFlags();
     }
 
     /**
