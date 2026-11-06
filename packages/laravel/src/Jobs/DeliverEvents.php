@@ -5,13 +5,14 @@ namespace PostHog\Laravel\Jobs;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Queue\InteractsWithQueue;
 use PostHog\Laravel\Delivery\BatchDelivery;
 use PostHog\Laravel\Delivery\DeliveryFailed;
 use Throwable;
 
 /** @internal Stores only the prepared event JSON, never SDK instances or credentials. */
-final class DeliverEvents implements ShouldQueue
+final class DeliverEvents implements ShouldQueue, ShouldBeEncrypted
 {
     use InteractsWithQueue;
     use Queueable;

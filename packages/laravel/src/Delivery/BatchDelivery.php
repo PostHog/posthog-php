@@ -6,6 +6,7 @@ use Closure;
 use Illuminate\Contracts\Container\Container;
 use PostHog\Consumer\LibCurl;
 use PostHog\Laravel\PostHog;
+use PostHog\StringNormalizer;
 
 /** @internal Uses verified HTTP in workers without re-enriching or re-enqueueing events. */
 class BatchDelivery extends LibCurl
@@ -14,7 +15,7 @@ class BatchDelivery extends LibCurl
     {
         $config = $app['config']->get('posthog', []);
         $options = $config['sdk'] ?? [];
-        $options['host'] = $config['host'] ?? 'https://us.i.posthog.com';
+        $options['host'] = StringNormalizer::normalizeHost($config['host'] ?? null);
         $options['timeout'] = $options['http_timeout_ms']
             ?? (($options['consumer'] ?? null) === 'socket' ? 10000 : ($options['timeout'] ?? 10000));
         $options['verify_batch_events_request'] = true;
@@ -26,7 +27,7 @@ class BatchDelivery extends LibCurl
         if (isset($options['error_handler'])) {
             $options['error_handler'] = Closure::fromCallable($options['error_handler']);
         }
-        parent::__construct($config['api_key'] ?? '', $options);
+        parent::__construct(StringNormalizer::normalizeOptional($config['api_key'] ?? null) ?? '', $options);
     }
 
     public function deliver(string $events): void

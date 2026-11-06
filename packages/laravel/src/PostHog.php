@@ -58,7 +58,13 @@ class PostHog
         }
         $laravelQueue = $config['laravel_queue'] ?? [];
         $queuedConsumer = ($laravelQueue['enabled'] ?? false) && ($options['consumer'] ?? null) !== 'noop'
-            ? new QueuedConsumer($config['api_key'], $options, $this->app->make(Dispatcher::class), $laravelQueue)
+            ? new QueuedConsumer(
+                $config['api_key'],
+                $options,
+                $this->app->make(Dispatcher::class),
+                $laravelQueue,
+                $this->app,
+            )
             : null;
         return $this->client = new LaravelClient(
             $config['api_key'],

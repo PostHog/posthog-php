@@ -21,6 +21,11 @@ final class ExceptionReporter
         $this->reported = new WeakMap();
     }
 
+    public function ignore(Throwable $exception): void
+    {
+        $this->reported[$exception] = true;
+    }
+
     public function rememberContext(Throwable $exception): void
     {
         $this->snapshots[$exception] ??= ['data' => $this->app->make(Context::class)->snapshot()];

@@ -339,7 +339,9 @@ worker to PostHog. A successful flush acknowledges handoff, **not delivery**. If
 queue backend rejects dispatch, an explicit flush returns false and the batch
 remains in memory for a later attempt. There is no fallback to direct HTTP.
 Laravel's connection-level `after_commit` behavior still applies: a deferred job
-is not persisted until commit, and a rollback discards it.
+is not persisted until commit, and a rollback discards it. If the deferred write
+fails, the SDK contains the error and restores the frozen batch to its in-process
+buffer for a later flush. It does not fail the already-committed application transaction.
 
 Workers send verified HTTP using the SDK's cURL transport. Transient transport and
 HTTP failures escape the job so Laravel can retry; terminal rejections mark it
@@ -356,9 +358,15 @@ The worker uses its current project key and host; configure producers and worker
 for the same project. API and secret keys are not serialized into jobs. Prepared
 events do include their original identity, session, groups and event properties,
 including a collected request IP. Unlike the bounded context metadata on ordinary
-application jobs, the delivery payload is the complete event batch: protect queue
-storage accordingly. Capture hooks run before persistence and are not rerun by the
-worker; worker context cannot replace the original attribution. Disabling PostHog
+application jobs, the delivery payload is the complete event batch. Delivery jobs
+use Laravel's `ShouldBeEncrypted` contract to encrypt the serialized command in
+queue and failed-job storage. Producers and workers need the same valid `APP_KEY`.
+Keep decryption keys available for outstanding and failed jobs when rotating keys.
+Encryption increases payload size. It does not encrypt the entire queue envelope
+or application logs, so queue access controls and retention still matter. Delivery
+jobs omit ambient `_posthog` metadata rather than reintroducing values removed by
+capture hooks. Capture hooks run before persistence and are not rerun by the worker;
+worker context cannot replace the original attribution. Disabling PostHog
 or selecting `noop` in workers discards pending batches without sending them; pause
 workers instead when you need to retain pending delivery jobs.
 

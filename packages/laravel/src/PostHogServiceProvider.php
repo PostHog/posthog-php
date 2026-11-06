@@ -11,6 +11,7 @@ use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobExceptionOccurred;
 use Illuminate\Queue\Events\Looping;
 use PostHog\Laravel\Middleware\RequestContext as RequestContextMiddleware;
+use PostHog\Laravel\Jobs\DeliverEvents;
 use Illuminate\Support\ServiceProvider;
 use Throwable;
 
@@ -84,11 +85,12 @@ class PostHogServiceProvider extends ServiceProvider
             }
         });
         $events->listen(JobExceptionOccurred::class, function ($event) {
-            Container::getInstance()->make(ExceptionReporter::class)->remember(
-                $event->exception,
-                'task',
-                'laravel.queue_job',
-            );
+            $reporter = Container::getInstance()->make(ExceptionReporter::class);
+            if ($event->job->resolveQueuedJobClass() === DeliverEvents::class) {
+                $reporter->ignore($event->exception);
+            } else {
+                $reporter->remember($event->exception, 'task', 'laravel.queue_job');
+            }
         });
         $events->listen(CommandStarting::class, function () {
             // The first CLI kernel may already be handling input when package providers boot.
