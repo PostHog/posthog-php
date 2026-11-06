@@ -337,6 +337,37 @@ class EmailsTest extends TestCase
         $this->assertSame('resend', $this->header('X-PostHog-Migrated-From', 1));
     }
 
+    public function testAnIntegrationNamesItselfOnThatSendOnly(): void
+    {
+        $emails = $this->emails();
+
+        $template = ['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID];
+
+        $emails->send($template + ['integration' => 'laravel/1.4.0']);
+        $emails->send($template);
+
+        $this->assertSame('laravel/1.4.0', $this->header('X-PostHog-Integration'));
+        $this->assertSame('posthog-php/9.9.9', $this->header('User-Agent'));
+        $this->assertArrayNotHasKey('integration', $this->body());
+        $this->assertNull($this->header('X-PostHog-Integration', 1));
+    }
+
+    public function testAnIntegrationIsSentOnEveryAttemptOfACodeSend(): void
+    {
+        $this->reply([503, '{"code":"unavailable"}', []], [202, '{"message_id":"msg_1"}', []]);
+
+        $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_key' => 'order-shipped',
+            'subject' => 'Your order shipped',
+            'text' => 'On its way.',
+            'integration' => 'posthog-php-mailer/4.21.0-beta.1+build.7',
+        ]);
+
+        $this->assertSame('posthog-php-mailer/4.21.0-beta.1+build.7', $this->header('X-PostHog-Integration'));
+        $this->assertSame('posthog-php-mailer/4.21.0-beta.1+build.7', $this->header('X-PostHog-Integration', 1));
+    }
+
     public function testAReplayAndWarningsComeBackAndWarningsAreLogged(): void
     {
         global $errorMessages;
@@ -449,6 +480,31 @@ class EmailsTest extends TestCase
             'negative max_retries' => [$template + ['max_retries' => -1], 'invalid_max_retries', 'max_retries'],
             'max_retries as a string' => [$template + ['max_retries' => '1'], 'invalid_max_retries', 'max_retries'],
             'html with invalid UTF-8' => [['html' => "\xB1\x31"] + $code, 'invalid_form', null],
+            'integration without a version' => [
+                $template + ['integration' => 'laravel'],
+                'invalid_integration',
+                'integration',
+            ],
+            'integration with a capital letter' => [
+                $template + ['integration' => 'Laravel/1.4.0'],
+                'invalid_integration',
+                'integration',
+            ],
+            'integration with a header line break' => [
+                $code + ['integration' => "laravel/1.4.0\r\nX-A: b"],
+                'invalid_integration',
+                'integration',
+            ],
+            'integration name over 40 characters' => [
+                $template + ['integration' => str_repeat('a', 41) . '/1.0.0'],
+                'invalid_integration',
+                'integration',
+            ],
+            'integration not a string' => [
+                $template + ['integration' => ['laravel', '1.4.0']],
+                'invalid_integration',
+                'integration',
+            ],
         ];
     }
 
