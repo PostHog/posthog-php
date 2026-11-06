@@ -1,5 +1,11 @@
 # posthog-laravel
 
+## 0.3.0
+
+### Minor Changes
+
+- Add opt-in Laravel queued event delivery with prepared batches, verified worker delivery, and framework-managed retries.
+
 ## 0.2.1
 
 ### Patch Changes

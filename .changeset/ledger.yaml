@@ -19,6 +19,10 @@ posthog-laravel@0.2.0:
   intents:
     - few-lands-notice
     - petite-berries-stare
+posthog-laravel@0.3.0:
+  dir: packages/laravel
+  intents:
+    - brown-cougars-do
 posthog-php@4.12.1:
   dir: ""
   intents:
