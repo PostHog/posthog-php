@@ -43,7 +43,7 @@ while ($connection = stream_socket_accept($server, 30)) {
         fclose($server);
     }
     $status = $response['status'] ?? 200;
-    $body = $response['body'] ?? '{"status":1}';
+    $body = ($response['body'] ?? '{"status":1}') . str_repeat(' ', $response['pad_body_bytes'] ?? 0);
     $headers = '';
     foreach ($response['headers'] ?? [] as $name => $value) {
         $headers .= "$name: $value\r\n";

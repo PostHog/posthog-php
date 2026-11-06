@@ -142,3 +142,7 @@ posthog-php@4.21.0:
   dir: ""
   intents:
     - warm-kings-tan
+posthog-php@4.22.0:
+  dir: ""
+  intents:
+    - emails-send
