@@ -49,15 +49,48 @@ Identity precedence: an explicit API `distinctId` wins, then an explicitly scope
 `Context` identity, then the custom identity resolver or authenticated request user's
 auth identifier, then `X-PostHog-Distinct-Id` as an anonymous analytics fallback. `X-PostHog-Session-Id` provides session correlation. Headers are untrusted
 analytics input, **never authentication or authorization**. Set `header_context=false`
-to ignore both headers. No anonymous ID is generated for requests without identity.
+to ignore both headers.
+
+Without an explicit or contextual identity, captures and exception events use a fresh
+random UUID **for each event** and default to `$process_person_profile=false`. An
+explicit `$process_person_profile` property still wins. Enabled automatic collectors
+use the same personless capture behavior. These IDs are not persistent visitor IDs:
+they are never stored in Laravel sessions, cookies, request context or queue metadata,
+and do not link events from the same anonymous visitor. A frontend session-ID header
+can still correlate events through `$session_id` without supplying a person identity.
+Feature-flag evaluation never generates an identity: without one, it returns an empty
+snapshot without loading definitions, making flag requests or sending exposure events.
 
 Captures include the request method and matched route template (for example
-`/orders/{order}`), never concrete route parameters. Explicit event properties win.
+`/orders/{order}`), never concrete route parameters. Request context also adds the
+visitor's IP address as `$ip` using Laravel's `request()->ip()`. Captures, exceptions
+and enabled automatic collectors inherit it. Explicit event or scoped `$ip` values,
+including `null`, win. Identification, alias and group-identify calls retain their
+explicit-message behavior rather than inheriting capture metadata.
+
+IP collection is on by default, matching the other backend framework integrations.
+To disable automatic IP collection, set `POSTHOG_CAPTURE_IP=false` (or
+`posthog.capture_ip=false`). This does not remove IPs your application explicitly
+supplies. Configure Laravel's trusted proxies before collecting events behind a
+reverse proxy or load balancer. The SDK does not parse forwarding headers itself or
+change the application's proxy trust configuration. Without trusted-proxy setup,
+Laravel may return a proxy address instead of the visitor address.
+
+IPs are resolved only during HTTP request context, not inferred for standalone
+commands or jobs. Request IPs are not copied into queue payload metadata. Deferred
+model events and exception snapshots retain the originating IP in memory; later
+requests cannot replace it. Fresh context scopes exclude inherited request IPs.
+
+GeoIP enrichment remains disabled by default (`sdk.disableGeoip=true`), independently
+of IP collection. Supplying `$ip` alone does not turn geographic enrichment on.
+Use `sdk.disableGeoip=false` or a per-capture `disableGeoip: false` option only when
+you want that enrichment. IP addresses can be personal data; apply your consent and
+retention policies and use `sdk.before_send` to redact or drop them.
+
 By default there is no collection of raw URLs, query strings, request bodies,
-cookies, email, IP addresses, or user profile fields. GeoIP is disabled by default
-(`sdk.disableGeoip=true`). Application-supplied properties and exception messages may
-still contain sensitive information; use `sdk.before_send` to redact or drop events.
-Exception stacks are serialized by the PHP SDK.
+cookies, email, or user profile fields. Application-supplied properties and exception
+messages may still contain sensitive information. Exception stacks are serialized
+by the PHP SDK.
 
 For a custom identity resolver, set `distinct_id` to an invokable container class.
 It receives the application and returns a string identifier or null. A non-null
@@ -265,6 +298,73 @@ a custom provider. `posthog:doctor` warns about a secret key without a provider.
 No cache is enabled implicitly, and there is no background timer. The PHP client's
 `loadFlags()` remains available for an explicit refresh. You can instead supply a
 custom provider class in `sdk.flag_definition_cache_provider`.
+
+## Laravel Pennant
+
+An optional read-only PostHog store supports Pennant boolean and variant reads.
+See [Pennant setup, scope mapping and cache behavior](PENNANT.md).
+
+## Environment-based SDK tuning
+
+The package configuration maps these environment variables to PHP SDK options
+under `posthog.sdk`:
+
+| Environment variable | SDK option | SDK default when unset |
+| --- | --- | --- |
+| `POSTHOG_TIMEOUT_MS` | `timeout` for cURL delivery; `http_timeout_ms` for SDK HTTP requests | 10000 milliseconds |
+| `POSTHOG_SOCKET_TIMEOUT_SECONDS` | `timeout` for the socket consumer | 5 seconds |
+| `POSTHOG_BATCH_SIZE` | `batch_size` | 100 events |
+| `POSTHOG_MAX_QUEUE_SIZE` | `max_queue_size` | 10000 events |
+| `POSTHOG_FLUSH_INTERVAL_SECONDS` | `flush_interval_seconds` | 5 seconds |
+| `POSTHOG_COMPRESS_REQUEST` | `compress_request` | `false` |
+| `POSTHOG_CONSUMER` | `consumer` | `lib_curl` |
+| `POSTHOG_FF_REQUEST_TIMEOUT_MS` | `feature_flag_request_timeout_ms` | 3000 milliseconds |
+| `POSTHOG_FF_REQUEST_MAX_RETRIES` | `feature_flag_request_max_retries` | 1 retry |
+
+For example, with the default cURL consumer:
+
+```dotenv
+POSTHOG_TIMEOUT_MS=5000
+POSTHOG_BATCH_SIZE=50
+POSTHOG_FF_REQUEST_MAX_RETRIES=0
+```
+
+The event-delivery timeout is selected by `POSTHOG_CONSUMER`: `socket` uses
+`POSTHOG_SOCKET_TIMEOUT_SECONDS`; cURL consumers use `POSTHOG_TIMEOUT_MS`.
+The inactive transport's timeout does not affect event delivery. For example, use
+`POSTHOG_CONSUMER=socket` with `POSTHOG_SOCKET_TIMEOUT_SECONDS=0.25` for a
+quarter-second socket timeout.
+
+`POSTHOG_TIMEOUT_MS` also controls SDK HTTP requests, including local flag-definition
+fetches, even when events use the socket consumer. Those requests retain their
+10000-millisecond default when it is unset; socket seconds never become HTTP
+milliseconds. Positive fractional milliseconds round up rather than disabling the
+timeout. Explicit `POSTHOG_TIMEOUT_MS=0` disables the HTTP timeout.
+`POSTHOG_FF_REQUEST_TIMEOUT_MS` separately controls remote flag evaluation requests.
+There is no ambiguous `POSTHOG_TIMEOUT` mapping.
+
+Unset or empty variables leave the SDK's defaults in control. Numeric strings are
+converted to integers or floats, including fractional socket timeouts and flush
+intervals. Explicit `false` compression and `0` retries are preserved. A zero flush
+interval means flush on every enqueue; otherwise the interval is checked when
+another event is enqueued, not by a background timer. HTTP, job and command lifecycle
+flushes still apply. Consumer names are `lib_curl`, `socket`, `fork_curl`, `file` and
+`noop`; `noop` disables event delivery, not feature-flag requests.
+
+If you already published `config/posthog.php`, update it using the package's
+[`config/posthog.php`](config/posthog.php) as a reference. Copy the numeric conversion
+helpers and consumer lookup above `return`, as well as the environment-mapped `sdk`
+section. Updating the package or running `posthog:install` does not overwrite an
+existing published config file. Keep your custom SDK settings and callback classes
+when updating that section.
+You can also configure the existing SDK options directly there instead of using
+environment variables. No new flag fallback or local-only evaluation behavior is
+introduced by these mappings.
+
+Environment variables are read only while loading Laravel configuration. After
+changing them in a deployment that caches config, rebuild it with
+`php artisan config:cache` and restart long-running workers. Do not call `env()`
+from runtime SDK callbacks or application services; use `config()` instead.
 
 ## Configuration callbacks and full PHP access
 

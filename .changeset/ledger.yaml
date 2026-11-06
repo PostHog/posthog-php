@@ -1,3 +1,24 @@
+posthog-laravel@0.1.0:
+  dir: packages/laravel
+  intents:
+    - twelve-donuts-go
+posthog-laravel@0.1.1:
+  dir: packages/laravel
+  intents:
+    - grumpy-years-bake
+posthog-laravel@0.1.2:
+  dir: packages/laravel
+  intents:
+    - four-tables-brake
+posthog-laravel@0.1.3:
+  dir: packages/laravel
+  intents:
+    - metal-loops-carry
+posthog-laravel@0.2.0:
+  dir: packages/laravel
+  intents:
+    - few-lands-notice
+    - petite-berries-stare
 posthog-php@4.12.1:
   dir: ""
   intents:
@@ -109,3 +130,19 @@ posthog-php@4.20.0:
   dir: ""
   intents:
     - young-onions-hide
+posthog-php@4.20.1:
+  dir: ""
+  intents:
+    - salty-signs-poke
+posthog-php@4.20.2:
+  dir: ""
+  intents:
+    - grumpy-years-bake
+posthog-php@4.21.0:
+  dir: ""
+  intents:
+    - warm-kings-tan
+posthog-php@4.22.0:
+  dir: ""
+  intents:
+    - emails-send

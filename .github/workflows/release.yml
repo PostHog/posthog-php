@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+  EXPECTED_BUMP_SCRIPT_SHA256: fb70c4da11c73df4da1b5b8d3cbd7e483cd19525dc9d8045f6c53a1bd1546809
+
 # Concurrency control: only one release process can run at a time
 # This prevents race conditions if multiple releasable change intents merge simultaneously
 concurrency:
@@ -30,53 +34,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Setup pnpm and Node.js
+        uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+        with:
+          version: 11.13.1
+          runtime: node@24
+          install: false
+
       - name: Check for change intents
         id: check
         env:
           TRIGGER_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-
-          count_releasable_intents() {
-            local ref=$1 count=0 path
-            for path in $(git ls-tree --name-only "$ref" .changeset/); do
-              [[ "$path" == *.md ]] || continue
-              if awk -v pattern="^[[:space:]]*['\"]?posthog-php['\"]?[[:space:]]*:[[:space:]]*(patch|minor|major)[[:space:]]*$" '
-                NR == 1 { if ($0 != "---") exit 1; next }
-                $0 == "---" { found_end = 1; exit }
-                $0 ~ pattern { releasable = 1 }
-                END { if (!found_end || !releasable) exit 1 }
-              ' <<< "$(git show "$ref:$path")"; then
-                count=$((count + 1))
-              fi
-            done
-            echo "$count"
-          }
-
-          # Serialized runs can be stale. If main moved on, skip only when no releasable
-          # intents remain there; a push that doesn't touch .changeset/ starts no release run.
-          main_sha=$(git rev-parse --verify origin/main)
-          if [ "$main_sha" != "$TRIGGER_SHA" ]; then
-            pending_count=$(count_releasable_intents "$main_sha")
-            if [ "$pending_count" -gt 0 ]; then
-              echo "main moved from $TRIGGER_SHA to $main_sha with $pending_count releasable change intent(s) still pending; dispatch the Release workflow on main" >&2
-              exit 1
-            fi
-
-            echo "has-changesets=false" >> "$GITHUB_OUTPUT"
-            echo "main is at $main_sha, not $TRIGGER_SHA, and has no pending change intents; skipping stale run"
-            exit 0
-          fi
-
-          releasable_count=$(count_releasable_intents "$TRIGGER_SHA")
-
-          if [ "$releasable_count" -gt 0 ]; then
-            echo "has-changesets=true" >> "$GITHUB_OUTPUT"
-            echo "Found $releasable_count releasable change intent(s)"
-          else
-            echo "has-changesets=false" >> "$GITHUB_OUTPUT"
-            echo "No releasable change intents found"
-          fi
+        run: bash scripts/check-release-changes.sh
 
       - name: Send failure event to PostHog
         if: ${{ failure() }}
@@ -101,102 +70,53 @@ jobs:
             }
 
   prepare-release-candidate:
-    name: Prepare release candidate
+    name: Prepare dependency-aware release candidate
     needs: check-changesets
-    runs-on: ubuntu-latest
     if: needs.check-changesets.outputs.has-changesets == 'true'
-    permissions:
-      contents: read
+    runs-on: ubuntu-latest
     outputs:
-      new-version: ${{ steps.candidate.outputs.new-version }}
-      patch-sha256: ${{ steps.candidate.outputs.patch-sha256 }}
-      source-sha: ${{ steps.candidate.outputs.source-sha }}
+      source: ${{ steps.candidate.outputs.source }}
+      version: ${{ steps.candidate.outputs.version }}
+      core-version: ${{ steps.candidate.outputs.core_version }}
+      core-changed: ${{ steps.candidate.outputs.core_changed }}
+      patch-sha256: ${{ steps.candidate.outputs.patch_sha256 }}
+      archive-sha256: ${{ steps.candidate.outputs.archive_sha256 }}
+      manifest-sha256: ${{ steps.candidate.outputs.manifest_sha256 }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Setup pnpm and Node.js
-        uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+      - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
         with:
-          # Native release management requires pnpm >=11.13.0.
           version: 11.13.1
           runtime: node@24
-          cache: true
           install: false
-
-      - name: Set up PHP 8.4
-        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2.40.0
         with:
-          php-version: 8.4
+          php-version: '8.4'
+          extensions: curl, mbstring, dom, xml, sqlite3, pdo_sqlite
           tools: composer
-
-      - name: Apply change intents and update version
+      - name: Apply one workspace release plan without publishing credentials
         id: candidate
         env:
-          # If scripts/bump-version.sh changes, recompute this with:
-          # sha256sum scripts/bump-version.sh
-          # Then update EXPECTED_BUMP_SCRIPT_SHA256 in this workflow in the same PR.
-          EXPECTED_BUMP_SCRIPT_SHA256: fb70c4da11c73df4da1b5b8d3cbd7e483cd19525dc9d8045f6c53a1bd1546809
+          REPOSITORY: ${{ github.repository }}
         run: |
-          set -euo pipefail
-
-          source_sha=$(git rev-parse HEAD)
-          pnpm version -r
-          git add --intent-to-add .changeset/ledger.yaml
-          new_version=$(node -p "require('./package.json').version")
-
-          actual_bump_script_sha256=$(sha256sum scripts/bump-version.sh | awk '{print $1}')
-          if [ "$actual_bump_script_sha256" != "$EXPECTED_BUMP_SCRIPT_SHA256" ]; then
-            echo "scripts/bump-version.sh sha256 mismatch: expected $EXPECTED_BUMP_SCRIPT_SHA256, got $actual_bump_script_sha256" >&2
-            exit 1
-          fi
-
-          ./scripts/bump-version.sh "$new_version"
-          composer update --lock --no-install --no-interaction --no-audit
-
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "No release candidate changes were generated" >&2
-            exit 1
-          fi
-
-          changed_files=$(git diff --name-only)
-          while IFS= read -r file; do
-            case "$file" in
-              CHANGELOG.md|composer.json|composer.lock|package.json|lib/PostHog.php|.changeset/*) ;;
-              *)
-                echo "Unexpected release candidate change: $file" >&2
-                exit 1
-                ;;
-            esac
-          done <<< "$changed_files"
-
-          composer_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' composer.json)
-          php_version=$(perl -0ne "print \$1 if /public const VERSION = '([^']+)'/" lib/PostHog.php)
-          if [ "$new_version" != "$composer_version" ] || [ "$new_version" != "$php_version" ]; then
-            echo "Version mismatch: package.json=$new_version composer.json=$composer_version lib/PostHog.php=$php_version" >&2
-            exit 1
-          fi
-
-          git diff --binary > release.patch
-          patch_sha256=$(sha256sum release.patch | awk '{print $1}')
-
-          echo "source-sha=$source_sha" >> "$GITHUB_OUTPUT"
-          echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
-          echo "patch-sha256=$patch_sha256" >> "$GITHUB_OUTPUT"
-          echo "Release candidate $new_version prepared from $source_sha with patch sha256 $patch_sha256"
-
-      - name: Upload release candidate patch
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+          python3 scripts/release.py prepare --repository "$REPOSITORY" --output "$RUNNER_TEMP/candidate" --bump-script-sha256 "$EXPECTED_BUMP_SCRIPT_SHA256"
+          python3 - "$RUNNER_TEMP/candidate/candidate.json" >> "$GITHUB_OUTPUT" <<'PY'
+          import hashlib, json, pathlib, sys
+          path = pathlib.Path(sys.argv[1])
+          for key, value in json.loads(path.read_text()).items():
+              print(f'{key}={str(value).lower() if isinstance(value, bool) else value}')
+          print(f'manifest_sha256={hashlib.sha256(path.read_bytes()).hexdigest()}')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: release-candidate-${{ steps.candidate.outputs.source-sha }}
-          path: release.patch
+          name: release-candidate-${{ steps.candidate.outputs.source }}
+          path: ${{ runner.temp }}/candidate/
           if-no-files-found: error
           retention-days: 5
-
       - name: Send failure event to PostHog
         if: ${{ failure() }}
         continue-on-error: true
@@ -213,92 +133,76 @@ jobs:
               "sdk": "posthog-php",
               "jobName": "prepare-release-candidate",
               "packageName": "posthog-php",
-              "packageVersion": "${{ steps.candidate.outputs.new-version || 'unknown' }}",
+              "packageVersion": "${{ steps.candidate.outputs.core_version || 'unknown' }}",
               "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-              "alertText": ":rotating_light: Failed to prepare release candidate posthog-php@${{ steps.candidate.outputs.new-version }} :rotating_light:",
+              "alertText": ":rotating_light: Failed to prepare release candidate posthog-php@${{ steps.candidate.outputs.core_version }} :rotating_light:",
               "alertContext": "The release candidate preparation step failed before approval or publish."
             }
 
-
   verify-release-candidate:
-    name: Verify release candidate
+    name: Independently verify both packages
     needs: [check-changesets, prepare-release-candidate]
-    runs-on: ubuntu-latest
     if: needs.check-changesets.outputs.has-changesets == 'true'
+    runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare-release-candidate.outputs.source-sha }}
+          ref: ${{ needs.prepare-release-candidate.outputs.source }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Download release candidate patch
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-candidate-${{ needs.prepare-release-candidate.outputs.source-sha }}
-          path: release-candidate
-
-      - name: Apply and validate release candidate patch
+          name: release-candidate-${{ needs.prepare-release-candidate.outputs.source }}
+          path: ${{ runner.temp }}/candidate
+      - uses: pnpm/setup@a0881977cd8ea73b1ed212236c99ca10dcc80cf4 # v3.1.1
+        with:
+          version: 11.13.1
+          runtime: node@24
+          install: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2.40.0
+        with:
+          php-version: '8.4'
+          extensions: curl, mbstring, dom, xml, sqlite3, pdo_sqlite
+          tools: composer
+      - name: Reproduce every candidate byte and validate the shared version patch
         env:
-          EXPECTED_VERSION: ${{ needs.prepare-release-candidate.outputs.new-version }}
-        run: |
-          set -euo pipefail
-
-          git apply --index release-candidate/release.patch
-
-          package_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' package.json)
-          composer_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' composer.json)
-          php_version=$(perl -0ne "print \$1 if /public const VERSION = '([^']+)'/" lib/PostHog.php)
-          if [ "$EXPECTED_VERSION" != "$package_version" ] || [ "$EXPECTED_VERSION" != "$composer_version" ] || [ "$EXPECTED_VERSION" != "$php_version" ]; then
-            echo "Version mismatch: expected=$EXPECTED_VERSION package.json=$package_version composer.json=$composer_version lib/PostHog.php=$php_version" >&2
-            exit 1
-          fi
-
-      - name: Check tag and release do not already exist
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EXPECTED_VERSION: ${{ needs.prepare-release-candidate.outputs.new-version }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-
-          check_missing() {
-            local description="$1"
-            shift
-            local output
-            local status
-
-            if output=$("$@" 2>&1); then
-              echo "$description already exists for $EXPECTED_VERSION" >&2
-              exit 1
-            else
-              status=$?
-            fi
-
-            if grep -q "HTTP 404" <<< "$output" || grep -q "Not Found" <<< "$output"; then
-              return 0
-            fi
-
-            echo "Could not check whether $description exists: $output" >&2
-            exit "$status"
-          }
-
-          check_missing "GitHub release" gh api "repos/$REPOSITORY/releases/tags/$EXPECTED_VERSION"
-          check_missing "git tag" gh api "repos/$REPOSITORY/git/ref/tags/$EXPECTED_VERSION"
-
-      - name: Set up PHP 8.4
-        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
-        with:
-          php-version: 8.4
-          tools: composer
-
-      - name: Validate composer files
+          python3 scripts/release.py prepare --repository "$REPOSITORY" --output "$RUNNER_TEMP/reproduced" --bump-script-sha256 "$EXPECTED_BUMP_SCRIPT_SHA256"
+          for file in candidate.json release.patch package.tar.gz notes.md core-notes.md; do
+            cmp "$RUNNER_TEMP/candidate/$file" "$RUNNER_TEMP/reproduced/$file"
+          done
+          git apply --index "$RUNNER_TEMP/candidate/release.patch"
+          python3 scripts/release.py validate --candidate "$RUNNER_TEMP/candidate"
+      - name: Check all planned source and distribution refs are unused
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
+          CORE_VERSION: ${{ needs.prepare-release-candidate.outputs.core-version }}
+          CORE_CHANGED: ${{ needs.prepare-release-candidate.outputs.core-changed }}
+        run: bash scripts/check-release-refs.sh
+      - name: Validate core Composer metadata
         run: composer validate --no-check-version --strict
-
+      - name: Validate distribution using the exact candidate core before it is published
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/composer-check"
+          tar -xzf "$RUNNER_TEMP/candidate/package.tar.gz" -C "$RUNNER_TEMP/composer-check"
+          composer validate --working-dir="$RUNNER_TEMP/composer-check" --strict --no-check-version --no-check-all
+          python3 - "$RUNNER_TEMP/composer-check/composer.json" "$GITHUB_WORKSPACE" <<'PY'
+          import json, pathlib, sys
+          path = pathlib.Path(sys.argv[1])
+          data = json.loads(path.read_text())
+          data['repositories'] = [{'type': 'path', 'url': sys.argv[2], 'options': {'symlink': False}}]
+          path.write_text(json.dumps(data, indent=2) + '\n')
+          PY
+          composer install --working-dir="$RUNNER_TEMP/composer-check" --no-dev --prefer-dist --no-progress --no-interaction --no-scripts --no-plugins
       - name: Send failure event to PostHog
         if: ${{ failure() }}
         continue-on-error: true
@@ -315,12 +219,11 @@ jobs:
               "sdk": "posthog-php",
               "jobName": "verify-release-candidate",
               "packageName": "posthog-php",
-              "packageVersion": "${{ needs.prepare-release-candidate.outputs.new-version || 'unknown' }}",
+              "packageVersion": "${{ needs.prepare-release-candidate.outputs.core-version || 'unknown' }}",
               "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-              "alertText": ":rotating_light: Failed to verify release candidate posthog-php@${{ needs.prepare-release-candidate.outputs.new-version }} :rotating_light:",
+              "alertText": ":rotating_light: Failed to verify release candidate posthog-php@${{ needs.prepare-release-candidate.outputs.core-version }} :rotating_light:",
               "alertContext": "The release candidate verification step failed before approval or publish."
             }
-
 
   notify-approval-needed:
     name: Notify Slack - Approval Needed
@@ -338,14 +241,18 @@ jobs:
       posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
 
   release:
-    name: Publish release
+    name: Publish PHP then Laravel
     needs: [check-changesets, prepare-release-candidate, verify-release-candidate, notify-approval-needed]
+    if: always() && !cancelled() && needs.check-changesets.outputs.has-changesets == 'true' && needs.verify-release-candidate.result == 'success' && needs.notify-approval-needed.result == 'success'
     runs-on: ubuntu-latest
-    if: always() && needs.check-changesets.outputs.has-changesets == 'true' && needs.verify-release-candidate.result == 'success' && needs.notify-approval-needed.result == 'success'
-    environment: "Release"
+    environment: Release
     permissions:
       actions: read
       contents: read
+    outputs:
+      core-published: ${{ steps.publish-core.outcome == 'success' }}
+      distribution-published: ${{ steps.publish-distribution.outcome == 'success' }}
+      laravel-published: ${{ steps.publish-laravel.outcome == 'success' }}
     steps:
       - name: Notify Slack - Approved
         if: needs.notify-approval-needed.outputs.slack_ts != ''
@@ -354,95 +261,207 @@ jobs:
           slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
           slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
           thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-          message: "✅ Release approved! Publishing release..."
+          message: "✅ Release approved! Committing package versions and publishing..."
           emoji_reaction: "white_check_mark"
-
-      - name: Checkout approved source revision
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.prepare-release-candidate.outputs.source-sha }}
+          ref: ${{ needs.prepare-release-candidate.outputs.source }}
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Download verified release candidate patch
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-candidate-${{ needs.prepare-release-candidate.outputs.source-sha }}
-          path: release-candidate
-
-      - name: Apply verified release candidate patch
+          name: release-candidate-${{ needs.prepare-release-candidate.outputs.source }}
+          path: ${{ runner.temp }}/candidate
+      - name: Recheck main, unused refs and all approved artifact digests
         env:
           GH_TOKEN: ${{ github.token }}
-          EXPECTED_PATCH_SHA256: ${{ needs.prepare-release-candidate.outputs.patch-sha256 }}
-          EXPECTED_SOURCE_SHA: ${{ needs.prepare-release-candidate.outputs.source-sha }}
-          EXPECTED_VERSION: ${{ needs.prepare-release-candidate.outputs.new-version }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
+          CORE_VERSION: ${{ needs.prepare-release-candidate.outputs.core-version }}
+          CORE_CHANGED: ${{ needs.prepare-release-candidate.outputs.core-changed }}
+          EXPECTED_SOURCE: ${{ needs.prepare-release-candidate.outputs.source }}
+          EXPECTED_PATCH: ${{ needs.prepare-release-candidate.outputs.patch-sha256 }}
+          EXPECTED_ARCHIVE: ${{ needs.prepare-release-candidate.outputs.archive-sha256 }}
+          EXPECTED_MANIFEST: ${{ needs.prepare-release-candidate.outputs.manifest-sha256 }}
         run: |
           set -euo pipefail
-
-          current_main_sha=$(gh api "repos/${{ github.repository }}/git/ref/heads/main" --jq '.object.sha')
-          if [ "$current_main_sha" != "$EXPECTED_SOURCE_SHA" ]; then
-            echo "main moved since the release candidate was prepared: expected $EXPECTED_SOURCE_SHA, got $current_main_sha" >&2
-            exit 1
-          fi
-
-          actual_patch_sha256=$(sha256sum release-candidate/release.patch | awk '{print $1}')
-          if [ "$actual_patch_sha256" != "$EXPECTED_PATCH_SHA256" ]; then
-            echo "Release candidate patch sha256 mismatch: expected $EXPECTED_PATCH_SHA256, got $actual_patch_sha256" >&2
-            exit 1
-          fi
-
-          git apply --index release-candidate/release.patch
-
-          package_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' package.json)
-          composer_version=$(perl -0ne 'print $1 if /"version"\s*:\s*"([^"]+)"/' composer.json)
-          php_version=$(perl -0ne "print \$1 if /public const VERSION = '([^']+)'/" lib/PostHog.php)
-          if [ "$EXPECTED_VERSION" != "$package_version" ] || [ "$EXPECTED_VERSION" != "$composer_version" ] || [ "$EXPECTED_VERSION" != "$php_version" ]; then
-            echo "Version mismatch: expected=$EXPECTED_VERSION package.json=$package_version composer.json=$composer_version lib/PostHog.php=$php_version" >&2
-            exit 1
-          fi
-
-          rm -rf release-candidate
-
+          test "$(gh api "repos/$SOURCE_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$EXPECTED_SOURCE"
+          bash scripts/check-release-refs.sh
+          echo "$EXPECTED_PATCH  $RUNNER_TEMP/candidate/release.patch" | sha256sum --check --strict
+          echo "$EXPECTED_ARCHIVE  $RUNNER_TEMP/candidate/package.tar.gz" | sha256sum --check --strict
+          echo "$EXPECTED_MANIFEST  $RUNNER_TEMP/candidate/candidate.json" | sha256sum --check --strict
+          git apply --index "$RUNNER_TEMP/candidate/release.patch"
+          python3 scripts/release.py validate --candidate "$RUNNER_TEMP/candidate"
       - name: Get GitHub App token
         id: releaser
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           client-id: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_APP_ID }}
           private-key: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
           permission-contents: write
-
-      - name: Commit version bump
+          skip-token-revoke: false
+      - name: Atomic GitHub-signed shared version commit
         id: commit-version-bump
-        uses: planetscale/ghcommit-action@a6b150b81dca5dd027baa898604418eec9e11465 # v0.2.22
-        with:
-          commit_message: "chore: release ${{ needs.prepare-release-candidate.outputs.new-version }} [version bump] [skip ci]"
-          repo: ${{ github.repository }}
-          branch: main
-          file_pattern: "CHANGELOG.md composer.json composer.lock package.json lib/PostHog.php .changeset"
-        env:
-          GITHUB_TOKEN: ${{ steps.releaser.outputs.token }}
-
-      - name: Require release commit
-        env:
-          COMMIT_SHA: ${{ steps.commit-version-bump.outputs.commit-hash }}
-        run: |
-          if [ -z "$COMMIT_SHA" ]; then
-            echo "Release commit was not created" >&2
-            exit 1
-          fi
-
-      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ steps.releaser.outputs.token }}
-          NEW_VERSION: ${{ needs.prepare-release-candidate.outputs.new-version }}
-          COMMIT_SHA: ${{ steps.commit-version-bump.outputs.commit-hash }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          CHANGELOG_ENTRY=$(awk -v defText="see CHANGELOG.md" '/^## /{if (flag) exit; flag=1} flag && /^##$/{exit} flag; END{if (!flag) print defText}' CHANGELOG.md)
-          gh release create "$NEW_VERSION" --target "$COMMIT_SHA" --title "$NEW_VERSION" --notes "$CHANGELOG_ENTRY"
+          python3 scripts/commit_release.py --checkout "$GITHUB_WORKSPACE" --repository "$REPOSITORY" --mode source --message "chore: update package versions [version bump] [skip ci]" >> "$GITHUB_OUTPUT"
+      - name: Require verified source signature
+        env:
+          GH_TOKEN: ${{ steps.releaser.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ steps.commit-version-bump.outputs.commit-hash }}
+        run: |
+          test -n "$COMMIT"
+          test "$(gh api "repos/$REPOSITORY/commits/$COMMIT" --jq '.commit.verification.verified')" = true
+      - name: Publish core GitHub release only when its version changed
+        id: publish-core
+        if: needs.prepare-release-candidate.outputs.core-changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.releaser.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ needs.prepare-release-candidate.outputs.core-version }}
+          COMMIT: ${{ steps.commit-version-bump.outputs.commit-hash }}
+        run: gh release create "$VERSION" --repo "$REPOSITORY" --target "$COMMIT" --title "$VERSION" --notes-file "$RUNNER_TEMP/candidate/core-notes.md"
+      - name: Revoke source release token before dependency checks
+        env:
+          GH_TOKEN: ${{ steps.releaser.outputs.token }}
+        run: gh api --method DELETE /installation/token
+      - name: Checkout shared version commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.commit-version-bump.outputs.commit-hash }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Recheck refs, main and approved candidate digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
+          EXPECTED_SOURCE: ${{ steps.commit-version-bump.outputs.commit-hash }}
+          EXPECTED_PATCH: ${{ needs.prepare-release-candidate.outputs.patch-sha256 }}
+          EXPECTED_ARCHIVE: ${{ needs.prepare-release-candidate.outputs.archive-sha256 }}
+          EXPECTED_MANIFEST: ${{ needs.prepare-release-candidate.outputs.manifest-sha256 }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$SOURCE_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$EXPECTED_SOURCE"
+          bash scripts/check-release-refs.sh
+          echo "$EXPECTED_PATCH  $RUNNER_TEMP/candidate/release.patch" | sha256sum --check --strict
+          echo "$EXPECTED_ARCHIVE  $RUNNER_TEMP/candidate/package.tar.gz" | sha256sum --check --strict
+          echo "$EXPECTED_MANIFEST  $RUNNER_TEMP/candidate/candidate.json" | sha256sum --check --strict
+          python3 scripts/release.py validate --candidate "$RUNNER_TEMP/candidate"
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2.40.0
+        with:
+          php-version: '8.4'
+          extensions: curl, mbstring, dom, xml, sqlite3, pdo_sqlite
+          tools: composer
+      - name: Wait for the exact published core and verify production dependencies
+        env:
+          CORE_VERSION: ${{ needs.prepare-release-candidate.outputs.core-version }}
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/production-check"
+          tar -xzf "$RUNNER_TEMP/candidate/package.tar.gz" -C "$RUNNER_TEMP/production-check"
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error --connect-timeout 10 --max-time 30 https://repo.packagist.org/p2/posthog/posthog-php.json -o "$RUNNER_TEMP/core.json" &&
+              python3 -c 'import json,sys; sys.exit(not any(v["version"].lstrip("v") == sys.argv[1] for v in json.load(open(sys.argv[2]))["packages"]["posthog/posthog-php"]))' "$CORE_VERSION" "$RUNNER_TEMP/core.json"; then
+              composer install --working-dir="$RUNNER_TEMP/production-check" --no-dev --prefer-dist --no-progress --no-interaction --no-scripts --no-plugins
+              exit 0
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "Core $CORE_VERSION is not available on Packagist; Laravel was not published" >&2
+              exit 1
+            fi
+            sleep 20
+          done
+      - name: Require signed source commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ steps.commit-version-bump.outputs.commit-hash }}
+        run: |
+          test -n "$COMMIT"
+          test "$(gh api "repos/$REPOSITORY/commits/$COMMIT" --jq '.commit.verification.verified')" = true
+      - name: Resolve distribution repository
+        id: distribution-repository
+        env:
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+        run: python3 scripts/resolve_distribution_repository.py >> "$GITHUB_OUTPUT"
+      - name: Get distribution GitHub App token
+        id: distribution-releaser
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_APP_ID }}
+          private-key: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.distribution-repository.outputs.name }}
+          permission-contents: write
+          skip-token-revoke: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          ref: main
+          path: laravel-distribution
+          token: ${{ steps.distribution-releaser.outputs.token }}
+          persist-credentials: false
+      - name: Replace dedicated distribution tree with package-only files
+        env:
+          REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+        run: python3 scripts/release.py install --candidate "$RUNNER_TEMP/candidate" --destination "$GITHUB_WORKSPACE/laravel-distribution" --repository "$REPOSITORY"
+      - name: Atomic GitHub-signed distribution commit
+        id: distribution-commit
+        env:
+          GH_TOKEN: ${{ steps.distribution-releaser.outputs.token }}
+          REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
+          SOURCE: ${{ needs.prepare-release-candidate.outputs.source }}
+        run: |
+          python3 scripts/commit_release.py --checkout "$GITHUB_WORKSPACE/laravel-distribution" --repository "$REPOSITORY" --mode distribution --candidate "$RUNNER_TEMP/candidate" --message "Release $VERSION from source $SOURCE" >> "$GITHUB_OUTPUT"
+      - name: Publish distribution version
+        id: publish-distribution
+        env:
+          GH_TOKEN: ${{ steps.distribution-releaser.outputs.token }}
+          REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          COMMIT: ${{ steps.distribution-commit.outputs.commit-hash }}
+          VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "$COMMIT"
+          test "$(gh api "repos/$REPOSITORY/commits/$COMMIT" --jq '.commit.verification.verified')" = true
+          gh release create "$VERSION" --repo "$REPOSITORY" --target "$COMMIT" --title "$VERSION" --notes-file "$RUNNER_TEMP/candidate/notes.md"
+      - name: Get source GitHub App token
+        id: source-releaser
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_APP_ID }}
+          private-key: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          skip-token-revoke: false
+      - name: Publish independent source release and archive
+        id: publish-laravel
+        env:
+          GH_TOKEN: ${{ steps.source-releaser.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ steps.commit-version-bump.outputs.commit-hash }}
+          VERSION: ${{ needs.prepare-release-candidate.outputs.version }}
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          DISTRIBUTION_COMMIT: ${{ steps.distribution-commit.outputs.commit-hash }}
+          ARCHIVE_SHA256: ${{ needs.prepare-release-candidate.outputs.archive-sha256 }}
+        run: |
+          set -euo pipefail
+          printf '\nDistribution: %s@%s\nArchive SHA256: %s\n' "$DISTRIBUTION_REPOSITORY" "$DISTRIBUTION_COMMIT" "$ARCHIVE_SHA256" >> "$RUNNER_TEMP/candidate/notes.md"
+          gh release create "posthog-laravel-v$VERSION" --latest=false --repo "$REPOSITORY" --target "$COMMIT" --title "posthog-laravel-v$VERSION" --notes-file "$RUNNER_TEMP/candidate/notes.md" "$RUNNER_TEMP/candidate/package.tar.gz" "$RUNNER_TEMP/candidate/candidate.json"
 
   notify-released:
     name: Notify Slack - Released
-    needs: [notify-approval-needed, release]
+    needs: [prepare-release-candidate, notify-approval-needed, release]
     runs-on: ubuntu-latest
     if: always() && needs.release.result == 'success' && needs.notify-approval-needed.outputs.slack_ts != ''
     steps:
@@ -452,7 +471,7 @@ jobs:
           slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
           slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
           thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-          message: "🚀 posthog-php released successfully!"
+          message: "🚀 Released ${{ needs.prepare-release-candidate.outputs.core-changed == 'true' && format('posthog-php@{0} and ', needs.prepare-release-candidate.outputs.core-version) || '' }}posthog-laravel@${{ needs.prepare-release-candidate.outputs.version }} successfully!"
           emoji_reaction: "rocket"
 
   notify-release-failed:
@@ -502,10 +521,10 @@ jobs:
               "repository": "${{ github.repository }}",
               "sdk": "posthog-php",
               "jobName": "release",
-              "packageName": "posthog-php",
-              "packageVersion": "${{ needs.prepare-release-candidate.outputs.new-version || 'unknown' }}",
+              "packageName": "posthog-php,posthog-laravel",
+              "packageVersion": "posthog-php@${{ needs.prepare-release-candidate.outputs.core-version }},posthog-laravel@${{ needs.prepare-release-candidate.outputs.version }}",
               "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-              "alertText": ":rotating_light: Failed to release posthog-php@${{ needs.prepare-release-candidate.outputs.new-version }} :rotating_light:",
+              "alertText": ":rotating_light: Failed to release PHP/Laravel packages :rotating_light:",
               "alertContext": "The release workflow failed before completion."
             }
 
@@ -516,7 +535,11 @@ jobs:
           slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
           slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
           thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-          message: "❌ Release `posthog-php@${{ needs.prepare-release-candidate.outputs.new-version }}` failed or was cancelled! <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>"
+          message: |
+            ❌ Release workflow failed or was cancelled.
+            ${{ needs.prepare-release-candidate.outputs.core-changed == 'true' && format('posthog-php@{0}: {1}', needs.prepare-release-candidate.outputs.core-version, needs.release.outputs.core-published == 'true' && 'published' || 'not completed') || 'posthog-php: unchanged (no release planned)' }}
+            posthog-laravel@${{ needs.prepare-release-candidate.outputs.version }}: ${{ needs.release.outputs.laravel-published == 'true' && 'published' || needs.release.outputs.distribution-published == 'true' && 'mirror published; source release incomplete' || 'not completed' }}
+            <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>
           emoji_reaction: "x"
 
       - name: Notify Slack - Rejected
