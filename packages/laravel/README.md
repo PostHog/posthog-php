@@ -339,13 +339,17 @@ worker to PostHog. A successful flush acknowledges handoff, **not delivery**. If
 queue backend rejects dispatch, an explicit flush returns false and the batch
 remains in memory for a later attempt. There is no fallback to direct HTTP.
 Laravel's connection-level `after_commit` behavior still applies: a deferred job
-is not persisted until commit, and a rollback discards it. If the deferred write
-fails, the SDK contains the error and restores the frozen batch to its in-process
-buffer for a later flush. It does not fail the already-committed application transaction.
+is not persisted until commit. On rollback, the SDK restores the frozen batch to
+its in-process buffer for a later flush, including events captured before the
+transaction. Failed deferred writes also restore the batch without failing the
+already-committed application transaction. These batches remain in memory, not
+durable storage, until a subsequent flush successfully hands them to Laravel.
+Model autocapture remains commit-only: rolled-back model changes do not emit events.
 Buffered events and batches awaiting commit share `sdk.max_queue_size`. Further
-captures return false when that capacity is full. Commit or rollback releases
-capacity, while failed deferred writes retain their slots until retried. This
-in-process limit does not cap jobs already persisted by Laravel.
+captures return false when that capacity is full. Successful dispatch releases
+capacity; rollback and failed deferred writes transfer their slots back to the
+buffer until retried. This in-process limit does not cap jobs already persisted
+by Laravel.
 
 Workers send verified HTTP using the SDK's cURL transport. Transient transport and
 HTTP failures escape the job so Laravel can retry; terminal rejections mark it

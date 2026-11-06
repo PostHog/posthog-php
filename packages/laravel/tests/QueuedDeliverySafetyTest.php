@@ -241,7 +241,7 @@ class QueuedDeliverySafetyTest extends TestCase
         $this->assertStringContainsString('"empty":{}', $this->command(json_decode($stored, true))->events);
     }
 
-    public function testDeferredCommitAndRollbackKeepLaravelSemantics(): void
+    public function testDeferredCommitWaitsAndRollbackRestoresTheBatch(): void
     {
         $this->controlledQueue();
         $manager = $this->app->make(PostHog::class);
@@ -258,8 +258,68 @@ class QueuedDeliverySafetyTest extends TestCase
         $manager->capture('rolled back', distinctId: 'actor');
         $manager->flush();
         $connection->rollBack();
-        $manager->flush();
         $this->assertSame(1, $this->app['queue']->connection('database')->size('analytics'));
+        $this->assertTrue($manager->flush());
+        $this->assertSame(2, $this->app['queue']->connection('database')->size('analytics'));
+        $row = $this->app['db']->connection('queue')->table('jobs')->orderByDesc('id')->first();
+        $this->assertSame('rolled back', $this->events(json_decode($row->payload, true))[0]['event']);
+    }
+
+    public static function rollbackBoundaries(): array
+    {
+        return [
+            'root' => [0], 'savepoint' => [1], 'committed savepoint' => [2],
+            'shared database connection' => [0, true],
+        ];
+    }
+
+    #[DataProvider('rollbackBoundaries')]
+    public function testRollbackRetainsEventsBufferedBeforeTheTransaction(
+        int $boundary,
+        bool $sharedDatabase = false,
+    ): void {
+        $prepared = [];
+        $this->app['config']->set('posthog.sdk.batch_size', 3);
+        $this->app['config']->set('posthog.sdk.flush_interval_seconds', 3600);
+        $this->app['config']->set('posthog.sdk.before_send', static function ($event) use (&$prepared) {
+            $prepared[] = [$event['uuid'], $event['timestamp']];
+            return $event;
+        });
+        $manager = $this->app->make(PostHog::class);
+        $mutable = (object) ['state' => 'original'];
+        $this->assertTrue($manager->capture('before one', ['mutable' => $mutable, 'empty' => (object) []], 'actor'));
+        $this->assertTrue($manager->capture('before two', distinctId: 'actor'));
+        $connection = $this->app['db']->connection($sharedDatabase ? 'queue' : 'testing');
+        $connection->beginTransaction();
+        try {
+            if ($boundary > 0) {
+                $connection->beginTransaction();
+            }
+            $this->assertTrue($manager->capture('inside transaction', distinctId: 'actor'));
+            $mutable->state = 'changed';
+            if ($boundary === 2) {
+                $connection->commit();
+            }
+            $connection->rollBack();
+            $this->assertSame(0, $this->app['queue']->connection('database')->size('analytics'));
+            if ($boundary === 1) {
+                $connection->commit();
+            }
+        } finally {
+            while ($connection->transactionLevel() > 0) {
+                $connection->rollBack();
+            }
+        }
+        $this->assertTrue($manager->flush());
+        $rows = $this->app['db']->connection('queue')->table('jobs')->get();
+        $this->assertCount(1, $rows);
+        $payload = json_decode($rows->sole()->payload, true);
+        $events = $this->events($payload);
+        $this->assertSame(['before one', 'before two', 'inside transaction'], array_column($events, 'event'));
+        $this->assertSame($prepared, array_map(static fn ($event) => [$event['uuid'], $event['timestamp']], $events));
+        $this->assertCount(3, $prepared, 'Retry reran capture hooks.');
+        $this->assertSame('original', $events[0]['properties']['mutable']['state']);
+        $this->assertStringContainsString('"empty":{}', $this->command($payload)->events);
     }
 
     public function testQueueWritesFailClosedWithoutAnEncrypter(): void
@@ -390,7 +450,7 @@ class QueuedDeliverySafetyTest extends TestCase
     }
 
     #[DataProvider('rollbackScopes')]
-    public function testDeferredCapacityIsReleasedOnRollback(bool $savepoint): void
+    public function testRollbackTransfersDeferredCapacityBackToTheBuffer(bool $savepoint): void
     {
         $this->app['config']->set('posthog.sdk.max_queue_size', 2);
         $this->app['config']->set('posthog.sdk.batch_size', 1);
@@ -413,12 +473,17 @@ class QueuedDeliverySafetyTest extends TestCase
                 $connection->rollBack();
             }
         }
-        $this->assertTrue($manager->capture('after rollback', distinctId: 'actor'));
-        $stored = $this->app['db']->connection('queue')->table('jobs')->sole()->payload;
-        $this->assertSame('after rollback', $this->events(json_decode($stored, true))[0]['event']);
+        $this->assertFalse($manager->capture('still over capacity', distinctId: 'actor'));
+        $this->assertTrue($manager->flush());
+        $events = [];
+        foreach ($this->app['db']->connection('queue')->table('jobs')->orderBy('id')->get() as $row) {
+            $events = array_merge($events, array_column($this->events(json_decode($row->payload, true)), 'event'));
+        }
+        $this->assertSame(['first', 'second'], $events);
+        $this->assertTrue($manager->capture('after retry', distinctId: 'actor'));
     }
 
-    public function testSavepointRollbackReleasesOnlyItsOwnDeferredCapacity(): void
+    public function testSavepointRollbackRetainsCapacityAndCanBeDeferredAgain(): void
     {
         $this->app['config']->set('posthog.sdk.max_queue_size', 2);
         $this->app['config']->set('posthog.sdk.batch_size', 1);
@@ -430,8 +495,9 @@ class QueuedDeliverySafetyTest extends TestCase
             $connection->beginTransaction();
             $this->assertTrue($manager->capture('inner', distinctId: 'actor'));
             $connection->rollBack();
-            $this->assertTrue($manager->capture('replacement', distinctId: 'actor'));
             $this->assertFalse($manager->capture('over capacity', distinctId: 'actor'));
+            $this->assertTrue($manager->flush());
+            $this->assertSame(0, $this->app['queue']->connection('database')->size('analytics'));
             $connection->commit();
         } finally {
             while ($connection->transactionLevel() > 0) {
@@ -442,7 +508,8 @@ class QueuedDeliverySafetyTest extends TestCase
         foreach ($this->app['db']->connection('queue')->table('jobs')->orderBy('id')->get() as $row) {
             $events = array_merge($events, array_column($this->events(json_decode($row->payload, true)), 'event'));
         }
-        $this->assertSame(['outer', 'replacement'], $events);
+        $this->assertSame(['outer', 'inner'], $events);
+        $this->assertTrue($manager->capture('after commit', distinctId: 'actor'));
     }
 
     public function testFailedDeferredWritesContinueToConsumeCapacityUntilRetried(): void

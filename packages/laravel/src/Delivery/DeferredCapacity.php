@@ -11,18 +11,18 @@ final class DeferredCapacity
     {
     }
 
-    public function release(): void
+    public function release(bool $discarded = false): void
     {
         $release = $this->onRelease;
         $this->onRelease = null;
         if ($release !== null) {
-            $release();
+            $release($discarded);
         }
     }
 
     public function __destruct()
     {
         // Rollback can discard callbacks without invoking them, including committed savepoints.
-        $this->release();
+        $this->release(discarded: true);
     }
 }

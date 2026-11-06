@@ -72,8 +72,11 @@ final class QueuedConsumer extends LibCurl
         ) {
             $count = count($messages);
             $this->deferredEvents += $count;
-            $capacity = new DeferredCapacity(function () use ($count): void {
+            $capacity = new DeferredCapacity(function (bool $discarded) use ($count, $job): void {
                 $this->deferredEvents -= $count;
+                if ($discarded) {
+                    $this->queue = array_merge($this->queue, json_decode($job->events, flags: JSON_THROW_ON_ERROR));
+                }
             });
             $this->app['db.transactions']->addCallback(function () use ($job, $capacity): void {
                 try {

@@ -11,7 +11,10 @@ use PostHog\Laravel\Delivery\BatchDelivery;
 use PostHog\Laravel\Delivery\DeliveryFailed;
 use Throwable;
 
-/** @internal Stores only the prepared event JSON, never SDK instances or credentials. */
+/**
+ * @internal Stores only prepared event JSON, never SDK instances or credentials.
+ * The class name and $events are persisted in queued and failed jobs. Keep both compatible with outstanding jobs.
+ */
 final class DeliverEvents implements ShouldQueue, ShouldBeEncrypted
 {
     use InteractsWithQueue;
