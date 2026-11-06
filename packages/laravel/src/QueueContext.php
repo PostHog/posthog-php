@@ -5,6 +5,7 @@ namespace PostHog\Laravel;
 use Illuminate\Container\Container;
 use Illuminate\Queue\Queue;
 use PostHog\PostHog as CorePostHog;
+use PostHog\Laravel\Jobs\DeliverEvents;
 
 /** @internal Queue metadata is analytics context, never authorization evidence. */
 final class QueueContext
@@ -14,8 +15,11 @@ final class QueueContext
         Queue::createPayloadUsing([self::class, 'payload']);
     }
 
-    public static function payload(): array
+    public static function payload(?string $connection = null, ?string $queue = null, array $payload = []): array
     {
+        if (($payload['data']['commandName'] ?? null) instanceof DeliverEvents) {
+            return [];
+        }
         $app = Container::getInstance();
         if (!$app['config']->get('posthog.queue_context', true) || !$app->make(PostHog::class)->enabled()) {
             return [];
