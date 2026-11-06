@@ -118,6 +118,11 @@ class Client implements FeatureFlagEvaluationsHost
     private $personalAPIKey;
 
     /**
+     * @var array<string, true> Secret keys, by hash, whose rejection this process already logged.
+     */
+    private static array $reportedRejectedSecretKeys = [];
+
+    /**
      * Feature flag request timeout in milliseconds. Defaults to 3000ms.
      *
      * @var integer
@@ -1798,6 +1803,7 @@ class Client implements FeatureFlagEvaluationsHost
             if ($response->getEtag()) {
                 $this->flagsEtag = $response->getEtag();
             }
+            unset(self::$reportedRejectedSecretKeys[$this->secretKeyHash()]);
             if ($this->debug) {
                 error_log("[PostHog][Client] Flags not modified (304), using cached data");
             }
@@ -1805,6 +1811,11 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         $responseCode = $response->getResponseCode();
+        if (($responseCode === 401 || $responseCode === 403) && $this->secretKey !== null) {
+            $this->reportRejectedSecretKeyOnce($responseCode);
+            return;
+        }
+
         if ($responseCode !== 200) {
             error_log(
                 "[PostHog][Client] Failed to load feature flags (HTTP $responseCode): "
@@ -1827,6 +1838,7 @@ class Client implements FeatureFlagEvaluationsHost
         // On 200 responses, always update ETag (even if null) since we're replacing
         // the cached flag data. A null ETag means the server doesn't support caching.
         $this->flagsEtag = $response->getEtag();
+        unset(self::$reportedRejectedSecretKeys[$this->secretKeyHash()]);
 
         $data = $this->normalizeFlagDefinitionData($payload);
         $this->applyFlagDefinitions($data);
@@ -1834,6 +1846,34 @@ class Client implements FeatureFlagEvaluationsHost
         // load carries definitions that a fresh response already warned about.
         $this->warnAboutUnresolvableFlags();
         $this->storeFlagDefinitionsInCacheProvider($data);
+    }
+
+    /**
+     * Log a rejected definitions request once per process and secret key until definitions load.
+     * PHP usually builds a client per request, so a per-client flag would log on every request.
+     *
+     * @param int $responseCode
+     * @return void
+     */
+    private function reportRejectedSecretKeyOnce(int $responseCode): void
+    {
+        $keyHash = $this->secretKeyHash();
+        if (isset(self::$reportedRejectedSecretKeys[$keyHash])) {
+            return;
+        }
+        self::$reportedRejectedSecretKeys[$keyHash] = true;
+        $this->logWarning(
+            "Your secret key can't load feature flag definitions for local evaluation (HTTP $responseCode). "
+            . "The key is invalid or lacks the Feature flags: Read scope. Add the scope to the key, or construct "
+            . "the Client with loadFeatureFlags: false if you don't evaluate flags locally. This is logged once "
+            . "per process until definitions load. "
+            . "More information: https://posthog.com/docs/feature-flags/local-evaluation"
+        );
+    }
+
+    private function secretKeyHash(): string
+    {
+        return hash('sha256', (string) $this->secretKey);
     }
 
     /**
