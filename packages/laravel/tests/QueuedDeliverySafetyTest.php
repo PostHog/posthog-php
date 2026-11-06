@@ -329,6 +329,148 @@ class QueuedDeliverySafetyTest extends TestCase
         $this->assertSame(1, $this->app['queue']->connection('database')->size('analytics'));
     }
 
+    public function testEmptyConnectionUsesDefaultAfterCommitProtection(): void
+    {
+        $queue = $this->controlledQueue();
+        $queue->unavailable = true;
+        $this->app['config']->set('queue.default', 'database');
+        $this->app['config']->set('posthog.laravel_queue.connection', '');
+        $manager = $this->app->make(PostHog::class);
+        $connection = $this->app['db']->connection('testing');
+        $failure = null;
+        try {
+            $connection->transaction(function () use ($manager, $connection) {
+                $connection->table('app_writes')->insert(['value' => 'committed']);
+                $manager->capture('default connection', distinctId: 'actor');
+                $this->assertTrue($manager->flush());
+            });
+        } catch (Throwable $exception) {
+            $failure = $exception;
+        }
+        $this->assertNull($failure, 'Default-connection queue failure escaped commit.');
+        $this->assertSame('committed', $connection->table('app_writes')->sole()->value);
+        $queue->unavailable = false;
+        $this->assertTrue($manager->flush());
+        $stored = $this->app['db']->connection('queue')->table('jobs')->sole()->payload;
+        $this->assertSame('default connection', $this->events(json_decode($stored, true))[0]['event']);
+    }
+
+    public function testDeferredBatchesShareCapacityWithBufferedEvents(): void
+    {
+        $this->app['config']->set('posthog.sdk.max_queue_size', 3);
+        $this->app['config']->set('posthog.sdk.batch_size', 2);
+        $manager = $this->app->make(PostHog::class);
+        $connection = $this->app['db']->connection('testing');
+        $connection->beginTransaction();
+        try {
+            foreach (['first', 'second', 'third'] as $event) {
+                $this->assertTrue($manager->capture($event, distinctId: 'actor'));
+            }
+            $this->assertFalse($manager->capture('over capacity', distinctId: 'actor'));
+            $this->assertTrue($manager->flush());
+            $this->assertFalse($manager->capture('still over capacity', distinctId: 'actor'));
+            $connection->commit();
+        } finally {
+            if ($connection->transactionLevel() > 0) {
+                $connection->rollBack();
+            }
+        }
+        $events = [];
+        foreach ($this->app['db']->connection('queue')->table('jobs')->orderBy('id')->get() as $row) {
+            $events = array_merge($events, array_column($this->events(json_decode($row->payload, true)), 'event'));
+        }
+        $this->assertSame(['first', 'second', 'third'], $events);
+        $this->assertTrue($manager->capture('after commit', distinctId: 'actor'));
+        $this->assertTrue($manager->flush());
+    }
+
+    public static function rollbackScopes(): array
+    {
+        return ['root transaction' => [false], 'committed savepoint' => [true]];
+    }
+
+    #[DataProvider('rollbackScopes')]
+    public function testDeferredCapacityIsReleasedOnRollback(bool $savepoint): void
+    {
+        $this->app['config']->set('posthog.sdk.max_queue_size', 2);
+        $this->app['config']->set('posthog.sdk.batch_size', 1);
+        $manager = $this->app->make(PostHog::class);
+        $connection = $this->app['db']->connection('testing');
+        $connection->beginTransaction();
+        try {
+            if ($savepoint) {
+                $connection->beginTransaction();
+            }
+            $this->assertTrue($manager->capture('first', distinctId: 'actor'));
+            $this->assertTrue($manager->capture('second', distinctId: 'actor'));
+            $this->assertFalse($manager->capture('over capacity', distinctId: 'actor'));
+            if ($savepoint) {
+                $connection->commit();
+                $this->assertFalse($manager->capture('outer still pending', distinctId: 'actor'));
+            }
+        } finally {
+            while ($connection->transactionLevel() > 0) {
+                $connection->rollBack();
+            }
+        }
+        $this->assertTrue($manager->capture('after rollback', distinctId: 'actor'));
+        $stored = $this->app['db']->connection('queue')->table('jobs')->sole()->payload;
+        $this->assertSame('after rollback', $this->events(json_decode($stored, true))[0]['event']);
+    }
+
+    public function testSavepointRollbackReleasesOnlyItsOwnDeferredCapacity(): void
+    {
+        $this->app['config']->set('posthog.sdk.max_queue_size', 2);
+        $this->app['config']->set('posthog.sdk.batch_size', 1);
+        $manager = $this->app->make(PostHog::class);
+        $connection = $this->app['db']->connection('testing');
+        $connection->beginTransaction();
+        try {
+            $this->assertTrue($manager->capture('outer', distinctId: 'actor'));
+            $connection->beginTransaction();
+            $this->assertTrue($manager->capture('inner', distinctId: 'actor'));
+            $connection->rollBack();
+            $this->assertTrue($manager->capture('replacement', distinctId: 'actor'));
+            $this->assertFalse($manager->capture('over capacity', distinctId: 'actor'));
+            $connection->commit();
+        } finally {
+            while ($connection->transactionLevel() > 0) {
+                $connection->rollBack();
+            }
+        }
+        $events = [];
+        foreach ($this->app['db']->connection('queue')->table('jobs')->orderBy('id')->get() as $row) {
+            $events = array_merge($events, array_column($this->events(json_decode($row->payload, true)), 'event'));
+        }
+        $this->assertSame(['outer', 'replacement'], $events);
+    }
+
+    public function testFailedDeferredWritesContinueToConsumeCapacityUntilRetried(): void
+    {
+        $queue = $this->controlledQueue();
+        $queue->unavailable = true;
+        $this->app['config']->set('posthog.sdk.max_queue_size', 2);
+        $this->app['config']->set('posthog.sdk.batch_size', 1);
+        $manager = $this->app->make(PostHog::class);
+        $connection = $this->app['db']->connection('testing');
+        $connection->beginTransaction();
+        try {
+            $this->assertTrue($manager->capture('first', distinctId: 'actor'));
+            $this->assertTrue($manager->capture('second', distinctId: 'actor'));
+            $this->assertFalse($manager->capture('over capacity', distinctId: 'actor'));
+            $connection->commit();
+        } finally {
+            if ($connection->transactionLevel() > 0) {
+                $connection->rollBack();
+            }
+        }
+        $this->assertFalse($manager->capture('still over capacity', distinctId: 'actor'));
+        $queue->unavailable = false;
+        $this->assertTrue($manager->flush());
+        $this->assertSame(2, $this->app['queue']->connection('database')->size('analytics'));
+        $this->assertTrue($manager->capture('after retry', distinctId: 'actor'));
+    }
+
     private function command(array $payload): DeliverEvents
     {
         return unserialize($this->app['encrypter']->decrypt($payload['data']['command']));

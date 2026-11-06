@@ -15,6 +15,7 @@ final class QueuedConsumer extends LibCurl
     protected $type = 'LaravelQueue';
 
     private bool $flushing = false;
+    private int $deferredEvents = 0;
 
     public function __construct(
         string $apiKey,
@@ -24,6 +25,14 @@ final class QueuedConsumer extends LibCurl
         private Container $app,
     ) {
         parent::__construct($apiKey, $options);
+    }
+
+    public function enqueue($item)
+    {
+        if ($this->deferredEvents > 0 && count($this->queue) + $this->deferredEvents >= $this->max_queue_size) {
+            return false;
+        }
+        return parent::enqueue($item);
     }
 
     public function flush()
@@ -55,21 +64,30 @@ final class QueuedConsumer extends LibCurl
         $job = new DeliverEvents($events);
         $job->onConnection($this->settings['connection'] ?? null);
         $job->onQueue($this->settings['name'] ?? null);
-        $connection = $job->connection ?? $this->app['config']->get('queue.default');
+        $connection = $job->connection ?: $this->app['config']->get('queue.default');
         if (
             $this->app['config']->get('queue.connections.' . $connection . '.after_commit', false)
             && $this->app->bound('db.transactions')
             && $this->app['db.transactions']->callbackApplicableTransactions()->isNotEmpty()
         ) {
-            $this->app['db.transactions']->addCallback(function () use ($job): void {
+            $count = count($messages);
+            $this->deferredEvents += $count;
+            $capacity = new DeferredCapacity(function () use ($count): void {
+                $this->deferredEvents -= $count;
+            });
+            $this->app['db.transactions']->addCallback(function () use ($job, $capacity): void {
                 try {
-                    if ($this->dispatch($job->beforeCommit())) {
-                        return;
+                    try {
+                        if ($this->dispatch($job->beforeCommit())) {
+                            return;
+                        }
+                    } catch (Throwable) {
+                        // A diagnostic callback must not fail an already-committed application transaction.
                     }
-                } catch (Throwable) {
-                    // A diagnostic callback must not fail an already-committed application transaction.
+                    $this->queue = array_merge($this->queue, json_decode($job->events, flags: JSON_THROW_ON_ERROR));
+                } finally {
+                    $capacity->release();
                 }
-                $this->queue = array_merge($this->queue, json_decode($job->events, flags: JSON_THROW_ON_ERROR));
             });
             return true;
         }
