@@ -56,7 +56,10 @@ final class Emails
 
     private const SHARED_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'max_retries'];
     private const TEMPLATE_FIELDS = ['template_id', 'template_data'];
-    private const CODE_FIELDS = ['template_key', 'subject', 'html', 'text', 'from', 'reply_to', 'capture_engagement'];
+    private const CODE_FIELDS = [
+        'template_key', 'subject', 'html', 'text', 'from', 'reply_to', 'cc', 'bcc', 'attachments', 'capture_engagement',
+    ];
+    private const ATTACHMENT_FIELDS = ['filename', 'content', 'content_type', 'content_id'];
     private const TEMPLATE_FORM_WHY = "A template made in PostHog sets its own sender, subject and content, "
         . "and follows the project's engagement setting.";
     private const CODE_FORM_WHY = 'A send with template_key takes its content from your code.';
@@ -133,8 +136,19 @@ final class Emails
      *   400), `subject`, and `html`, `text` or both. PostHog derives a missing `text` from the `html`, and
      *   sends the content as is without storing it. To send a React email, render it to HTML in your app
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
-     *   `reply_to` (one address or a list; an empty list is left out) and `capture_engagement` (default
-     *   true; a project whose admin turned engagement capture off captures nothing, whatever the send asks).
+     *   `reply_to`, `cc` and `bcc` (one address or a list; at most 10 for `cc` and `bcc`), `attachments`
+     *   and `capture_engagement` (default true; a project whose admin turned engagement capture off
+     *   captures nothing, whatever the send asks). An empty `reply_to`, `cc`, `bcc` or `attachments` list
+     *   is left out.
+     * - `attachments` is a list of at most 10 files, 512 KB in total. Each file is an array with
+     *   `filename`, `content` (the file's bytes, such as `file_get_contents()` returns; the client encodes
+     *   them as Base64, so pass `base64_decode($content)` when you hold Base64, such as from a Resend
+     *   payload), and optional `content_type` and `content_id`. Reference a `content_id` of `logo`
+     *   in the HTML as `<img src="cid:logo">` to show the file inline. PostHog can't fetch a file from a
+     *   path or URL.
+     *
+     * A PostHog version that doesn't take a field yet, such as `cc`, refuses the send with an error that
+     * names the field. It never drops the field and sends the rest.
      *
      * Both forms take `to` (one address), `distinct_id` (the recipient's distinct ID in your product;
      * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
@@ -161,6 +175,17 @@ final class Emails
      *     'html' => $renderedHtml,
      *     'distinct_id' => 'user_123',
      * ]);
+     *
+     * $client->emails()->send([
+     *     'to' => 'user@example.com',
+     *     'template_key' => 'receipt',
+     *     'subject' => 'Your receipt',
+     *     'html' => $renderedHtml,
+     *     'bcc' => 'finance@example.com',
+     *     'attachments' => [
+     *         ['filename' => 'receipt.pdf', 'content' => file_get_contents($receiptPath)],
+     *     ],
+     * ]);
      * ```
      *
      * @param array{
@@ -176,11 +201,21 @@ final class Emails
      *     text?: string|null,
      *     from?: string|null,
      *     reply_to?: string|list<string>|null,
+     *     cc?: string|list<string>|null,
+     *     bcc?: string|list<string>|null,
+     *     attachments?: list<array{
+     *         filename: string,
+     *         content: string,
+     *         content_type?: string|null,
+     *         content_id?: string|null
+     *     }>|null,
      *     capture_engagement?: bool|null
      * } $email
      * @return SendEmailResult The queued email. It means PostHog queued the email, not that it was delivered.
      * @throws EmailError PostHog did not queue the email, or the client could not tell whether it did. A
      *     failed argument check has the name `validation_error` and an `invalid_*` code, and sends nothing.
+     *     An attachment the client can't send has the code `invalid_attachment` and a field such as
+     *     `attachments__0__content`, and its message never repeats the file's content.
      */
     public function send(array $email): SendEmailResult
     {
@@ -353,8 +388,13 @@ final class Emails
             }
             $content['from'] = $email['from'];
         }
-        if (array_key_exists('reply_to', $email) && $email['reply_to'] !== []) {
-            $content['reply_to'] = self::addresses($email['reply_to']);
+        foreach (['reply_to', 'cc', 'bcc'] as $field) {
+            if (array_key_exists($field, $email) && $email[$field] !== []) {
+                $content[$field] = self::addresses($field, $email[$field]);
+            }
+        }
+        if (array_key_exists('attachments', $email) && $email['attachments'] !== []) {
+            $content['attachments'] = self::attachments($email['attachments']);
         }
         $captureEngagement = $email['capture_engagement'] ?? true;
         if (!is_bool($captureEngagement)) {
@@ -368,19 +408,96 @@ final class Emails
     /**
      * @return list<string>
      */
-    private static function addresses(mixed $value): array
+    private static function addresses(string $field, mixed $value): array
     {
         $addresses = is_string($value) ? [$value] : $value;
         if (!is_array($addresses) || !array_is_list($addresses)) {
-            throw self::invalid('invalid_form', 'reply_to must be one address or a list of addresses.', 'reply_to');
+            throw self::invalid('invalid_form', "$field must be one address or a list of addresses.", $field);
         }
         foreach ($addresses as $address) {
             if (!is_string($address) || trim($address) === '') {
-                throw self::invalid('invalid_form', 'reply_to must not hold a blank address.', 'reply_to');
+                throw self::invalid('invalid_form', "$field must not hold a blank address.", $field);
             }
         }
 
         return $addresses;
+    }
+
+    /**
+     * @return list<array<string, string>>
+     */
+    private static function attachments(mixed $files): array
+    {
+        if (!is_array($files) || !array_is_list($files)) {
+            throw self::invalidAttachment('attachments must be a list of files.', 'attachments');
+        }
+        $attachments = [];
+        foreach ($files as $index => $file) {
+            $attachments[] = self::attachment("attachments__$index", $file);
+        }
+
+        return $attachments;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function attachment(string $field, mixed $file): array
+    {
+        if (is_array($file)) {
+            $file = array_filter($file, static fn($value): bool => $value !== null);
+        }
+        if (!is_array($file) || ($file !== [] && array_is_list($file))) {
+            throw self::invalidAttachment(
+                "An attachment is an array with a filename and the file's bytes as its content.",
+                $field
+            );
+        }
+        if (array_key_exists('path', $file)) {
+            throw self::invalidAttachment(
+                "PostHog can't fetch an attachment from a path or URL. Read the file and pass its bytes as content.",
+                "{$field}__path"
+            );
+        }
+        foreach (array_keys($file) as $name) {
+            if (!in_array($name, self::ATTACHMENT_FIELDS, true)) {
+                throw self::invalidAttachment(
+                    "An attachment takes filename, content, content_type and content_id, not $name.",
+                    "{$field}__$name"
+                );
+            }
+        }
+        if (!self::isUtf8Text($file['filename'] ?? null)) {
+            throw self::invalidAttachment('An attachment needs its filename as a UTF-8 string.', "{$field}__filename");
+        }
+        if (!is_string($file['content'] ?? null)) {
+            throw self::invalidAttachment(
+                "An attachment needs the file's bytes as a string, such as file_get_contents() returns.",
+                "{$field}__content"
+            );
+        }
+        $attachment = ['filename' => $file['filename'], 'content' => base64_encode($file['content'])];
+        foreach (['content_type', 'content_id'] as $name) {
+            if (!array_key_exists($name, $file)) {
+                continue;
+            }
+            if (!self::isUtf8Text($file[$name])) {
+                throw self::invalidAttachment("An attachment's $name must be a UTF-8 string.", "{$field}__$name");
+            }
+            $attachment[$name] = $file[$name];
+        }
+
+        return $attachment;
+    }
+
+    private static function isUtf8Text(mixed $value): bool
+    {
+        return is_string($value) && mb_check_encoding($value, 'UTF-8');
+    }
+
+    private static function invalidAttachment(string $message, string $field): EmailError
+    {
+        return new EmailError('invalid_attachment', $message . ' No email was sent.', field: $field);
     }
 
     private static function refuseFieldsOutside(array $email, bool $isTemplateForm): void
