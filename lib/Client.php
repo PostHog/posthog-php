@@ -1892,6 +1892,10 @@ class Client implements FeatureFlagEvaluationsHost
      */
     private function warnAboutUnresolvableFlags(bool $emitWarnings): void
     {
+        if (!$emitWarnings && $this->warnedUnresolvableFlags === []) {
+            return;
+        }
+
         $flagKeysByReason = [
             UnresolvedFlagReason::EXPERIENCE_CONTINUITY => [],
             UnresolvedFlagReason::UNSUPPORTED_DEFINITION => [],

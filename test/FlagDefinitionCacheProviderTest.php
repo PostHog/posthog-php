@@ -9,6 +9,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\IgnoreDeprecations;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
+use PostHog\FeatureFlag;
 use PostHog\FlagDefinitionCacheProvider;
 use PostHog\Test\Assets\MockedResponses;
 use PostHog\UnresolvedFlagReason;
@@ -843,6 +844,49 @@ class FlagDefinitionCacheProviderTest extends TestCase
         $this->assertSame(3, $provider->getCallCount);
         $this->assertCount(2, $httpClient->calls);
         $this->assertWarningCount($warning, 1);
+    }
+
+    public function testCacheLoadsWithoutWarningHistoryDoNotInspectCohortProperties(): void
+    {
+        global $errorMessages;
+        $cohort = new class (['type' => 'AND', 'values' => [
+            ['key' => 'plan', 'type' => 'person', 'operator' => 'exact', 'value' => 'paid'],
+        ]]) extends \ArrayObject {
+            public int $readCount = 0;
+
+            public function offsetGet(mixed $key): mixed
+            {
+                $this->readCount++;
+                return parent::offsetGet($key);
+            }
+        };
+        $definitions = $this->sampleFlagDefinitionData();
+        $definitions['flags'][0]['filters']['groups'][0]['properties'] = [
+            ['key' => 'id', 'type' => 'cohort', 'value' => 1],
+        ];
+        $definitions['flags'][] = array_replace($definitions['flags'][0], ['key' => 'other-flag']);
+        $definitions['cohorts']['1'] = $cohort;
+
+        // Confirm the probe detects the definition-warning traversal without relying on timings.
+        $this->assertNull(FeatureFlag::getDefinitionUnresolvedReason(
+            $definitions['flags'][0], [], $definitions['cohorts'], $definitions['group_type_mapping']
+        ));
+        $this->assertGreaterThan(0, $cohort->readCount);
+        $cohort->readCount = 0;
+
+        $provider = new MockFlagDefinitionCacheProvider();
+        $provider->shouldFetch = false;
+        $provider->cachedData = $definitions;
+        $httpClient = new MockedHttpClient(host: 'app.posthog.com');
+        $client = $this->createClient($provider, $httpClient);
+        $client->loadFlags();
+
+        $this->assertSame(0, $cohort->readCount);
+        $this->assertSame($definitions['flags'], $client->featureFlags);
+        $this->assertSame(2, $provider->getCallCount);
+        $this->assertSame(0, $provider->onReceivedCallCount);
+        $this->assertSame([], $httpClient->calls ?? []);
+        $this->assertSame([], $errorMessages);
     }
 
     public function testCachedDefinitionsDoNotRepeatWarningsAcrossClients(): void
