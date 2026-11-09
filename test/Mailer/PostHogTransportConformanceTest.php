@@ -368,6 +368,13 @@ final class PostHogTransportConformanceTest extends TestCase
                 fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=false; clicks=true']),
                 'open_tracking_off',
             ],
+            '14 open tracking off in a second X-Track' => [
+                fn() => self::withHeaders(
+                    self::withHeaders(self::shipped(), ['X-Track' => 'opens=true']),
+                    ['X-Track' => 'opens=false']
+                ),
+                'open_tracking_off',
+            ],
             'an AMP alternative set as the body' => [
                 fn() => self::shipped()->setBody(new AlternativePart(
                     new TextPart('On its way.'),

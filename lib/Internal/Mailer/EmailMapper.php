@@ -262,13 +262,11 @@ final class EmailMapper
 
     private static function asksForNoOpenTracking(Email $email): bool
     {
-        $header = $email->getHeaders()->get(self::TRACKING_HEADER);
-        if ($header === null) {
-            return false;
-        }
-        foreach (explode(';', $header->getBodyAsString()) as $part) {
-            if (array_map('trim', explode('=', $part, 2)) === ['opens', 'false']) {
-                return true;
+        foreach ($email->getHeaders()->all(self::TRACKING_HEADER) as $header) {
+            foreach (explode(';', $header->getBodyAsString()) as $part) {
+                if (array_map('trim', explode('=', $part, 2)) === ['opens', 'false']) {
+                    return true;
+                }
             }
         }
 
