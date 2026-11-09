@@ -164,7 +164,8 @@ final class Emails
      *   PostHog can't fetch a file from a path or URL. The client checks both limits before any request,
      *   hashes each file with SHA-256, uploads the files PostHog doesn't have yet, and then sends the
      *   email with each file's hash. A file that fails to upload throws `upload_failed` with the storage's
-     *   answer, and no email is sent.
+     *   answer, and no email is sent. A PostHog without the upload route, or a project that can't send
+     *   email from code, answers `not_found` on `attachments`, and no email is sent.
      *
      * A PostHog version that doesn't take a field yet, such as `cc`, refuses the send with an error that
      * names the field. It never drops the field and sends the rest.
@@ -687,13 +688,10 @@ final class Emails
     {
         $fields = self::replyFields($body);
         if ($status === 404) {
-            throw new EmailError(
-                'field_not_accepted',
-                "This PostHog doesn't take attachments yet, so no email was sent.",
-                $status,
-                fix: 'Send the email without attachments, or update PostHog.',
-                field: 'attachments'
-            );
+            // A PostHog without the upload route and a project with code sends off both answer 404.
+            $fields['code'] = self::text($fields['code'] ?? null) ?? 'not_found';
+            $fields['attr'] = 'attachments';
+            throw self::replyError($fields, $status, $headers);
         }
         if ($status < 200 || $status >= 300) {
             $fields['attr'] = self::attachmentField(self::text($fields['attr'] ?? null), $files);

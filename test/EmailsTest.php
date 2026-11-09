@@ -543,16 +543,30 @@ class EmailsTest extends TestCase
         $this->assertCount(1, $this->requests);
     }
 
-    public function testAPostHogWithoutTheUploadRouteRefusesTheFilesAndSendsNothing(): void
+    public static function uploadRouteNotFound(): array
     {
-        $this->reply([404, '{"type":"invalid_request","code":"not_found","detail":"Not found."}', []]);
+        return [
+            "PostHog's answer" => [
+                '{"type":"invalid_request","code":"not_found","detail":"Endpoint not found.","attr":null}',
+                'Endpoint not found.',
+            ],
+            'an answer without JSON' => ['<html>Not Found</html>', 'PostHog answered HTTP 404.'],
+        ];
+    }
+
+    #[DataProvider('uploadRouteNotFound')]
+    public function testAnUploadRouteNotFoundReportsPostHogsAnswerAndSendsNothing(string $answer, string $message): void
+    {
+        $this->reply([404, $answer, []]);
 
         $error = $this->sendError(self::sendWithFiles([self::invite()]));
 
-        $this->assertSame('field_not_accepted', $error->getErrorCode());
-        $this->assertSame('validation_error', $error->getErrorName());
+        $this->assertSame('not_found', $error->getErrorCode());
+        $this->assertSame('not_found', $error->getErrorName());
+        $this->assertSame(404, $error->getStatusCode());
         $this->assertSame('attachments', $error->getField());
-        $this->assertCount(1, $this->requests);
+        $this->assertSame($message, $error->getMessage());
+        $this->assertCount(1, $this->requests, 'no email was sent');
     }
 
     public function testAnUnavailableUploadRouteIsRetried(): void
