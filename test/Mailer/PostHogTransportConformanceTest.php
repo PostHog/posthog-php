@@ -222,7 +222,9 @@ final class PostHogTransportConformanceTest extends TestCase
         $email->toString();
         $this->assertTrue($email->getAttachments()[0]->hasContentId(), 'Rendering gave the part a content ID.');
         if ($email->getAttachments()[0]->getName() !== 'logo') {
-            $this->markTestSkipped('Symfony Mime before 6.4.37 and 7.4.9 renames the part when the app renders the email.');
+            $this->markTestSkipped(
+                'Symfony Mime before 6.4.37 and 7.4.9 renames the part when the app renders the email.'
+            );
         }
 
         $this->transport()->send($email);
