@@ -23,6 +23,10 @@ posthog-laravel@0.3.0:
   dir: packages/laravel
   intents:
     - brown-cougars-do
+posthog-laravel@0.3.1:
+  dir: packages/laravel
+  intents:
+    - kind-waves-sip
 posthog-php@4.12.1:
   dir: ""
   intents:
@@ -150,3 +154,7 @@ posthog-php@4.22.0:
   dir: ""
   intents:
     - emails-send
+posthog-php@4.22.1:
+  dir: ""
+  intents:
+    - kind-waves-sip
