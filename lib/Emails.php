@@ -56,7 +56,16 @@ final class Emails
 
     private const SHARED_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'max_retries'];
     private const TEMPLATE_FIELDS = ['template_id', 'template_data'];
-    private const CODE_FIELDS = ['template_key', 'subject', 'html', 'text', 'from', 'reply_to', 'capture_engagement'];
+    private const CODE_FIELDS = [
+        'template_key',
+        'subject',
+        'html',
+        'text',
+        'from',
+        'reply_to',
+        'capture_engagement',
+        'track_opens_and_clicks',
+    ];
     private const TEMPLATE_FORM_WHY = "A template made in PostHog sets its own sender, subject and content, "
         . "and follows the project's engagement setting.";
     private const CODE_FORM_WHY = 'A send with template_key takes its content from your code.';
@@ -133,8 +142,13 @@ final class Emails
      *   400), `subject`, and `html`, `text` or both. PostHog derives a missing `text` from the `html`, and
      *   sends the content as is without storing it. To send a React email, render it to HTML in your app
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
-     *   `reply_to` (one address or a list; an empty list is left out) and `capture_engagement` (default
-     *   true; a project whose admin turned engagement capture off captures nothing, whatever the send asks).
+     *   `reply_to` (one address or a list; an empty list is left out), `capture_engagement` (default
+     *   true; a project whose admin turned engagement capture off captures nothing, whatever the send asks)
+     *   and `track_opens_and_clicks` (default true). `track_opens_and_clicks` decides whether the email carries
+     *   PostHog's open pixel and links rewritten to count clicks. With false, it goes out without either, so
+     *   PostHog can't count its opens and clicks. The client sends it only when you set it, because a PostHog
+     *   version that predates the field refuses it. It is independent of `capture_engagement`, which decides
+     *   whether engagement events are captured on the recipient's person.
      *
      * Both forms take `to` (one address), `distinct_id` (the recipient's distinct ID in your product;
      * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
@@ -176,7 +190,8 @@ final class Emails
      *     text?: string|null,
      *     from?: string|null,
      *     reply_to?: string|list<string>|null,
-     *     capture_engagement?: bool|null
+     *     capture_engagement?: bool|null,
+     *     track_opens_and_clicks?: bool|null
      * } $email
      * @return SendEmailResult The queued email. It means PostHog queued the email, not that it was delivered.
      * @throws EmailError PostHog did not queue the email, or the client could not tell whether it did. A
@@ -361,6 +376,16 @@ final class Emails
             throw self::invalid('invalid_form', 'capture_engagement must be true or false.', 'capture_engagement');
         }
         $content['capture_engagement'] = $captureEngagement;
+        if (array_key_exists('track_opens_and_clicks', $email)) {
+            if (!is_bool($email['track_opens_and_clicks'])) {
+                throw self::invalid(
+                    'invalid_form',
+                    'track_opens_and_clicks must be true or false.',
+                    'track_opens_and_clicks'
+                );
+            }
+            $content['track_opens_and_clicks'] = $email['track_opens_and_clicks'];
+        }
 
         return $content;
     }

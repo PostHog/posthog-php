@@ -205,6 +205,34 @@ class EmailsTest extends TestCase
         ], $this->body());
     }
 
+    #[DataProvider('trackOpensAndClicksCases')]
+    public function testCodeSendPassesTrackOpensAndClicksOnlyWhenSet(?bool $track, array $expected): void
+    {
+        $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_key' => 'welcome',
+            'subject' => 'Welcome',
+            'html' => '<p>Hi</p>',
+            'track_opens_and_clicks' => $track,
+        ]);
+
+        $this->assertSame([
+            'template_key' => 'welcome',
+            'subject' => 'Welcome',
+            'html' => '<p>Hi</p>',
+            'capture_engagement' => true,
+        ] + $expected + ['to' => 'user@example.com'], $this->body());
+    }
+
+    public static function trackOpensAndClicksCases(): array
+    {
+        return [
+            'false' => [false, ['track_opens_and_clicks' => false]],
+            'true' => [true, ['track_opens_and_clicks' => true]],
+            'unset' => [null, []],
+        ];
+    }
+
     public function testNullOptionsAndAnEmptyReplyToCountAsLeftOut(): void
     {
         $this->emails()->send([
@@ -327,6 +355,11 @@ class EmailsTest extends TestCase
                 'invalid_form',
                 'capture_engagement',
             ],
+            'track_opens_and_clicks with a template' => [
+                $template + ['track_opens_and_clicks' => false],
+                'invalid_form',
+                'track_opens_and_clicks',
+            ],
             'unknown option' => [$template + ['cc' => 'boss@example.com'], 'invalid_form', 'cc'],
             'template_data with code' => [$code + ['template_data' => ['a' => 1]], 'invalid_form', 'template_data'],
             'bad template key' => [['template_key' => 'pass word'] + $code, 'invalid_template_key', 'template_key'],
@@ -346,6 +379,11 @@ class EmailsTest extends TestCase
                 $code + ['capture_engagement' => 'no'],
                 'invalid_form',
                 'capture_engagement',
+            ],
+            'track_opens_and_clicks not a bool' => [
+                $code + ['track_opens_and_clicks' => 'no'],
+                'invalid_form',
+                'track_opens_and_clicks',
             ],
             'idempotency key with a space' => [
                 $template + ['idempotency_key' => 'welcome user'],
