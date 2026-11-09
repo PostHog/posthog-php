@@ -616,13 +616,9 @@ final class Emails
         $body = json_encode(['files' => $request], JSON_THROW_ON_ERROR);
         $headers = $this->headers($secretKey, ['Content-Type: application/json']);
         $url = $appHost . self::UPLOADS_PATH;
-        try {
-            $slots = $this->withRetries($maxRetries, function () use ($url, $headers, $body, $files): array {
-                return self::parseUploadReply(array_keys($files), ...$this->request('POST', $url, $headers, $body));
-            });
-        } catch (EmailError $error) {
-            throw self::onAttachmentField($error, array_column(array_values($files), 'field'));
-        }
+        $slots = $this->withRetries($maxRetries, function () use ($url, $headers, $body, $files): array {
+            return self::parseUploadReply($files, ...$this->request('POST', $url, $headers, $body));
+        });
         foreach ($slots as $sha256 => $slot) {
             $file = $files[$sha256];
             $this->withRetries($maxRetries, function () use ($slot, $file): void {
@@ -675,11 +671,11 @@ final class Emails
     }
 
     /**
-     * @param list<string> $sha256s
+     * @param array<string, Upload> $files
      * @param list<string> $headers
      * @return array<string, array{url: string, headers: list<string>}>
      */
-    private static function parseUploadReply(array $sha256s, int $status, string $body, array $headers): array
+    private static function parseUploadReply(array $files, int $status, string $body, array $headers): array
     {
         $fields = self::replyFields($body);
         if ($status === 404) {
@@ -688,10 +684,11 @@ final class Emails
                 "This PostHog doesn't take attachments yet, so no email was sent.",
                 $status,
                 fix: 'Send the email without attachments, or update PostHog.',
-                field: 'files'
+                field: 'attachments'
             );
         }
         if ($status < 200 || $status >= 300) {
+            $fields['attr'] = self::attachmentField(self::text($fields['attr'] ?? null), $files);
             throw self::replyError($fields, $status, $headers);
         }
         $slots = [];
@@ -701,7 +698,7 @@ final class Emails
             }
         }
         $uploads = [];
-        foreach ($sha256s as $sha256) {
+        foreach (array_keys($files) as $sha256) {
             $slot = $slots[$sha256] ?? null;
             if (($slot['status'] ?? null) === 'present') {
                 continue;
@@ -753,28 +750,16 @@ final class Emails
     }
 
     /**
-     * @param list<string> $attachmentFields The field of each requested file, in request order.
+     * @param array<string, Upload> $files
      */
-    private static function onAttachmentField(EmailError $error, array $attachmentFields): EmailError
+    private static function attachmentField(?string $uploadField, array $files): ?string
     {
-        $field = $error->getField();
-        if ($field === null || preg_match('/^files(?:__(\d+))?(?:__|$)/D', $field, $match) !== 1) {
-            return $error;
+        if ($uploadField === null || preg_match('/^files(?:__(\d+))?(?:__|$)/D', $uploadField, $match) !== 1) {
+            return $uploadField;
         }
         $index = $match[1] ?? null;
-        $field = $index === null ? 'attachments' : $attachmentFields[(int) $index] ?? 'attachments';
 
-        return new EmailError(
-            $error->getErrorCode(),
-            $error->getMessage(),
-            $error->getStatusCode(),
-            why: $error->getWhy(),
-            fix: $error->getFix(),
-            docsUrl: $error->getDocsUrl(),
-            field: $field,
-            retryAfterMs: $error->getRetryAfterMs(),
-            previous: $error
-        );
+        return $index === null ? 'attachments' : array_values($files)[(int) $index]['field'] ?? 'attachments';
     }
 
     /**
