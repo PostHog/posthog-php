@@ -665,7 +665,7 @@ final class Emails
             'upload_failed',
             self::onOneLogLine(
                 "PostHog's file storage refused the upload of {$file['filename']}, so no email was sent. "
-                . "It answered $answer."
+                . 'It answered ' . rtrim($answer, '.') . '.'
             ),
             $status,
             why: 'PostHog sends an email with files only after every file reached its file storage.',

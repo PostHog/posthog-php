@@ -427,6 +427,7 @@ class EmailsTest extends TestCase
         $this->assertSame('attachments__1__content', $error->getField());
         $this->assertStringContainsString($answer, $error->getMessage());
         $this->assertStringContainsString('invite.ics', $error->getMessage());
+        $this->assertStringEndsNotWith('..', $error->getMessage());
         $this->assertStringNotContainsString('signature-secret', $error->getMessage() . $error->getFix());
         $this->assertSame(['POST', 'PUT'], array_column($this->requests, 'method'), 'no email was sent');
     }
