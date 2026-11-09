@@ -404,6 +404,8 @@ class EmailsTest extends TestCase
             'expired' => [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>', []],
                 403, 'AccessDenied: Request has expired', 'application_error'],
             'not XML' => [[501, 'not implemented', []], 501, 'HTTP 501', 'service_unavailable'],
+            'unauthorized' => [[401, '<Error><Code>Unauthorized</Code><Message>No access</Message></Error>', []],
+                401, 'Unauthorized: No access', 'application_error'],
         ];
     }
 
@@ -475,7 +477,7 @@ class EmailsTest extends TestCase
 
     public static function shutdownsDuringTheUploads(): array
     {
-        return ['after the upload request' => [1], 'after an upload' => [2]];
+        return ['after the upload request' => [1], 'after an upload' => [2], 'after the last upload' => [3]];
     }
 
     #[DataProvider('shutdownsDuringTheUploads')]
