@@ -144,11 +144,12 @@ final class Emails
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
      *   `reply_to` (one address or a list; an empty list is left out), `capture_engagement` (default
      *   true; a project whose admin turned engagement capture off captures nothing, whatever the send asks)
-     *   and `track_opens_and_clicks` (default true). `track_opens_and_clicks` decides whether the email carries
-     *   PostHog's open pixel and links rewritten to count clicks. With false, it goes out without either, so
-     *   PostHog can't count its opens and clicks. The client sends it only when you set it, because a PostHog
-     *   version that predates the field refuses it. It is independent of `capture_engagement`, which decides
-     *   whether engagement events are captured on the recipient's person.
+     *   and `track_opens_and_clicks` (default true), whether PostHog tracks opens and clicks of the email.
+     *   With false, the email goes out without PostHog's open pixel, so PostHog can't count its opens.
+     *   PostHog doesn't track clicks on emails sent from code, so their links are never rewritten either way.
+     *   The client sends `track_opens_and_clicks` only when you set it, because a PostHog version that
+     *   predates the field refuses it. It is independent of `capture_engagement`, which decides whether
+     *   engagement events are captured on the recipient's person.
      *
      * Both forms take `to` (one address), `distinct_id` (the recipient's distinct ID in your product;
      * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
