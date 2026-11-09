@@ -134,7 +134,9 @@ final class Emails
      *   sends the content as is without storing it. To send a React email, render it to HTML in your app
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
      *   `reply_to` (one address or a list; an empty list is left out) and `capture_engagement` (default
-     *   true; a project whose admin turned engagement capture off captures nothing, whatever the send asks).
+     *   true; whether the email's engagement events are captured on the recipient's person. Turning it off
+     *   doesn't change the email: PostHog still adds its open pixel and rewrites links to count opens and
+     *   clicks. A project whose admin turned engagement capture off captures nothing, whatever the send asks).
      *
      * Both forms take `to` (one address), `distinct_id` (the recipient's distinct ID in your product;
      * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
