@@ -403,7 +403,7 @@ class EmailsTest extends TestCase
             ],
             'expired' => [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>', []],
                 403, 'AccessDenied: Request has expired', 'application_error'],
-            'not XML' => [[500, 'upstream exploded', []], 500, 'HTTP 500', 'service_unavailable'],
+            'not XML' => [[501, 'not implemented', []], 501, 'HTTP 501', 'service_unavailable'],
         ];
     }
 
@@ -441,6 +441,11 @@ class EmailsTest extends TestCase
         return [
             'network error' => [new EmailError('network_error', 'The request failed.')],
             'bucket slowing down' => [[503, '<Error><Code>SlowDown</Code><Message>Slow down</Message></Error>', []]],
+            'storage internal error' => [
+                [500, '<Error><Code>InternalError</Code><Message>Please try again.</Message></Error>', []],
+            ],
+            'bad gateway' => [[502, 'Bad Gateway', []]],
+            'gateway timeout' => [[504, 'Gateway Timeout', []]],
         ];
     }
 

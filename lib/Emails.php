@@ -30,7 +30,7 @@ use Symfony\Component\Clock\NativeClock;
  *
  * A send with attachments first uploads each file PostHog doesn't have yet to the storage URL PostHog
  * answers, which is on another host than the app host. Each upload gets the request timeout plus 1 ms
- * for every 100 bytes of the file.
+ * for every 100 bytes of the file, and a storage error in the 5xx range is retried as above.
  *
  * @phpstan-type Upload array{filename: string, size: int, content: string, field: string}
  */
@@ -888,6 +888,10 @@ final class Emails
         }
         if ($status === 429) {
             return !in_array($error->getErrorCode(), ['quota_limited', 'upload_quota_exceeded'], true);
+        }
+        if ($error->getErrorCode() === 'upload_failed') {
+            // An upload puts the same bytes at the same key, so a passing storage fault is safe to retry.
+            return in_array($status, [500, 502, 503, 504], true);
         }
 
         return $status === 503;
