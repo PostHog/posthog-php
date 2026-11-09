@@ -688,7 +688,6 @@ final class Emails
     {
         $fields = self::replyFields($body);
         if ($status === 404) {
-            // A PostHog without the upload route and a project with code sends off both answer 404.
             $fields['code'] = self::text($fields['code'] ?? null) ?? 'not_found';
             $fields['attr'] = 'attachments';
             throw self::replyError($fields, $status, $headers);
@@ -897,7 +896,6 @@ final class Emails
             return !in_array($error->getErrorCode(), ['quota_limited', 'upload_quota_exceeded'], true);
         }
         if ($error->getErrorCode() === 'upload_failed') {
-            // An upload puts the same bytes at the same key, so a passing storage fault is safe to retry.
             return in_array($status, [500, 502, 503, 504], true);
         }
 
