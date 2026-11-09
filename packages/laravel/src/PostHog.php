@@ -4,15 +4,17 @@ namespace PostHog\Laravel;
 
 use Closure;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Bus\Dispatcher;
 use PostHog\Client;
 use PostHog\ContextScope;
 use PostHog\FeatureFlagEvaluations;
 use PostHog\FeatureFlagResult;
+use PostHog\Laravel\Delivery\QueuedConsumer;
 use Throwable;
 
 class PostHog
 {
-    public const VERSION = '0.2.1';
+    public const VERSION = '0.3.1';
 
     private ?Client $client = null;
     private ?int $definitionsLoadedAt = null;
@@ -54,11 +56,22 @@ class PostHog
         if (!isset($options['flag_definition_cache_provider']) && ($config['flag_cache']['enabled'] ?? false)) {
             $options['flag_definition_cache_provider'] = $this->app->make(FlagDefinitionCacheProvider::class);
         }
+        $laravelQueue = $config['laravel_queue'] ?? [];
+        $queuedConsumer = ($laravelQueue['enabled'] ?? false) && ($options['consumer'] ?? null) !== 'noop'
+            ? new QueuedConsumer(
+                $config['api_key'],
+                $options,
+                $this->app->make(Dispatcher::class),
+                $laravelQueue,
+                $this->app,
+            )
+            : null;
         return $this->client = new LaravelClient(
             $config['api_key'],
             $options,
             $config['release_id'] ?? null,
             $config['secret_key'] ?? null,
+            $queuedConsumer,
         );
     }
 

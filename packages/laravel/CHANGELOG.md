@@ -1,5 +1,20 @@
 # posthog-laravel
 
+## 0.3.1
+
+### Patch Changes
+
+- Suppress definition-load warnings for client-only flags. Preserve PHP's fresh-response-only warning policy to avoid per-request log spam from shared-cache readers, while reconciling warning history on cache loads so flags warn again after returning from client-only runtime.
+
+- Updated dependencies:
+  - posthog-php@4.22.1
+
+## 0.3.0
+
+### Minor Changes
+
+- Add opt-in Laravel queued event delivery with prepared batches, verified worker delivery, and framework-managed retries.
+
 ## 0.2.1
 
 ### Patch Changes

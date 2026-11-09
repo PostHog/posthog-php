@@ -1,3 +1,9 @@
+## 4.22.1
+
+### Patch Changes
+
+- Suppress definition-load warnings for client-only flags. Preserve PHP's fresh-response-only warning policy to avoid per-request log spam from shared-cache readers, while reconciling warning history on cache loads so flags warn again after returning from client-only runtime.
+
 ## 4.22.0
 
 ### Minor Changes
