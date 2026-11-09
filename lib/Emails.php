@@ -30,8 +30,8 @@ use Symfony\Component\Clock\NativeClock;
  *
  * A send with attachments first uploads each file PostHog doesn't have yet to the storage URL PostHog
  * answers, which is on another host than the app host. Each upload gets the request timeout plus 1 ms
- * for every 100 bytes of the file, but only the request timeout to connect. A storage error in the 5xx
- * range is retried as above.
+ * for every 100 bytes of the file, but only the request timeout to connect. A storage 500, 502, 503 or
+ * 504 is retried as above.
  *
  * @phpstan-type Upload array{filename: string, size: int, content: string, field: string}
  */
