@@ -30,7 +30,8 @@ use Symfony\Component\Clock\NativeClock;
  *
  * A send with attachments first uploads each file PostHog doesn't have yet to the storage URL PostHog
  * answers, which is on another host than the app host. Each upload gets the request timeout plus 1 ms
- * for every 100 bytes of the file, and a storage error in the 5xx range is retried as above.
+ * for every 100 bytes of the file, but only the request timeout to connect. A storage error in the 5xx
+ * range is retried as above.
  *
  * @phpstan-type Upload array{filename: string, size: int, content: string, field: string}
  */
@@ -103,7 +104,8 @@ final class Emails
      * @param string|null $appHost The PostHog app host, for a host that is not PostHog Cloud.
      * @param string|null $userAgent The User-Agent. Defaults to `posthog-php/<version>`.
      * @param Closure|null $transport `fn(string $method, string $url, list<string> $headers, ?string $body,
-     *     int $timeoutMs): array{int, string, list<string>}` returning the status, body and header lines.
+     *     int $timeoutMs, int $connectTimeoutMs): array{int, string, list<string>}` returning the status, body
+     *     and header lines.
      *     It throws EmailError with the code `network_error` when no answer arrived.
      */
     public function __construct(
@@ -633,7 +635,14 @@ final class Emails
     {
         $timeoutMs = $this->requestTimeoutMs + intdiv($file['size'], self::UPLOAD_BYTES_PER_EXTRA_MS);
         try {
-            [$status, $body, $answerHeaders] = ($this->transport)('PUT', $url, $headers, $file['content'], $timeoutMs);
+            [$status, $body, $answerHeaders] = ($this->transport)(
+                'PUT',
+                $url,
+                $headers,
+                $file['content'],
+                $timeoutMs,
+                $this->requestTimeoutMs
+            );
         } catch (EmailError $error) {
             if ($error->getErrorCode() !== 'network_error') {
                 throw $error;
@@ -917,7 +926,7 @@ final class Emails
      */
     private function request(string $method, string $url, array $headers, ?string $body): array
     {
-        return ($this->transport)($method, $url, $headers, $body, $this->requestTimeoutMs);
+        return ($this->transport)($method, $url, $headers, $body, $this->requestTimeoutMs, $this->requestTimeoutMs);
     }
 
     /**
@@ -929,7 +938,8 @@ final class Emails
         string $url,
         array $headers,
         ?string $body,
-        int $timeoutMs
+        int $timeoutMs,
+        int $connectTimeoutMs
     ): array {
         if (!function_exists('curl_init')) {
             throw new EmailError(
@@ -960,7 +970,7 @@ final class Emails
             },
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_TIMEOUT_MS => $timeoutMs,
-            CURLOPT_CONNECTTIMEOUT_MS => $timeoutMs,
+            CURLOPT_CONNECTTIMEOUT_MS => $connectTimeoutMs,
             CURLOPT_NOSIGNAL => true,
             CURLOPT_HEADERFUNCTION => static function ($curl, string $header) use (&$responseHeaders): int {
                 $responseHeaders[] = trim($header);

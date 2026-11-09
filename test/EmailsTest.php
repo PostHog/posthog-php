@@ -20,7 +20,10 @@ class EmailsTest extends TestCase
     private const INVITE = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n";
     private const SECRET_CONTENT = 'secret-file-content';
 
-    /** @var list<array{method: string, url: string, headers: list<string>, body: ?string, timeoutMs: int, at: DateTimeImmutable}> */
+    /**
+     * @var list<array{method: string, url: string, headers: list<string>, body: ?string, timeoutMs: int,
+     *     connectTimeoutMs: int, at: DateTimeImmutable}>
+     */
     private array $requests = [];
     /** @var list<array{int, string, list<string>}|EmailError> */
     private array $replies = [];
@@ -61,10 +64,16 @@ class EmailsTest extends TestCase
      * @param list<string> $headers
      * @return array{int, string, list<string>}
      */
-    public function transport(string $method, string $url, array $headers, ?string $body, int $timeoutMs): array
-    {
+    public function transport(
+        string $method,
+        string $url,
+        array $headers,
+        ?string $body,
+        int $timeoutMs,
+        int $connectTimeoutMs
+    ): array {
         $at = Clock::get()->now();
-        $this->requests[] = compact('method', 'url', 'headers', 'body', 'timeoutMs', 'at');
+        $this->requests[] = compact('method', 'url', 'headers', 'body', 'timeoutMs', 'connectTimeoutMs', 'at');
         $reply = array_shift($this->replies) ?? [202, '{"message_id":"msg_1"}', []];
         if ($reply instanceof EmailError) {
             throw $reply;
@@ -380,7 +389,7 @@ class EmailsTest extends TestCase
         );
     }
 
-    public function testAnUploadGetsMoreTimeForALargerFile(): void
+    public function testAnUploadGetsMoreTimeToTransferALargerFileButNotToConnect(): void
     {
         $file = str_repeat('a', 1_000_000);
         $sha256 = hash('sha256', $file);
@@ -390,6 +399,7 @@ class EmailsTest extends TestCase
 
         $this->assertSame(Emails::DEFAULT_REQUEST_TIMEOUT_MS, $this->requests[0]['timeoutMs']);
         $this->assertSame(Emails::DEFAULT_REQUEST_TIMEOUT_MS + 10_000, $this->requests[1]['timeoutMs']);
+        $this->assertSame(Emails::DEFAULT_REQUEST_TIMEOUT_MS, $this->requests[1]['connectTimeoutMs']);
     }
 
     public static function bucketFailures(): array
