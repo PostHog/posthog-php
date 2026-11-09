@@ -13,6 +13,7 @@ class EmailsClientTest extends TestCase
     private const TEMPLATE_ID = '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b';
 
     private ?LocalHttpServer $server = null;
+    private ?LocalHttpServer $bucket = null;
 
     protected function setUp(): void
     {
@@ -23,6 +24,7 @@ class EmailsClientTest extends TestCase
     protected function tearDown(): void
     {
         $this->server?->stop();
+        $this->bucket?->stop();
     }
 
     private function client(array $options = [], ?string $apiKey = 'phc_project'): Client
@@ -71,6 +73,57 @@ class EmailsClientTest extends TestCase
             'to' => 'user@example.com',
             'distinct_id' => 'user_123',
         ], json_decode($requests[0]['body'], true));
+    }
+
+    public function testAFileIsUploadedWithAPlainPutBeforeTheSendOverHttp(): void
+    {
+        $file = "%PDF-1.7\n" . str_repeat("0 0 obj << >> endobj\n", 100);
+        $sha256 = hash('sha256', $file);
+        $checksum = base64_encode(hash('sha256', $file, true));
+        $this->bucket = new LocalHttpServer([['status' => 200, 'body' => '']]);
+        $bucketUrl = 'http://' . $this->bucket->address() . "/attachments/team/2/$sha256?X-Amz-Signature=abc";
+        $this->server = new LocalHttpServer([
+            ['status' => 200, 'body' => json_encode(['files' => [[
+                'sha256' => $sha256,
+                'status' => 'upload',
+                'url' => $bucketUrl,
+                'method' => 'PUT',
+                'headers' => ['Content-Length' => (string) strlen($file), 'x-amz-checksum-sha256' => $checksum],
+                'url_expires_at' => '2026-11-02T12:15:00Z',
+            ]]])],
+            ['status' => 202, 'body' => '{"message_id":"01a18356-c56c-0001-e494-7666bc915188"}'],
+        ]);
+
+        $this->client()->emails()->send([
+            'to' => 'user@example.com',
+            'template_key' => 'receipt',
+            'subject' => 'Your receipt',
+            'text' => 'Thanks!',
+            'attachments' => [['filename' => 'receipt.pdf', 'content' => $file]],
+        ]);
+
+        [$upload, $send] = $this->server->requests();
+        $this->assertSame(
+            'POST /api/projects/@current/messaging/attachments/uploads/ HTTP/1.1',
+            $upload['requestLine']
+        );
+        $this->assertSame('Bearer phs_secret', $upload['headers']['authorization']);
+        $this->assertSame(
+            ['files' => [['sha256' => $sha256, 'size' => strlen($file)]]],
+            json_decode($upload['body'], true)
+        );
+        [$put] = $this->bucket->requests();
+        $this->assertSame("PUT /attachments/team/2/$sha256?X-Amz-Signature=abc HTTP/1.1", $put['requestLine']);
+        $this->assertSame($file, $put['body']);
+        $this->assertSame((string) strlen($file), $put['headers']['content-length']);
+        $this->assertSame($checksum, $put['headers']['x-amz-checksum-sha256']);
+        $this->assertArrayNotHasKey('authorization', $put['headers']);
+        $this->assertArrayNotHasKey('content-type', $put['headers']);
+        $this->assertArrayNotHasKey('expect', $put['headers']);
+        $this->assertSame(
+            [['sha256' => $sha256, 'filename' => 'receipt.pdf']],
+            json_decode($send['body'], true)['attachments']
+        );
     }
 
     public function testARetryAfterHeaderComesBackOnTheError(): void
