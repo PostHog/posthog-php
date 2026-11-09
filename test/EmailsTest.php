@@ -219,6 +219,7 @@ class EmailsTest extends TestCase
             'distinct_id' => null,
             'idempotency_key' => null,
             'template_id' => null,
+            'category' => null,
         ]);
 
         $this->assertSame([
@@ -228,6 +229,28 @@ class EmailsTest extends TestCase
             'capture_engagement' => true,
             'to' => 'user@example.com',
         ], $this->body());
+    }
+
+    public static function categorizedSends(): array
+    {
+        return [
+            'code send in a marketing category' => [
+                ['template_key' => 'weekly-digest', 'subject' => 'This week', 'html' => '<p>{{ unsubscribe_url }}</p>'],
+                'product-updates',
+            ],
+            'template send marked transactional' => [
+                ['template_id' => self::TEMPLATE_ID],
+                Emails::CATEGORY_TRANSACTIONAL,
+            ],
+        ];
+    }
+
+    #[DataProvider('categorizedSends')]
+    public function testASendCarriesTheCategoryItNames(array $email, string $category): void
+    {
+        $this->emails()->send(['to' => 'user@example.com', 'category' => $category] + $email);
+
+        $this->assertSame($category, $this->body()['category']);
     }
 
     public function testAGeneratedIdempotencyKeyIsAUuidV4ReusedOnEveryAttempt(): void
@@ -342,6 +365,8 @@ class EmailsTest extends TestCase
             'html not a string' => [['html' => ['<p>']] + $code, 'invalid_form', 'html'],
             'empty from' => [$code + ['from' => ''], 'invalid_form', 'from'],
             'blank reply_to' => [$code + ['reply_to' => ['a@example.com', ' ']], 'invalid_form', 'reply_to'],
+            'blank category' => [$code + ['category' => ' '], 'invalid_category', 'category'],
+            'category not a string' => [$template + ['category' => ['transactional']], 'invalid_category', 'category'],
             'capture_engagement not a bool' => [
                 $code + ['capture_engagement' => 'no'],
                 'invalid_form',
@@ -463,6 +488,7 @@ class EmailsTest extends TestCase
             '409 template outdated' => [409, 'template_outdated', 'validation_error'],
             '409 in flight' => [409, 'idempotency_key_in_flight', 'concurrent_idempotent_requests'],
             '422 suppressed' => [422, 'recipient_suppressed', 'validation_error'],
+            '422 opted out' => [422, 'recipient_opted_out', 'validation_error'],
             '422 key reused' => [422, 'idempotency_key_reused', 'invalid_idempotent_request'],
             '429 throttled' => [429, 'throttled', 'rate_limit_exceeded'],
             '429 quota' => [429, 'quota_limited', 'monthly_quota_exceeded'],

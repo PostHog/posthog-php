@@ -32,6 +32,10 @@ final class Emails
 {
     public const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
     public const DEFAULT_MAX_RETRIES = 2;
+    /**
+     * The built-in `category` of a transactional email. Leaving `category` out sends transactional email too.
+     */
+    public const CATEGORY_TRANSACTIONAL = 'transactional';
 
     private const SEND_PATH = '/api/projects/@current/messaging/send/email/';
     private const STATUS_PATH = '/api/projects/@current/messaging/emails/%s/';
@@ -54,7 +58,7 @@ final class Emails
     private const HEADER_TOKEN_PATTERN = '/^[\x21-\x7e]+$/D';
     private const TIMESTAMP_PATTERN = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/D';
 
-    private const SHARED_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'max_retries'];
+    private const SHARED_FIELDS = ['to', 'distinct_id', 'category', 'idempotency_key', 'max_retries'];
     private const TEMPLATE_FIELDS = ['template_id', 'template_data'];
     private const CODE_FIELDS = ['template_key', 'subject', 'html', 'text', 'from', 'reply_to', 'capture_engagement'];
     private const TEMPLATE_FORM_WHY = "A template made in PostHog sets its own sender, subject and content, "
@@ -137,8 +141,15 @@ final class Emails
      *   true; a project whose admin turned engagement capture off captures nothing, whatever the send asks).
      *
      * Both forms take `to` (one address), `distinct_id` (the recipient's distinct ID in your product;
-     * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
-     * and `max_retries`. A null value counts as left out.
+     * without it, the email's events go to a person whose distinct ID is the address), `category`,
+     * `idempotency_key` and `max_retries`. A null value counts as left out.
+     *
+     * Leaving `category` out, or passing `Emails::CATEGORY_TRANSACTIONAL`, sends transactional email. Any
+     * other value is the key of one of the project's marketing message categories. A marketing send
+     * honors the recipient's opt-outs and needs `{{ unsubscribe_url }}` in the body. A template send
+     * follows the template's own category, so its `category` must be left out or match it. PostHog refuses
+     * a send with `unknown_category`, `category_mismatch`, `unsubscribe_link_required` or
+     * `recipient_opted_out`.
      *
      * A send with an idempotency key PostHog already accepted queues nothing and returns the first send's
      * result. Without a key, the client makes a UUID that covers its own retries. Pass a key derived from
@@ -166,6 +177,7 @@ final class Emails
      * @param array{
      *     to: string,
      *     distinct_id?: string|null,
+     *     category?: string|null,
      *     idempotency_key?: string|null,
      *     max_retries?: int|null,
      *     template_id?: string,
@@ -247,6 +259,10 @@ final class Emails
         if ($distinctId !== null && (!is_string($distinctId) || $distinctId === '')) {
             throw self::invalid('invalid_distinct_id', 'distinct_id must be a nonempty string.', 'distinct_id');
         }
+        $category = $email['category'] ?? null;
+        if ($category !== null && (!is_string($category) || trim($category) === '')) {
+            throw self::invalid('invalid_category', 'category must be a nonempty string.', 'category');
+        }
         $hasTemplateId = array_key_exists('template_id', $email);
         if ($hasTemplateId === array_key_exists('template_key', $email)) {
             throw new EmailError(
@@ -273,6 +289,9 @@ final class Emails
         $payload['to'] = $to;
         if ($distinctId !== null) {
             $payload['distinct_id'] = $distinctId;
+        }
+        if ($category !== null) {
+            $payload['category'] = $category;
         }
         try {
             $body = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
