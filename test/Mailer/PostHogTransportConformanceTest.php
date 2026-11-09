@@ -368,6 +368,18 @@ final class PostHogTransportConformanceTest extends TestCase
                 fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=false; clicks=true']),
                 'open_tracking_off',
             ],
+            '14 open tracking off in capitals' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'Opens=FALSE']),
+                'open_tracking_off',
+            ],
+            '14 open tracking off as 0' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=0']),
+                'open_tracking_off',
+            ],
+            '14 open tracking off next to a value that is not ASCII' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'note=é; opens=false']),
+                'open_tracking_off',
+            ],
             '14 open tracking off in a second X-Track' => [
                 fn() => self::withHeaders(
                     self::withHeaders(self::shipped(), ['X-Track' => 'opens=true']),

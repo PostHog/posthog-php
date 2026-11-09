@@ -29,6 +29,7 @@ final class EmailMapper
     private const MAPPED_HEADERS = ['from', 'to', 'cc', 'bcc', 'reply-to', 'subject', 'sender', 'return-path'];
     private const IGNORED_HEADERS = ['message-id', 'date', 'mime-version', 'x-mailer', 'x-priority'];
     private const TRACKING_HEADER = 'x-track';
+    private const TRACKING_ON = ['true', '1', 'yes', 'on'];
     private const NORMAL_PRIORITY = 3;
     private const TEMPLATE_KEY_PATTERN = '/^[a-zA-Z0-9_-]{1,400}$/D';
 
@@ -263,8 +264,10 @@ final class EmailMapper
     private static function asksForNoOpenTracking(Email $email): bool
     {
         foreach ($email->getHeaders()->all(self::TRACKING_HEADER) as $header) {
-            foreach (explode(';', $header->getBodyAsString()) as $part) {
-                if (array_map('trim', explode('=', $part, 2)) === ['opens', 'false']) {
+            $value = $header instanceof UnstructuredHeader ? $header->getValue() : $header->getBodyAsString();
+            foreach (explode(';', strtolower((string) preg_replace('/\s+/', ' ', $value))) as $part) {
+                [$name, $flag] = array_map('trim', explode('=', $part, 2)) + [1 => ''];
+                if ($name === 'opens' && !in_array($flag, self::TRACKING_ON, true)) {
                     return true;
                 }
             }
