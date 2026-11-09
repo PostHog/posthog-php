@@ -177,7 +177,7 @@ final class PostHogTransportConformanceTest extends TestCase
                 ],
                 [],
             ],
-            'the engagement header wins over X-Track' => [
+            '14 X-Track leaves engagement capture to its own header' => [
                 fn() => self::withHeaders(self::shipped(), [
                     'X-PostHog-Capture-Engagement' => 'false',
                     'X-Track' => 'opens=true; clicks=true',
@@ -185,9 +185,9 @@ final class PostHogTransportConformanceTest extends TestCase
                 self::RENDERED + ['template_key' => 'posthog-php-mailer', 'capture_engagement' => false],
                 [],
             ],
-            '14 tracking that agrees' => [
-                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=false; clicks=false']),
-                self::RENDERED + ['template_key' => 'posthog-php-mailer', 'capture_engagement' => false],
+            '14 X-Track with clicks off, which PostHog never tracks' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=true; clicks=false']),
+                self::RENDERED + ['template_key' => 'posthog-php-mailer'],
                 [],
             ],
         ];
@@ -357,16 +357,16 @@ final class PostHogTransportConformanceTest extends TestCase
                 fn() => self::withHeaders(self::shipped(), ['X-Metadata-Order' => '981']),
                 'metadata',
             ],
-            '14 mixed tracking, even with the engagement header' => [
+            '14 open tracking off, even with engagement capture off' => [
                 fn() => self::withHeaders(self::shipped(), [
-                    'X-PostHog-Capture-Engagement' => 'true',
-                    'X-Track' => 'opens=true; clicks=false',
+                    'X-PostHog-Capture-Engagement' => 'false',
+                    'X-Track' => 'opens=false; clicks=false',
                 ]),
-                'mixed_tracking',
+                'open_tracking_off',
             ],
-            '14 mixed tracking' => [
-                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=true; clicks=false']),
-                'mixed_tracking',
+            '14 open tracking off' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=false; clicks=true']),
+                'open_tracking_off',
             ],
             'an AMP alternative set as the body' => [
                 fn() => self::shipped()->setBody(new AlternativePart(
@@ -472,7 +472,7 @@ final class PostHogTransportConformanceTest extends TestCase
                 ['X-PostHog-Capture-Engagement' => 'yes'],
                 'unsupported_header',
             ],
-            'mixed tracking' => [['X-Track' => 'opens=true; clicks=false'], 'mixed_tracking'],
+            'open tracking off' => [['X-Track' => 'opens=false'], 'open_tracking_off'],
         ];
     }
 

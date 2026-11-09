@@ -23,8 +23,12 @@ use Symfony\Component\Mime\MessageConverter;
  * PostHogTransportException that says whether sending again with the same idempotency key is safe.
  *
  * The reserved headers `X-PostHog-Distinct-Id`, `X-PostHog-Template-Key`, `X-PostHog-Idempotency-Key` and
- * `X-PostHog-Capture-Engagement` set the send's options and never go out. On Symfony Mailer 8.2 and later,
- * a RemoteTemplateEmail sends a template made in PostHog by its ID.
+ * `X-PostHog-Capture-Engagement` set the send's options and never go out. `X-PostHog-Capture-Engagement: false`
+ * only keeps the email's engagement events off the recipient's person. It doesn't change the email: PostHog
+ * still adds its open pixel to count opens. It never rewrites the email's links, so it counts no clicks.
+ * Symfony's `X-Track` header is dropped, and an email whose `X-Track` sets `opens=false` is refused with
+ * `open_tracking_off`. On Symfony Mailer 8.2 and later, a RemoteTemplateEmail sends a template made in
+ * PostHog by its ID.
  */
 final class PostHogTransport extends AbstractTransport implements RemoteTemplateSupport
 {

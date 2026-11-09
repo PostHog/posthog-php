@@ -47,9 +47,10 @@ final class EmailMapper
         $to = $this->onlyRecipient($email);
         $options = $this->headerOptions($email);
         $this->refuseEnvelopeMismatch($email, $envelope);
+        self::refuseOpenTrackingOff($email);
         // Checked on both forms; the template form doesn't send them.
         $templateKey = $this->templateKey($options[self::TEMPLATE_KEY] ?? null);
-        $captureEngagement = self::captureEngagement($email, $options[self::CAPTURE_ENGAGEMENT] ?? null);
+        $captureEngagement = self::captureEngagement($options[self::CAPTURE_ENGAGEMENT] ?? null);
         $template = $email instanceof RemoteTemplateEmail ? $email->getRemoteTemplate() : null;
         $send = $template === null
             ? $this->renderedContent($email, $templateKey, $captureEngagement)
@@ -236,26 +237,10 @@ final class EmailMapper
         return $explicit;
     }
 
-    /**
-     * Symfony's X-Track must set opens and clicks alike. The X-PostHog-Capture-Engagement header wins over it.
-     */
-    private static function captureEngagement(Email $email, ?string $explicit): ?bool
+    private static function captureEngagement(?string $explicit): ?bool
     {
-        $choices = array_values(array_unique(array_filter(
-            self::tracking($email),
-            static fn(?bool $choice): bool => $choice !== null
-        ), SORT_REGULAR));
-        if (count($choices) > 1) {
-            throw self::refusal(
-                'mixed_tracking',
-                'It captures opens and clicks together; set them to the same value.'
-            );
-        }
-        if ($explicit === null) {
-            return $choices[0] ?? null;
-        }
-
         return match ($explicit) {
+            null => null,
             'true' => true,
             'false' => false,
             default => throw self::refusal(
@@ -265,24 +250,29 @@ final class EmailMapper
         };
     }
 
-    /**
-     * @return list<bool|null>
-     */
-    private static function tracking(Email $email): array
+    private static function refuseOpenTrackingOff(Email $email): void
+    {
+        if (self::asksForNoOpenTracking($email)) {
+            throw self::refusal(
+                'open_tracking_off',
+                'It adds an open pixel to every email; remove opens=false from X-Track.'
+            );
+        }
+    }
+
+    private static function asksForNoOpenTracking(Email $email): bool
     {
         $header = $email->getHeaders()->get(self::TRACKING_HEADER);
         if ($header === null) {
-            return [];
+            return false;
         }
-        $flags = ['opens' => null, 'clicks' => null];
         foreach (explode(';', $header->getBodyAsString()) as $part) {
-            [$name, $value] = array_map('trim', explode('=', $part, 2)) + [1 => ''];
-            if (array_key_exists($name, $flags)) {
-                $flags[$name] = ['true' => true, 'false' => false][$value] ?? null;
+            if (array_map('trim', explode('=', $part, 2)) === ['opens', 'false']) {
+                return true;
             }
         }
 
-        return array_values($flags);
+        return false;
     }
 
     /**
