@@ -243,12 +243,12 @@ class EmailsTest extends TestCase
     private const BUCKET_URL = 'https://attachments.example/team/2/'
         . self::INVITE_SHA256 . '?X-Amz-Signature=signature-secret';
 
-    private static function uploadSlot(string $sha256, int $size, string $url = self::BUCKET_URL): array
+    private static function uploadSlot(string $sha256, int $size): array
     {
         return [
             'sha256' => $sha256,
             'status' => 'upload',
-            'url' => $url,
+            'url' => self::BUCKET_URL,
             'method' => 'PUT',
             'headers' => ['Content-Length' => (string) $size, 'x-amz-checksum-sha256' => self::INVITE_CHECKSUM],
             'url_expires_at' => '2026-11-02T12:15:00Z',
@@ -398,10 +398,12 @@ class EmailsTest extends TestCase
             . '<Message>The SHA256 you specified did not match the calculated checksum.</Message></Error>';
 
         return [
-            'refused' => [[400, $xml, []], 400, 'BadDigest: The SHA256 you specified did not match'],
+            'refused' => [
+                [400, $xml, []], 400, 'BadDigest: The SHA256 you specified did not match', 'application_error',
+            ],
             'expired' => [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>', []],
-                403, 'AccessDenied: Request has expired'],
-            'not XML' => [[500, 'upstream exploded', []], 500, 'HTTP 500'],
+                403, 'AccessDenied: Request has expired', 'application_error'],
+            'not XML' => [[500, 'upstream exploded', []], 500, 'HTTP 500', 'service_unavailable'],
         ];
     }
 
@@ -410,7 +412,8 @@ class EmailsTest extends TestCase
     public function testAFailedUploadSendsNothingAndSaysWhatTheBucketAnswered(
         array $failure,
         int $status,
-        string $answer
+        string $answer,
+        string $name
     ): void {
         $this->reply(
             self::slots(self::presentSlot(self::PNG_SHA256), self::uploadSlot(self::INVITE_SHA256, 32)),
@@ -423,6 +426,7 @@ class EmailsTest extends TestCase
         ]));
 
         $this->assertSame('upload_failed', $error->getErrorCode());
+        $this->assertSame($name, $error->getErrorName());
         $this->assertSame($status, $error->getStatusCode());
         $this->assertSame('attachments__1__content', $error->getField());
         $this->assertStringContainsString($answer, $error->getMessage());
@@ -450,6 +454,42 @@ class EmailsTest extends TestCase
 
         $this->assertSame(['POST', 'PUT', 'PUT', 'POST'], array_column($this->requests, 'method'));
         $this->assertSame(self::INVITE, $this->requests[2]['body']);
+    }
+
+    public function testAStorageRetryAfterOverThirtySecondsFailsAtOnce(): void
+    {
+        $slowDown = '<Error><Code>SlowDown</Code><Message>Slow down</Message></Error>';
+        $this->reply(self::slots(self::uploadSlot(self::INVITE_SHA256, 32)), [503, $slowDown, ['Retry-After: 60']]);
+
+        $error = $this->sendError(self::sendWithFiles([self::invite()]));
+
+        $this->assertSame('upload_failed', $error->getErrorCode());
+        $this->assertSame(60_000, $error->getRetryAfterMs());
+        $this->assertSame(['POST', 'PUT'], array_column($this->requests, 'method'));
+    }
+
+    public static function shutdownsDuringTheUploads(): array
+    {
+        return ['after the upload request' => [1], 'after an upload' => [2]];
+    }
+
+    #[DataProvider('shutdownsDuringTheUploads')]
+    public function testAClientShutDownDuringTheUploadsSendsNothingMore(int $requestsBeforeTheShutdown): void
+    {
+        $emails = $this->emails(['isClosed' => fn(): bool => count($this->requests) >= $requestsBeforeTheShutdown]);
+        $this->reply(
+            self::slots(self::uploadSlot(self::INVITE_SHA256, 32), self::uploadSlot(self::PNG_SHA256, 9)),
+            [200, '', []],
+            [200, '', []]
+        );
+
+        $error = $this->sendError(
+            self::sendWithFiles([self::invite(), ['filename' => 'logo.png', 'content' => self::PNG]]),
+            $emails
+        );
+
+        $this->assertSame('client_closed', $error->getErrorCode());
+        $this->assertCount($requestsBeforeTheShutdown, $this->requests);
     }
 
     public function testAnUploadRefusalNamesTheAttachmentAndSendsNothing(): void
@@ -515,6 +555,7 @@ class EmailsTest extends TestCase
         return [
             'no slot for the file' => [['files' => [self::presentSlot(self::PNG_SHA256)]]],
             'no files' => [[]],
+            'no status' => [['files' => [['sha256' => self::INVITE_SHA256]]]],
             'an unknown status' => [['files' => [['status' => 'later'] + $slot]]],
             'a file URL' => [['files' => [['url' => 'file:///etc/passwd'] + $slot]]],
             'another method' => [['files' => [['method' => 'POST'] + $slot]]],
@@ -527,8 +568,15 @@ class EmailsTest extends TestCase
     public function testAnUploadAnswerTheClientCannotFollowSendsNothing(array $answer): void
     {
         $this->reply([200, json_encode($answer), []]);
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new \ErrorException($message, 0, $severity);
+        });
 
-        $error = $this->sendError(self::sendWithFiles([self::invite()]));
+        try {
+            $error = $this->sendError(self::sendWithFiles([self::invite()]));
+        } finally {
+            restore_error_handler();
+        }
 
         $this->assertSame('api_error', $error->getErrorCode());
         $this->assertCount(1, $this->requests, 'nothing was uploaded or sent');

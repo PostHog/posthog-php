@@ -242,6 +242,7 @@ final class Emails
         [$appHost, $secretKey] = $this->connect(self::SEND_NOT_DONE, self::SEND_KEY_NEEDED);
         if ($files !== []) {
             $this->upload($appHost, $secretKey, $files, $maxRetries);
+            $this->refuseWhenClosed(self::SEND_NOT_DONE);
         }
         $headers = $this->headers($secretKey, [
             'Content-Type: application/json',
@@ -469,11 +470,15 @@ final class Emails
             );
         }
         $attachments = [];
+        $messageBytes = self::MESSAGE_HEADERS_BYTES;
         foreach ($files as $index => $file) {
-            $attachments[] = self::attachment("attachments__$index", $file);
+            $attachments[] = $attachment = self::attachment("attachments__$index", $file);
+            $messageBytes += self::base64TransferBytes(strlen($attachment['content']));
         }
-        $sizes = array_map(static fn(array $file): int => strlen($file['content']), $attachments);
-        if (self::messageBytes([...$sizes, ...array_map('strlen', $bodies)]) > self::MAX_MESSAGE_BYTES) {
+        foreach ($bodies as $body) {
+            $messageBytes += self::base64TransferBytes(strlen($body));
+        }
+        if ($messageBytes > self::MAX_MESSAGE_BYTES) {
             throw new EmailError(
                 'message_too_large',
                 'These files make the email larger than 40 MB after Base64 encoding, so no email was sent.',
@@ -488,7 +493,7 @@ final class Emails
             $sha256 = hash('sha256', $attachment['content']);
             $uploads[$sha256] ??= [
                 'filename' => $attachment['filename'],
-                'size' => $sizes[$index],
+                'size' => strlen($attachment['content']),
                 'content' => $attachment['content'],
                 'field' => "attachments__{$index}__content",
             ];
@@ -499,17 +504,9 @@ final class Emails
         return [$references, $uploads];
     }
 
-    /**
-     * @param list<int> $sizes
-     */
-    private static function messageBytes(array $sizes): float
+    private static function base64TransferBytes(int $bytes): float
     {
-        $bytes = (float) self::MESSAGE_HEADERS_BYTES;
-        foreach ($sizes as $size) {
-            $bytes += ceil(ceil($size / 3) * 4 * 78 / 76);
-        }
-
-        return $bytes;
+        return ceil(ceil($bytes / 3) * 4 * 78 / 76);
     }
 
     /**
@@ -620,6 +617,7 @@ final class Emails
             return self::parseUploadReply($files, ...$this->request('POST', $url, $headers, $body));
         });
         foreach ($slots as $sha256 => $slot) {
+            $this->refuseWhenClosed(self::SEND_NOT_DONE);
             $file = $files[$sha256];
             $this->withRetries($maxRetries, function () use ($slot, $file): void {
                 $this->put($slot['url'], $slot['headers'], $file);
@@ -635,7 +633,7 @@ final class Emails
     {
         $timeoutMs = $this->requestTimeoutMs + intdiv($file['size'], self::UPLOAD_BYTES_PER_EXTRA_MS);
         try {
-            [$status, $body] = ($this->transport)('PUT', $url, $headers, $file['content'], $timeoutMs);
+            [$status, $body, $answerHeaders] = ($this->transport)('PUT', $url, $headers, $file['content'], $timeoutMs);
         } catch (EmailError $error) {
             if ($error->getErrorCode() !== 'network_error') {
                 throw $error;
@@ -666,7 +664,8 @@ final class Emails
             $status,
             why: 'PostHog sends an email with files only after every file reached its file storage.',
             fix: 'Send the email again. The client asks for a new upload URL on every send.',
-            field: $file['field']
+            field: $file['field'],
+            retryAfterMs: self::retryAfterMs($answerHeaders)
         );
     }
 
@@ -703,7 +702,7 @@ final class Emails
             if (($slot['status'] ?? null) === 'present') {
                 continue;
             }
-            $upload = $slot !== null && $slot['status'] === 'upload' ? self::uploadTarget($slot) : null;
+            $upload = ($slot['status'] ?? null) === 'upload' ? self::uploadTarget($slot) : null;
             if ($upload === null) {
                 throw new EmailError(
                     'api_error',
@@ -773,9 +772,7 @@ final class Emails
                 "The PostHog client is disabled because it has no project API key, so $notDone."
             );
         }
-        if (($this->isClosed)()) {
-            throw new EmailError('client_closed', "The PostHog client is shut down, so $notDone.");
-        }
+        $this->refuseWhenClosed($notDone);
         if ($this->appHost === null) {
             throw new EmailError(
                 'missing_app_host',
@@ -788,6 +785,13 @@ final class Emails
         }
 
         return [$this->appHost, $this->secretKey];
+    }
+
+    private function refuseWhenClosed(string $notDone): void
+    {
+        if (($this->isClosed)()) {
+            throw new EmailError('client_closed', "The PostHog client is shut down, so $notDone.");
+        }
     }
 
     /**

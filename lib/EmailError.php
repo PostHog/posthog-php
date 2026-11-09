@@ -134,6 +134,9 @@ class EmailError extends RuntimeException
         if (in_array($code, self::REFUSED_ATTACHMENT_CODES, true)) {
             return 'validation_error';
         }
+        if ($code === 'upload_failed') {
+            return $status !== null && $status >= 500 ? 'service_unavailable' : 'application_error';
+        }
         if ($status === null) {
             if ($code === 'network_error') {
                 return 'service_unavailable';
