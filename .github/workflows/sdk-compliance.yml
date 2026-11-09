@@ -24,7 +24,7 @@ jobs:
             dockerfile: sdk_compliance_adapter/Dockerfile.socket
           - consumer: fork_curl
             dockerfile: sdk_compliance_adapter/Dockerfile.fork_curl
-    uses: PostHog/posthog-sdk-test-harness/.github/workflows/test-sdk-action.yml@129fbb4d2e3de8e8d6890925141b6c7fa3667528
+    uses: PostHog/posthog-sdk-test-harness/.github/workflows/test-sdk-action.yml@2169494c96b6231c8188b64a3bf02ffc986ac83b
     with:
       adapter-dockerfile: ${{ matrix.dockerfile }}
       adapter-context: "."
