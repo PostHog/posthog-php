@@ -31,6 +31,11 @@ class EmailsTest extends TestCase
     private array $signedUploads = [];
     /** @var array<string, ?string> the files storage holds, by SHA-256; null for one PostHog already had */
     private array $stored = [];
+    /** @var array<string, int> how many times storage took each file, by SHA-256 */
+    private array $storageWrites = [];
+    /** @var array<string, array<string, mixed>> the emails PostHog queued, one per idempotency key */
+    private array $queued = [];
+    private string $secretKey = 'phs_secret';
     private ClockInterface $previousClock;
     private MockClock $clock;
 
@@ -51,8 +56,10 @@ class EmailsTest extends TestCase
 
     private function emails(array $config = []): Emails
     {
+        $this->secretKey = $config['secretKey'] ?? 'phs_secret';
+
         return new Emails(
-            $config['secretKey'] ?? 'phs_secret',
+            $this->secretKey,
             $config['host'] ?? 'us.i.posthog.com',
             appHost: $config['appHost'] ?? null,
             maxRetries: $config['maxRetries'] ?? Emails::DEFAULT_MAX_RETRIES,
@@ -87,6 +94,9 @@ class EmailsTest extends TestCase
         if ($method === 'PUT' && !self::storageAccepts($headers, (string) $body)) {
             return [400, self::BUCKET_DIGEST_ERROR, []];
         }
+        if ($method !== 'PUT' && self::headerIn($headers, 'Authorization') !== "Bearer {$this->secretKey}") {
+            return [401, '{"type":"authentication_error","code":"authentication_failed","detail":"Bad key."}', []];
+        }
         $missing = $method === 'POST' && str_ends_with($url, '/send/email/') ? $this->notStored((string) $body) : null;
         if ($missing !== null) {
             return [400, json_encode([
@@ -100,8 +110,15 @@ class EmailsTest extends TestCase
         if ($reply instanceof EmailError) {
             throw $reply;
         }
-        if ($method === 'PUT' && $reply[0] >= 200 && $reply[0] < 300) {
-            $this->stored[hash('sha256', (string) $body)] = $body;
+        $accepted = $reply[0] >= 200 && $reply[0] < 300;
+        if ($method === 'PUT' && $accepted) {
+            $sha256 = hash('sha256', (string) $body);
+            $this->stored[$sha256] = $body;
+            $this->storageWrites[$sha256] = ($this->storageWrites[$sha256] ?? 0) + 1;
+        }
+        if ($method === 'POST' && str_ends_with($url, '/send/email/') && $accepted) {
+            $key = self::headerIn($headers, 'Idempotency-Key') ?? (string) count($this->queued);
+            $this->queued[$key] ??= json_decode((string) $body, true);
         }
         $answer = json_decode($reply[1], true);
         foreach (is_array($answer) && is_array($answer['files'] ?? null) ? $answer['files'] : [] as $slot) {
@@ -114,6 +131,18 @@ class EmailsTest extends TestCase
         }
 
         return $reply;
+    }
+
+    /** @param list<string> $headers */
+    private static function headerIn(array $headers, string $name): ?string
+    {
+        foreach ($headers as $header) {
+            if (stripos($header, $name . ':') === 0) {
+                return trim(substr($header, strlen($name) + 1));
+            }
+        }
+
+        return null;
     }
 
     /** The reference of the first attachment storage doesn't hold, as PostHog names it, or null. */
@@ -411,9 +440,7 @@ class EmailsTest extends TestCase
             ['files' => [['sha256' => self::INVITE_SHA256, 'size' => 32], ['sha256' => self::PNG_SHA256, 'size' => 9]]],
             $this->body(0)
         );
-        $this->assertSame('Bearer phs_secret', $this->header('Authorization', 0));
-        $this->assertSame('resend', $this->header('X-PostHog-Migrated-From', 0));
-        $this->assertSame([
+        $this->assertSame([[
             'template_key' => 'invite',
             'subject' => 'You are invited',
             'html' => '<img src="cid:logo">',
@@ -425,7 +452,7 @@ class EmailsTest extends TestCase
             ],
             'capture_engagement' => true,
             'to' => 'user@example.com',
-        ], $this->body(2));
+        ]], array_values($this->queued));
     }
 
     public function testTheSameFileTwiceIsUploadedOnceAndAttachedTwice(): void
@@ -434,14 +461,13 @@ class EmailsTest extends TestCase
 
         $this->emails()->send(self::sendWithFiles([self::invite(), self::invite(['filename' => 'copy.ics'])]));
 
-        $this->assertSame(['files' => [['sha256' => self::INVITE_SHA256, 'size' => 32]]], $this->body(0));
-        $this->assertCount(3, $this->requests);
+        $this->assertSame([self::INVITE_SHA256 => 1], $this->storageWrites);
         $this->assertSame(
             [
                 ['sha256' => self::INVITE_SHA256, 'filename' => 'invite.ics'],
                 ['sha256' => self::INVITE_SHA256, 'filename' => 'copy.ics'],
             ],
-            $this->body(2)['attachments']
+            array_values($this->queued)[0]['attachments']
         );
     }
 
@@ -454,11 +480,11 @@ class EmailsTest extends TestCase
             [202, '{"message_id":"msg_1"}', []]
         );
 
-        $this->emails()->send(self::sendWithFiles([self::invite()]));
+        $result = $this->emails()->send(self::sendWithFiles([self::invite()]));
 
-        $this->assertSame(['POST', 'PUT', 'POST', 'POST'], array_column($this->requests, 'method'));
-        $this->assertSame($this->requests[2]['body'], $this->requests[3]['body']);
-        $this->assertSame($this->header('Idempotency-Key', 2), $this->header('Idempotency-Key', 3));
+        $this->assertSame('msg_1', $result->getId());
+        $this->assertSame([self::INVITE_SHA256 => 1], $this->storageWrites);
+        $this->assertCount(1, $this->queued);
     }
 
     public function testANullContentTypeOrContentIdCountsAsLeftOut(): void
@@ -469,7 +495,7 @@ class EmailsTest extends TestCase
 
         $this->assertSame(
             [['sha256' => self::INVITE_SHA256, 'filename' => 'invite.ics']],
-            $this->body(1)['attachments']
+            array_values($this->queued)[0]['attachments']
         );
     }
 
@@ -516,7 +542,7 @@ class EmailsTest extends TestCase
         $this->assertStringContainsString('invite.ics', $error->getMessage());
         $this->assertStringEndsNotWith('..', $error->getMessage());
         $this->assertStringNotContainsString('signature-secret', $error->getMessage() . $error->getFix());
-        $this->assertSame(['POST', 'PUT'], array_column($this->requests, 'method'), 'no email was sent');
+        $this->assertSame([], $this->queued, 'no email was sent');
     }
 
     public static function retriedUploadFailures(): array
@@ -541,10 +567,23 @@ class EmailsTest extends TestCase
     {
         $this->reply(self::slots(self::uploadSlot(self::INVITE)), $failure, [200, '', []]);
 
-        $this->emails()->send(self::sendWithFiles([self::invite()]));
+        $result = $this->emails()->send(self::sendWithFiles([self::invite()]));
 
-        $this->assertSame(['POST', 'PUT', 'PUT', 'POST'], array_column($this->requests, 'method'));
-        $this->assertSame(self::INVITE, $this->requests[2]['body']);
+        $this->assertSame('msg_1', $result->getId());
+        $this->assertSame(self::INVITE, $this->stored[self::INVITE_SHA256]);
+        $this->assertCount(1, $this->queued);
+    }
+
+    public function testStorageThrottlingThatOutlastsTheRetriesIsARateLimit(): void
+    {
+        $slowDown = [429, '<Error><Code>SlowDown</Code><Message>Reduce your rate</Message></Error>', []];
+        $this->reply(self::slots(self::uploadSlot(self::INVITE)), $slowDown);
+
+        $error = $this->sendError(self::sendWithFiles([self::invite()]), $this->emails(['maxRetries' => 0]));
+
+        $this->assertSame('upload_failed', $error->getErrorCode());
+        $this->assertSame('rate_limit_exceeded', $error->getErrorName());
+        $this->assertSame([], $this->queued, 'no email was sent');
     }
 
     public function testAStorageRetryAfterOverThirtySecondsFailsAtOnce(): void
@@ -556,17 +595,20 @@ class EmailsTest extends TestCase
 
         $this->assertSame('upload_failed', $error->getErrorCode());
         $this->assertSame(60_000, $error->getRetryAfterMs());
-        $this->assertSame(['POST', 'PUT'], array_column($this->requests, 'method'));
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued);
     }
 
     public static function shutdownsDuringTheUploads(): array
     {
-        return ['after the upload request' => [1], 'after an upload' => [2], 'after the last upload' => [3]];
+        return ['after the upload request' => [1, 0], 'after an upload' => [2, 1], 'after the last upload' => [3, 2]];
     }
 
     #[DataProvider('shutdownsDuringTheUploads')]
-    public function testAClientShutDownDuringTheUploadsSendsNothingMore(int $requestsBeforeTheShutdown): void
-    {
+    public function testAClientShutDownDuringTheUploadsSendsNothingMore(
+        int $requestsBeforeTheShutdown,
+        int $filesStored
+    ): void {
         $emails = $this->emails(['isClosed' => fn(): bool => count($this->requests) >= $requestsBeforeTheShutdown]);
         $this->reply(
             self::slots(self::uploadSlot(self::INVITE), self::uploadSlot(self::PNG)),
@@ -580,7 +622,8 @@ class EmailsTest extends TestCase
         );
 
         $this->assertSame('client_closed', $error->getErrorCode());
-        $this->assertCount($requestsBeforeTheShutdown, $this->requests);
+        $this->assertCount($filesStored, $this->storageWrites);
+        $this->assertSame([], $this->queued);
     }
 
     public function testAnUploadRefusalNamesTheAttachmentAndSendsNothing(): void
@@ -604,7 +647,8 @@ class EmailsTest extends TestCase
         $this->assertSame('validation_error', $error->getErrorName());
         $this->assertSame('attachments__2__content', $error->getField());
         $this->assertSame('Send fewer or smaller files, or link to large files from the email body.', $error->getFix());
-        $this->assertCount(1, $this->requests);
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
     }
 
     public function testBytesThatDoNotMatchTheSignedChecksumAreRefusedByStorageAndNothingIsSent(): void
@@ -618,7 +662,8 @@ class EmailsTest extends TestCase
         $this->assertSame('upload_failed', $error->getErrorCode());
         $this->assertSame(400, $error->getStatusCode());
         $this->assertStringContainsString('BadDigest', $error->getMessage());
-        $this->assertSame(['POST', 'PUT'], array_column($this->requests, 'method'));
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued);
     }
 
     public function testTheDailyUploadLimitIsNotRetried(): void
@@ -628,7 +673,8 @@ class EmailsTest extends TestCase
         $error = $this->sendError(self::sendWithFiles([self::invite()]));
 
         $this->assertSame('upload_quota_exceeded', $error->getErrorCode());
-        $this->assertCount(1, $this->requests);
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
     }
 
     public static function uploadRouteNotFound(): array
@@ -654,17 +700,18 @@ class EmailsTest extends TestCase
         $this->assertSame(404, $error->getStatusCode());
         $this->assertSame('attachments', $error->getField());
         $this->assertSame($message, $error->getMessage());
-        $this->assertCount(1, $this->requests, 'no email was sent');
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
     }
 
     public function testAnUnavailableUploadRouteIsRetried(): void
     {
         $this->reply([503, '{"code":"delivery_unavailable"}', []], self::slots(self::presentSlot(self::INVITE_SHA256)));
 
-        $this->emails()->send(self::sendWithFiles([self::invite()]));
+        $result = $this->emails()->send(self::sendWithFiles([self::invite()]));
 
-        $this->assertSame(['POST', 'POST', 'POST'], array_column($this->requests, 'method'));
-        $this->assertSame(self::SEND_URL, $this->requests[2]['url']);
+        $this->assertSame('msg_1', $result->getId());
+        $this->assertCount(1, $this->queued);
     }
 
     public static function unusableUploadAnswers(): array
@@ -698,7 +745,8 @@ class EmailsTest extends TestCase
         }
 
         $this->assertSame('api_error', $error->getErrorCode());
-        $this->assertCount(1, $this->requests, 'nothing was uploaded or sent');
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
     }
 
     public function testAPlainHttpUploadUrlIsRefusedBeforeAnyUpload(): void
@@ -713,7 +761,8 @@ class EmailsTest extends TestCase
         $this->assertStringContainsString('invite.ics', $error->getMessage());
         $this->assertStringContainsString("Fix the file storage's URL", $error->getFix());
         $this->assertStringNotContainsString('attachments.example', $error->getMessage() . $error->getFix());
-        $this->assertCount(1, $this->requests, 'nothing was uploaded or sent');
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
     }
 
     public function testAPlainHttpAppHostForLocalDevelopmentUploadsOverPlainHttp(): void
@@ -744,11 +793,11 @@ class EmailsTest extends TestCase
         $file = str_repeat('a', $largest);
         $this->reply(self::slots(self::presentSlot(hash('sha256', $file))));
 
-        $this->emails()->send(
+        $result = $this->emails()->send(
             self::sendWithFiles([['filename' => 'big.pdf', 'content' => $file]], ['subject' => $subject])
         );
 
-        $this->assertSame(['files' => [['sha256' => hash('sha256', $file), 'size' => $largest]]], $this->body(0));
+        $this->assertSame('msg_1', $result->getId());
     }
 
     #[DataProvider('subjectsAndTheLargestFileThatFits')]

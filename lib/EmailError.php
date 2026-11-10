@@ -129,7 +129,11 @@ class EmailError extends RuntimeException
     private static function nameFor(?int $status, string $code): string
     {
         if ($code === 'upload_failed') {
-            return $status !== null && $status >= 500 ? 'service_unavailable' : 'application_error';
+            return match (true) {
+                $status === 429 => 'rate_limit_exceeded',
+                $status !== null && $status >= 500 => 'service_unavailable',
+                default => 'application_error',
+            };
         }
         if ($code === 'missing_secret_key' || $status === 401) {
             return 'missing_api_key';
