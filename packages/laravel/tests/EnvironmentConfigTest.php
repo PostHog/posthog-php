@@ -10,6 +10,7 @@ use PostHog\HttpClient;
 use PostHog\HttpResponse;
 use PostHog\Laravel\PostHog;
 use PostHog\Laravel\PostHogServiceProvider;
+use PostHog\Laravel\ProjectToken;
 
 class EnvironmentConfigTest extends TestCase
 {
@@ -111,6 +112,7 @@ class EnvironmentConfigTest extends TestCase
             'older POSTHOG_API_KEY' => [['POSTHOG_API_KEY' => 'phc_api_key'], 'phc_api_key'],
             'POSTHOG_TOKEN wins' => [['POSTHOG_TOKEN' => 'phc_token', 'POSTHOG_API_KEY' => 'phc_api_key'], 'phc_token'],
             'blank POSTHOG_TOKEN falls back' => [['POSTHOG_TOKEN' => '', 'POSTHOG_API_KEY' => 'phc_api_key'], 'phc_api_key'],
+            'whitespace POSTHOG_TOKEN falls back' => [['POSTHOG_TOKEN' => " \t", 'POSTHOG_API_KEY' => 'phc_api_key'], 'phc_api_key'],
         ];
     }
 
@@ -136,6 +138,29 @@ class EnvironmentConfigTest extends TestCase
 
         $this->assertTrue($manager->enabled());
         $this->assertSame('phc_published', (new \ReflectionProperty(Client::class, 'apiKey'))->getValue($manager->client()));
+    }
+
+    public static function publishedApiKeys(): array
+    {
+        return [
+            'its own token' => ['phc_published', 'phc_published'],
+            'a cleared token' => [null, null],
+        ];
+    }
+
+    #[DataProvider('publishedApiKeys')]
+    public function testConfigPublishedWithTheOlderApiKeyKeepsItsValueOverTheEnvironment(
+        ?string $published,
+        ?string $expected,
+    ): void {
+        $token = $this->withEnvironment(['POSTHOG_API_KEY' => 'phc_environment'], function () use ($published) {
+            $this->app['config']->set('posthog', ['api_key' => $published]);
+            (new PostHogServiceProvider($this->app))->register();
+
+            return ProjectToken::fromConfig($this->app['config']->get('posthog'));
+        });
+
+        $this->assertSame($expected, $token);
     }
 
     public function testUnsetAndEmptyVariablesKeepTheSdkDefaults(): void
