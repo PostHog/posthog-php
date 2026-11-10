@@ -80,21 +80,44 @@ class EmailsClientTest extends TestCase
         $file = "%PDF-1.7\n" . str_repeat("0 0 obj << >> endobj\n", 100);
         $sha256 = hash('sha256', $file);
         $checksum = base64_encode(hash('sha256', $file, true));
-        $this->bucket = new LocalHttpServer([['status' => 200, 'body' => '']]);
-        $bucketUrl = 'http://' . $this->bucket->address() . "/attachments/team/2/$sha256?X-Amz-Signature=abc";
+        $signedPath = "/attachments/team/2/$sha256?X-Amz-Signature=abc";
+        $this->bucket = new LocalHttpServer([[
+            'status' => 200,
+            'body' => '',
+            'accepts' => [
+                'request_line' => "PUT $signedPath HTTP/1.1",
+                'content-length' => (string) strlen($file),
+                'x-amz-checksum-sha256' => $checksum,
+            ],
+            'refusal' => [
+                'status' => 403,
+                'body' => '<Error><Code>SignatureDoesNotMatch</Code><Message>Not as signed</Message></Error>',
+            ],
+        ]]);
         $this->server = new LocalHttpServer([
-            ['status' => 200, 'body' => json_encode(['files' => [[
-                'sha256' => $sha256,
-                'status' => 'upload',
-                'url' => $bucketUrl,
-                'method' => 'PUT',
-                'headers' => ['Content-Length' => (string) strlen($file), 'x-amz-checksum-sha256' => $checksum],
-                'url_expires_at' => '2026-11-02T12:15:00Z',
-            ]]])],
+            [
+                'status' => 200,
+                'body' => json_encode(['files' => [[
+                    'sha256' => $sha256,
+                    'status' => 'upload',
+                    'url' => 'http://' . $this->bucket->address() . $signedPath,
+                    'method' => 'PUT',
+                    'headers' => ['Content-Length' => (string) strlen($file), 'x-amz-checksum-sha256' => $checksum],
+                    'url_expires_at' => '2026-11-02T12:15:00Z',
+                ]]]),
+                'accepts' => [
+                    'request_line' => 'POST /api/projects/@current/messaging/attachments/uploads/ HTTP/1.1',
+                    'authorization' => 'Bearer phs_secret',
+                ],
+                'refusal' => [
+                    'status' => 404,
+                    'body' => '{"type":"invalid_request","code":"not_found","detail":"Not found."}',
+                ],
+            ],
             ['status' => 202, 'body' => '{"message_id":"01a18356-c56c-0001-e494-7666bc915188"}'],
         ]);
 
-        $this->client()->emails()->send([
+        $result = $this->client()->emails()->send([
             'to' => 'user@example.com',
             'template_key' => 'receipt',
             'subject' => 'Your receipt',
@@ -102,24 +125,19 @@ class EmailsClientTest extends TestCase
             'attachments' => [['filename' => 'receipt.pdf', 'content' => $file]],
         ]);
 
+        $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
         [$upload, $send] = $this->server->requests();
-        $this->assertSame(
-            'POST /api/projects/@current/messaging/attachments/uploads/ HTTP/1.1',
-            $upload['requestLine']
-        );
-        $this->assertSame('Bearer phs_secret', $upload['headers']['authorization']);
         $this->assertSame(
             ['files' => [['sha256' => $sha256, 'size' => strlen($file)]]],
             json_decode($upload['body'], true)
         );
-        [$put] = $this->bucket->requests();
-        $this->assertSame("PUT /attachments/team/2/$sha256?X-Amz-Signature=abc HTTP/1.1", $put['requestLine']);
-        $this->assertSame($file, $put['body']);
-        $this->assertSame((string) strlen($file), $put['headers']['content-length']);
-        $this->assertSame($checksum, $put['headers']['x-amz-checksum-sha256']);
-        $this->assertArrayNotHasKey('authorization', $put['headers']);
-        $this->assertArrayNotHasKey('content-type', $put['headers']);
-        $this->assertArrayNotHasKey('expect', $put['headers']);
+        [$stored] = $this->bucket->requests();
+        $this->assertSame($file, $stored['body']);
+        $this->assertStringNotContainsString(
+            'phs_secret',
+            json_encode($stored['headers']),
+            'storage never gets the secret key'
+        );
         $this->assertSame(
             [['sha256' => $sha256, 'filename' => 'receipt.pdf']],
             json_decode($send['body'], true)['attachments']

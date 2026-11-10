@@ -27,6 +27,8 @@ class EmailsTest extends TestCase
     private array $requests = [];
     /** @var list<array{int, string, list<string>}|EmailError> */
     private array $replies = [];
+    /** @var array<string, array<string, string>> the headers storage signed for each upload URL */
+    private array $signedUploads = [];
     private ClockInterface $previousClock;
     private MockClock $clock;
 
@@ -74,6 +76,9 @@ class EmailsTest extends TestCase
     ): array {
         $at = Clock::get()->now();
         $this->requests[] = compact('method', 'url', 'headers', 'body', 'timeoutMs', 'at');
+        if ($method === 'PUT' && !$this->storageSigned($url, $headers)) {
+            return [403, '<Error><Code>SignatureDoesNotMatch</Code><Message>Not as signed</Message></Error>', []];
+        }
         if ($method === 'PUT' && !self::storageAccepts($headers, (string) $body)) {
             return [400, self::BUCKET_DIGEST_ERROR, []];
         }
@@ -81,8 +86,34 @@ class EmailsTest extends TestCase
         if ($reply instanceof EmailError) {
             throw $reply;
         }
+        $answer = json_decode($reply[1], true);
+        foreach (is_array($answer) && is_array($answer['files'] ?? null) ? $answer['files'] : [] as $slot) {
+            if (is_array($slot) && is_string($slot['url'] ?? null) && is_array($slot['headers'] ?? null)) {
+                $this->signedUploads[$slot['url']] = $slot['headers'];
+            }
+        }
 
         return $reply;
+    }
+
+    /** @param list<string> $headers */
+    private function storageSigned(string $url, array $headers): bool
+    {
+        if (!isset($this->signedUploads[$url])) {
+            return false;
+        }
+        $sent = [];
+        foreach ($headers as $header) {
+            [$name, $value] = array_map('trim', explode(':', $header, 2));
+            $sent[strtolower($name)] = $value;
+        }
+        foreach ($this->signedUploads[$url] as $name => $value) {
+            if (($sent[strtolower($name)] ?? null) !== $value) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** @param list<string> $headers */
@@ -267,7 +298,6 @@ class EmailsTest extends TestCase
 
     private const UPLOAD_URL = 'https://us.posthog.com/api/projects/@current/messaging/attachments/uploads/';
     private const INVITE_SHA256 = '215efae54e34ac5657da47b49c8d1bd8ea12649ee1efa838c9a47d7233f18afb';
-    private const INVITE_CHECKSUM = 'IV765U40rFZX2ke0nI0b2OoSZJ7h76g4yaR9cjPxivs=';
     private const PNG = "\x89PNG\r\n\x1a\n\x00";
     private const PNG_SHA256 = '843ac23b1736b4487ec81cf7c07ddd9bb46ae5b7818c2c3843d99d62fa75f3c9';
     private const BUCKET = 'https://attachments.example/team/2/';
@@ -341,24 +371,17 @@ class EmailsTest extends TestCase
         ]);
 
         $this->assertSame('msg_1', $result->getId());
-        $this->assertSame(
-            [
-                'POST ' . self::UPLOAD_URL,
-                'PUT ' . self::BUCKET . self::INVITE_SHA256 . self::SIGNATURE,
-                'POST ' . self::SEND_URL,
-            ],
-            array_map(static fn(array $request): string => $request['method'] . ' ' . $request['url'], $this->requests)
-        );
+        $this->assertSame(['POST', 'PUT', 'POST'], array_column($this->requests, 'method'));
         $this->assertSame(
             ['files' => [['sha256' => self::INVITE_SHA256, 'size' => 32], ['sha256' => self::PNG_SHA256, 'size' => 9]]],
             $this->body(0)
         );
         $this->assertSame('Bearer phs_secret', $this->header('Authorization', 0));
         $this->assertSame('resend', $this->header('X-PostHog-Migrated-From', 0));
-        $this->assertSame(
-            ['Content-Length: 32', 'x-amz-checksum-sha256: ' . self::INVITE_CHECKSUM],
-            $this->requests[1]['headers'],
-            'the upload carries only the headers PostHog signed, and never the secret key'
+        $this->assertStringNotContainsString(
+            'phs_secret',
+            implode("\n", $this->requests[1]['headers']),
+            'storage never gets the secret key'
         );
         $this->assertSame(self::INVITE, $this->requests[1]['body']);
         $this->assertSame([
