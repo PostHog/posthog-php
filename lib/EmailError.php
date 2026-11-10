@@ -14,7 +14,7 @@ use Throwable;
  */
 class EmailError extends RuntimeException
 {
-    private const REFUSED_ATTACHMENT_CODES = ['too_many_attachments', 'message_too_large', 'field_not_accepted'];
+    private const REFUSED_ATTACHMENT_CODES = ['too_many_attachments', 'message_too_large'];
 
     private string $errorName;
     private string $errorCode;

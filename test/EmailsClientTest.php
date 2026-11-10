@@ -126,6 +126,83 @@ class EmailsClientTest extends TestCase
         );
     }
 
+    /** PostHog's answer to the upload request: one slot that sends the file to the given storage address. */
+    private static function uploadAnswer(string $storage, string $file): array
+    {
+        $sha256 = hash('sha256', $file);
+
+        return ['status' => 200, 'body' => json_encode(['files' => [[
+            'sha256' => $sha256,
+            'status' => 'upload',
+            'url' => "http://$storage/attachments/team/2/$sha256?X-Amz-Signature=abc",
+            'method' => 'PUT',
+            'headers' => ['Content-Length' => (string) strlen($file)],
+            'url_expires_at' => '2026-11-02T12:15:00Z',
+        ]]])];
+    }
+
+    private static function sendWithFile(string $file): array
+    {
+        return [
+            'to' => 'user@example.com',
+            'template_key' => 'receipt',
+            'subject' => 'Your receipt',
+            'text' => 'Thanks!',
+            'attachments' => [['filename' => 'receipt.pdf', 'content' => $file]],
+        ];
+    }
+
+    public function testStorageMayTakeLongerThanTheRequestTimeoutToTakeALargerFile(): void
+    {
+        $file = str_repeat('a', 200_000);
+        $this->bucket = new LocalHttpServer([['status' => 200, 'body' => '', 'delay_ms' => 1500]]);
+        $this->server = new LocalHttpServer([
+            self::uploadAnswer($this->bucket->address(), $file),
+            ['status' => 202, 'body' => '{"message_id":"01a18356-c56c-0001-e494-7666bc915188"}'],
+        ]);
+        $client = $this->client(['email_request_max_retries' => 0, 'email_request_timeout_ms' => 1000]);
+
+        $result = $client->emails()->send(self::sendWithFile($file));
+
+        $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
+        $this->assertSame($file, $this->bucket->requests()[0]['body']);
+    }
+
+    public function testAnUploadGivesUpConnectingToStorageAtTheRequestTimeout(): void
+    {
+        $storage = stream_socket_server(
+            'tcp://127.0.0.1:0',
+            $errno,
+            $error,
+            STREAM_SERVER_BIND | STREAM_SERVER_LISTEN,
+            stream_context_create(['socket' => ['backlog' => 0]])
+        );
+        $address = stream_socket_get_name($storage, false);
+        $waiting = [];
+        for ($i = 0; $i < 4; $i++) {
+            $waiting[] = @stream_socket_client("tcp://$address", $errno, $error, 1, STREAM_CLIENT_ASYNC_CONNECT);
+        }
+        $probe = @stream_socket_client("tcp://$address", $errno, $error, 0.3);
+        if ($probe !== false) {
+            $this->markTestSkipped('This system still connects once the listen queue is full.');
+        }
+        $file = str_repeat('a', 500_000);
+        $this->server = new LocalHttpServer([self::uploadAnswer($address, $file)]);
+        $client = $this->client(['email_request_max_retries' => 0, 'email_request_timeout_ms' => 1000]);
+        $started = hrtime(true);
+
+        try {
+            $client->emails()->send(self::sendWithFile($file));
+            $this->fail('The upload connected to a storage host that never accepts.');
+        } catch (EmailError $error) {
+            $this->assertSame('network_error', $error->getErrorCode());
+        }
+
+        $this->assertLessThan(3000, (hrtime(true) - $started) / 1e6, 'gave up at the 1 s connect timeout, not 6 s');
+        $this->assertCount(1, $this->server->requests(), 'nothing was sent');
+        fclose($storage);
+    }
+
     public function testARetryAfterHeaderComesBackOnTheError(): void
     {
         $this->server = new LocalHttpServer([

@@ -30,8 +30,8 @@ use Symfony\Component\Clock\NativeClock;
  *
  * A send with attachments first uploads each file PostHog doesn't have yet to the storage URL PostHog
  * answers, which is on another host than the app host. Each upload gets the request timeout plus 1 ms
- * for every 100 bytes of the file, but only the request timeout to connect. A storage 500, 502, 503 or
- * 504 is retried as above.
+ * for every 100 bytes of the file, but only the request timeout to connect. A storage 429, 500, 502, 503
+ * or 504 is retried as above.
  *
  * @phpstan-type Upload array{filename: string, size: int, content: string, field: string}
  */
@@ -422,7 +422,7 @@ final class Emails
         }
         $files = [];
         if (array_key_exists('attachments', $email) && $email['attachments'] !== []) {
-            [$content['attachments'], $files] = self::attachments($email['attachments'], [
+            [$content['attachments'], $files] = self::attachments($email['attachments'], $content['subject'], [
                 $content['html'] ?? '',
                 $content['text'] ?? '',
             ]);
@@ -455,10 +455,12 @@ final class Emails
     }
 
     /**
+     * Checks the files against PostHog's limits, counting the message as PostHog's own estimate does.
+     *
      * @param list<string> $bodies
      * @return array{list<array<string, string>>, array<string, Upload>}
      */
-    private static function attachments(mixed $files, array $bodies): array
+    private static function attachments(mixed $files, string $subject, array $bodies): array
     {
         if (!is_array($files) || !array_is_list($files)) {
             throw self::invalidAttachment('attachments must be a list of files.', 'attachments');
@@ -473,7 +475,7 @@ final class Emails
             );
         }
         $attachments = [];
-        $messageBytes = self::MESSAGE_HEADERS_BYTES;
+        $messageBytes = self::MESSAGE_HEADERS_BYTES + self::encodedSubjectBytes($subject);
         foreach ($files as $index => $file) {
             $attachments[] = $attachment = self::attachment("attachments__$index", $file);
             $messageBytes += self::base64TransferBytes(strlen($attachment['content']));
@@ -510,6 +512,12 @@ final class Emails
     private static function base64TransferBytes(int $bytes): float
     {
         return ceil(ceil($bytes / 3) * 4 * 78 / 76);
+    }
+
+    /** The subject's UTF-8 bytes, folded into encoded words of 42 bytes that take 75 bytes each. */
+    private static function encodedSubjectBytes(string $subject): float
+    {
+        return ceil(strlen($subject) / 42) * 75;
     }
 
     /**
@@ -889,14 +897,14 @@ final class Emails
         if ($status === null) {
             return $error->getErrorCode() === 'network_error';
         }
+        if ($error->getErrorCode() === 'upload_failed') {
+            return in_array($status, [429, 500, 502, 503, 504], true);
+        }
         if ($status === 409) {
             return $error->getErrorCode() === 'idempotency_key_in_flight';
         }
         if ($status === 429) {
             return !in_array($error->getErrorCode(), ['quota_limited', 'upload_quota_exceeded'], true);
-        }
-        if ($error->getErrorCode() === 'upload_failed') {
-            return in_array($status, [500, 502, 503, 504], true);
         }
 
         return $status === 503;

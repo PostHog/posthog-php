@@ -22,7 +22,7 @@ class EmailsTest extends TestCase
 
     /**
      * @var list<array{method: string, url: string, headers: list<string>, body: ?string, timeoutMs: int,
-     *     connectTimeoutMs: int, at: DateTimeImmutable}>
+     *     at: DateTimeImmutable}>
      */
     private array $requests = [];
     /** @var list<array{int, string, list<string>}|EmailError> */
@@ -73,13 +73,38 @@ class EmailsTest extends TestCase
         int $connectTimeoutMs
     ): array {
         $at = Clock::get()->now();
-        $this->requests[] = compact('method', 'url', 'headers', 'body', 'timeoutMs', 'connectTimeoutMs', 'at');
+        $this->requests[] = compact('method', 'url', 'headers', 'body', 'timeoutMs', 'at');
+        if ($method === 'PUT' && !self::storageAccepts($headers, (string) $body)) {
+            return [400, self::BUCKET_DIGEST_ERROR, []];
+        }
         $reply = array_shift($this->replies) ?? [202, '{"message_id":"msg_1"}', []];
         if ($reply instanceof EmailError) {
             throw $reply;
         }
 
         return $reply;
+    }
+
+    /**
+     * Storage refuses an upload whose bytes don't match the size and checksum PostHog signed, so the fake does too.
+     *
+     * @param list<string> $headers
+     */
+    private static function storageAccepts(array $headers, string $body): bool
+    {
+        foreach ($headers as $header) {
+            [$name, $value] = array_map('trim', explode(':', $header, 2));
+            $matches = match (strtolower($name)) {
+                'content-length' => $value === (string) strlen($body),
+                'x-amz-checksum-sha256' => $value === base64_encode(hash('sha256', $body, true)),
+                default => true,
+            };
+            if (!$matches) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** @param array{int, string, list<string>}|EmailError ...$replies */
@@ -249,17 +274,25 @@ class EmailsTest extends TestCase
     private const INVITE_CHECKSUM = 'IV765U40rFZX2ke0nI0b2OoSZJ7h76g4yaR9cjPxivs=';
     private const PNG = "\x89PNG\r\n\x1a\n\x00";
     private const PNG_SHA256 = '843ac23b1736b4487ec81cf7c07ddd9bb46ae5b7818c2c3843d99d62fa75f3c9';
-    private const BUCKET_URL = 'https://attachments.example/team/2/'
-        . self::INVITE_SHA256 . '?X-Amz-Signature=signature-secret';
+    private const BUCKET = 'https://attachments.example/team/2/';
+    private const SIGNATURE = '?X-Amz-Signature=signature-secret';
+    private const BUCKET_DIGEST_ERROR = '<?xml version="1.0" encoding="UTF-8"?><Error><Code>BadDigest</Code>'
+        . '<Message>The SHA256 you specified did not match the calculated checksum.</Message></Error>';
 
-    private static function uploadSlot(string $sha256, int $size): array
+    /** PostHog's upload slot for a file: a URL and headers signed for that file's own hash, size and checksum. */
+    private static function uploadSlot(string $content): array
     {
+        $sha256 = hash('sha256', $content);
+
         return [
             'sha256' => $sha256,
             'status' => 'upload',
-            'url' => self::BUCKET_URL,
+            'url' => self::BUCKET . $sha256 . self::SIGNATURE,
             'method' => 'PUT',
-            'headers' => ['Content-Length' => (string) $size, 'x-amz-checksum-sha256' => self::INVITE_CHECKSUM],
+            'headers' => [
+                'Content-Length' => (string) strlen($content),
+                'x-amz-checksum-sha256' => base64_encode(hash('sha256', $content, true)),
+            ],
             'url_expires_at' => '2026-11-02T12:15:00Z',
         ];
     }
@@ -294,7 +327,7 @@ class EmailsTest extends TestCase
     public function testFilesAreHashedUploadedThenSentByReferenceWithCopies(): void
     {
         $this->reply(
-            self::slots(self::uploadSlot(self::INVITE_SHA256, 32), self::presentSlot(self::PNG_SHA256)),
+            self::slots(self::uploadSlot(self::INVITE), self::presentSlot(self::PNG_SHA256)),
             [200, '', []],
             [202, '{"message_id":"msg_1"}', []]
         );
@@ -314,7 +347,11 @@ class EmailsTest extends TestCase
 
         $this->assertSame('msg_1', $result->getId());
         $this->assertSame(
-            ['POST ' . self::UPLOAD_URL, 'PUT ' . self::BUCKET_URL, 'POST ' . self::SEND_URL],
+            [
+                'POST ' . self::UPLOAD_URL,
+                'PUT ' . self::BUCKET . self::INVITE_SHA256 . self::SIGNATURE,
+                'POST ' . self::SEND_URL,
+            ],
             array_map(static fn(array $request): string => $request['method'] . ' ' . $request['url'], $this->requests)
         );
         $this->assertSame(
@@ -346,7 +383,7 @@ class EmailsTest extends TestCase
 
     public function testTheSameFileTwiceIsUploadedOnceAndAttachedTwice(): void
     {
-        $this->reply(self::slots(self::uploadSlot(self::INVITE_SHA256, 32)), [200, '', []]);
+        $this->reply(self::slots(self::uploadSlot(self::INVITE)), [200, '', []]);
 
         $this->emails()->send(self::sendWithFiles([self::invite(), self::invite(['filename' => 'copy.ics'])]));
 
@@ -364,7 +401,7 @@ class EmailsTest extends TestCase
     public function testARetriedSendDoesNotUploadAgain(): void
     {
         $this->reply(
-            self::slots(self::uploadSlot(self::INVITE_SHA256, 32)),
+            self::slots(self::uploadSlot(self::INVITE)),
             [200, '', []],
             [503, '{"code":"unavailable"}', []],
             [202, '{"message_id":"msg_1"}', []]
@@ -389,27 +426,14 @@ class EmailsTest extends TestCase
         );
     }
 
-    public function testAnUploadGetsMoreTimeToTransferALargerFileButNotToConnect(): void
-    {
-        $file = str_repeat('a', 1_000_000);
-        $sha256 = hash('sha256', $file);
-        $this->reply(self::slots(self::uploadSlot($sha256, 1_000_000)), [200, '', []]);
-
-        $this->emails()->send(self::sendWithFiles([['filename' => 'big.pdf', 'content' => $file]]));
-
-        $this->assertSame(Emails::DEFAULT_REQUEST_TIMEOUT_MS, $this->requests[0]['timeoutMs']);
-        $this->assertSame(Emails::DEFAULT_REQUEST_TIMEOUT_MS + 10_000, $this->requests[1]['timeoutMs']);
-        $this->assertSame(Emails::DEFAULT_REQUEST_TIMEOUT_MS, $this->requests[1]['connectTimeoutMs']);
-    }
-
     public static function bucketFailures(): array
     {
-        $xml = '<?xml version="1.0" encoding="UTF-8"?><Error><Code>BadDigest</Code>'
-            . '<Message>The SHA256 you specified did not match the calculated checksum.</Message></Error>';
-
         return [
             'refused' => [
-                [400, $xml, []], 400, 'BadDigest: The SHA256 you specified did not match', 'application_error',
+                [400, self::BUCKET_DIGEST_ERROR, []],
+                400,
+                'BadDigest: The SHA256 you specified did not match',
+                'application_error',
             ],
             'expired' => [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>', []],
                 403, 'AccessDenied: Request has expired', 'application_error'],
@@ -428,7 +452,7 @@ class EmailsTest extends TestCase
         string $name
     ): void {
         $this->reply(
-            self::slots(self::presentSlot(self::PNG_SHA256), self::uploadSlot(self::INVITE_SHA256, 32)),
+            self::slots(self::presentSlot(self::PNG_SHA256), self::uploadSlot(self::INVITE)),
             $failure
         );
 
@@ -458,6 +482,9 @@ class EmailsTest extends TestCase
             ],
             'bad gateway' => [[502, 'Bad Gateway', []]],
             'gateway timeout' => [[504, 'Gateway Timeout', []]],
+            'storage throttling' => [
+                [429, '<Error><Code>SlowDown</Code><Message>Reduce your rate</Message></Error>', []],
+            ],
         ];
     }
 
@@ -465,7 +492,7 @@ class EmailsTest extends TestCase
     #[DataProvider('retriedUploadFailures')]
     public function testAnUploadThatFailsOnTheWayIsRetried($failure): void
     {
-        $this->reply(self::slots(self::uploadSlot(self::INVITE_SHA256, 32)), $failure, [200, '', []]);
+        $this->reply(self::slots(self::uploadSlot(self::INVITE)), $failure, [200, '', []]);
 
         $this->emails()->send(self::sendWithFiles([self::invite()]));
 
@@ -476,7 +503,7 @@ class EmailsTest extends TestCase
     public function testAStorageRetryAfterOverThirtySecondsFailsAtOnce(): void
     {
         $slowDown = '<Error><Code>SlowDown</Code><Message>Slow down</Message></Error>';
-        $this->reply(self::slots(self::uploadSlot(self::INVITE_SHA256, 32)), [503, $slowDown, ['Retry-After: 60']]);
+        $this->reply(self::slots(self::uploadSlot(self::INVITE)), [503, $slowDown, ['Retry-After: 60']]);
 
         $error = $this->sendError(self::sendWithFiles([self::invite()]));
 
@@ -495,7 +522,7 @@ class EmailsTest extends TestCase
     {
         $emails = $this->emails(['isClosed' => fn(): bool => count($this->requests) >= $requestsBeforeTheShutdown]);
         $this->reply(
-            self::slots(self::uploadSlot(self::INVITE_SHA256, 32), self::uploadSlot(self::PNG_SHA256, 9)),
+            self::slots(self::uploadSlot(self::INVITE), self::uploadSlot(self::PNG)),
             [200, '', []],
             [200, '', []]
         );
@@ -531,6 +558,20 @@ class EmailsTest extends TestCase
         $this->assertSame('attachments__2__content', $error->getField());
         $this->assertSame('Send fewer or smaller files, or link to large files from the email body.', $error->getFix());
         $this->assertCount(1, $this->requests);
+    }
+
+    public function testBytesThatDoNotMatchTheSignedChecksumAreRefusedByStorageAndNothingIsSent(): void
+    {
+        $slot = self::uploadSlot(self::INVITE);
+        $slot['headers']['x-amz-checksum-sha256'] = base64_encode(hash('sha256', self::PNG, true));
+        $this->reply(self::slots($slot));
+
+        $error = $this->sendError(self::sendWithFiles([self::invite()]));
+
+        $this->assertSame('upload_failed', $error->getErrorCode());
+        $this->assertSame(400, $error->getStatusCode());
+        $this->assertStringContainsString('BadDigest', $error->getMessage());
+        $this->assertSame(['POST', 'PUT'], array_column($this->requests, 'method'));
     }
 
     public function testTheDailyUploadLimitIsNotRetried(): void
@@ -581,7 +622,7 @@ class EmailsTest extends TestCase
 
     public static function unusableUploadAnswers(): array
     {
-        $slot = self::uploadSlot(self::INVITE_SHA256, 32);
+        $slot = self::uploadSlot(self::INVITE);
 
         return [
             'no slot for the file' => [['files' => [self::presentSlot(self::PNG_SHA256)]]],
@@ -615,18 +656,19 @@ class EmailsTest extends TestCase
 
     public function testTheLargestFileThatFitsTheMessageIsUploaded(): void
     {
-        $file = str_repeat('a', 29_182_866);
+        $file = str_repeat('a', 29_182_812);
         $this->reply(self::slots(self::presentSlot(hash('sha256', $file))));
 
         $this->emails()->send(self::sendWithFiles([['filename' => 'big.pdf', 'content' => $file]]));
 
-        $this->assertSame(['files' => [['sha256' => hash('sha256', $file), 'size' => 29_182_866]]], $this->body(0));
+        $this->assertSame(['files' => [['sha256' => hash('sha256', $file), 'size' => 29_182_812]]], $this->body(0));
     }
 
     public static function messagesTooLarge(): array
     {
         return [
-            'one byte more than fits' => [[str_repeat('a', 29_182_867)], []],
+            'one byte more than fits' => [[str_repeat('a', 29_182_813)], []],
+            'a subject that leaves no room' => [[str_repeat('a', 29_182_812)], ['subject' => str_repeat('é', 22)]],
             'a body that leaves no room' => [[str_repeat('a', 29_000_000)], ['text' => str_repeat('b', 200_000)]],
             'files that only fit alone' => [[str_repeat('a', 15_000_000), str_repeat('b', 15_000_000)], []],
         ];

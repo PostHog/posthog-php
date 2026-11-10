@@ -38,6 +38,7 @@ while ($connection = stream_socket_accept($server, 30)) {
     ], JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
 
     $response = array_shift($responses) ?? [];
+    usleep(($response['delay_ms'] ?? 0) * 1000);
     $closeServer = $response['close_server'] ?? false;
     if ($closeServer) {
         fclose($server);
