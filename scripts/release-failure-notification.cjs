@@ -57,10 +57,8 @@ module.exports = async function releaseFailureNotification({ github, context, ch
 
     const failedJobs = jobs.filter(job => unsuccessful.has(job.conclusion));
     const failureNotification = jobs.find(job => job.name === failureNotificationJob);
-    const failureAlertDelivered = stepSucceeded(failureNotification, 'Notify Slack - Failed');
     const rejectionDelivered = stepSucceeded(failureNotification, 'Notify Slack - Rejected');
-    const alreadyReported = job => isJob(job, publishJobs[0])
-        && (failureAlertDelivered || (rejectionDelivered && job.steps?.length === 0));
+    const alreadyReported = job => isJob(job, publishJobs[0]) && rejectionDelivered && job.steps?.length === 0;
 
     const published = publishJobs.every(name => {
         const cells = jobs.filter(job => isJob(job, name));

@@ -118,13 +118,13 @@ Ensure `.changeset/*.md` contains at least one `patch`, `minor`, or `major` inte
 
 The independent [release failure notification workflow](.github/workflows/release-failure-notification.yml) checks every completed main-branch release attempt and alerts if a job failed, timed out, or was cancelled. It also alerts when the run failed but the publishing job never ran, which happens when GitHub Actions stops mid-run and the in-run **Release Failed** job cannot run.
 
-The in-run **Release Failed** job still posts the detailed per-package status. The independent workflow does not repeat that alert when its Slack reply was delivered, or when the reply confirms an explicit rejection. It still alerts if that reply failed, was skipped, or never ran. If the packages are published, alerts describe follow-up problems, such as a skipped released notification, rather than claiming the release failed.
+The in-run **Release Failed** job sends the PostHog failure event and replies in Slack only when the release was explicitly rejected. The independent workflow does not repeat that reply for a rejection. Every other failed or cancelled release is reported only by the independent workflow. If the packages are published, alerts describe follow-up problems, such as a skipped released notification, rather than claiming the release failed.
 
 Cancelled runs with no jobs are ignored, including superseded queued runs and manual cancellations before any job is created.
 
 Job inspection retries transient GitHub API failures up to three times. If inspection still fails, the workflow logs the HTTP status or error type and posts a fallback alert with the overall run status and logs link. Error diagnostics stay in the run log, not in the Slack message.
 
-Alerts reply to the approval thread in the release approvals Slack channel. The release workflow preserves the thread timestamp in a run artifact for 30 days, independently of release approval. Failed-job reruns reuse the latest available thread from the same or an earlier attempt. If the timestamp is missing, invalid, or unavailable, the alert falls back to a new channel message. The workflow must be present on the default branch to run; local tests do not send Slack messages.
+Alerts reply to the approval thread in the release approvals Slack channel. The release workflow preserves the thread timestamp in a run artifact for 30 days, independently of release approval. Failed-job reruns reuse the latest available thread from the same or an earlier attempt. If the timestamp is missing, invalid, or unavailable, the alert falls back to a new channel message. The workflow must be present on the default branch to run.
 
 ### Partial publication
 

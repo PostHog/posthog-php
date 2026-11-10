@@ -269,10 +269,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-    outputs:
-      core-published: ${{ steps.publish-core.outcome == 'success' }}
-      distribution-published: ${{ steps.publish-distribution.outcome == 'success' }}
-      laravel-published: ${{ steps.publish-laravel.outcome == 'success' }}
     steps:
       - name: Notify Slack - Approved
         if: needs.notify-approval-needed.outputs.slack_ts != ''
@@ -547,20 +543,6 @@ jobs:
               "alertText": ":rotating_light: Failed to release PHP/Laravel packages :rotating_light:",
               "alertContext": "The release workflow failed before completion."
             }
-
-      - name: Notify Slack - Failed
-        if: steps.check-failure.outputs.was_rejected != 'true'
-        uses: posthog/.github/.github/actions/slack-thread-reply@cb0979b67dcd585828b61ac45927eef4da8f6287 # main
-        with:
-          slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-          slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-          thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-          message: |
-            ❌ Release workflow failed or was cancelled.
-            ${{ needs.prepare-release-candidate.outputs.core-changed == 'true' && format('posthog-php@{0}: {1}', needs.prepare-release-candidate.outputs.core-version, needs.release.outputs.core-published == 'true' && 'published' || 'not completed') || 'posthog-php: unchanged (no release planned)' }}
-            posthog-laravel@${{ needs.prepare-release-candidate.outputs.version }}: ${{ needs.release.outputs.laravel-published == 'true' && 'published' || needs.release.outputs.distribution-published == 'true' && 'mirror published; source release incomplete' || 'not completed' }}
-            <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>
-          emoji_reaction: "x"
 
       - name: Notify Slack - Rejected
         if: steps.check-failure.outputs.was_rejected == 'true'
