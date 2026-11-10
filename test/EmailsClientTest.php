@@ -67,7 +67,6 @@ class EmailsClientTest extends TestCase
             'template_key' => 'welcome',
             'subject' => 'Welcome',
             'html' => $html,
-            'capture_engagement' => true,
             'to' => 'user@example.com',
             'distinct_id' => 'user_123',
         ], json_decode($requests[0]['body'], true));

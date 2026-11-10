@@ -155,8 +155,7 @@ final class Emails
      * client sends `tracking` only when you set it, and needs a PostHog version that takes it.
      *
      * `capture_engagement` is deprecated: use `tracking` with `engagement` instead. It still works, but a
-     * send can't set both. The client sends `capture_engagement` (default true) only when `tracking` is
-     * left out, or when you set it.
+     * send can't set both. The client sends `capture_engagement` only when you set it.
      *
      * Both forms take `to` (one address), `distinct_id` (the recipient's distinct ID in your product;
      * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
@@ -384,8 +383,8 @@ final class Emails
         if ($captureEngagement !== null && !is_bool($captureEngagement)) {
             throw self::invalid('invalid_form', 'capture_engagement must be true or false.', 'capture_engagement');
         }
-        if ($tracking === null || $captureEngagement !== null) {
-            $content['capture_engagement'] = $captureEngagement ?? true;
+        if ($captureEngagement !== null) {
+            $content['capture_engagement'] = $captureEngagement;
         }
         if ($tracking !== null) {
             $content['tracking'] = $tracking;

@@ -178,7 +178,6 @@ class EmailsTest extends TestCase
             'text' => 'Reset it here: https://example.com/r',
             'from' => 'Acme <security@example.com>',
             'reply_to' => ['help@example.com'],
-            'capture_engagement' => true,
             'to' => 'user@example.com',
             'distinct_id' => 'user_123',
         ], $this->body());
@@ -225,7 +224,7 @@ class EmailsTest extends TestCase
     public static function trackingCases(): array
     {
         return [
-            'unset' => [['tracking' => null], '"capture_engagement":true,'],
+            'unset' => [['tracking' => null], ''],
             'true' => [['tracking' => true], '"tracking":true,'],
             'false' => [['tracking' => false], '"tracking":false,'],
             'clicks on' => [['tracking' => ['clicks' => true]], '"tracking":{"clicks":true},'],
@@ -261,7 +260,6 @@ class EmailsTest extends TestCase
             'template_key' => 'receipt',
             'subject' => 'Your receipt',
             'html' => '<p>Thanks!</p>',
-            'capture_engagement' => true,
             'to' => 'user@example.com',
         ], $this->body());
     }
