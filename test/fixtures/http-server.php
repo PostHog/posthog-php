@@ -31,16 +31,15 @@ while ($connection = stream_socket_accept($server, 30)) {
     if (($headers['content-encoding'] ?? '') === 'gzip') {
         $body = gzdecode($body);
     }
-    file_put_contents($argv[1], json_encode([
-        'requestLine' => $requestLine,
-        'headers' => $headers,
-        'body' => $body,
-    ], JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
-
     $next = $responses[0] ?? [];
     $refusal = null;
     foreach ($next['accepts'] ?? [] as $name => $expected) {
-        if (($name === 'request_line' ? $requestLine : $headers[$name] ?? null) !== $expected) {
+        $actual = match ($name) {
+            'request_line' => $requestLine,
+            'json_body' => json_decode($body, true),
+            default => $headers[$name] ?? null,
+        };
+        if ($name === 'json_body' ? $actual != $expected : $actual !== $expected) {
             $refusal = $next['refusal'];
         }
     }
@@ -54,6 +53,12 @@ while ($connection = stream_socket_accept($server, 30)) {
             . '<Error><Code>InvalidArgument</Code><Message>Only one auth mechanism allowed</Message></Error>'];
     }
     $response = $refusal ?? array_shift($responses) ?? [];
+    file_put_contents($argv[1], json_encode([
+        'requestLine' => $requestLine,
+        'headers' => $headers,
+        'body' => $body,
+        'status' => $response['status'] ?? 200,
+    ], JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
     usleep(($response['delay_ms'] ?? 0) * 1000);
     $closeServer = $response['close_server'] ?? false;
     if ($closeServer) {

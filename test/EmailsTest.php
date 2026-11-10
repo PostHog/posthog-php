@@ -25,7 +25,7 @@ class EmailsTest extends TestCase
      *     at: DateTimeImmutable}>
      */
     private array $requests = [];
-    /** @var list<array{int, string, list<string>}|EmailError> */
+    /** @var list<array{int, string, list<string>}|EmailError|string> */
     private array $replies = [];
     /** @var array<string, array<string, string>> the headers storage signed for each upload URL */
     private array $signedUploads = [];
@@ -107,6 +107,9 @@ class EmailsTest extends TestCase
             ]), []];
         }
         $reply = array_shift($this->replies) ?? [202, '{"message_id":"msg_1"}', []];
+        if ($reply === self::NEGOTIATE) {
+            $reply = $this->negotiate((string) $body);
+        }
         if ($reply instanceof EmailError) {
             throw $reply;
         }
@@ -131,6 +134,19 @@ class EmailsTest extends TestCase
         }
 
         return $reply;
+    }
+
+    /** PostHog's answer to the upload route: present for each file it holds, a slot signed for each other file. */
+    private function negotiate(string $body): array
+    {
+        $slots = [];
+        foreach (json_decode($body, true)['files'] ?? [] as $file) {
+            $slots[] = array_key_exists($file['sha256'], $this->stored)
+                ? self::presentSlot($file['sha256'])
+                : self::signedSlot($file['sha256'], $file['size']);
+        }
+
+        return self::slots(...$slots);
     }
 
     /** @param list<string> $headers */
@@ -196,7 +212,7 @@ class EmailsTest extends TestCase
         return true;
     }
 
-    /** @param array{int, string, list<string>}|EmailError ...$replies */
+    /** @param array{int, string, list<string>}|EmailError|string ...$replies */
     private function reply(...$replies): void
     {
         $this->replies = $replies;
@@ -364,6 +380,7 @@ class EmailsTest extends TestCase
     private const PNG_SHA256 = '843ac23b1736b4487ec81cf7c07ddd9bb46ae5b7818c2c3843d99d62fa75f3c9';
     private const BUCKET = 'https://attachments.example/team/2/';
     private const SIGNATURE = '?X-Amz-Signature=signature-secret';
+    private const NEGOTIATE = 'answer the upload route from what PostHog holds';
     private const BUCKET_AUTH_ERROR = '<Error><Code>InvalidArgument</Code>'
         . '<Message>Only one auth mechanism allowed</Message></Error>';
     private const BUCKET_DIGEST_ERROR = '<?xml version="1.0" encoding="UTF-8"?><Error><Code>BadDigest</Code>'
@@ -371,16 +388,19 @@ class EmailsTest extends TestCase
 
     private static function uploadSlot(string $content): array
     {
-        $sha256 = hash('sha256', $content);
+        return self::signedSlot(hash('sha256', $content), strlen($content));
+    }
 
+    private static function signedSlot(string $sha256, int $size): array
+    {
         return [
             'sha256' => $sha256,
             'status' => 'upload',
             'url' => self::BUCKET . $sha256 . self::SIGNATURE,
             'method' => 'PUT',
             'headers' => [
-                'Content-Length' => (string) strlen($content),
-                'x-amz-checksum-sha256' => base64_encode(hash('sha256', $content, true)),
+                'Content-Length' => (string) $size,
+                'x-amz-checksum-sha256' => base64_encode((string) hex2bin($sha256)),
             ],
             'url_expires_at' => '2026-11-02T12:15:00Z',
         ];
@@ -415,11 +435,8 @@ class EmailsTest extends TestCase
 
     public function testFilesAreHashedUploadedThenSentByReferenceWithCopies(): void
     {
-        $this->reply(
-            self::slots(self::uploadSlot(self::INVITE), self::presentSlot(self::PNG_SHA256)),
-            [200, '', []],
-            [202, '{"message_id":"msg_1"}', []]
-        );
+        $this->stored[self::PNG_SHA256] = null;
+        $this->reply(self::NEGOTIATE, [200, '', []], [202, '{"message_id":"msg_1"}', []]);
 
         $result = $this->emails(['migratedFrom' => 'resend'])->send([
             'to' => 'user@example.com',
@@ -436,10 +453,7 @@ class EmailsTest extends TestCase
 
         $this->assertSame('msg_1', $result->getId());
         $this->assertSame(self::INVITE, $this->stored[self::INVITE_SHA256], 'storage holds the new file');
-        $this->assertSame(
-            ['files' => [['sha256' => self::INVITE_SHA256, 'size' => 32], ['sha256' => self::PNG_SHA256, 'size' => 9]]],
-            $this->body(0)
-        );
+        $this->assertSame([self::INVITE_SHA256 => 1], $this->storageWrites, 'the file PostHog held went nowhere');
         $this->assertSame([[
             'template_key' => 'invite',
             'subject' => 'You are invited',
@@ -810,7 +824,8 @@ class EmailsTest extends TestCase
         );
 
         $this->assertSame('message_too_large', $error->getErrorCode());
-        $this->assertSame([], $this->requests);
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
     }
 
     public static function messagesTooLarge(): array
@@ -841,7 +856,8 @@ class EmailsTest extends TestCase
         $this->assertNull($error->getStatusCode());
         $this->assertStringContainsString('40 MB', $error->getMessage());
         $this->assertStringContainsString('about 29 MB of files', $error->getWhy());
-        $this->assertSame([], $this->requests);
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
     }
 
     public function testMoreThanTenFilesAreRefusedBeforeAnyRequest(): void
@@ -851,7 +867,8 @@ class EmailsTest extends TestCase
         $this->assertSame('too_many_attachments', $error->getErrorCode());
         $this->assertSame('validation_error', $error->getErrorName());
         $this->assertSame('attachments', $error->getField());
-        $this->assertSame([], $this->requests);
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
     }
 
     public function testEmptyCopyAndAttachmentListsAreLeftOut(): void
@@ -1077,7 +1094,8 @@ class EmailsTest extends TestCase
         $this->assertSame('validation_error', $error->getErrorName());
         $this->assertSame($field, $error->getField());
         $this->assertStringNotContainsString(self::SECRET_CONTENT, $error->getMessage() . $error->getFix());
-        $this->assertSame([], $this->requests);
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued);
     }
 
     public function testAnOptionOfTheOtherFormSaysHowToSendIt(): void

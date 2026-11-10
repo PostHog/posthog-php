@@ -108,10 +108,11 @@ class EmailsClientTest extends TestCase
                 'accepts' => [
                     'request_line' => 'POST /api/projects/@current/messaging/attachments/uploads/ HTTP/1.1',
                     'authorization' => 'Bearer phs_secret',
+                    'json_body' => ['files' => [['sha256' => $sha256, 'size' => strlen($file)]]],
                 ],
                 'refusal' => [
-                    'status' => 404,
-                    'body' => '{"type":"invalid_request","code":"not_found","detail":"Not found."}',
+                    'status' => 400,
+                    'body' => '{"type":"validation_error","code":"invalid_request","detail":"Not as PostHog signs."}',
                 ],
             ],
             ['status' => 202, 'body' => '{"message_id":"01a18356-c56c-0001-e494-7666bc915188"}'],
@@ -126,17 +127,34 @@ class EmailsClientTest extends TestCase
         ]);
 
         $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
-        [$upload, $send] = $this->server->requests();
-        $this->assertSame(
-            ['files' => [['sha256' => $sha256, 'size' => strlen($file)]]],
-            json_decode($upload['body'], true)
-        );
-        [$stored] = $this->bucket->requests();
-        $this->assertSame($file, $stored['body']);
+        $this->assertSame([$file], $this->storedFiles());
         $this->assertSame(
             [['sha256' => $sha256, 'filename' => 'receipt.pdf']],
-            json_decode($send['body'], true)['attachments']
+            $this->queuedEmails()[0]['attachments']
         );
+    }
+
+    /** @return list<string> the files storage took */
+    private function storedFiles(): array
+    {
+        return array_column(self::accepted($this->bucket, 'PUT '), 'body');
+    }
+
+    /** @return list<array<string, mixed>> the emails PostHog queued */
+    private function queuedEmails(): array
+    {
+        return array_map(
+            static fn(array $send): array => json_decode($send['body'], true),
+            self::accepted($this->server, 'POST /api/projects/@current/messaging/send/email/ ')
+        );
+    }
+
+    private static function accepted(LocalHttpServer $server, string $requestLinePrefix): array
+    {
+        return array_values(array_filter(
+            $server->acceptedRequests(),
+            static fn(array $request): bool => str_starts_with($request['requestLine'], $requestLinePrefix)
+        ));
     }
 
     private static function uploadAnswer(string $storage, string $file): array
@@ -181,7 +199,8 @@ class EmailsClientTest extends TestCase
             $this->assertStringContainsString('BadDigest', $error->getMessage());
         }
 
-        $this->assertCount(1, $this->server->requests(), 'nothing was sent');
+        $this->assertSame([], $this->storedFiles());
+        $this->assertSame([], $this->queuedEmails(), 'nothing was sent');
     }
 
     public function testStorageMayTakeLongerThanTheRequestTimeoutToTakeALargerFile(): void
@@ -197,7 +216,7 @@ class EmailsClientTest extends TestCase
         $result = $client->emails()->send(self::sendWithFile($file));
 
         $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
-        $this->assertSame($file, $this->bucket->requests()[0]['body']);
+        $this->assertSame([$file], $this->storedFiles());
     }
 
     public function testAnUploadGivesUpConnectingToStorageAtTheRequestTimeout(): void
@@ -232,7 +251,7 @@ class EmailsClientTest extends TestCase
         }
 
         $this->assertLessThan(3000, (hrtime(true) - $started) / 1e6, 'gave up at the 1 s connect timeout, not 6 s');
-        $this->assertCount(1, $this->server->requests(), 'nothing was sent');
+        $this->assertSame([], $this->queuedEmails(), 'nothing was sent');
         fclose($storage);
     }
 
