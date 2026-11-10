@@ -74,45 +74,75 @@ class EmailsClientTest extends TestCase
         ], json_decode($requests[0]['body'], true));
     }
 
-    public function testACodeSendDefinesItsCategoryOnTheServer(): void
+    private const NEWSLETTER = ['key' => 'newsletter', 'type' => 'marketing', 'name' => 'Newsletter'];
+
+    private function sendInCategory(mixed $category): string
     {
-        $this->server = new LocalHttpServer([], 'email-send-server.php');
-        $emails = $this->client()->emails();
-        $newsletter = ['key' => 'newsletter', 'type' => 'marketing', 'name' => 'Newsletter'];
-        $send = fn(mixed $category): string => $emails->send([
+        $this->server ??= new LocalHttpServer([], 'email-send-server.php');
+
+        return $this->client()->emails()->send([
             'to' => 'user@example.com',
             'template_key' => 'monthly-news',
             'subject' => 'This month',
             'html' => '<p>News. {{ unsubscribe_url }}</p>',
             'category' => $category,
         ])->getId();
+    }
 
-        $first = $send($newsletter + ['description' => 'Monthly product news']);
+    public function testACodeSendCreatesItsCategory(): void
+    {
+        $messageId = $this->sendInCategory(self::NEWSLETTER + ['description' => 'Monthly product news']);
+
+        $state = $this->server->state();
         $this->assertSame(
             ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => 'Monthly product news']],
-            $this->server->state()['categories']
+            $state['categories']
         );
+        $this->assertSame(
+            [['message_id' => $messageId, 'category' => 'newsletter', 'type' => 'marketing']],
+            $state['sends']
+        );
+    }
 
-        $send(['key' => 'newsletter', 'type' => 'marketing', 'name' => 'Product news', 'description' => null]);
+    public function testASendWithoutADescriptionKeepsTheStoredOne(): void
+    {
+        $this->sendInCategory(self::NEWSLETTER + ['description' => 'Monthly product news']);
+
+        $this->sendInCategory(['name' => 'Product news', 'description' => null] + self::NEWSLETTER);
+
         $this->assertSame(
             ['type' => 'marketing', 'name' => 'Product news', 'description' => 'Monthly product news'],
             $this->server->state()['categories']['newsletter']
         );
+    }
 
-        $send($newsletter + ['description' => '']);
+    public function testAnEmptyDescriptionClearsTheStoredOne(): void
+    {
+        $this->sendInCategory(self::NEWSLETTER + ['description' => 'Monthly product news']);
+
+        $this->sendInCategory(self::NEWSLETTER + ['description' => '']);
+
         $this->assertSame('', $this->server->state()['categories']['newsletter']['description']);
+    }
 
-        $receipt = $send(Emails::CATEGORY_TRANSACTIONAL);
+    public function testTheBuiltInTransactionalCategorySendsWithoutACategory(): void
+    {
+        $messageId = $this->sendInCategory(Emails::CATEGORY_TRANSACTIONAL);
+
+        $state = $this->server->state();
+        $this->assertSame([], $state['categories']);
         $this->assertSame(
-            [
-                ['message_id' => $first, 'category' => 'newsletter', 'type' => 'marketing'],
-                ['message_id' => $receipt, 'category' => null, 'type' => 'transactional'],
-            ],
-            [$this->server->state()['sends'][0], $this->server->state()['sends'][3]]
+            [['message_id' => $messageId, 'category' => null, 'type' => 'transactional']],
+            $state['sends']
         );
+    }
+
+    public function testACategoryCannotChangeItsType(): void
+    {
+        $this->sendInCategory(self::NEWSLETTER);
 
         try {
-            $send(['key' => 'newsletter', 'type' => Emails::CATEGORY_TRANSACTIONAL, 'name' => 'Newsletter']);
+            $this->sendInCategory(['type' => Emails::CATEGORY_TRANSACTIONAL] + self::NEWSLETTER);
             $this->fail('send() did not throw');
         } catch (EmailError $error) {
             $this->assertSame('category_mismatch', $error->getErrorCode());
@@ -120,8 +150,9 @@ class EmailsClientTest extends TestCase
             $this->assertSame(400, $error->getStatusCode());
             $this->assertSame('category', $error->getField());
         }
-        $this->assertSame('marketing', $this->server->state()['categories']['newsletter']['type']);
-        $this->assertCount(4, $this->server->state()['sends']);
+        $state = $this->server->state();
+        $this->assertSame('marketing', $state['categories']['newsletter']['type']);
+        $this->assertCount(1, $state['sends']);
     }
 
     public function testARetryAfterHeaderComesBackOnTheError(): void
