@@ -292,7 +292,6 @@ class EmailsTest extends TestCase
     {
         $template = ['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID];
         $code = ['to' => 'user@example.com', 'template_key' => 'welcome', 'subject' => 'Hi', 'html' => '<p>Hi</p>'];
-        $newsletter = ['key' => 'newsletter', 'type' => 'marketing', 'name' => 'Newsletter'];
 
         return [
             'no form' => [['to' => 'user@example.com'], 'invalid_form', null],
@@ -343,38 +342,6 @@ class EmailsTest extends TestCase
             'html not a string' => [['html' => ['<p>']] + $code, 'invalid_form', 'html'],
             'empty from' => [$code + ['from' => ''], 'invalid_form', 'from'],
             'blank reply_to' => [$code + ['reply_to' => ['a@example.com', ' ']], 'invalid_form', 'reply_to'],
-            'category with a template' => [
-                $template + ['category' => Emails::CATEGORY_TRANSACTIONAL],
-                'invalid_form',
-                'category',
-            ],
-            'category as a key alone' => [$code + ['category' => 'newsletter'], 'invalid_category', 'category'],
-            'category as a list' => [$code + ['category' => ['newsletter']], 'invalid_category', 'category'],
-            'category without a key' => [
-                $code + ['category' => ['type' => 'marketing', 'name' => 'Newsletter']],
-                'invalid_category',
-                'category',
-            ],
-            'category with an unknown type' => [
-                $code + ['category' => ['type' => 'promotional'] + $newsletter],
-                'invalid_category',
-                'category',
-            ],
-            'category with an empty name' => [
-                $code + ['category' => ['name' => ''] + $newsletter],
-                'invalid_category',
-                'category',
-            ],
-            'category with a description that is not a string' => [
-                $code + ['category' => $newsletter + ['description' => 42]],
-                'invalid_category',
-                'category',
-            ],
-            'category with a misspelled field' => [
-                $code + ['category' => $newsletter + ['descripton' => 'Monthly product news']],
-                'invalid_category',
-                'category',
-            ],
             'capture_engagement not a bool' => [
                 $code + ['capture_engagement' => 'no'],
                 'invalid_form',

@@ -165,6 +165,63 @@ class EmailsClientTest extends TestCase
         $this->assertSame(['categories' => [], 'sends' => []], $this->server->state());
     }
 
+    public static function refusedCategories(): array
+    {
+        $template = ['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID];
+        $code = ['to' => 'user@example.com', 'template_key' => 'welcome', 'subject' => 'Hi', 'html' => '<p>Hi</p>'];
+
+        return [
+            'category with a template' => [
+                $template + ['category' => Emails::CATEGORY_TRANSACTIONAL],
+                'invalid_form',
+                'category',
+            ],
+            'category as a key alone' => [$code + ['category' => 'newsletter'], 'invalid_category', 'category'],
+            'category as a list' => [$code + ['category' => ['newsletter']], 'invalid_category', 'category'],
+            'category without a key' => [
+                $code + ['category' => ['type' => 'marketing', 'name' => 'Newsletter']],
+                'invalid_category',
+                'category',
+            ],
+            'category with an unknown type' => [
+                $code + ['category' => ['type' => 'promotional'] + self::NEWSLETTER],
+                'invalid_category',
+                'category',
+            ],
+            'category with an empty name' => [
+                $code + ['category' => ['name' => ''] + self::NEWSLETTER],
+                'invalid_category',
+                'category',
+            ],
+            'category with a description that is not a string' => [
+                $code + ['category' => self::NEWSLETTER + ['description' => 42]],
+                'invalid_category',
+                'category',
+            ],
+            'category with a misspelled field' => [
+                $code + ['category' => self::NEWSLETTER + ['descripton' => 'Monthly product news']],
+                'invalid_category',
+                'category',
+            ],
+        ];
+    }
+
+    #[DataProvider('refusedCategories')]
+    public function testARefusedCategoryNeverReachesTheServer(array $email, string $code, string $field): void
+    {
+        $this->server = new LocalHttpServer([], 'email-send-server.php');
+
+        try {
+            $this->client()->emails()->send($email);
+            $this->fail('send() did not throw');
+        } catch (EmailError $error) {
+            $this->assertSame($code, $error->getErrorCode());
+            $this->assertSame('validation_error', $error->getErrorName());
+            $this->assertSame($field, $error->getField());
+        }
+        $this->assertSame([], $this->server->requests());
+    }
+
     public function testACategoryCannotChangeItsType(): void
     {
         $this->sendInCategory(self::NEWSLETTER);
