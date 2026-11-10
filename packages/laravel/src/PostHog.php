@@ -26,7 +26,7 @@ class PostHog
     public function enabled(): bool
     {
         return (bool) $this->app['config']->get('posthog.enabled', true)
-            && trim((string) $this->app['config']->get('posthog.api_key')) !== '';
+            && ProjectToken::fromConfig($this->app['config']->get('posthog', [])) !== null;
     }
 
     public function client(): Client
@@ -38,6 +38,7 @@ class PostHog
             return $this->client = new Client(null, ['consumer' => 'noop'], loadFeatureFlags: false);
         }
         $config = $this->app['config']->get('posthog', []);
+        $token = ProjectToken::fromConfig($config);
         $options = $config['sdk'] ?? [];
         $options += ['disableGeoip' => true];
         $options['host'] = $config['host'] ?? 'https://us.i.posthog.com';
@@ -59,7 +60,7 @@ class PostHog
         $laravelQueue = $config['laravel_queue'] ?? [];
         $queuedConsumer = ($laravelQueue['enabled'] ?? false) && ($options['consumer'] ?? null) !== 'noop'
             ? new QueuedConsumer(
-                $config['api_key'],
+                $token,
                 $options,
                 $this->app->make(Dispatcher::class),
                 $laravelQueue,
@@ -67,7 +68,7 @@ class PostHog
             )
             : null;
         return $this->client = new LaravelClient(
-            $config['api_key'],
+            $token,
             $options,
             $config['release_id'] ?? null,
             $config['secret_key'] ?? null,
