@@ -649,21 +649,56 @@ class EmailsTest extends TestCase
         $this->assertCount(1, $this->requests, 'nothing was uploaded or sent');
     }
 
-    public function testTheLargestFileThatFitsTheMessageIsUploaded(): void
+    public static function subjectsAndTheLargestFileThatFits(): array
     {
-        $file = str_repeat('a', 29_182_812);
+        return [
+            'a 12-byte subject adds 75' => ['Your receipt', 29_182_812],
+            '42 ASCII bytes add 75' => [str_repeat('s', 42), 29_182_812],
+            '43 ASCII bytes add 150' => [str_repeat('s', 43), 29_182_758],
+            '21 two-byte characters add 75' => [str_repeat('é', 21), 29_182_812],
+            '22 two-byte characters add 150' => [str_repeat('é', 22), 29_182_758],
+        ];
+    }
+
+    #[DataProvider('subjectsAndTheLargestFileThatFits')]
+    public function testTheLargestFileThatFitsBesideTheSubjectIsUploaded(string $subject, int $largest): void
+    {
+        $file = str_repeat('a', $largest);
         $this->reply(self::slots(self::presentSlot(hash('sha256', $file))));
 
-        $this->emails()->send(self::sendWithFiles([['filename' => 'big.pdf', 'content' => $file]]));
+        $this->emails()->send(
+            self::sendWithFiles([['filename' => 'big.pdf', 'content' => $file]], ['subject' => $subject])
+        );
 
-        $this->assertSame(['files' => [['sha256' => hash('sha256', $file), 'size' => 29_182_812]]], $this->body(0));
+        $this->assertSame(['files' => [['sha256' => hash('sha256', $file), 'size' => $largest]]], $this->body(0));
+    }
+
+    #[DataProvider('subjectsAndTheLargestFileThatFits')]
+    public function testOneByteMoreThanFitsBesideTheSubjectIsRefused(string $subject, int $largest): void
+    {
+        $file = str_repeat('a', $largest + 1);
+
+        $error = $this->sendError(
+            self::sendWithFiles([['filename' => 'big.pdf', 'content' => $file]], ['subject' => $subject])
+        );
+
+        $this->assertSame('message_too_large', $error->getErrorCode());
+        $this->assertSame([], $this->requests);
+    }
+
+    public function testAnEmptySubjectBesideFilesIsRefusedBeforeAnyRequest(): void
+    {
+        $error = $this->sendError(self::sendWithFiles([self::invite()], ['subject' => '']));
+
+        $this->assertSame('invalid_form', $error->getErrorCode());
+        $this->assertSame('subject', $error->getField());
+        $this->assertSame([], $this->requests);
     }
 
     public static function messagesTooLarge(): array
     {
         return [
             'one byte more than fits' => [[str_repeat('a', 29_182_813)], []],
-            'a subject that leaves no room' => [[str_repeat('a', 29_182_812)], ['subject' => str_repeat('é', 22)]],
             'a body that leaves no room' => [[str_repeat('a', 29_000_000)], ['text' => str_repeat('b', 200_000)]],
             'files that only fit alone' => [[str_repeat('a', 15_000_000), str_repeat('b', 15_000_000)], []],
         ];
