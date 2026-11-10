@@ -22,7 +22,7 @@ $token = static function (string ...$names): ?string {
 return [
     'enabled' => env('POSTHOG_ENABLED', true),
     // POSTHOG_API_KEY is the older name for the project token and is still read.
-    'token' => $token('POSTHOG_TOKEN', 'POSTHOG_API_KEY'),
+    'token' => $token('POSTHOG_PROJECT_TOKEN', 'POSTHOG_API_KEY'),
     'host' => env('POSTHOG_HOST', 'https://us.i.posthog.com'),
     'secret_key' => env('POSTHOG_SECRET_KEY'),
     'release_id' => env('POSTHOG_RELEASE_ID'),

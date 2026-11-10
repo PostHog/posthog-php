@@ -103,7 +103,7 @@ class PostHogTest extends TestCase
 
     private function withEnvTokens(?string $token, ?string $apiKey, callable $callback): void
     {
-        $values = [PostHog::ENV_TOKEN => $token, PostHog::ENV_API_KEY => $apiKey];
+        $values = [PostHog::ENV_PROJECT_TOKEN => $token, PostHog::ENV_API_KEY => $apiKey];
         $previous = [];
         foreach ($values as $name => $value) {
             $previous[$name] = getenv($name);
@@ -244,10 +244,10 @@ class PostHogTest extends TestCase
     public static function envTokenCases(): array
     {
         return [
-            'POSTHOG_TOKEN' => ['token-from-env', null, 'token-from-env'],
+            'POSTHOG_PROJECT_TOKEN' => ['token-from-env', null, 'token-from-env'],
             'older POSTHOG_API_KEY' => [null, 'api-key-from-env', 'api-key-from-env'],
-            'POSTHOG_TOKEN wins over POSTHOG_API_KEY' => ['token-from-env', 'api-key-from-env', 'token-from-env'],
-            'blank POSTHOG_TOKEN falls back' => [" \t", 'api-key-from-env', 'api-key-from-env'],
+            'POSTHOG_PROJECT_TOKEN wins over POSTHOG_API_KEY' => ['token-from-env', 'api-key-from-env', 'token-from-env'],
+            'blank POSTHOG_PROJECT_TOKEN falls back' => [" \t", 'api-key-from-env', 'api-key-from-env'],
         ];
     }
 

@@ -39,11 +39,11 @@ in a published package manifest. The lock does not replace the local source tree
 
 ## Safe defaults and configuration
 
-With a blank `POSTHOG_TOKEN` or `POSTHOG_ENABLED=false`, **all SDK network paths
+With a blank `POSTHOG_PROJECT_TOKEN` or `POSTHOG_ENABLED=false`, **all SDK network paths
 are disabled**, including flags and raw client access. Forms still run and show
 false/empty SDK results. SQLite operations and synthetic login still work.
 
-To send synthetic events to a development project, set `POSTHOG_TOKEN` and the
+To send synthetic events to a development project, set `POSTHOG_PROJECT_TOKEN` and the
 project's ingestion `POSTHOG_HOST` in `.env`. Keep `.env` private. Do not use
 production credentials/data for this demo. Never put `POSTHOG_SECRET_KEY` in HTML,
 browser code, event properties, logs, or a browser configuration endpoint.

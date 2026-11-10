@@ -4285,9 +4285,9 @@
                     "type": "string",
                     "value": "POSTHOG_HOST"
                 },
-                "ENV_TOKEN": {
+                "ENV_PROJECT_TOKEN": {
                     "type": "string",
-                    "value": "POSTHOG_TOKEN"
+                    "value": "POSTHOG_PROJECT_TOKEN"
                 },
                 "LIBRARY": {
                     "type": "string",

@@ -11,9 +11,9 @@ class PostHog
 {
     public const LIBRARY = 'posthog-php';
     public const VERSION = '4.22.1';
-    public const ENV_TOKEN = "POSTHOG_TOKEN";
+    public const ENV_PROJECT_TOKEN = "POSTHOG_PROJECT_TOKEN";
     /**
-     * @deprecated Use ENV_TOKEN. POSTHOG_API_KEY is still read when POSTHOG_TOKEN is unset or blank.
+     * @deprecated Use ENV_PROJECT_TOKEN. POSTHOG_API_KEY is still read when POSTHOG_PROJECT_TOKEN is unset or blank.
      */
     public const ENV_API_KEY = "POSTHOG_API_KEY";
     public const ENV_HOST = "POSTHOG_HOST";
@@ -23,7 +23,7 @@ class PostHog
     /**
      * Initializes the default client to use. Uses the libcurl consumer by default.
      *
-     * When $apiKey is omitted or blank, the POSTHOG_TOKEN environment variable is used, then
+     * When $apiKey is omitted or blank, the POSTHOG_PROJECT_TOKEN environment variable is used, then
      * the older POSTHOG_API_KEY. When no non-empty project token can be resolved, a disabled
      * no-op client is initialized. When the
      * host option is omitted, POSTHOG_HOST is used when present. When POSTHOG_RELEASE_ID is set,
@@ -135,7 +135,7 @@ class PostHog
 
     private static function tokenFromEnvironment(): ?string
     {
-        foreach ([self::ENV_TOKEN, self::ENV_API_KEY] as $name) {
+        foreach ([self::ENV_PROJECT_TOKEN, self::ENV_API_KEY] as $name) {
             $value = getenv($name);
             $token = $value === false ? null : StringNormalizer::normalizeOptional($value);
             if ($token !== null) {

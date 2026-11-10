@@ -16,13 +16,13 @@ For applications without discovery, register `PostHog\Laravel\PostHogServiceProv
 Configure your **server environment**:
 
 ```dotenv
-POSTHOG_TOKEN=phc_your_project_token
+POSTHOG_PROJECT_TOKEN=phc_your_project_token
 POSTHOG_HOST=https://us.i.posthog.com
 POSTHOG_ENABLED=true
 ```
 
 `POSTHOG_API_KEY` is the older name for the project token and is still read when
-`POSTHOG_TOKEN` is blank. Configs published before the `token` key existed keep working
+`POSTHOG_PROJECT_TOKEN` is blank. Configs published before the `token` key existed keep working
 through their `api_key` key.
 
 Use your project's ingestion host. `POSTHOG_SECRET_KEY` is optional and enables local

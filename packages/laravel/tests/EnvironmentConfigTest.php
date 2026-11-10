@@ -15,7 +15,7 @@ use PostHog\Laravel\ProjectToken;
 class EnvironmentConfigTest extends TestCase
 {
     private const VARIABLES = [
-        'POSTHOG_TOKEN', 'POSTHOG_API_KEY',
+        'POSTHOG_PROJECT_TOKEN', 'POSTHOG_API_KEY',
         'POSTHOG_TIMEOUT_MS', 'POSTHOG_SOCKET_TIMEOUT_SECONDS', 'POSTHOG_BATCH_SIZE', 'POSTHOG_MAX_QUEUE_SIZE',
         'POSTHOG_FLUSH_INTERVAL_SECONDS', 'POSTHOG_COMPRESS_REQUEST', 'POSTHOG_CONSUMER',
         'POSTHOG_FF_REQUEST_TIMEOUT_MS', 'POSTHOG_FF_REQUEST_MAX_RETRIES',
@@ -108,11 +108,11 @@ class EnvironmentConfigTest extends TestCase
     public static function tokenEnvironments(): array
     {
         return [
-            'POSTHOG_TOKEN' => [['POSTHOG_TOKEN' => 'phc_token'], 'phc_token'],
+            'POSTHOG_PROJECT_TOKEN' => [['POSTHOG_PROJECT_TOKEN' => 'phc_token'], 'phc_token'],
             'older POSTHOG_API_KEY' => [['POSTHOG_API_KEY' => 'phc_api_key'], 'phc_api_key'],
-            'POSTHOG_TOKEN wins' => [['POSTHOG_TOKEN' => 'phc_token', 'POSTHOG_API_KEY' => 'phc_api_key'], 'phc_token'],
-            'blank POSTHOG_TOKEN falls back' => [['POSTHOG_TOKEN' => '', 'POSTHOG_API_KEY' => 'phc_api_key'], 'phc_api_key'],
-            'whitespace POSTHOG_TOKEN falls back' => [['POSTHOG_TOKEN' => " \t", 'POSTHOG_API_KEY' => 'phc_api_key'], 'phc_api_key'],
+            'POSTHOG_PROJECT_TOKEN wins' => [['POSTHOG_PROJECT_TOKEN' => 'phc_token', 'POSTHOG_API_KEY' => 'phc_api_key'], 'phc_token'],
+            'blank POSTHOG_PROJECT_TOKEN falls back' => [['POSTHOG_PROJECT_TOKEN' => '', 'POSTHOG_API_KEY' => 'phc_api_key'], 'phc_api_key'],
+            'whitespace POSTHOG_PROJECT_TOKEN falls back' => [['POSTHOG_PROJECT_TOKEN' => " \t", 'POSTHOG_API_KEY' => 'phc_api_key'], 'phc_api_key'],
         ];
     }
 
