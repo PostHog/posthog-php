@@ -85,11 +85,7 @@ class EmailsTest extends TestCase
         return $reply;
     }
 
-    /**
-     * Storage refuses an upload whose bytes don't match the size and checksum PostHog signed, so the fake does too.
-     *
-     * @param list<string> $headers
-     */
+    /** @param list<string> $headers */
     private static function storageAccepts(array $headers, string $body): bool
     {
         foreach ($headers as $header) {
@@ -279,7 +275,6 @@ class EmailsTest extends TestCase
     private const BUCKET_DIGEST_ERROR = '<?xml version="1.0" encoding="UTF-8"?><Error><Code>BadDigest</Code>'
         . '<Message>The SHA256 you specified did not match the calculated checksum.</Message></Error>';
 
-    /** PostHog's upload slot for a file: a URL and headers signed for that file's own hash, size and checksum. */
     private static function uploadSlot(string $content): array
     {
         $sha256 = hash('sha256', $content);

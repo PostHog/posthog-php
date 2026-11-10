@@ -455,8 +455,6 @@ final class Emails
     }
 
     /**
-     * Checks the files against PostHog's limits, counting the message as PostHog's own estimate does.
-     *
      * @param list<string> $bodies
      * @return array{list<array<string, string>>, array<string, Upload>}
      */
@@ -514,7 +512,6 @@ final class Emails
         return ceil(ceil($bytes / 3) * 4 * 78 / 76);
     }
 
-    /** The subject's UTF-8 bytes, folded into encoded words of 42 bytes that take 75 bytes each. */
     private static function encodedSubjectBytes(string $subject): float
     {
         return ceil(strlen($subject) / 42) * 75;

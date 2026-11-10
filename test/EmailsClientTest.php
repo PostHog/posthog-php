@@ -126,7 +126,6 @@ class EmailsClientTest extends TestCase
         );
     }
 
-    /** PostHog's answer to the upload request: one slot that sends the file to the given storage address. */
     private static function uploadAnswer(string $storage, string $file): array
     {
         $sha256 = hash('sha256', $file);
@@ -182,9 +181,10 @@ class EmailsClientTest extends TestCase
         for ($i = 0; $i < 4; $i++) {
             $waiting[] = @stream_socket_client("tcp://$address", $errno, $error, 1, STREAM_CLIENT_ASYNC_CONNECT);
         }
+        $probeStarted = hrtime(true);
         $probe = @stream_socket_client("tcp://$address", $errno, $error, 0.3);
-        if ($probe !== false) {
-            $this->markTestSkipped('This system still connects once the listen queue is full.');
+        if ($probe !== false || (hrtime(true) - $probeStarted) / 1e6 < 250) {
+            $this->markTestSkipped('Connecting here does not stall once the listen queue is full.');
         }
         $file = str_repeat('a', 500_000);
         $this->server = new LocalHttpServer([self::uploadAnswer($address, $file)]);
