@@ -1,5 +1,16 @@
 # posthog-laravel
 
+## 0.4.0
+
+### Minor Changes
+
+- Read the project token from `POSTHOG_PROJECT_TOKEN`. `POSTHOG_API_KEY` still works as a fallback, and the Laravel config gains a `project_token` key. The `api_key` key is deprecated and still read when `project_token` is blank.
+
+### Patch Changes
+
+- Updated dependencies:
+  - posthog-php@4.23.0
+
 ## 0.3.1
 
 ### Patch Changes
