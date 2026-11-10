@@ -73,6 +73,41 @@ class EmailsClientTest extends TestCase
         ], json_decode($requests[0]['body'], true));
     }
 
+    public function testAMarketingCodeSendCarriesItsCategoryOverHttp(): void
+    {
+        $this->server = new LocalHttpServer([
+            ['status' => 202, 'body' => '{"message_id":"01a18356-c56c-0001-e494-7666bc915188","replayed":false}'],
+        ]);
+
+        $result = $this->client()->emails()->send([
+            'to' => 'user@example.com',
+            'template_key' => 'monthly-news',
+            'subject' => 'This month',
+            'html' => '<p>News. {{ unsubscribe_url }}</p>',
+            'category' => [
+                'key' => 'newsletter',
+                'type' => 'marketing',
+                'name' => 'Newsletter',
+                'description' => 'Monthly product news',
+            ],
+        ]);
+
+        $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
+        $this->assertSame([
+            'template_key' => 'monthly-news',
+            'subject' => 'This month',
+            'html' => '<p>News. {{ unsubscribe_url }}</p>',
+            'capture_engagement' => true,
+            'category' => [
+                'key' => 'newsletter',
+                'type' => 'marketing',
+                'name' => 'Newsletter',
+                'description' => 'Monthly product news',
+            ],
+            'to' => 'user@example.com',
+        ], json_decode($this->server->requests()[0]['body'], true));
+    }
+
     public function testARetryAfterHeaderComesBackOnTheError(): void
     {
         $this->server = new LocalHttpServer([
