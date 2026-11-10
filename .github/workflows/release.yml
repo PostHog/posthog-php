@@ -240,6 +240,26 @@ jobs:
       slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
       posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
 
+  preserve-slack-thread:
+    name: Preserve Slack thread
+    needs: notify-approval-needed
+    if: needs.notify-approval-needed.outputs.slack_ts != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - name: Save approval thread timestamp
+        env:
+          THREAD_TS: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+        run: printf '%s' "$THREAD_TS" > thread-ts.txt
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-slack-thread-${{ github.run_attempt }}
+          path: thread-ts.txt
+          retention-days: 30
+          if-no-files-found: error
+
   release:
     name: Publish PHP then Laravel
     needs: [check-changesets, prepare-release-candidate, verify-release-candidate, notify-approval-needed]
@@ -249,10 +269,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-    outputs:
-      core-published: ${{ steps.publish-core.outcome == 'success' }}
-      distribution-published: ${{ steps.publish-distribution.outcome == 'success' }}
-      laravel-published: ${{ steps.publish-laravel.outcome == 'success' }}
     steps:
       - name: Notify Slack - Approved
         if: needs.notify-approval-needed.outputs.slack_ts != ''
@@ -527,20 +543,6 @@ jobs:
               "alertText": ":rotating_light: Failed to release PHP/Laravel packages :rotating_light:",
               "alertContext": "The release workflow failed before completion."
             }
-
-      - name: Notify Slack - Failed
-        if: steps.check-failure.outputs.was_rejected != 'true'
-        uses: posthog/.github/.github/actions/slack-thread-reply@cb0979b67dcd585828b61ac45927eef4da8f6287 # main
-        with:
-          slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-          slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-          thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-          message: |
-            ❌ Release workflow failed or was cancelled.
-            ${{ needs.prepare-release-candidate.outputs.core-changed == 'true' && format('posthog-php@{0}: {1}', needs.prepare-release-candidate.outputs.core-version, needs.release.outputs.core-published == 'true' && 'published' || 'not completed') || 'posthog-php: unchanged (no release planned)' }}
-            posthog-laravel@${{ needs.prepare-release-candidate.outputs.version }}: ${{ needs.release.outputs.laravel-published == 'true' && 'published' || needs.release.outputs.distribution-published == 'true' && 'mirror published; source release incomplete' || 'not completed' }}
-            <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>
-          emoji_reaction: "x"
 
       - name: Notify Slack - Rejected
         if: steps.check-failure.outputs.was_rejected == 'true'
