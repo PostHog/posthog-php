@@ -219,7 +219,6 @@ class EmailsTest extends TestCase
             'distinct_id' => null,
             'idempotency_key' => null,
             'template_id' => null,
-            'category' => null,
         ]);
 
         $this->assertSame([
@@ -497,7 +496,6 @@ class EmailsTest extends TestCase
             '409 template outdated' => [409, 'template_outdated', 'validation_error'],
             '409 in flight' => [409, 'idempotency_key_in_flight', 'concurrent_idempotent_requests'],
             '422 suppressed' => [422, 'recipient_suppressed', 'validation_error'],
-            '422 opted out' => [422, 'recipient_opted_out', 'validation_error'],
             '422 key reused' => [422, 'idempotency_key_reused', 'invalid_idempotent_request'],
             '429 throttled' => [429, 'throttled', 'rate_limit_exceeded'],
             '429 quota' => [429, 'quota_limited', 'monthly_quota_exceeded'],

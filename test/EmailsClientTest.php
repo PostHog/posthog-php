@@ -76,12 +76,12 @@ class EmailsClientTest extends TestCase
 
     private const NEWSLETTER = ['key' => 'newsletter', 'type' => 'marketing', 'name' => 'Newsletter'];
 
-    private function sendInCategory(mixed $category): string
+    private function sendInCategory(mixed $category, string $to = 'user@example.com'): string
     {
         $this->server ??= new LocalHttpServer([], 'email-send-server.php');
 
         return $this->client()->emails()->send([
-            'to' => 'user@example.com',
+            'to' => $to,
             'template_key' => 'monthly-news',
             'subject' => 'This month',
             'html' => '<p>News. {{ unsubscribe_url }}</p>',
@@ -135,6 +135,34 @@ class EmailsClientTest extends TestCase
             [['message_id' => $messageId, 'category' => null, 'type' => 'transactional']],
             $state['sends']
         );
+    }
+
+    public function testANullCategorySendsWithoutACategory(): void
+    {
+        $messageId = $this->sendInCategory(null);
+
+        $this->assertSame(
+            [['message_id' => $messageId, 'category' => null, 'type' => 'transactional']],
+            $this->server->state()['sends']
+        );
+    }
+
+    public function testARecipientWhoOptedOutIsRefused(): void
+    {
+        $this->server = new LocalHttpServer(
+            ['opted_out' => ['newsletter' => ['opted-out@example.com']]],
+            'email-send-server.php'
+        );
+
+        try {
+            $this->sendInCategory(self::NEWSLETTER, 'opted-out@example.com');
+            $this->fail('send() did not throw');
+        } catch (EmailError $error) {
+            $this->assertSame('recipient_opted_out', $error->getErrorCode());
+            $this->assertSame('validation_error', $error->getErrorName());
+            $this->assertSame(422, $error->getStatusCode());
+        }
+        $this->assertSame(['categories' => [], 'sends' => []], $this->server->state());
     }
 
     public function testACategoryCannotChangeItsType(): void

@@ -1,13 +1,15 @@
 <?php
 
 // A fake of PostHog's code-send route that follows the server's request schema and its category rules.
-// It writes what it stored to the state file after each request.
+// It writes what it stored to the state file after each request. Its setup, in place of the canned responses,
+// maps a category key, or `$all`, to the recipients who opted out of it.
 
 $server = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
 if ($server === false) {
     throw new RuntimeException($error, $errno);
 }
 $stateFile = $argv[1] . '.state';
+$optedOut = json_decode($argv[2], true, 512, JSON_THROW_ON_ERROR)['opted_out'] ?? [];
 echo stream_socket_get_name($server, false) . "\n";
 flush();
 
@@ -35,6 +37,7 @@ $send = static function (
     $codeSendFields,
     $categoryFields,
     $categoryTypes,
+    $optedOut,
     $refuse,
     $isText
 ): array {
@@ -69,6 +72,10 @@ $send = static function (
         $stored = $state['categories'][$key] ?? null;
         if ($stored !== null && $stored['type'] !== $type) {
             return $refuse(400, 'category_mismatch', "The category is {$stored['type']}.", 'category');
+        }
+        $optOuts = array_merge($optedOut[$key] ?? [], $optedOut['$all'] ?? []);
+        if ($type === 'marketing' && in_array($email['to'], $optOuts, true)) {
+            return $refuse(422, 'recipient_opted_out', 'The recipient opted out of this category.');
         }
         $state['categories'][$key] = [
             'type' => $type,
