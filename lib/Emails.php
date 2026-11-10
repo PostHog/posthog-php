@@ -33,7 +33,8 @@ final class Emails
     public const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
     public const DEFAULT_MAX_RETRIES = 2;
     /**
-     * The built-in `category` of a transactional email. Leaving `category` out sends transactional email too.
+     * The built-in transactional `category`, and the `type` of a transactional category. Leaving `category`
+     * out sends transactional email too.
      */
     public const CATEGORY_TRANSACTIONAL = 'transactional';
 
@@ -58,9 +59,15 @@ final class Emails
     private const HEADER_TOKEN_PATTERN = '/^[\x21-\x7e]+$/D';
     private const TIMESTAMP_PATTERN = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/D';
 
-    private const SHARED_FIELDS = ['to', 'distinct_id', 'category', 'idempotency_key', 'max_retries'];
+    private const SHARED_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'max_retries'];
     private const TEMPLATE_FIELDS = ['template_id', 'template_data'];
-    private const CODE_FIELDS = ['template_key', 'subject', 'html', 'text', 'from', 'reply_to', 'capture_engagement'];
+    private const CODE_FIELDS = [
+        'template_key', 'subject', 'html', 'text', 'from', 'reply_to', 'capture_engagement', 'category',
+    ];
+    private const CATEGORY_TYPES = ['marketing', self::CATEGORY_TRANSACTIONAL];
+    private const CATEGORY_FIELDS = ['key', 'type', 'name', 'description'];
+    private const CATEGORY_SHAPE = "category must be Emails::CATEGORY_TRANSACTIONAL or an array with a key, "
+        . "a type of 'marketing' or 'transactional', a name and an optional description.";
     private const TEMPLATE_FORM_WHY = "A template made in PostHog sets its own sender, subject and content, "
         . "and follows the project's engagement setting.";
     private const CODE_FORM_WHY = 'A send with template_key takes its content from your code.';
@@ -137,19 +144,21 @@ final class Emails
      *   400), `subject`, and `html`, `text` or both. PostHog derives a missing `text` from the `html`, and
      *   sends the content as is without storing it. To send a React email, render it to HTML in your app
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
-     *   `reply_to` (one address or a list; an empty list is left out) and `capture_engagement` (default
-     *   true; a project whose admin turned engagement capture off captures nothing, whatever the send asks).
+     *   `reply_to` (one address or a list; an empty list is left out), `capture_engagement` (default
+     *   true; a project whose admin turned engagement capture off captures nothing, whatever the send asks)
+     *   and `category`.
      *
      * Both forms take `to` (one address), `distinct_id` (the recipient's distinct ID in your product;
-     * without it, the email's events go to a person whose distinct ID is the address), `category`,
-     * `idempotency_key` and `max_retries`. A null value counts as left out.
+     * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
+     * and `max_retries`. A null value counts as left out.
      *
-     * Leaving `category` out, or passing `Emails::CATEGORY_TRANSACTIONAL`, sends transactional email. Any
-     * other value is the key of one of the project's marketing message categories. A marketing send
-     * honors the recipient's opt-outs and needs `{{ unsubscribe_url }}` in the body. A template send
-     * follows the template's own category, so its `category` must be left out or match it. PostHog refuses
-     * a send with `unknown_category`, `category_mismatch`, `unsubscribe_link_required` or
-     * `recipient_opted_out`.
+     * Leaving `category` out, or passing `Emails::CATEGORY_TRANSACTIONAL`, sends transactional email. To
+     * file the email under a message category, pass the category itself: its `key`, `type` (`marketing` or
+     * `transactional`), `name` and an optional `description`. PostHog creates the category the first time a
+     * send names its key, and updates its name and description when they change. A marketing send honors
+     * the recipient's opt-outs and unsubscribe headers, and needs `{{ unsubscribe_url }}` in the body. A
+     * template made in PostHog follows its own category. PostHog refuses a send with `category_mismatch`,
+     * `too_many_categories`, `unsubscribe_link_required`, `copies_not_allowed` or `recipient_opted_out`.
      *
      * A send with an idempotency key PostHog already accepted queues nothing and returns the first send's
      * result. Without a key, the client makes a UUID that covers its own retries. Pass a key derived from
@@ -177,7 +186,6 @@ final class Emails
      * @param array{
      *     to: string,
      *     distinct_id?: string|null,
-     *     category?: string|null,
      *     idempotency_key?: string|null,
      *     max_retries?: int|null,
      *     template_id?: string,
@@ -188,7 +196,13 @@ final class Emails
      *     text?: string|null,
      *     from?: string|null,
      *     reply_to?: string|list<string>|null,
-     *     capture_engagement?: bool|null
+     *     capture_engagement?: bool|null,
+     *     category?: 'transactional'|array{
+     *         key: string,
+     *         type: 'marketing'|'transactional',
+     *         name: string,
+     *         description?: string|null
+     *     }|null
      * } $email
      * @return SendEmailResult The queued email. It means PostHog queued the email, not that it was delivered.
      * @throws EmailError PostHog did not queue the email, or the client could not tell whether it did. A
@@ -259,10 +273,6 @@ final class Emails
         if ($distinctId !== null && (!is_string($distinctId) || $distinctId === '')) {
             throw self::invalid('invalid_distinct_id', 'distinct_id must be a nonempty string.', 'distinct_id');
         }
-        $category = $email['category'] ?? null;
-        if ($category !== null && (!is_string($category) || trim($category) === '')) {
-            throw self::invalid('invalid_category', 'category must be a nonempty string.', 'category');
-        }
         $hasTemplateId = array_key_exists('template_id', $email);
         if ($hasTemplateId === array_key_exists('template_key', $email)) {
             throw new EmailError(
@@ -289,9 +299,6 @@ final class Emails
         $payload['to'] = $to;
         if ($distinctId !== null) {
             $payload['distinct_id'] = $distinctId;
-        }
-        if ($category !== null) {
-            $payload['category'] = $category;
         }
         try {
             $body = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -380,8 +387,39 @@ final class Emails
             throw self::invalid('invalid_form', 'capture_engagement must be true or false.', 'capture_engagement');
         }
         $content['capture_engagement'] = $captureEngagement;
+        if (array_key_exists('category', $email)) {
+            $content['category'] = self::category($email['category']);
+        }
 
         return $content;
+    }
+
+    /**
+     * @return string|array<string, string>
+     */
+    private static function category(mixed $category): string|array
+    {
+        if ($category === self::CATEGORY_TRANSACTIONAL) {
+            return $category;
+        }
+        if (!is_array($category) || array_diff(array_keys($category), self::CATEGORY_FIELDS) !== []) {
+            throw self::invalid('invalid_category', self::CATEGORY_SHAPE, 'category');
+        }
+        $category = array_filter($category, static fn($value): bool => $value !== null);
+        $hasRequiredText = self::isNonemptyText($category['key'] ?? null)
+            && self::isNonemptyText($category['name'] ?? null);
+        $hasKnownType = in_array($category['type'] ?? null, self::CATEGORY_TYPES, true);
+        $description = $category['description'] ?? '';
+        if (!$hasRequiredText || !$hasKnownType || !is_string($description)) {
+            throw self::invalid('invalid_category', self::CATEGORY_SHAPE, 'category');
+        }
+
+        return $category;
+    }
+
+    private static function isNonemptyText(mixed $value): bool
+    {
+        return is_string($value) && trim($value) !== '';
     }
 
     /**

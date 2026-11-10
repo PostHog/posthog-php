@@ -233,24 +233,38 @@ class EmailsTest extends TestCase
 
     public static function categorizedSends(): array
     {
+        $newsletter = ['key' => 'newsletter', 'type' => 'marketing', 'name' => 'Newsletter'];
+
         return [
-            'code send in a marketing category' => [
-                ['template_key' => 'weekly-digest', 'subject' => 'This week', 'html' => '<p>{{ unsubscribe_url }}</p>'],
-                'product-updates',
+            'a marketing category with a description' => [
+                $newsletter + ['description' => 'Monthly product news'],
+                $newsletter + ['description' => 'Monthly product news'],
             ],
-            'template send marked transactional' => [
-                ['template_id' => self::TEMPLATE_ID],
-                Emails::CATEGORY_TRANSACTIONAL,
+            'a category without a description' => [$newsletter + ['description' => null], $newsletter],
+            'a transactional category' => [
+                ['key' => 'receipts', 'type' => Emails::CATEGORY_TRANSACTIONAL, 'name' => 'Receipts'],
+                ['key' => 'receipts', 'type' => 'transactional', 'name' => 'Receipts'],
             ],
+            'the built-in transactional' => [Emails::CATEGORY_TRANSACTIONAL, 'transactional'],
         ];
     }
 
+    /**
+     * @param string|array<string, mixed> $category
+     * @param string|array<string, string> $sent
+     */
     #[DataProvider('categorizedSends')]
-    public function testASendCarriesTheCategoryItNames(array $email, string $category): void
+    public function testACodeSendCarriesItsCategory($category, $sent): void
     {
-        $this->emails()->send(['to' => 'user@example.com', 'category' => $category] + $email);
+        $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_key' => 'monthly-news',
+            'subject' => 'This month',
+            'html' => '<p>News. {{ unsubscribe_url }}</p>',
+            'category' => $category,
+        ]);
 
-        $this->assertSame($category, $this->body()['category']);
+        $this->assertSame($sent, $this->body()['category']);
     }
 
     public function testAGeneratedIdempotencyKeyIsAUuidV4ReusedOnEveryAttempt(): void
@@ -315,6 +329,7 @@ class EmailsTest extends TestCase
     {
         $template = ['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID];
         $code = ['to' => 'user@example.com', 'template_key' => 'welcome', 'subject' => 'Hi', 'html' => '<p>Hi</p>'];
+        $newsletter = ['key' => 'newsletter', 'type' => 'marketing', 'name' => 'Newsletter'];
 
         return [
             'no form' => [['to' => 'user@example.com'], 'invalid_form', null],
@@ -365,8 +380,38 @@ class EmailsTest extends TestCase
             'html not a string' => [['html' => ['<p>']] + $code, 'invalid_form', 'html'],
             'empty from' => [$code + ['from' => ''], 'invalid_form', 'from'],
             'blank reply_to' => [$code + ['reply_to' => ['a@example.com', ' ']], 'invalid_form', 'reply_to'],
-            'blank category' => [$code + ['category' => ' '], 'invalid_category', 'category'],
-            'category not a string' => [$template + ['category' => ['transactional']], 'invalid_category', 'category'],
+            'category with a template' => [
+                $template + ['category' => Emails::CATEGORY_TRANSACTIONAL],
+                'invalid_form',
+                'category',
+            ],
+            'category as a key alone' => [$code + ['category' => 'newsletter'], 'invalid_category', 'category'],
+            'category as a list' => [$code + ['category' => ['newsletter']], 'invalid_category', 'category'],
+            'category without a key' => [
+                $code + ['category' => ['type' => 'marketing', 'name' => 'Newsletter']],
+                'invalid_category',
+                'category',
+            ],
+            'category with an unknown type' => [
+                $code + ['category' => ['type' => 'promotional'] + $newsletter],
+                'invalid_category',
+                'category',
+            ],
+            'category with an empty name' => [
+                $code + ['category' => ['name' => ''] + $newsletter],
+                'invalid_category',
+                'category',
+            ],
+            'category with a description that is not a string' => [
+                $code + ['category' => $newsletter + ['description' => 42]],
+                'invalid_category',
+                'category',
+            ],
+            'category with a misspelled field' => [
+                $code + ['category' => $newsletter + ['descripton' => 'Monthly product news']],
+                'invalid_category',
+                'category',
+            ],
             'capture_engagement not a bool' => [
                 $code + ['capture_engagement' => 'no'],
                 'invalid_form',
