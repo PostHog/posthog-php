@@ -163,9 +163,10 @@ final class Emails
      *   a Resend payload), and optional `content_type` and `content_id`. Reference a `content_id` of `logo` in the HTML
      *   as `<img src="cid:logo">` to show the file inline. PostHog can't fetch a file from a path or URL. The client
      *   checks both limits before any request, hashes each file with SHA-256, uploads the files PostHog doesn't have
-     *   yet, and then sends the email with each file's hash. A file that fails to upload throws `upload_failed` with
-     *   the storage's answer, and no email is sent. A PostHog without the upload route, or a project that can't send
-     *   email from code, answers `not_found` on `attachments`, and no email is sent.
+     *   yet, and then sends the email with each file's hash. A file that fails to upload throws
+     *   `attachment_upload_failed` with the storage's answer, and no email is sent. An upload never follows a
+     *   redirect: storage that answers one fails that file the same way. A PostHog without the upload route, or a
+     *   project that can't send email from code, answers `not_found` on `attachments`, and no email is sent.
      *
      * A PostHog version that doesn't take a field yet, such as `cc`, refuses the send with an error that
      * names the field. It never drops the field and sends the rest.
@@ -667,6 +668,20 @@ final class Emails
         if ($status >= 200 && $status < 300) {
             return;
         }
+        if ($status >= 300 && $status < 400) {
+            throw new EmailError(
+                'attachment_upload_failed',
+                self::onOneLogLine(
+                    "PostHog's file storage redirected the upload of {$file['filename']} (HTTP $status), and the "
+                    . "client doesn't follow an upload's redirect, so no email was sent."
+                ),
+                $status,
+                why: 'A signed upload never succeeds through a redirect, and following one would send the file to '
+                    . 'another host, maybe unencrypted.',
+                fix: "Fix the file storage's URL.",
+                field: $file['field']
+            );
+        }
         $answer = "HTTP $status";
         if (preg_match('#<Code>([^<]{1,100})</Code>#', $body, $code) === 1) {
             $answer .= ' ' . html_entity_decode($code[1], ENT_XML1);
@@ -675,7 +690,7 @@ final class Emails
             }
         }
         throw new EmailError(
-            'upload_failed',
+            'attachment_upload_failed',
             self::onOneLogLine(
                 "PostHog's file storage refused the upload of {$file['filename']}, so no email was sent. "
                 . 'It answered ' . rtrim($answer, '.') . '.'
@@ -913,7 +928,7 @@ final class Emails
         if ($status === null) {
             return $error->getErrorCode() === 'network_error';
         }
-        if ($error->getErrorCode() === 'upload_failed') {
+        if ($error->getErrorCode() === 'attachment_upload_failed') {
             return in_array($status, [429, 500, 502, 503, 504], true);
         }
         if ($status === 409) {

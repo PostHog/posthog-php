@@ -548,7 +548,7 @@ class EmailsTest extends TestCase
             self::invite(),
         ]));
 
-        $this->assertSame('upload_failed', $error->getErrorCode());
+        $this->assertSame('attachment_upload_failed', $error->getErrorCode());
         $this->assertSame($name, $error->getErrorName());
         $this->assertSame($status, $error->getStatusCode());
         $this->assertSame('attachments__1__content', $error->getField());
@@ -595,7 +595,7 @@ class EmailsTest extends TestCase
 
         $error = $this->sendError(self::sendWithFiles([self::invite()]), $this->emails(['maxRetries' => 0]));
 
-        $this->assertSame('upload_failed', $error->getErrorCode());
+        $this->assertSame('attachment_upload_failed', $error->getErrorCode());
         $this->assertSame('rate_limit_exceeded', $error->getErrorName());
         $this->assertSame([], $this->queued, 'no email was sent');
     }
@@ -607,7 +607,7 @@ class EmailsTest extends TestCase
 
         $error = $this->sendError(self::sendWithFiles([self::invite()]));
 
-        $this->assertSame('upload_failed', $error->getErrorCode());
+        $this->assertSame('attachment_upload_failed', $error->getErrorCode());
         $this->assertSame(60_000, $error->getRetryAfterMs());
         $this->assertSame([], $this->storageWrites);
         $this->assertSame([], $this->queued);
@@ -673,7 +673,7 @@ class EmailsTest extends TestCase
 
         $error = $this->sendError(self::sendWithFiles([self::invite()]));
 
-        $this->assertSame('upload_failed', $error->getErrorCode());
+        $this->assertSame('attachment_upload_failed', $error->getErrorCode());
         $this->assertSame(400, $error->getStatusCode());
         $this->assertStringContainsString('BadDigest', $error->getMessage());
         $this->assertSame([], $this->storageWrites);

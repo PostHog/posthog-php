@@ -195,11 +195,42 @@ class EmailsClientTest extends TestCase
             $this->client(['email_request_max_retries' => 0])->emails()->send(self::sendWithFile($file));
             $this->fail('The send went out after storage refused the file.');
         } catch (EmailError $error) {
-            $this->assertSame('upload_failed', $error->getErrorCode());
+            $this->assertSame('attachment_upload_failed', $error->getErrorCode());
             $this->assertStringContainsString('BadDigest', $error->getMessage());
         }
 
         $this->assertSame([], $this->storedFiles());
+        $this->assertSame([], $this->queuedEmails(), 'nothing was sent');
+    }
+
+    public function testAnUploadThatStorageRedirectsIsNotFollowedAndNothingIsSent(): void
+    {
+        $file = "%PDF-1.7\n" . str_repeat("0 0 obj << >> endobj\n", 100);
+        $elsewhere = new LocalHttpServer([['status' => 200, 'body' => ''], ['status' => 200, 'body' => '']]);
+        $redirect = 'http://' . $elsewhere->address() . '/copy';
+        $this->bucket = new LocalHttpServer([[
+            'status' => 307,
+            'headers' => ['Location' => $redirect],
+            'body' => "<Error><Code>TemporaryRedirect</Code><Message>Send it to $redirect</Message></Error>",
+        ]]);
+        $this->server = new LocalHttpServer([
+            self::uploadAnswer($this->bucket->address(), $file),
+            ['status' => 202, 'body' => '{"message_id":"01a18356-c56c-0001-e494-7666bc915188"}'],
+        ]);
+
+        try {
+            $this->client(['email_request_max_retries' => 0])->emails()->send(self::sendWithFile($file));
+            $this->fail('The send went out after storage redirected the upload.');
+        } catch (EmailError $error) {
+            $this->assertSame('attachment_upload_failed', $error->getErrorCode());
+            $this->assertSame('attachments__0__content', $error->getField());
+            $this->assertStringContainsString('receipt.pdf', $error->getMessage());
+            $told = $error->getMessage() . $error->getWhy() . $error->getFix();
+            $this->assertStringNotContainsString($elsewhere->address(), $told);
+            $this->assertStringNotContainsString($this->bucket->address(), $told);
+        }
+
+        $this->assertSame([], $elsewhere->acceptedRequests(), 'the redirect target received nothing');
         $this->assertSame([], $this->queuedEmails(), 'nothing was sent');
     }
 

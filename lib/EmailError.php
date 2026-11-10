@@ -70,7 +70,7 @@ class EmailError extends RuntimeException
 
     /**
      * PostHog's error code, such as `quota_limited`, or an SDK code such as `missing_secret_key`,
-     * `missing_app_host`, `client_disabled`, `client_closed`, `network_error`, `api_error`, `upload_failed`
+     * `missing_app_host`, `client_disabled`, `client_closed`, `network_error`, `api_error`, `attachment_upload_failed`
      * or an `invalid_*` argument code.
      */
     public function getErrorCode(): string
@@ -128,7 +128,7 @@ class EmailError extends RuntimeException
 
     private static function nameFor(?int $status, string $code): string
     {
-        if ($code === 'upload_failed') {
+        if ($code === 'attachment_upload_failed') {
             return match (true) {
                 $status === 429 => 'rate_limit_exceeded',
                 $status !== null && $status >= 500 => 'service_unavailable',
