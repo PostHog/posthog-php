@@ -29,6 +29,8 @@ class EmailsTest extends TestCase
     private array $replies = [];
     /** @var array<string, array<string, string>> the headers storage signed for each upload URL */
     private array $signedUploads = [];
+    /** @var array<string, ?string> the files storage holds, by SHA-256; null for one PostHog already had */
+    private array $stored = [];
     private ClockInterface $previousClock;
     private MockClock $clock;
 
@@ -82,18 +84,46 @@ class EmailsTest extends TestCase
         if ($method === 'PUT' && !self::storageAccepts($headers, (string) $body)) {
             return [400, self::BUCKET_DIGEST_ERROR, []];
         }
+        $missing = $method === 'POST' && str_ends_with($url, '/send/email/') ? $this->notStored((string) $body) : null;
+        if ($missing !== null) {
+            return [400, json_encode([
+                'type' => 'validation_error',
+                'code' => 'attachment_not_uploaded',
+                'detail' => 'This file was never uploaded.',
+                'attr' => $missing,
+            ]), []];
+        }
         $reply = array_shift($this->replies) ?? [202, '{"message_id":"msg_1"}', []];
         if ($reply instanceof EmailError) {
             throw $reply;
+        }
+        if ($method === 'PUT' && $reply[0] >= 200 && $reply[0] < 300) {
+            $this->stored[hash('sha256', (string) $body)] = $body;
         }
         $answer = json_decode($reply[1], true);
         foreach (is_array($answer) && is_array($answer['files'] ?? null) ? $answer['files'] : [] as $slot) {
             if (is_array($slot) && is_string($slot['url'] ?? null) && is_array($slot['headers'] ?? null)) {
                 $this->signedUploads[$slot['url']] = $slot['headers'];
             }
+            if (is_array($slot) && ($slot['status'] ?? null) === 'present' && is_string($slot['sha256'] ?? null)) {
+                $this->stored[$slot['sha256']] ??= null;
+            }
         }
 
         return $reply;
+    }
+
+    /** The reference of the first attachment storage doesn't hold, as PostHog names it, or null. */
+    private function notStored(string $body): ?string
+    {
+        $attachments = json_decode($body, true)['attachments'] ?? [];
+        foreach (is_array($attachments) ? $attachments : [] as $index => $attachment) {
+            if (!array_key_exists($attachment['sha256'] ?? '', $this->stored)) {
+                return "attachments__{$index}__sha256";
+            }
+        }
+
+        return null;
     }
 
     /** @param list<string> $headers */
@@ -371,19 +401,19 @@ class EmailsTest extends TestCase
         ]);
 
         $this->assertSame('msg_1', $result->getId());
-        $this->assertSame(['POST', 'PUT', 'POST'], array_column($this->requests, 'method'));
+        $this->assertSame(self::INVITE, $this->stored[self::INVITE_SHA256], 'storage holds the new file');
         $this->assertSame(
             ['files' => [['sha256' => self::INVITE_SHA256, 'size' => 32], ['sha256' => self::PNG_SHA256, 'size' => 9]]],
             $this->body(0)
         );
         $this->assertSame('Bearer phs_secret', $this->header('Authorization', 0));
         $this->assertSame('resend', $this->header('X-PostHog-Migrated-From', 0));
+        $toStorage = array_filter($this->requests, fn ($request) => str_starts_with($request['url'], self::BUCKET));
         $this->assertStringNotContainsString(
             'phs_secret',
-            implode("\n", $this->requests[1]['headers']),
+            json_encode(array_column($toStorage, 'headers')),
             'storage never gets the secret key'
         );
-        $this->assertSame(self::INVITE, $this->requests[1]['body']);
         $this->assertSame([
             'template_key' => 'invite',
             'subject' => 'You are invited',
