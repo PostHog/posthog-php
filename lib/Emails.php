@@ -29,7 +29,8 @@ use Symfony\Component\Clock\NativeClock;
  * at once. A send that is not queued throws EmailError.
  *
  * A send with attachments first uploads each file PostHog doesn't have yet to the storage URL PostHog
- * answers, which is on another host than the app host. Each upload gets the request timeout plus 1 ms
+ * answers, which is on another host than the app host. It uploads only to an `https` URL, unless the app
+ * host is plain `http://` for local development. Each upload gets the request timeout plus 1 ms
  * for every 100 bytes of the file, but only the request timeout to connect. A storage 429, 500, 502, 503
  * or 504 is retried as above.
  *
@@ -155,15 +156,15 @@ final class Emails
      *   and `capture_engagement` (default true; a project whose admin turned engagement capture off
      *   captures nothing, whatever the send asks). An empty `reply_to`, `cc`, `bcc` or `attachments` list
      *   is left out.
-     * - `attachments` is a list of at most 10 files, and the email can be at most 40 MB after Base64
-     *   encoding, which leaves about 29 MB for the files. Each file is an array with `filename`, `content`
-     *   (the file's bytes, such as `file_get_contents()` returns; pass `base64_decode($content)` when you
-     *   hold Base64, such as from a Resend payload), and optional `content_type` and `content_id`.
-     *   Reference a `content_id` of `logo` in the HTML as `<img src="cid:logo">` to show the file inline.
-     *   PostHog can't fetch a file from a path or URL. The client checks both limits before any request,
-     *   hashes each file with SHA-256, uploads the files PostHog doesn't have yet, and then sends the
-     *   email with each file's hash. A file that fails to upload throws `upload_failed` with the storage's
-     *   answer, and no email is sent. A PostHog without the upload route, or a project that can't send
+     * - `attachments` is a list of at most 10 files, and the email can be at most 40 MB after Base64 encoding, which
+     *   leaves about 29 MB for the files. The 40 MB counts the subject and the bodies, and the `html` twice without
+     *   `text`, since PostHog derives the text from it. Each file is an array with `filename`, `content` (the file's
+     *   bytes, such as `file_get_contents()` returns; pass `base64_decode($content)` when you hold Base64, such as from
+     *   a Resend payload), and optional `content_type` and `content_id`. Reference a `content_id` of `logo` in the HTML
+     *   as `<img src="cid:logo">` to show the file inline. PostHog can't fetch a file from a path or URL. The client
+     *   checks both limits before any request, hashes each file with SHA-256, uploads the files PostHog doesn't have
+     *   yet, and then sends the email with each file's hash. A file that fails to upload throws `upload_failed` with
+     *   the storage's answer, and no email is sent. A PostHog without the upload route, or a project that can't send
      *   email from code, answers `not_found` on `attachments`, and no email is sent.
      *
      * A PostHog version that doesn't take a field yet, such as `cc`, refuses the send with an error that
@@ -421,10 +422,13 @@ final class Emails
         }
         $files = [];
         if (array_key_exists('attachments', $email) && $email['attachments'] !== []) {
-            [$content['attachments'], $files] = self::attachments($email['attachments'], $content['subject'], [
-                $content['html'] ?? '',
-                $content['text'] ?? '',
-            ]);
+            $html = $content['html'] ?? '';
+            $text = ($content['text'] ?? '') === '' ? $html : $content['text'];
+            [$content['attachments'], $files] = self::attachments(
+                $email['attachments'],
+                $content['subject'],
+                [$html, $text]
+            );
         }
         $captureEngagement = $email['capture_engagement'] ?? true;
         if (!is_bool($captureEngagement)) {
@@ -620,8 +624,9 @@ final class Emails
         $body = json_encode(['files' => $request], JSON_THROW_ON_ERROR);
         $headers = $this->headers($secretKey, ['Content-Type: application/json']);
         $url = $appHost . self::UPLOADS_PATH;
-        $slots = $this->withRetries($maxRetries, function () use ($url, $headers, $body, $files): array {
-            return self::parseUploadReply($files, ...$this->request('POST', $url, $headers, $body));
+        $plainHttp = str_starts_with(strtolower($appHost), 'http://');
+        $slots = $this->withRetries($maxRetries, function () use ($url, $headers, $body, $files, $plainHttp): array {
+            return self::parseUploadReply($files, $plainHttp, ...$this->request('POST', $url, $headers, $body));
         });
         foreach ($slots as $sha256 => $slot) {
             $this->refuseWhenClosed(self::SEND_NOT_DONE);
@@ -688,8 +693,13 @@ final class Emails
      * @param list<string> $headers
      * @return array<string, array{url: string, headers: list<string>}>
      */
-    private static function parseUploadReply(array $files, int $status, string $body, array $headers): array
-    {
+    private static function parseUploadReply(
+        array $files,
+        bool $plainHttp,
+        int $status,
+        string $body,
+        array $headers
+    ): array {
         $fields = self::replyFields($body);
         if ($status === 404) {
             $fields['code'] = self::text($fields['code'] ?? null) ?? 'not_found';
@@ -718,6 +728,16 @@ final class Emails
                     'api_error',
                     "PostHog didn't answer where to upload a file, so no email was sent.",
                     $status
+                );
+            }
+            if (!$plainHttp && !str_starts_with(strtolower($upload['url']), 'https://')) {
+                throw new EmailError(
+                    'api_error',
+                    "PostHog named an upload URL that isn't https, so {$files[$sha256]['filename']} would travel "
+                        . 'unencrypted, and no email was sent.',
+                    $status,
+                    fix: "Fix the file storage's URL. For local development over plain HTTP, set an http:// app_host.",
+                    field: $files[$sha256]['field']
                 );
             }
             $uploads[$sha256] = $upload;

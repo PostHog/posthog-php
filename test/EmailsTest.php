@@ -701,6 +701,32 @@ class EmailsTest extends TestCase
         $this->assertCount(1, $this->requests, 'nothing was uploaded or sent');
     }
 
+    public function testAPlainHttpUploadUrlIsRefusedBeforeAnyUpload(): void
+    {
+        $plainUrl = 'http://attachments.example/team/2/' . self::INVITE_SHA256 . self::SIGNATURE;
+        $this->reply(self::slots(['url' => $plainUrl] + self::uploadSlot(self::INVITE)));
+
+        $error = $this->sendError(self::sendWithFiles([self::invite()]));
+
+        $this->assertSame('api_error', $error->getErrorCode());
+        $this->assertSame('attachments__0__content', $error->getField());
+        $this->assertStringContainsString('invite.ics', $error->getMessage());
+        $this->assertStringContainsString("Fix the file storage's URL", $error->getFix());
+        $this->assertStringNotContainsString('attachments.example', $error->getMessage() . $error->getFix());
+        $this->assertCount(1, $this->requests, 'nothing was uploaded or sent');
+    }
+
+    public function testAPlainHttpAppHostForLocalDevelopmentUploadsOverPlainHttp(): void
+    {
+        $plainUrl = 'http://localhost:8333/team/2/' . self::INVITE_SHA256 . self::SIGNATURE;
+        $this->reply(self::slots(['url' => $plainUrl] + self::uploadSlot(self::INVITE)), [200, '', []]);
+
+        $result = $this->emails(['appHost' => 'http://localhost:8010'])->send(self::sendWithFiles([self::invite()]));
+
+        $this->assertSame('msg_1', $result->getId());
+        $this->assertSame(self::INVITE, $this->stored[self::INVITE_SHA256]);
+    }
+
     public static function subjectsAndTheLargestFileThatFits(): array
     {
         return [
@@ -743,6 +769,10 @@ class EmailsTest extends TestCase
         return [
             'a body that leaves no room' => [[str_repeat('a', 29_000_000)], ['text' => str_repeat('b', 200_000)]],
             'files that only fit alone' => [[str_repeat('a', 15_000_000), str_repeat('b', 15_000_000)], []],
+            'an HTML body that fits once but not again as its derived text' => [
+                [str_repeat('a', 29_000_000)],
+                ['html' => str_repeat('h', 100_000), 'text' => ''],
+            ],
         ];
     }
 
