@@ -19,18 +19,7 @@ class PostHogServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $published = $this->app['config']->get('posthog');
         $this->mergeConfigFrom(__DIR__ . '/../config/posthog.php', 'posthog');
-        // A config published before the `token` key existed holds the project token in `api_key`.
-        // Merging adds the package's environment-derived `token` beside it, which would override
-        // the app's own value, including an `api_key` it cleared to turn PostHog off.
-        if (
-            is_array($published)
-            && array_key_exists('api_key', $published)
-            && !array_key_exists('token', $published)
-        ) {
-            $this->app['config']->set('posthog.token', null);
-        }
         $this->app->scoped(Context::class);
         $this->app->scoped(PostHog::class);
         $this->app->alias(PostHog::class, 'posthog');

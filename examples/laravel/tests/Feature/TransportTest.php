@@ -118,9 +118,24 @@ final class TransportTest extends TestCase
         PostHog::shutdown();
     }
 
+    public function testConfigStillReadsTheOlderApiKeyVariable(): void
+    {
+        $previous = getenv('POSTHOG_API_KEY');
+        $_ENV['POSTHOG_API_KEY'] = $_SERVER['POSTHOG_API_KEY'] = 'phc_legacy';
+        putenv('POSTHOG_API_KEY=phc_legacy');
+        try {
+            config(['posthog' => array_merge(require config_path('posthog.php'), ['enabled' => true])]);
+        } finally {
+            unset($_ENV['POSTHOG_API_KEY'], $_SERVER['POSTHOG_API_KEY']);
+            putenv($previous === false ? 'POSTHOG_API_KEY' : 'POSTHOG_API_KEY=' . $previous);
+        }
+
+        self::assertTrue((new Manager($this->app))->enabled());
+    }
+
     private function useClient(HttpClient $http): void
     {
-        config(['posthog.enabled' => true, 'posthog.token' => 'synthetic-test-key', 'posthog.secret_key' => null]);
+        config(['posthog.enabled' => true, 'posthog.project_token' => 'synthetic-test-key', 'posthog.secret_key' => null]);
         $client = new Client('synthetic-test-key', [
             'consumer' => 'lib_curl',
             'disableGeoip' => true,

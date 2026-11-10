@@ -1,5 +1,6 @@
 <?php
 
+// phpcs:disable PSR1.Files.SideEffects
 namespace PostHog\Test;
 
 // comment out below to print all logs instead of failing tests
@@ -23,7 +24,7 @@ class PostHogTest extends TestCase
 {
     use ClockMockTrait;
 
-    const FAKE_API_KEY = "random_key";
+    private const FAKE_API_KEY = "random_key";
 
     private $http_client;
     private $client;
@@ -246,7 +247,11 @@ class PostHogTest extends TestCase
         return [
             'POSTHOG_PROJECT_TOKEN' => ['token-from-env', null, 'token-from-env'],
             'older POSTHOG_API_KEY' => [null, 'api-key-from-env', 'api-key-from-env'],
-            'POSTHOG_PROJECT_TOKEN wins over POSTHOG_API_KEY' => ['token-from-env', 'api-key-from-env', 'token-from-env'],
+            'POSTHOG_PROJECT_TOKEN wins over POSTHOG_API_KEY' => [
+                'token-from-env',
+                'api-key-from-env',
+                'token-from-env',
+            ],
             'blank POSTHOG_PROJECT_TOKEN falls back' => [" \t", 'api-key-from-env', 'api-key-from-env'],
         ];
     }
@@ -367,7 +372,10 @@ class PostHogTest extends TestCase
         $hRef = new \ReflectionClass($httpClient);
         $sslProp = $hRef->getProperty('useSsl');
 
-        $this->assertFalse($sslProp->getValue($httpClient), 'HttpClient should use ssl=false for whitespace-padded http:// hosts');
+        $this->assertFalse(
+            $sslProp->getValue($httpClient),
+            'HttpClient should use ssl=false for whitespace-padded http:// hosts'
+        );
     }
 
     public function testInitWithHttpsHostSetsSslTrue(): void
@@ -1128,7 +1136,10 @@ class PostHogTest extends TestCase
     public function testCaptureWithSendFeatureFlagsOption(): void
     {
         $this->executeAtFrozenDateTime(new \DateTime('2022-05-01'), function () {
-            $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST);
+            $this->http_client = new MockedHttpClient(
+                host: "app.posthog.com",
+                flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST
+            );
             $this->client = new Client(
                 self::FAKE_API_KEY,
                 [
@@ -1158,12 +1169,20 @@ class PostHogTest extends TestCase
                     0 => array (
                         "path" => "/flags/definitions?send_cohorts&token=random_key",
                         "payload" => null,
-                        "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
+                        "extraHeaders" => array(
+                            0 => 'User-Agent: posthog-php/' . PostHog::VERSION,
+                            1 => 'Authorization: Bearer test',
+                        ),
                         "requestOptions" => array("includeEtag" => true),
                     ),
                     1 => array (
                         "path" => "/batch/",
-                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$feature\/true-flag":true,"$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{'
+                            . '"$feature\/true-flag":true,"$active_feature_flags":["true-flag"],'
+                            . '"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '",'
+                            . '"$lib_consumer":"LibCurl","$is_server":true},'
+                            . '"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],'
+                            . '"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),
@@ -1185,7 +1204,10 @@ class PostHogTest extends TestCase
     #[IgnoreDeprecations]
     public function testCaptureWithLocalSendFlags(): void
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST);
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST
+        );
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1216,12 +1238,20 @@ class PostHogTest extends TestCase
                     0 => array (
                         "path" => "/flags/definitions?send_cohorts&token=random_key",
                         "payload" => null,
-                        "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
+                        "extraHeaders" => array(
+                            0 => 'User-Agent: posthog-php/' . PostHog::VERSION,
+                            1 => 'Authorization: Bearer test',
+                        ),
                         "requestOptions" => array("includeEtag" => true),
                     ),
                     1 => array (
                         "path" => "/batch/",
-                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$feature\/true-flag":true,"$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{'
+                            . '"$feature\/true-flag":true,"$active_feature_flags":["true-flag"],'
+                            . '"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '",'
+                            . '"$lib_consumer":"LibCurl","$is_server":true},'
+                            . '"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],'
+                            . '"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),
@@ -1233,7 +1263,10 @@ class PostHogTest extends TestCase
     #[IgnoreDeprecations]
     public function testCaptureWithLocalSendFlagsNoOverrides(): void
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST);
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST
+        );
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1267,13 +1300,21 @@ class PostHogTest extends TestCase
                     0 => array (
                         "path" => "/flags/definitions?send_cohorts&token=random_key",
                         "payload" => null,
-                        "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
+                        "extraHeaders" => array(
+                            0 => 'User-Agent: posthog-php/' . PostHog::VERSION,
+                            1 => 'Authorization: Bearer test',
+                        ),
                         "requestOptions" => array("includeEtag" => true),
 
                     ),
                     1 => array (
                         "path" => "/batch/",
-                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$feature\/true-flag":"random-override","$active_feature_flags":["true-flag"],"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{'
+                            . '"$feature\/true-flag":"random-override","$active_feature_flags":["true-flag"],'
+                            . '"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '",'
+                            . '"$lib_consumer":"LibCurl","$is_server":true},'
+                            . '"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],'
+                            . '"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),
@@ -1614,19 +1655,36 @@ class PostHogTest extends TestCase
     #[IgnoreDeprecations]
     public function testDefaultPropertiesGetAddedProperly(): void
     {
-        PostHog::getFeatureFlag('random_key', 'some_id', array("company" => "id:5", "instance" => "app.posthog.com"), array("x1" => "y1"), array("company" => array("x" => "y")));
+        PostHog::getFeatureFlag(
+            'random_key',
+            'some_id',
+            array("company" => "id:5", "instance" => "app.posthog.com"),
+            array("x1" => "y1"),
+            array("company" => array("x" => "y"))
+        );
         $this->assertEquals(
             $this->http_client->calls,
             array(
                 0 => array(
                     "path" => "/flags/definitions?send_cohorts&token=random_key",
                     "payload" => null,
-                    "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
+                    "extraHeaders" => array(
+                        0 => 'User-Agent: posthog-php/' . PostHog::VERSION,
+                        1 => 'Authorization: Bearer test',
+                    ),
                     "requestOptions" => array("includeEtag" => true),
                 ),
                 1 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
+                    "payload" => sprintf(
+                        '{"api_key":"%s","distinct_id":"some_id"'
+                        . ',"groups":{"company":"id:5","instance":"app.posthog.com"}'
+                        . ',"person_properties":{"x1":"y1"}'
+                        . ',"group_properties":{"company":{"$group_key":"id:5","x":"y"},'
+                        . '"instance":{"$group_key":"app.posthog.com"}}'
+                        . ',"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}',
+                        self::FAKE_API_KEY
+                    ),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -1641,14 +1699,25 @@ class PostHogTest extends TestCase
             'some_id',
             array("company" => "id:5", "instance" => "app.posthog.com"),
             array("distinct_id" => "override"),
-            array("company" => array("\$group_key" => "group_override"), "instance" => array("\$group_key" => "app.posthog.com"))
+            array(
+                "company" => array("\$group_key" => "group_override"),
+                "instance" => array("\$group_key" => "app.posthog.com"),
+            )
         );
         $this->assertEquals(
             $this->http_client->calls,
             array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"distinct_id":"override"},"group_properties":{"company":{"$group_key":"group_override"},"instance":{"$group_key":"app.posthog.com"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
+                    "payload" => sprintf(
+                        '{"api_key":"%s","distinct_id":"some_id"'
+                        . ',"groups":{"company":"id:5","instance":"app.posthog.com"}'
+                        . ',"person_properties":{"distinct_id":"override"}'
+                        . ',"group_properties":{"company":{"$group_key":"group_override"},'
+                        . '"instance":{"$group_key":"app.posthog.com"}}'
+                        . ',"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}',
+                        self::FAKE_API_KEY
+                    ),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -1664,7 +1733,14 @@ class PostHogTest extends TestCase
             array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5"},"person_properties":{},"group_properties":{"company":{"$group_key":"id:5"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
+                    "payload" => sprintf(
+                        '{"api_key":"%s","distinct_id":"some_id"'
+                        . ',"groups":{"company":"id:5"}'
+                        . ',"person_properties":{}'
+                        . ',"group_properties":{"company":{"$group_key":"id:5"}}'
+                        . ',"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}',
+                        self::FAKE_API_KEY
+                    ),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -1674,13 +1750,27 @@ class PostHogTest extends TestCase
         // reset calls
         $this->http_client->calls = array();
 
-        PostHog::isFeatureEnabled('random_key', 'some_id', array("company" => "id:5", "instance" => "app.posthog.com"), array("x1" => "y1"), array("company" => array("x" => "y")));
+        PostHog::isFeatureEnabled(
+            'random_key',
+            'some_id',
+            array("company" => "id:5", "instance" => "app.posthog.com"),
+            array("x1" => "y1"),
+            array("company" => array("x" => "y"))
+        );
         $this->assertEquals(
             $this->http_client->calls,
             array(
                 0 => array(
                     "path" => "/flags/?v=2",
-                    "payload" => sprintf('{"api_key":"%s","distinct_id":"some_id","groups":{"company":"id:5","instance":"app.posthog.com"},"person_properties":{"x1":"y1"},"group_properties":{"company":{"$group_key":"id:5","x":"y"},"instance":{"$group_key":"app.posthog.com"}},"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}', self::FAKE_API_KEY),
+                    "payload" => sprintf(
+                        '{"api_key":"%s","distinct_id":"some_id"'
+                        . ',"groups":{"company":"id:5","instance":"app.posthog.com"}'
+                        . ',"person_properties":{"x1":"y1"}'
+                        . ',"group_properties":{"company":{"$group_key":"id:5","x":"y"},'
+                        . '"instance":{"$group_key":"app.posthog.com"}}'
+                        . ',"geoip_disable":false,"flag_keys_to_evaluate":["random_key"]}',
+                        self::FAKE_API_KEY
+                    ),
                     "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                     "requestOptions" => array("timeout" => 3000, "shouldRetry" => false),
                 ),
@@ -1690,7 +1780,10 @@ class PostHogTest extends TestCase
 
     public function testCaptureWithSendFeatureFlagsFalse(): void
     {
-        $this->http_client = new MockedHttpClient(host: "app.posthog.com", flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST);
+        $this->http_client = new MockedHttpClient(
+            host: "app.posthog.com",
+            flagEndpointResponse: MockedResponses::LOCAL_EVALUATION_MULTIPLE_REQUEST
+        );
         $this->client = new Client(
             self::FAKE_API_KEY,
             [
@@ -1722,12 +1815,19 @@ class PostHogTest extends TestCase
                     0 => array (
                         "path" => "/flags/definitions?send_cohorts&token=random_key",
                         "payload" => null,
-                        "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION, 1 => 'Authorization: Bearer test'),
+                        "extraHeaders" => array(
+                            0 => 'User-Agent: posthog-php/' . PostHog::VERSION,
+                            1 => 'Authorization: Bearer test',
+                        ),
                         "requestOptions" => array("includeEtag" => true),
                     ),
                     1 => array (
                         "path" => "/batch/",
-                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '","$lib_consumer":"LibCurl","$is_server":true},"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],"api_key":"random_key"}',
+                        "payload" => '{"batch":[{"event":"Module PHP Event","properties":{'
+                            . '"$lib":"posthog-php","$lib_version":"' . PostHog::VERSION . '",'
+                            . '"$lib_consumer":"LibCurl","$is_server":true},'
+                            . '"distinct_id":"john","groups":[],"timestamp":"2022-05-01T00:00:00+00:00"}],'
+                            . '"api_key":"random_key"}',
                         "extraHeaders" => array(0 => 'User-Agent: posthog-php/' . PostHog::VERSION),
                         "requestOptions" => array('shouldVerify' => true),
                     ),

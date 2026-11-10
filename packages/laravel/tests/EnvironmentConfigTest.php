@@ -65,7 +65,7 @@ class EnvironmentConfigTest extends TestCase
 
     private function client(array $config): Client
     {
-        $config['token'] = 'project-key';
+        $config['project_token'] = 'project-key';
         $this->app['config']->set('posthog', $config);
         return (new PostHog($this->app))->client();
     }
@@ -130,7 +130,7 @@ class EnvironmentConfigTest extends TestCase
     public function testConfigPublishedWithTheOlderApiKeyStillEnablesTheClient(): void
     {
         $config = $this->withEnvironment([], fn () => $this->configuration());
-        unset($config['token']);
+        unset($config['project_token']);
         $config['api_key'] = 'phc_published';
         $this->app['config']->set('posthog', $config);
 
@@ -161,6 +161,46 @@ class EnvironmentConfigTest extends TestCase
         });
 
         $this->assertSame($expected, $token);
+    }
+
+    public function testConfigPublishedWithTheOlderApiKeyReadsTheNewVariable(): void
+    {
+        $token = $this->withEnvironment(['POSTHOG_PROJECT_TOKEN' => 'phc_new'], function () {
+            $this->app['config']->set('posthog', ['api_key' => env('POSTHOG_API_KEY')]);
+            (new PostHogServiceProvider($this->app))->register();
+
+            return ProjectToken::fromConfig($this->app['config']->get('posthog'));
+        });
+
+        $this->assertSame('phc_new', $token);
+    }
+
+    public static function runtimeApiKeys(): array
+    {
+        return [
+            'another token' => ['phc_tenant', 'phc_tenant'],
+            'a cleared token' => [null, null],
+        ];
+    }
+
+    #[DataProvider('runtimeApiKeys')]
+    public function testRuntimeApiKeyOverrideWinsOverTheOlderEnvironmentVariable(
+        ?string $override,
+        ?string $expected,
+    ): void {
+        [$token, $enabled] = $this->withEnvironment(['POSTHOG_API_KEY' => 'phc_environment'], function () use ($override) {
+            $this->app['config']->set('posthog', []);
+            (new PostHogServiceProvider($this->app))->register();
+            $this->app['config']->set('posthog.api_key', $override);
+
+            return [
+                ProjectToken::fromConfig($this->app['config']->get('posthog')),
+                (new PostHog($this->app))->enabled(),
+            ];
+        });
+
+        $this->assertSame($expected, $token);
+        $this->assertSame($expected !== null, $enabled);
     }
 
     public function testUnsetAndEmptyVariablesKeepTheSdkDefaults(): void

@@ -9,20 +9,12 @@ $decimal = static function (string $name): ?float {
     return $value === null || $value === '' ? null : (float) $value;
 };
 $consumer = env('POSTHOG_CONSUMER');
-$token = static function (string ...$names): ?string {
-    foreach ($names as $name) {
-        $value = trim((string) env($name));
-        if ($value !== '') {
-            return $value;
-        }
-    }
-    return null;
-};
 
 return [
     'enabled' => env('POSTHOG_ENABLED', true),
-    // POSTHOG_API_KEY is the older name for the project token and is still read.
-    'token' => $token('POSTHOG_PROJECT_TOKEN', 'POSTHOG_API_KEY'),
+    'project_token' => env('POSTHOG_PROJECT_TOKEN'),
+    // Deprecated: the older name for the project token, read only when project_token is blank.
+    'api_key' => env('POSTHOG_API_KEY'),
     'host' => env('POSTHOG_HOST', 'https://us.i.posthog.com'),
     'secret_key' => env('POSTHOG_SECRET_KEY'),
     'release_id' => env('POSTHOG_RELEASE_ID'),

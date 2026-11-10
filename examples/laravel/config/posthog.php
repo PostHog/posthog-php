@@ -5,7 +5,9 @@ use App\Models\DemoOrder;
 
 return [
     'enabled' => env('POSTHOG_ENABLED', true),
-    'token' => env('POSTHOG_PROJECT_TOKEN'),
+    'project_token' => env('POSTHOG_PROJECT_TOKEN'),
+    // Deprecated: the older name for the project token, read only when project_token is blank.
+    'api_key' => env('POSTHOG_API_KEY'),
     'host' => env('POSTHOG_HOST', 'https://us.i.posthog.com'),
     'secret_key' => env('POSTHOG_SECRET_KEY'),
     'release_id' => env('POSTHOG_RELEASE_ID', 'laravel-example-local'),

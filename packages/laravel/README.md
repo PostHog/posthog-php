@@ -21,9 +21,10 @@ POSTHOG_HOST=https://us.i.posthog.com
 POSTHOG_ENABLED=true
 ```
 
-`POSTHOG_API_KEY` is the older name for the project token and is still read when
-`POSTHOG_PROJECT_TOKEN` is blank. Configs published before the `token` key existed keep working
-through their `api_key` key.
+The `project_token` config key reads `POSTHOG_PROJECT_TOKEN`. The deprecated `api_key` key
+and its `POSTHOG_API_KEY` variable are the older names for the project token. They are still
+read when `project_token` is blank, so configs published before `project_token` existed keep
+working.
 
 Use your project's ingestion host. `POSTHOG_SECRET_KEY` is optional and enables local
 flag evaluation. Never publish secret keys in browser configuration, logs, or event
