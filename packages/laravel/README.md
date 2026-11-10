@@ -16,18 +16,22 @@ For applications without discovery, register `PostHog\Laravel\PostHogServiceProv
 Configure your **server environment**:
 
 ```dotenv
-POSTHOG_API_KEY=phc_your_project_key
+POSTHOG_TOKEN=phc_your_project_token
 POSTHOG_HOST=https://us.i.posthog.com
 POSTHOG_ENABLED=true
 ```
+
+`POSTHOG_API_KEY` is the older name for the project token and is still read when
+`POSTHOG_TOKEN` is blank. Configs published before the `token` key existed keep working
+through their `api_key` key.
 
 Use your project's ingestion host. `POSTHOG_SECRET_KEY` is optional and enables local
 flag evaluation. Never publish secret keys in browser configuration, logs, or event
 properties. No browser SDK or browser configuration endpoint is installed.
 
-A missing/blank project key or `POSTHOG_ENABLED=false` disables all SDK network paths,
+A missing/blank project token or `POSTHOG_ENABLED=false` disables all SDK network paths,
 including flag requests and the `client()` escape hatch. Setting `sdk.consumer=noop`
-only changes event transport: a valid-key client can still evaluate flags remotely.
+only changes event transport: a client with a valid token can still evaluate flags remotely.
 
 ## Capture and identity
 
@@ -362,7 +366,7 @@ Retries can deliver a batch more than once; there is no exactly-once guarantee, 
 multiple workers can reorder batches. Retries retain the original event UUIDs and
 timestamps for ingestion deduplication.
 
-The worker uses its current project key and host; configure producers and workers
+The worker uses its current project token and host; configure producers and workers
 for the same project. API and secret keys are not serialized into jobs. Prepared
 events do include their original identity, session, groups and event properties,
 including a collected request IP. Unlike the bounded context metadata on ordinary

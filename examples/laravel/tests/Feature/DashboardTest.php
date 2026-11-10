@@ -23,7 +23,7 @@ final class DashboardTest extends TestCase
     public function testDashboardNeedsNoKeyBrowserSdkOrBuildAssets(): void
     {
         $fake = PostHog::fake();
-        config(['posthog.api_key' => 'project-must-not-render', 'posthog.secret_key' => 'secret-must-not-render']);
+        config(['posthog.token' => 'project-must-not-render', 'posthog.secret_key' => 'secret-must-not-render']);
         $this->get('/')->assertOk()
             ->assertSee('PostHog Laravel demo')
             ->assertSee('POSTHOG_COLLECT_SCHEDULER')

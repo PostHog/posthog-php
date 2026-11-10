@@ -101,23 +101,20 @@ class PostHogTest extends TestCase
         $this->http_client->calls[$callIndex]['payload'] = json_encode($payload);
     }
 
-    private function withEnvApiKey(?string $apiKey, callable $callback): void
+    private function withEnvTokens(?string $token, ?string $apiKey, callable $callback): void
     {
-        $previousApiKey = getenv(PostHog::ENV_API_KEY);
-
-        if ($apiKey === null) {
-            putenv(PostHog::ENV_API_KEY);
-        } else {
-            putenv(PostHog::ENV_API_KEY . "=" . $apiKey);
+        $values = [PostHog::ENV_TOKEN => $token, PostHog::ENV_API_KEY => $apiKey];
+        $previous = [];
+        foreach ($values as $name => $value) {
+            $previous[$name] = getenv($name);
+            putenv($value === null ? $name : $name . "=" . $value);
         }
 
         try {
             $callback();
         } finally {
-            if ($previousApiKey === false) {
-                putenv(PostHog::ENV_API_KEY);
-            } else {
-                putenv(PostHog::ENV_API_KEY . "=" . $previousApiKey);
+            foreach ($previous as $name => $value) {
+                putenv($value === false ? $name : $name . "=" . $value);
             }
         }
     }
@@ -244,11 +241,23 @@ class PostHogTest extends TestCase
         $this->assertNotInstanceOf(NoOp::class, $this->getConsumer(PostHog::getClient()));
     }
 
-    public function testInitWithEnvApiKey(): void
+    public static function envTokenCases(): array
     {
-        $this->withEnvApiKey('test-environment-key', function () {
+        return [
+            'POSTHOG_TOKEN' => ['token-from-env', null, 'token-from-env'],
+            'older POSTHOG_API_KEY' => [null, 'api-key-from-env', 'api-key-from-env'],
+            'POSTHOG_TOKEN wins over POSTHOG_API_KEY' => ['token-from-env', 'api-key-from-env', 'token-from-env'],
+            'blank POSTHOG_TOKEN falls back' => [" \t", 'api-key-from-env', 'api-key-from-env'],
+        ];
+    }
+
+    #[DataProvider('envTokenCases')]
+    public function testInitReadsTokenFromEnvironment(?string $token, ?string $apiKey, string $expected): void
+    {
+        $this->withEnvTokens($token, $apiKey, function () use ($expected) {
             PostHog::init(null, ['debug' => true]);
-            $this->assertSame('test-environment-key', $this->readPrivate(PostHog::getClient(), 'apiKey'));
+
+            $this->assertSame($expected, $this->readPrivate(PostHog::getClient(), 'apiKey'));
             $this->assertNotInstanceOf(NoOp::class, $this->getConsumer(PostHog::getClient()));
         });
     }
@@ -404,7 +413,7 @@ class PostHogTest extends TestCase
 
     public function testInitWithoutApiKeyConfiguresNoOpClient(): void
     {
-        $this->withEnvApiKey(null, function () {
+        $this->withEnvTokens(null, null, function () {
             PostHog::init();
             $client = PostHog::getClient();
 
@@ -419,7 +428,7 @@ class PostHogTest extends TestCase
     #[DataProvider('initNoOpApiKeyCases')]
     public function testInitWithBlankApiKeyConfiguresNoOpClient(string $apiKey): void
     {
-        $this->withEnvApiKey(null, function () use ($apiKey) {
+        $this->withEnvTokens(null, null, function () use ($apiKey) {
             PostHog::init($apiKey, ["debug" => true]);
             $client = PostHog::getClient();
 
@@ -431,9 +440,9 @@ class PostHogTest extends TestCase
         });
     }
 
-    public function testInitWithEmptyApiKeyFallsBackToEnvApiKey(): void
+    public function testInitWithEmptyApiKeyFallsBackToEnvToken(): void
     {
-        $this->withEnvApiKey(self::FAKE_API_KEY, function () {
+        $this->withEnvTokens(self::FAKE_API_KEY, null, function () {
             PostHog::init("", ["debug" => true]);
             $client = PostHog::getClient();
 

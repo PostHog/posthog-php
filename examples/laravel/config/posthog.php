@@ -5,7 +5,7 @@ use App\Models\DemoOrder;
 
 return [
     'enabled' => env('POSTHOG_ENABLED', true),
-    'api_key' => env('POSTHOG_API_KEY'),
+    'token' => env('POSTHOG_TOKEN'),
     'host' => env('POSTHOG_HOST', 'https://us.i.posthog.com'),
     'secret_key' => env('POSTHOG_SECRET_KEY'),
     'release_id' => env('POSTHOG_RELEASE_ID', 'laravel-example-local'),

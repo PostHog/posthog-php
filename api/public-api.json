@@ -4285,6 +4285,10 @@
                     "type": "string",
                     "value": "POSTHOG_HOST"
                 },
+                "ENV_TOKEN": {
+                    "type": "string",
+                    "value": "POSTHOG_TOKEN"
+                },
                 "LIBRARY": {
                     "type": "string",
                     "value": "posthog-php"

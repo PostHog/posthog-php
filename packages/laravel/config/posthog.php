@@ -12,7 +12,8 @@ $consumer = env('POSTHOG_CONSUMER');
 
 return [
     'enabled' => env('POSTHOG_ENABLED', true),
-    'api_key' => env('POSTHOG_API_KEY'),
+    // POSTHOG_API_KEY is the older name for the project token and is still read.
+    'token' => env('POSTHOG_TOKEN') ?: env('POSTHOG_API_KEY'),
     'host' => env('POSTHOG_HOST', 'https://us.i.posthog.com'),
     'secret_key' => env('POSTHOG_SECRET_KEY'),
     'release_id' => env('POSTHOG_RELEASE_ID'),

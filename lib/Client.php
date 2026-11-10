@@ -253,7 +253,7 @@ class Client implements FeatureFlagEvaluationsHost
     /**
      * Create a new PostHog client with your project's API key.
      *
-     * @param string|null $apiKey Your project API key. When omitted or empty, the client is disabled
+     * @param string|null $apiKey Your project token. When omitted or empty, the client is disabled
      *     and uses the noop consumer.
      * When POSTHOG_RELEASE_ID is set at construction, its value is sent as $release_id on every
      * event unless the event already carries one.

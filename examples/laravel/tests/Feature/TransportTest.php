@@ -120,7 +120,7 @@ final class TransportTest extends TestCase
 
     private function useClient(HttpClient $http): void
     {
-        config(['posthog.enabled' => true, 'posthog.api_key' => 'synthetic-test-key', 'posthog.secret_key' => null]);
+        config(['posthog.enabled' => true, 'posthog.token' => 'synthetic-test-key', 'posthog.secret_key' => null]);
         $client = new Client('synthetic-test-key', [
             'consumer' => 'lib_curl',
             'disableGeoip' => true,

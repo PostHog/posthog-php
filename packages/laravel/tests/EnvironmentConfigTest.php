@@ -14,6 +14,7 @@ use PostHog\Laravel\PostHogServiceProvider;
 class EnvironmentConfigTest extends TestCase
 {
     private const VARIABLES = [
+        'POSTHOG_TOKEN', 'POSTHOG_API_KEY',
         'POSTHOG_TIMEOUT_MS', 'POSTHOG_SOCKET_TIMEOUT_SECONDS', 'POSTHOG_BATCH_SIZE', 'POSTHOG_MAX_QUEUE_SIZE',
         'POSTHOG_FLUSH_INTERVAL_SECONDS', 'POSTHOG_COMPRESS_REQUEST', 'POSTHOG_CONSUMER',
         'POSTHOG_FF_REQUEST_TIMEOUT_MS', 'POSTHOG_FF_REQUEST_MAX_RETRIES',
@@ -63,7 +64,7 @@ class EnvironmentConfigTest extends TestCase
 
     private function client(array $config): Client
     {
-        $config['api_key'] = 'project-key';
+        $config['token'] = 'project-key';
         $this->app['config']->set('posthog', $config);
         return (new PostHog($this->app))->client();
     }
@@ -101,6 +102,40 @@ class EnvironmentConfigTest extends TestCase
             'flag retries' => ['POSTHOG_FF_REQUEST_MAX_RETRIES', '2', 'feature_flag_request_max_retries', 2],
             'no flag retries' => ['POSTHOG_FF_REQUEST_MAX_RETRIES', '0', 'feature_flag_request_max_retries', 0],
         ];
+    }
+
+    public static function tokenEnvironments(): array
+    {
+        return [
+            'POSTHOG_TOKEN' => [['POSTHOG_TOKEN' => 'phc_token'], 'phc_token'],
+            'older POSTHOG_API_KEY' => [['POSTHOG_API_KEY' => 'phc_api_key'], 'phc_api_key'],
+            'POSTHOG_TOKEN wins' => [['POSTHOG_TOKEN' => 'phc_token', 'POSTHOG_API_KEY' => 'phc_api_key'], 'phc_token'],
+            'blank POSTHOG_TOKEN falls back' => [['POSTHOG_TOKEN' => '', 'POSTHOG_API_KEY' => 'phc_api_key'], 'phc_api_key'],
+        ];
+    }
+
+    #[DataProvider('tokenEnvironments')]
+    public function testProjectTokenComesFromPosthogTokenWithTheOlderNameAsFallback(array $values, string $expected): void
+    {
+        $config = $this->withEnvironment($values, fn () => $this->configuration());
+        $this->app['config']->set('posthog', $config);
+
+        $client = (new PostHog($this->app))->client();
+
+        $this->assertSame($expected, (new \ReflectionProperty(Client::class, 'apiKey'))->getValue($client));
+    }
+
+    public function testConfigPublishedWithTheOlderApiKeyStillEnablesTheClient(): void
+    {
+        $config = $this->withEnvironment([], fn () => $this->configuration());
+        unset($config['token']);
+        $config['api_key'] = 'phc_published';
+        $this->app['config']->set('posthog', $config);
+
+        $manager = new PostHog($this->app);
+
+        $this->assertTrue($manager->enabled());
+        $this->assertSame('phc_published', (new \ReflectionProperty(Client::class, 'apiKey'))->getValue($manager->client()));
     }
 
     public function testUnsetAndEmptyVariablesKeepTheSdkDefaults(): void
