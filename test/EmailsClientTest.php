@@ -151,6 +151,26 @@ class EmailsClientTest extends TestCase
         ];
     }
 
+    public function testStorageRefusesBytesThatDoNotMatchTheSignedChecksumAndNothingIsSent(): void
+    {
+        $file = "%PDF-1.7\n" . str_repeat("0 0 obj << >> endobj\n", 100);
+        $this->bucket = new LocalHttpServer([['status' => 200, 'body' => '']]);
+        $answer = self::uploadAnswer($this->bucket->address(), $file);
+        $slots = json_decode($answer['body'], true);
+        $slots['files'][0]['headers']['x-amz-checksum-sha256'] = base64_encode(hash('sha256', 'another file', true));
+        $this->server = new LocalHttpServer([['status' => 200, 'body' => json_encode($slots)]]);
+
+        try {
+            $this->client(['email_request_max_retries' => 0])->emails()->send(self::sendWithFile($file));
+            $this->fail('The send went out after storage refused the file.');
+        } catch (EmailError $error) {
+            $this->assertSame('upload_failed', $error->getErrorCode());
+            $this->assertStringContainsString('BadDigest', $error->getMessage());
+        }
+
+        $this->assertCount(1, $this->server->requests(), 'nothing was sent');
+    }
+
     public function testStorageMayTakeLongerThanTheRequestTimeoutToTakeALargerFile(): void
     {
         $file = str_repeat('a', 200_000);

@@ -37,7 +37,11 @@ while ($connection = stream_socket_accept($server, 30)) {
         'body' => $body,
     ], JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
 
-    $response = array_shift($responses) ?? [];
+    $checksum = $headers['x-amz-checksum-sha256'] ?? null;
+    $response = $checksum === null || $checksum === base64_encode(hash('sha256', $body, true))
+        ? array_shift($responses) ?? []
+        : ['status' => 400, 'body' => '<?xml version="1.0" encoding="UTF-8"?><Error><Code>BadDigest</Code>'
+            . '<Message>The SHA256 you specified did not match the calculated checksum.</Message></Error>'];
     usleep(($response['delay_ms'] ?? 0) * 1000);
     $closeServer = $response['close_server'] ?? false;
     if ($closeServer) {
