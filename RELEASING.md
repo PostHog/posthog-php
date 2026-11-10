@@ -116,7 +116,7 @@ Ensure `.changeset/*.md` contains at least one `patch`, `minor`, or `major` inte
 
 ### Failed or cancelled release
 
-The independent [release failure notification workflow](.github/workflows/release-failure-notification.yml) checks every completed main-branch release attempt and alerts if a job failed, timed out, or was cancelled. It also alerts when the run failed but the publishing job never ran, which happens when GitHub Actions stops mid-run and the in-run **Release Failed** job cannot run.
+The independent [release failure notification workflow](.github/workflows/release-failure-notification.yml) checks every completed main-branch release attempt and alerts if a job failed, timed out, or was cancelled. It also alerts when the run failed but the publishing job never ran, which happens when GitHub Actions stops mid-run and the in-run **Release Failed** job cannot run. It only acts on runs that a push or a manual dispatch started in this repository.
 
 The in-run **Release Failed** job sends the PostHog failure event and replies in Slack only when the release was explicitly rejected. The independent workflow does not repeat that reply for a rejection. Every other failed or cancelled release is reported only by the independent workflow. If the packages are published, alerts describe follow-up problems, such as a skipped released notification, rather than claiming the release failed.
 
