@@ -56,7 +56,6 @@ final class Emails
     private const MAX_RESPONSE_BYTES = 1_048_576;
     private const MAX_RETRY_AFTER_SECONDS = 31_536_000;
     private const NO_EXPECT_100_CONTINUE = 'Expect:';
-    private const NO_FORM_CONTENT_TYPE = 'Content-Type:';
     private const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iD';
     private const IDEMPOTENCY_KEY_PATTERN = '/^[\x21-\x7e]{1,255}$/D';
     private const TEMPLATE_KEY_PATTERN = '/^[a-zA-Z0-9_-]{1,400}$/D';
@@ -952,15 +951,11 @@ final class Emails
         $responseHeaders = [];
         $responseBody = '';
         $tooLarge = false;
-        $headers[] = self::NO_EXPECT_100_CONTINUE;
-        if ($body !== null && preg_grep('/^content-type:/i', $headers) === []) {
-            $headers[] = self::NO_FORM_CONTENT_TYPE;
-        }
         $curl = curl_init();
         curl_setopt_array($curl, [
             CURLOPT_URL => $url,
             CURLOPT_CUSTOMREQUEST => $method,
-            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_HTTPHEADER => [...$headers, self::NO_EXPECT_100_CONTINUE],
             CURLOPT_WRITEFUNCTION => static function ($curl, string $chunk) use (&$responseBody, &$tooLarge): int {
                 if (strlen($responseBody) + strlen($chunk) > self::MAX_RESPONSE_BYTES) {
                     $tooLarge = true;

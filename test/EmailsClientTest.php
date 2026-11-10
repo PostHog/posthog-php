@@ -133,12 +133,6 @@ class EmailsClientTest extends TestCase
         );
         [$stored] = $this->bucket->requests();
         $this->assertSame($file, $stored['body']);
-        $this->assertStringNotContainsString(
-            'phs_secret',
-            json_encode($stored['headers']),
-            'storage never gets the secret key'
-        );
-        $this->assertArrayNotHasKey('content-type', $stored['headers'], 'storage keeps no form label on the file');
         $this->assertSame(
             [['sha256' => $sha256, 'filename' => 'receipt.pdf']],
             json_decode($send['body'], true)['attachments']

@@ -49,6 +49,10 @@ while ($connection = stream_socket_accept($server, 30)) {
         $refusal = ['status' => 400, 'body' => '<?xml version="1.0" encoding="UTF-8"?><Error><Code>BadDigest</Code>'
             . '<Message>The SHA256 you specified did not match the calculated checksum.</Message></Error>'];
     }
+    if (str_contains($requestLine, 'X-Amz-Signature=') && isset($headers['authorization'])) {
+        $refusal = ['status' => 400, 'body' => '<?xml version="1.0" encoding="UTF-8"?>'
+            . '<Error><Code>InvalidArgument</Code><Message>Only one auth mechanism allowed</Message></Error>'];
+    }
     $response = $refusal ?? array_shift($responses) ?? [];
     usleep(($response['delay_ms'] ?? 0) * 1000);
     $closeServer = $response['close_server'] ?? false;

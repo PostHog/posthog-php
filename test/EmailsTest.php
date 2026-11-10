@@ -78,6 +78,9 @@ class EmailsTest extends TestCase
     ): array {
         $at = Clock::get()->now();
         $this->requests[] = compact('method', 'url', 'headers', 'body', 'timeoutMs', 'at');
+        if ($method === 'PUT' && preg_grep('/^authorization:/i', $headers) !== []) {
+            return [400, self::BUCKET_AUTH_ERROR, []];
+        }
         if ($method === 'PUT' && !$this->storageSigned($url, $headers)) {
             return [403, '<Error><Code>SignatureDoesNotMatch</Code><Message>Not as signed</Message></Error>', []];
         }
@@ -332,6 +335,8 @@ class EmailsTest extends TestCase
     private const PNG_SHA256 = '843ac23b1736b4487ec81cf7c07ddd9bb46ae5b7818c2c3843d99d62fa75f3c9';
     private const BUCKET = 'https://attachments.example/team/2/';
     private const SIGNATURE = '?X-Amz-Signature=signature-secret';
+    private const BUCKET_AUTH_ERROR = '<Error><Code>InvalidArgument</Code>'
+        . '<Message>Only one auth mechanism allowed</Message></Error>';
     private const BUCKET_DIGEST_ERROR = '<?xml version="1.0" encoding="UTF-8"?><Error><Code>BadDigest</Code>'
         . '<Message>The SHA256 you specified did not match the calculated checksum.</Message></Error>';
 
@@ -408,12 +413,6 @@ class EmailsTest extends TestCase
         );
         $this->assertSame('Bearer phs_secret', $this->header('Authorization', 0));
         $this->assertSame('resend', $this->header('X-PostHog-Migrated-From', 0));
-        $toStorage = array_filter($this->requests, fn ($request) => str_starts_with($request['url'], self::BUCKET));
-        $this->assertStringNotContainsString(
-            'phs_secret',
-            json_encode(array_column($toStorage, 'headers')),
-            'storage never gets the secret key'
-        );
         $this->assertSame([
             'template_key' => 'invite',
             'subject' => 'You are invited',
