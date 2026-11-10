@@ -6,6 +6,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\EmailError;
+use PostHog\Emails;
 use PostHog\PostHog;
 
 class EmailsClientTest extends TestCase
@@ -73,39 +74,54 @@ class EmailsClientTest extends TestCase
         ], json_decode($requests[0]['body'], true));
     }
 
-    public function testAMarketingCodeSendCarriesItsCategoryOverHttp(): void
+    public function testACodeSendDefinesItsCategoryOnTheServer(): void
     {
-        $this->server = new LocalHttpServer([
-            ['status' => 202, 'body' => '{"message_id":"01a18356-c56c-0001-e494-7666bc915188","replayed":false}'],
-        ]);
-
-        $result = $this->client()->emails()->send([
+        $this->server = new LocalHttpServer([], 'email-send-server.php');
+        $emails = $this->client()->emails();
+        $newsletter = ['key' => 'newsletter', 'type' => 'marketing', 'name' => 'Newsletter'];
+        $send = fn(mixed $category): string => $emails->send([
             'to' => 'user@example.com',
             'template_key' => 'monthly-news',
             'subject' => 'This month',
             'html' => '<p>News. {{ unsubscribe_url }}</p>',
-            'category' => [
-                'key' => 'newsletter',
-                'type' => 'marketing',
-                'name' => 'Newsletter',
-                'description' => 'Monthly product news',
-            ],
-        ]);
+            'category' => $category,
+        ])->getId();
 
-        $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
-        $this->assertSame([
-            'template_key' => 'monthly-news',
-            'subject' => 'This month',
-            'html' => '<p>News. {{ unsubscribe_url }}</p>',
-            'capture_engagement' => true,
-            'category' => [
-                'key' => 'newsletter',
-                'type' => 'marketing',
-                'name' => 'Newsletter',
-                'description' => 'Monthly product news',
+        $first = $send($newsletter + ['description' => 'Monthly product news']);
+        $this->assertSame(
+            ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => 'Monthly product news']],
+            $this->server->state()['categories']
+        );
+
+        $send(['key' => 'newsletter', 'type' => 'marketing', 'name' => 'Product news', 'description' => null]);
+        $this->assertSame(
+            ['type' => 'marketing', 'name' => 'Product news', 'description' => 'Monthly product news'],
+            $this->server->state()['categories']['newsletter']
+        );
+
+        $send($newsletter + ['description' => '']);
+        $this->assertSame('', $this->server->state()['categories']['newsletter']['description']);
+
+        $receipt = $send(Emails::CATEGORY_TRANSACTIONAL);
+        $this->assertSame(
+            [
+                ['message_id' => $first, 'category' => 'newsletter', 'type' => 'marketing'],
+                ['message_id' => $receipt, 'category' => null, 'type' => 'transactional'],
             ],
-            'to' => 'user@example.com',
-        ], json_decode($this->server->requests()[0]['body'], true));
+            [$this->server->state()['sends'][0], $this->server->state()['sends'][3]]
+        );
+
+        try {
+            $send(['key' => 'newsletter', 'type' => Emails::CATEGORY_TRANSACTIONAL, 'name' => 'Newsletter']);
+            $this->fail('send() did not throw');
+        } catch (EmailError $error) {
+            $this->assertSame('category_mismatch', $error->getErrorCode());
+            $this->assertSame('validation_error', $error->getErrorName());
+            $this->assertSame(400, $error->getStatusCode());
+            $this->assertSame('category', $error->getField());
+        }
+        $this->assertSame('marketing', $this->server->state()['categories']['newsletter']['type']);
+        $this->assertCount(4, $this->server->state()['sends']);
     }
 
     public function testARetryAfterHeaderComesBackOnTheError(): void

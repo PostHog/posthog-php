@@ -155,7 +155,8 @@ final class Emails
      * Leaving `category` out, or passing `Emails::CATEGORY_TRANSACTIONAL`, sends transactional email. To
      * file the email under a message category, pass the category itself: its `key`, `type` (`marketing` or
      * `transactional`), `name` and an optional `description`. PostHog creates the category the first time a
-     * send names its key, and updates its name and description when they change. A marketing send honors
+     * send names its key, and updates its name and description when they change. Leaving `description`
+     * out, or null, keeps the stored one, and `''` clears it. A marketing send honors
      * the recipient's opt-outs and unsubscribe headers, and needs `{{ unsubscribe_url }}` in the body. A
      * template made in PostHog follows its own category. PostHog refuses a send with `category_mismatch`,
      * `too_many_categories`, `unsubscribe_link_required`, `copies_not_allowed` or `recipient_opted_out`.

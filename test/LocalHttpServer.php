@@ -11,12 +11,12 @@ final class LocalHttpServer
     private string $errorsFile;
     private string $address;
 
-    public function __construct(array $responses = [])
+    public function __construct(array $responses = [], string $script = 'http-server.php')
     {
         $this->requestsFile = tempnam(sys_get_temp_dir(), 'posthog-requests-');
         $this->errorsFile = tempnam(sys_get_temp_dir(), 'posthog-server-');
         $this->process = proc_open(
-            [PHP_BINARY, __DIR__ . '/fixtures/http-server.php', $this->requestsFile, json_encode($responses)],
+            [PHP_BINARY, __DIR__ . '/fixtures/' . $script, $this->requestsFile, json_encode($responses)],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $this->errorsFile, 'a']],
             $pipes
         );
@@ -48,13 +48,23 @@ final class LocalHttpServer
         );
     }
 
+    /**
+     * What a fake such as `email-send-server.php` stored, after its last request.
+     */
+    public function state(): array
+    {
+        $file = $this->requestsFile . '.state';
+
+        return is_file($file) ? json_decode(file_get_contents($file), true, 512, JSON_THROW_ON_ERROR) : [];
+    }
+
     public function stop(): void
     {
         if (is_resource($this->process)) {
             proc_terminate($this->process);
             proc_close($this->process);
         }
-        foreach ([$this->requestsFile, $this->errorsFile] as $file) {
+        foreach ([$this->requestsFile, $this->requestsFile . '.state', $this->errorsFile] as $file) {
             if (is_file($file)) {
                 unlink($file);
             }

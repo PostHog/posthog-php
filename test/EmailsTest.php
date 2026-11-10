@@ -231,42 +231,6 @@ class EmailsTest extends TestCase
         ], $this->body());
     }
 
-    public static function categorizedSends(): array
-    {
-        $newsletter = ['key' => 'newsletter', 'type' => 'marketing', 'name' => 'Newsletter'];
-
-        return [
-            'a marketing category with a description' => [
-                $newsletter + ['description' => 'Monthly product news'],
-                $newsletter + ['description' => 'Monthly product news'],
-            ],
-            'a category without a description' => [$newsletter + ['description' => null], $newsletter],
-            'a transactional category' => [
-                ['key' => 'receipts', 'type' => Emails::CATEGORY_TRANSACTIONAL, 'name' => 'Receipts'],
-                ['key' => 'receipts', 'type' => 'transactional', 'name' => 'Receipts'],
-            ],
-            'the built-in transactional' => [Emails::CATEGORY_TRANSACTIONAL, 'transactional'],
-        ];
-    }
-
-    /**
-     * @param string|array<string, mixed> $category
-     * @param string|array<string, string> $sent
-     */
-    #[DataProvider('categorizedSends')]
-    public function testACodeSendCarriesItsCategory($category, $sent): void
-    {
-        $this->emails()->send([
-            'to' => 'user@example.com',
-            'template_key' => 'monthly-news',
-            'subject' => 'This month',
-            'html' => '<p>News. {{ unsubscribe_url }}</p>',
-            'category' => $category,
-        ]);
-
-        $this->assertSame($sent, $this->body()['category']);
-    }
-
     public function testAGeneratedIdempotencyKeyIsAUuidV4ReusedOnEveryAttempt(): void
     {
         $this->reply([503, '{"code":"unavailable"}', []], [202, '{"message_id":"msg_1"}', []]);
