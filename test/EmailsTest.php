@@ -205,31 +205,39 @@ class EmailsTest extends TestCase
         ], $this->body());
     }
 
-    #[DataProvider('trackOpensAndClicksCases')]
-    public function testCodeSendPassesTrackOpensAndClicksOnlyWhenSet(?bool $track, array $expected): void
+    #[DataProvider('trackingCases')]
+    public function testCodeSendPassesTrackingOnlyWhenSet(array $options, string $expected): void
     {
         $this->emails()->send([
             'to' => 'user@example.com',
             'template_key' => 'welcome',
             'subject' => 'Welcome',
             'html' => '<p>Hi</p>',
-            'track_opens_and_clicks' => $track,
-        ]);
+        ] + $options);
 
-        $this->assertSame([
-            'template_key' => 'welcome',
-            'subject' => 'Welcome',
-            'html' => '<p>Hi</p>',
-            'capture_engagement' => true,
-        ] + $expected + ['to' => 'user@example.com'], $this->body());
+        $this->assertSame(
+            '{"template_key":"welcome","subject":"Welcome","html":"<p>Hi</p>",' . $expected
+                . '"to":"user@example.com"}',
+            $this->requests[0]['body']
+        );
     }
 
-    public static function trackOpensAndClicksCases(): array
+    public static function trackingCases(): array
     {
         return [
-            'false' => [false, ['track_opens_and_clicks' => false]],
-            'true' => [true, ['track_opens_and_clicks' => true]],
-            'unset' => [null, []],
+            'unset' => [['tracking' => null], '"capture_engagement":true,'],
+            'true' => [['tracking' => true], '"tracking":true,'],
+            'false' => [['tracking' => false], '"tracking":false,'],
+            'clicks on' => [['tracking' => ['clicks' => true]], '"tracking":{"clicks":true},'],
+            'null kinds left out' => [
+                ['tracking' => ['opens' => false, 'clicks' => null, 'engagement' => false]],
+                '"tracking":{"opens":false,"engagement":false},',
+            ],
+            'empty array' => [['tracking' => []], '"tracking":{},'],
+            'with capture_engagement' => [
+                ['tracking' => true, 'capture_engagement' => false],
+                '"capture_engagement":false,"tracking":true,',
+            ],
         ];
     }
 
@@ -355,11 +363,7 @@ class EmailsTest extends TestCase
                 'invalid_form',
                 'capture_engagement',
             ],
-            'track_opens_and_clicks with a template' => [
-                $template + ['track_opens_and_clicks' => false],
-                'invalid_form',
-                'track_opens_and_clicks',
-            ],
+            'tracking with a template' => [$template + ['tracking' => false], 'invalid_form', 'tracking'],
             'unknown option' => [$template + ['cc' => 'boss@example.com'], 'invalid_form', 'cc'],
             'template_data with code' => [$code + ['template_data' => ['a' => 1]], 'invalid_form', 'template_data'],
             'bad template key' => [['template_key' => 'pass word'] + $code, 'invalid_template_key', 'template_key'],
@@ -380,11 +384,9 @@ class EmailsTest extends TestCase
                 'invalid_form',
                 'capture_engagement',
             ],
-            'track_opens_and_clicks not a bool' => [
-                $code + ['track_opens_and_clicks' => 'no'],
-                'invalid_form',
-                'track_opens_and_clicks',
-            ],
+            'tracking not a bool or an array' => [$code + ['tracking' => 'no'], 'invalid_form', 'tracking'],
+            'tracking a list' => [$code + ['tracking' => [true]], 'invalid_form', 'tracking'],
+            'tracking kind not a bool' => [$code + ['tracking' => ['clicks' => 'yes']], 'invalid_form', 'tracking'],
             'idempotency key with a space' => [
                 $template + ['idempotency_key' => 'welcome user'],
                 'invalid_idempotency_key',

@@ -64,9 +64,9 @@ final class Emails
         'from',
         'reply_to',
         'capture_engagement',
-        'track_opens_and_clicks',
+        'tracking',
     ];
-    private const TEMPLATE_FORM_WHY = "A template made in PostHog sets its own sender, subject and content, "
+    private const TEMPLATE_FORM_WHY = "A template made in PostHog sets its own sender, subject, content and tracking, "
         . "and follows the project's engagement setting.";
     private const CODE_FORM_WHY = 'A send with template_key takes its content from your code.';
 
@@ -142,14 +142,21 @@ final class Emails
      *   400), `subject`, and `html`, `text` or both. PostHog derives a missing `text` from the `html`, and
      *   sends the content as is without storing it. To send a React email, render it to HTML in your app
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
-     *   `reply_to` (one address or a list; an empty list is left out), `capture_engagement` (default
-     *   true; a project whose admin turned engagement capture off captures nothing, whatever the send asks)
-     *   and `track_opens_and_clicks` (default true), whether PostHog tracks opens and clicks of the email.
-     *   With false, the email goes out without PostHog's open pixel, so PostHog can't count its opens.
-     *   PostHog doesn't track clicks on emails sent from code, so their links are never rewritten either way.
-     *   The client sends `track_opens_and_clicks` only when you set it, because a PostHog version that
-     *   predates the field refuses it. It is independent of `capture_engagement`, which decides whether
-     *   engagement events are captured on the recipient's person.
+     *   `reply_to` (one address or a list; an empty list is left out) and `tracking`.
+     *
+     * `tracking` says what PostHog tracks for the email. Left out, PostHog counts opens and captures
+     * engagement events, and doesn't track clicks. `true` turns on opens, clicks and engagement events.
+     * `false` turns them all off: the email has no open pixel and no rewritten links, and PostHog
+     * captures no engagement events for it. An array such as `['clicks' => true]` sets `opens`
+     * (default true), `clicks` (default false) and `engagement` (default true) one by one. Clicks are
+     * off by default because PostHog can't tell whether an email's links carry login or reset tokens:
+     * turn them on only when the links are safe to rewrite. Click tracking needs open tracking. A
+     * project whose admin turned engagement capture off captures nothing, whatever the send says. The
+     * client sends `tracking` only when you set it, and needs a PostHog version that takes it.
+     *
+     * `capture_engagement` is deprecated: use `tracking` with `engagement` instead. It still works, but a
+     * send can't set both. The client sends `capture_engagement` (default true) only when `tracking` is
+     * left out, or when you set it.
      *
      * Both forms take `to` (one address), `distinct_id` (the recipient's distinct ID in your product;
      * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
@@ -191,8 +198,8 @@ final class Emails
      *     text?: string|null,
      *     from?: string|null,
      *     reply_to?: string|list<string>|null,
-     *     capture_engagement?: bool|null,
-     *     track_opens_and_clicks?: bool|null
+     *     tracking?: bool|array{opens?: bool|null, clicks?: bool|null, engagement?: bool|null}|null,
+     *     capture_engagement?: bool|null
      * } $email
      * @return SendEmailResult The queued email. It means PostHog queued the email, not that it was delivered.
      * @throws EmailError PostHog did not queue the email, or the client could not tell whether it did. A
@@ -372,23 +379,42 @@ final class Emails
         if (array_key_exists('reply_to', $email) && $email['reply_to'] !== []) {
             $content['reply_to'] = self::addresses($email['reply_to']);
         }
-        $captureEngagement = $email['capture_engagement'] ?? true;
-        if (!is_bool($captureEngagement)) {
+        $tracking = self::tracking($email);
+        $captureEngagement = $email['capture_engagement'] ?? null;
+        if ($captureEngagement !== null && !is_bool($captureEngagement)) {
             throw self::invalid('invalid_form', 'capture_engagement must be true or false.', 'capture_engagement');
         }
-        $content['capture_engagement'] = $captureEngagement;
-        if (array_key_exists('track_opens_and_clicks', $email)) {
-            if (!is_bool($email['track_opens_and_clicks'])) {
-                throw self::invalid(
-                    'invalid_form',
-                    'track_opens_and_clicks must be true or false.',
-                    'track_opens_and_clicks'
-                );
-            }
-            $content['track_opens_and_clicks'] = $email['track_opens_and_clicks'];
+        if ($tracking === null || $captureEngagement !== null) {
+            $content['capture_engagement'] = $captureEngagement ?? true;
+        }
+        if ($tracking !== null) {
+            $content['tracking'] = $tracking;
         }
 
         return $content;
+    }
+
+    private static function tracking(array $email): bool|object|null
+    {
+        $tracking = $email['tracking'] ?? null;
+        if ($tracking === null || is_bool($tracking)) {
+            return $tracking;
+        }
+        if (!is_array($tracking) || ($tracking !== [] && array_is_list($tracking))) {
+            throw self::invalid(
+                'invalid_form',
+                "tracking must be true, false or an array such as ['clicks' => true].",
+                'tracking'
+            );
+        }
+        $tracking = array_filter($tracking, static fn($value): bool => $value !== null);
+        foreach ($tracking as $kind => $on) {
+            if (!is_bool($on)) {
+                throw self::invalid('invalid_form', "tracking['$kind'] must be true or false.", 'tracking');
+            }
+        }
+
+        return (object) $tracking;
     }
 
     /**
