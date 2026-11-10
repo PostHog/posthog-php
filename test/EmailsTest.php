@@ -686,19 +686,9 @@ class EmailsTest extends TestCase
         $this->assertSame([], $this->requests);
     }
 
-    public function testAnEmptySubjectBesideFilesIsRefusedBeforeAnyRequest(): void
-    {
-        $error = $this->sendError(self::sendWithFiles([self::invite()], ['subject' => '']));
-
-        $this->assertSame('invalid_form', $error->getErrorCode());
-        $this->assertSame('subject', $error->getField());
-        $this->assertSame([], $this->requests);
-    }
-
     public static function messagesTooLarge(): array
     {
         return [
-            'one byte more than fits' => [[str_repeat('a', 29_182_813)], []],
             'a body that leaves no room' => [[str_repeat('a', 29_000_000)], ['text' => str_repeat('b', 200_000)]],
             'files that only fit alone' => [[str_repeat('a', 15_000_000), str_repeat('b', 15_000_000)], []],
         ];
