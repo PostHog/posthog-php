@@ -234,8 +234,8 @@ jobs:
 
   notify-approval-needed:
     name: Notify Slack - Approval Needed
-    needs: [check-changesets, prepare-release-candidate, verify-release-candidate]
-    if: needs.check-changesets.outputs.has-changesets == 'true' && needs.prepare-release-candidate.result == 'success' && needs.verify-release-candidate.result == 'success'
+    needs: [check-changesets, prepare-release-candidate, verify-release-candidate, resume-check]
+    if: always() && !cancelled() && ((needs.check-changesets.outputs.has-changesets == 'true' && needs.prepare-release-candidate.result == 'success' && needs.verify-release-candidate.result == 'success') || (needs.resume-check.result == 'success' && needs.resume-check.outputs.slack-ts == ''))
     uses: posthog/.github/.github/workflows/notify-approval-needed.yml@5ba5d24966f2c416ca792654638e4ce6f19f545b # main
     with:
       slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
@@ -483,7 +483,7 @@ jobs:
       archive-sha256: ${{ steps.candidate.outputs.archive_sha256 }}
       manifest-sha256: ${{ steps.candidate.outputs.manifest_sha256 }}
       version-commit: ${{ steps.candidate.outputs.version_commit }}
-      slack-ts: ${{ steps.thread.outputs.slack_ts || steps.new-thread.outputs.slack_ts }}
+      slack-ts: ${{ steps.thread.outputs.slack_ts }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -589,7 +589,6 @@ jobs:
           COMMIT=$(PATCH="$RUNNER_TEMP/candidate/release.patch" bash scripts/find-version-commit.sh)
           echo "version_commit=$COMMIT" >> "$GITHUB_OUTPUT"
       - name: Check release refs are unused or already at the expected commits
-        id: refs
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_REPOSITORY: ${{ github.repository }}
@@ -602,83 +601,17 @@ jobs:
           set -euo pipefail
           RESUME_DISTRIBUTION_COMMIT=$(gh api "repos/$DISTRIBUTION_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
           export RESUME_DISTRIBUTION_COMMIT
-          bash scripts/check-release-refs.sh | tee -a "$GITHUB_OUTPUT"
-      - name: Build the resume approval message
-        id: approval-message
-        continue-on-error: true
-        env:
-          CHANNEL: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-          USER_GROUP: ${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}
-          REPOSITORY: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          RESUME_RUN_ID: ${{ inputs.resume_run_id }}
-          THREAD_TS: ${{ steps.thread.outputs.slack_ts }}
-          VERSION: ${{ steps.candidate.outputs.version }}
-          CORE_VERSION: ${{ steps.candidate.outputs.core_version }}
-          CORE_CHANGED: ${{ steps.candidate.outputs.core_changed }}
-          CORE_TAG: ${{ steps.refs.outputs.core-tag }}
-          CORE_RELEASE: ${{ steps.refs.outputs.core-release }}
-          SOURCE_TAG: ${{ steps.refs.outputs.source-tag }}
-          SOURCE_RELEASE: ${{ steps.refs.outputs.source-release }}
-          DISTRIBUTION_TAG: ${{ steps.refs.outputs.distribution-tag }}
-          DISTRIBUTION_RELEASE: ${{ steps.refs.outputs.distribution-release }}
-        run: |
-          set -euo pipefail
-          PAYLOAD=$(jq -cn '
-            def state: if . == "present" then "present, kept" elif . == "missing" then "missing, will be created" else "unknown" end;
-            def group($title; $tag; $release): {type: "mrkdwn", text: "*\($title)*\nTag: \($tag | state)\nRelease: \($release | state)"};
-            "https://github.com/\($ENV.REPOSITORY)/actions/runs" as $runs
-            | {
-                channel: $ENV.CHANNEL,
-                text: "🚀 Resume approval needed for \($ENV.REPOSITORY)",
-                blocks: [
-                  {type: "header", text: {type: "plain_text", text: "🚀 Resume approval needed - \($ENV.REPOSITORY)", emoji: true}},
-                  {type: "section", text: {type: "mrkdwn", text: "Resuming the partially published release from run <\($runs)/\($ENV.RESUME_RUN_ID)|\($ENV.RESUME_RUN_ID)>. \(if $ENV.CORE_CHANGED == "true" then "PHP core `\($ENV.CORE_VERSION)`, " else "" end)Laravel `\($ENV.VERSION)`."}},
-                  {type: "section", fields: [
-                    (if $ENV.CORE_CHANGED == "true" then group("PHP core `\($ENV.CORE_VERSION)`"; $ENV.CORE_TAG; $ENV.CORE_RELEASE) else empty end),
-                    group("Laravel source `posthog-laravel-v\($ENV.VERSION)`"; $ENV.SOURCE_TAG; $ENV.SOURCE_RELEASE),
-                    group("Laravel distribution `\($ENV.VERSION)`"; $ENV.DISTRIBUTION_TAG; $ENV.DISTRIBUTION_RELEASE)
-                  ]},
-                  {type: "section", text: {type: "mrkdwn", text: "<!subteam^\($ENV.USER_GROUP)|@support-hero-client-libraries> Please review and approve the resume."}},
-                  {type: "actions", elements: [
-                    {type: "button", text: {type: "plain_text", text: "Approve/Reject on GitHub", emoji: true}, url: "\($runs)/\($ENV.RUN_ID)", style: "primary"},
-                    {type: "button", text: {type: "plain_text", text: "Original run", emoji: true}, url: "\($runs)/\($ENV.RESUME_RUN_ID)"}
-                  ]}
-                ]
-              }
-            + (if $ENV.THREAD_TS != "" then {thread_ts: $ENV.THREAD_TS, reply_broadcast: true} else {} end)
-          ')
-          echo "payload=$PAYLOAD" >> "$GITHUB_OUTPUT"
+          bash scripts/check-release-refs.sh
       - name: Notify Slack - Resume approval needed
-        id: approval-ping
-        if: steps.approval-message.outputs.payload != ''
+        if: steps.thread.outputs.slack_ts != ''
         continue-on-error: true
-        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        uses: posthog/.github/.github/actions/slack-thread-reply@cb0979b67dcd585828b61ac45927eef4da8f6287 # main
         with:
-          method: chat.postMessage
-          token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-          errors: true
-          payload: ${{ steps.approval-message.outputs.payload }}
-      - name: Save the new approval thread
-        id: new-thread
-        if: steps.thread.outputs.slack_ts == '' && steps.approval-ping.outputs.ts != ''
-        continue-on-error: true
-        env:
-          THREAD_TS: ${{ steps.approval-ping.outputs.ts }}
-        run: |
-          set -euo pipefail
-          [[ "$THREAD_TS" =~ ^[0-9]+\.[0-9]+$ ]]
-          printf '%s' "$THREAD_TS" > "$RUNNER_TEMP/thread-ts.txt"
-          echo "slack_ts=$THREAD_TS" >> "$GITHUB_OUTPUT"
-      - name: Preserve the new approval thread for failure alerts
-        if: steps.new-thread.outputs.slack_ts != ''
-        continue-on-error: true
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-slack-thread-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/thread-ts.txt
-          retention-days: 30
-          if-no-files-found: error
+          slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+          slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+          thread_ts: ${{ steps.thread.outputs.slack_ts }}
+          emoji_reaction: hourglass_flowing_sand
+          message: "<!subteam^${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}|@support-hero-client-libraries> Resume approval needed: <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|run ${{ github.run_id }}> completes ${{ steps.candidate.outputs.core_changed == 'true' && format('PHP core {0} and ', steps.candidate.outputs.core_version) || '' }}Laravel ${{ steps.candidate.outputs.version }} from run ${{ inputs.resume_run_id }}. Please review and approve the resume."
       - name: Send failure event to PostHog
         if: ${{ failure() }}
         continue-on-error: true
@@ -703,21 +636,24 @@ jobs:
 
   resume-publication:
     name: Resume publication
-    needs: resume-check
+    needs: [resume-check, notify-approval-needed]
+    if: always() && !cancelled() && needs.resume-check.result == 'success' && (needs.notify-approval-needed.result == 'success' || needs.notify-approval-needed.result == 'skipped')
     runs-on: ubuntu-latest
     environment: Release
+    env:
+      SLACK_TS: ${{ needs.resume-check.outputs.slack-ts || needs.notify-approval-needed.outputs.slack_ts }}
     permissions:
       actions: read
       contents: read
     steps:
       - name: Notify Slack - Approved
-        if: needs.resume-check.outputs.slack-ts != ''
+        if: env.SLACK_TS != ''
         continue-on-error: true
         uses: posthog/.github/.github/actions/slack-thread-reply@cb0979b67dcd585828b61ac45927eef4da8f6287 # main
         with:
           slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
           slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-          thread_ts: ${{ needs.resume-check.outputs.slack-ts }}
+          thread_ts: ${{ env.SLACK_TS }}
           message: "✅ Resume approved! Completing the missing publication..."
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
