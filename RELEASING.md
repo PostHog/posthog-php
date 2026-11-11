@@ -130,9 +130,24 @@ Alerts reply to the approval thread in the release approvals Slack channel. The 
 
 One source version commit and publishing to two repositories cannot be transactional. A failure can leave committed versions without tags, core published but Laravel unpublished, or a distribution tag without its source release.
 
-The combined publishing job does not automatically resume after a partial publication. Rerunning it after the source version commit will fail its original-source freshness check. For an inspected manual continuation, distribution committing can reuse an unchanged distribution commit when both Laravel release refs are still unused. Reuse requires the complete committed file tree to match the approved archive byte-for-byte and GitHub to verify the commit signature; it never creates a replacement commit merely because the previous signature lookup or release request failed. An already-created tag/release still requires inspecting the existing publication rather than blindly retrying.
+A commit request that fails ambiguously, for example with an HTTP 502 after GitHub already applied it, is reconciled rather than retried. The commit step re-reads the destination `main` and accepts the new head only if it is a GitHub-verified, single-parent child of the expected head whose changes are exactly the requested files. Otherwise it fails with the original error. The request is never sent twice.
 
-Inspect the retained candidate artifacts, signatures, checksums, shared source commit, and existing tags/releases before recovery. Complete only the missing publication at the **same recorded version**, using the original artifacts and commit. In particular, wait for Packagist indexing rather than creating another release intent. An all-workflow rerun after versions were consumed does not create a new candidate automatically.
+Rerunning the failed publishing job after the source version commit fails its original-source freshness check, because `main` now carries the version commit. Instead, resume the run from `main`, then approve the **Release** environment once:
+
+```bash
+gh workflow run release.yml --ref main -f resume_run_id=<failed-release-run-id>
+```
+
+The resume skips change-intent checks, preparation, verification, and the approval notification. Before approval, a read-only job checks:
+
+- The run is a completed **Release** run of this repository on `main`, and its `release-candidate-<source>` artifact is still available.
+- `release.patch` and `package.tar.gz` match the digests in `candidate.json`, and `main` still carries the candidate versions. A later release that consumed them makes the run not resumable.
+- The shared version commit is the only first-parent child of the approved source on `main`. Its tree is exactly the source plus `release.patch`, and GitHub verifies its signature from a GitHub App.
+- Every planned tag is either unused or a lightweight tag on the expected commit, and every existing release for it is published. The legacy `vX.Y.Z` distribution tag must stay unused.
+
+After approval, the publishing job rechecks these, fails if `main` moved since the dispatch, and requires the releaser App to be the version commit author. It then completes only what is missing, in the normal order and with the same token handling: the core release, the Packagist wait, the distribution commit (reused when it already matches the approved archive), the distribution release, and the source release with its attachments. Existing releases and tags are only verified, never recreated, moved, or deleted. The released message replies in the original approval thread when the resumed run preserved it, and posts a new channel message otherwise. A failed resume is reported by the release failure notification workflow.
+
+The candidate artifact is the only approved input, and it is retained for five days. After it expires, a resume is refused. In that case, reproduce the candidate from the approved source commit with `release.py prepare` (see [Preview and test](#preview-and-test)). Confirm that its `release.patch` gives exactly the shared version commit's tree, and that its archive matches any existing signed distribution commit byte-for-byte. Inspect the signatures and existing tags/releases, then complete only the missing publication at the **same recorded version** manually. Wait for Packagist indexing rather than creating another release intent. An all-workflow rerun after versions were consumed does not create a new candidate automatically.
 
 For a missing core GitHub release, after verifying the source commit and notes:
 
@@ -140,6 +155,17 @@ For a missing core GitHub release, after verifying the source commit and notes:
 VERSION=<version>
 COMMIT_SHA=<verified-shared-version-commit>
 gh release create "$VERSION" --target "$COMMIT_SHA" --title "$VERSION" --notes-file /path/to/candidate/core-notes.md
+```
+
+The tag rulesets let only the releaser App create numeric distribution tags and `posthog-laravel-v*` source tags, so a manual Laravel completion needs releaser App installation tokens: one for the distribution repository and one for the source repository. After verifying that the distribution commit is signed and matches the approved archive:
+
+```bash
+VERSION=<laravel-version>
+SOURCE_COMMIT=<verified-shared-version-commit>
+DISTRIBUTION_COMMIT=<verified-distribution-commit>
+GH_TOKEN=<distribution-app-token> gh release create "$VERSION" --repo PostHog/posthog-laravel --target "$DISTRIBUTION_COMMIT" --title "$VERSION" --notes-file /path/to/candidate/notes.md
+printf '\nDistribution: %s@%s\nArchive SHA256: %s\n' PostHog/posthog-laravel "$DISTRIBUTION_COMMIT" <archive-sha256> >> /path/to/candidate/notes.md
+GH_TOKEN=<source-app-token> gh release create "posthog-laravel-v$VERSION" --latest=false --repo PostHog/posthog-php --target "$SOURCE_COMMIT" --title "posthog-laravel-v$VERSION" --notes-file /path/to/candidate/notes.md /path/to/candidate/package.tar.gz /path/to/candidate/candidate.json
 ```
 
 Never move an already published tag, overwrite distribution history, or rewrite source commits. Correct bad published versions with signed follow-up commits and a new intent/version. If an incorrect version commit must be undone, use a new signed `git revert`, not a force-push. Do not delete an already distributed version to make a retry look successful.
