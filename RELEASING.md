@@ -138,16 +138,18 @@ Rerunning the failed publishing job after the source version commit fails its or
 gh workflow run release.yml --ref main -f resume_run_id=<failed-release-run-id>
 ```
 
-The resume skips change-intent checks, preparation, verification, and the approval notification. Before approval, a read-only job checks:
+The resume skips change-intent checks, preparation, and verification. Before approval, a read-only job checks:
 
 - The run is a completed **Release** run of this repository on `main`, and its `release-candidate-<source>` artifact is still available.
 - `release.patch` and `package.tar.gz` match the digests in `candidate.json`, and `main` still carries the candidate versions. A later release that consumed them makes the run not resumable.
 - The shared version commit is the only first-parent child of the approved source on `main`. Its tree is exactly the source plus `release.patch`, and GitHub verifies its signature from a GitHub App.
 - Every planned tag is either unused or a lightweight tag on the expected commit, and every existing release for it is published. The legacy `vX.Y.Z` distribution tag must stay unused.
 
+When these checks pass, the same job posts a resume approval request to the release approvals Slack channel. It lists which tags and releases already exist and which the resume will create. It replies in the original approval thread and broadcasts to the channel, or posts a new channel message when the thread artifact is gone. The primary button opens the resume run for approval, and a second button opens the original run.
+
 A run that failed before the shared version commit is not resumable: its change intents are still pending, so dispatch **Release** without `resume_run_id` instead.
 
-After approval, the publishing job rechecks these, fails if `main` moved since the dispatch, and requires the releaser App to be the version commit author. It then completes only what is missing, in the normal order and with the same token handling: the core release, the Packagist wait, the distribution commit (reused when it already matches the approved archive), the distribution release, and the source release with its attachments. Existing releases and tags are only verified, never recreated, moved, or deleted. The released message replies in the original approval thread when the resumed run preserved it, and posts a new channel message otherwise. A failed resume is reported by the release failure notification workflow.
+After approval, the publishing job rechecks these, fails if `main` moved since the dispatch, and requires the releaser App to be the version commit author. It then completes only what is missing, in the normal order and with the same token handling: the core release, the Packagist wait, the distribution commit (reused when it already matches the approved archive), the distribution release, and the source release with its attachments. Existing releases and tags are only verified, never recreated, moved, or deleted. The approved, released, and failure messages all reply in the same thread, including a new thread started by the resume request. A failed resume is reported by the release failure notification workflow.
 
 The candidate artifact is the only approved input, and it is retained for five days. After it expires, a resume is refused. In that case, reproduce the candidate from the approved source commit with `release.py prepare` (see [Preview and test](#preview-and-test)). Confirm that its `release.patch` gives exactly the shared version commit's tree, and that its archive matches any existing signed distribution commit byte-for-byte. Inspect the signatures and existing tags/releases, then complete only the missing publication at the **same recorded version** manually. Wait for Packagist indexing rather than creating another release intent. An all-workflow rerun after versions were consumed does not create a new candidate automatically.
 
