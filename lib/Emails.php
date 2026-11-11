@@ -64,10 +64,11 @@ final class Emails
         'from',
         'reply_to',
         'capture_engagement',
+        'sensitive',
         'tracking',
     ];
-    private const TEMPLATE_FORM_WHY = "A template made in PostHog sets its own sender, subject, content and tracking, "
-        . "and follows the project's engagement setting.";
+    private const TEMPLATE_FORM_WHY = "A template made in PostHog sets its own sender, subject, content, tracking "
+        . "and sensitive setting, and follows the project's engagement setting.";
     private const CODE_FORM_WHY = 'A send with template_key takes its content from your code.';
 
     private const SEND_NOT_DONE = 'no email was sent';
@@ -142,17 +143,25 @@ final class Emails
      *   400), `subject`, and `html`, `text` or both. PostHog derives a missing `text` from the `html`, and
      *   sends the content as is without storing it. To send a React email, render it to HTML in your app
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
-     *   `reply_to` (one address or a list; an empty list is left out) and `tracking`.
+     *   `reply_to` (one address or a list; an empty list is left out), `sensitive` and `tracking`.
+     *
+     * `sensitive` marks the email as sensitive: set it to true when the email carries login links, reset
+     * tokens or codes. A sensitive email keeps its links unchanged unless `tracking` turns clicks on,
+     * leaves its subject off engagement events, and keeps its content out of logs. Left out, the email
+     * takes the setting of the template made in PostHog whose key matches `template_key`, and is
+     * sensitive when no template matches.
      *
      * `tracking` says what PostHog tracks for the email. Left out, PostHog counts opens and captures
-     * engagement events, and doesn't track clicks. `true` turns on opens, clicks and engagement events.
-     * `false` turns them all off: the email has no open pixel and no rewritten links, and PostHog
-     * captures no engagement events for it. An array such as `['clicks' => true]` sets `opens`
-     * (default true), `clicks` (default false) and `engagement` (default true) one by one. Clicks are
-     * off by default because PostHog can't tell whether an email's links carry login or reset tokens:
-     * turn them on only when the links are safe to rewrite. Click tracking needs open tracking. A
-     * project whose admin turned engagement capture off captures nothing, whatever the send says. The
-     * client sends `tracking` only when you set it, and needs a PostHog version that takes it.
+     * engagement events, and tracks clicks only when the email isn't sensitive. `true` turns on opens,
+     * clicks and engagement events, even for a sensitive email. `false` turns them all off: the email
+     * has no open pixel and no rewritten links, and PostHog captures no engagement events for it. An
+     * array such as `['clicks' => true]` sets `opens` (default true), `clicks` (default: on unless the
+     * email is sensitive) and `engagement` (default true) one by one. Turn clicks on for a sensitive
+     * email only when its links are safe to rewrite. Click tracking needs open tracking. A project whose
+     * admin turned engagement capture off captures nothing, whatever the send says.
+     *
+     * The client sends `sensitive` and `tracking` only when you set them, and they need a PostHog
+     * version that takes them.
      *
      * `capture_engagement` is deprecated: use `tracking` with `engagement` instead. It still works, but a
      * send can't set both. The client sends `capture_engagement` only when you set it.
@@ -197,6 +206,7 @@ final class Emails
      *     text?: string|null,
      *     from?: string|null,
      *     reply_to?: string|list<string>|null,
+     *     sensitive?: bool|null,
      *     tracking?: bool|array{opens?: bool|null, clicks?: bool|null, engagement?: bool|null}|null,
      *     capture_engagement?: bool|null
      * } $email
@@ -385,6 +395,13 @@ final class Emails
         }
         if ($captureEngagement !== null) {
             $content['capture_engagement'] = $captureEngagement;
+        }
+        $sensitive = $email['sensitive'] ?? null;
+        if ($sensitive !== null && !is_bool($sensitive)) {
+            throw self::invalid('invalid_form', 'sensitive must be true or false.', 'sensitive');
+        }
+        if ($sensitive !== null) {
+            $content['sensitive'] = $sensitive;
         }
         if ($tracking !== null) {
             $content['tracking'] = $tracking;

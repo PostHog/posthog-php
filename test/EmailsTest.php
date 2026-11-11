@@ -205,7 +205,7 @@ class EmailsTest extends TestCase
     }
 
     #[DataProvider('trackingCases')]
-    public function testCodeSendPassesTrackingOnlyWhenSet(array $options, string $expected): void
+    public function testCodeSendPassesSensitiveAndTrackingOnlyWhenSet(array $options, string $expected): void
     {
         $this->emails()->send([
             'to' => 'user@example.com',
@@ -237,6 +237,13 @@ class EmailsTest extends TestCase
                 ['tracking' => true, 'capture_engagement' => false],
                 '"capture_engagement":false,"tracking":true,',
             ],
+            'sensitive unset' => [['sensitive' => null], ''],
+            'sensitive' => [['sensitive' => true], '"sensitive":true,'],
+            'not sensitive' => [['sensitive' => false], '"sensitive":false,'],
+            'not sensitive with clicks off' => [
+                ['sensitive' => false, 'tracking' => ['clicks' => false]],
+                '"sensitive":false,"tracking":{"clicks":false},',
+            ],
         ];
     }
 
@@ -251,6 +258,7 @@ class EmailsTest extends TestCase
             'from' => null,
             'reply_to' => [],
             'capture_engagement' => null,
+            'sensitive' => null,
             'distinct_id' => null,
             'idempotency_key' => null,
             'template_id' => null,
@@ -362,6 +370,7 @@ class EmailsTest extends TestCase
                 'capture_engagement',
             ],
             'tracking with a template' => [$template + ['tracking' => false], 'invalid_form', 'tracking'],
+            'sensitive with a template' => [$template + ['sensitive' => true], 'invalid_form', 'sensitive'],
             'unknown option' => [$template + ['cc' => 'boss@example.com'], 'invalid_form', 'cc'],
             'template_data with code' => [$code + ['template_data' => ['a' => 1]], 'invalid_form', 'template_data'],
             'bad template key' => [['template_key' => 'pass word'] + $code, 'invalid_template_key', 'template_key'],
@@ -385,6 +394,7 @@ class EmailsTest extends TestCase
             'tracking not a bool or an array' => [$code + ['tracking' => 'no'], 'invalid_form', 'tracking'],
             'tracking a list' => [$code + ['tracking' => [true]], 'invalid_form', 'tracking'],
             'tracking kind not a bool' => [$code + ['tracking' => ['clicks' => 'yes']], 'invalid_form', 'tracking'],
+            'sensitive not a bool' => [$code + ['sensitive' => 'yes'], 'invalid_form', 'sensitive'],
             'idempotency key with a space' => [
                 $template + ['idempotency_key' => 'welcome user'],
                 'invalid_idempotency_key',
