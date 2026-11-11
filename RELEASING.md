@@ -34,7 +34,7 @@ Do not version the packages separately with filters: pnpm can propagate a core b
 
 ## Automated release flow
 
-Merging `.changeset/*.md` changes into `main` starts **Release**. Manual dispatch on `main` uses the same flow and requires pending intents.
+Merging `.changeset/*.md` changes into `main` starts **Release**. Manual dispatch on `main` uses the same flow and requires pending intents, unless `resume_run_id` is given to complete a partially published run (see [Partial publication](#partial-publication)).
 
 1. A read-only job checks the complete dependency-aware plan. A stale trigger skips only if current `main` has no pending releases; otherwise it fails and asks for a new dispatch on current `main`.
 2. Read-only preparation clones the exact committed source, applies the single pnpm plan, verifies the core bump-script hash before executing it, and refreshes the core Composer lock only when core changes. It produces a shared version patch, package-specific notes, a deterministic Laravel archive, and a digest manifest. Local modifications, vendors, and secrets never enter the candidate.
