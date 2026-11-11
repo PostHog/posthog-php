@@ -140,27 +140,45 @@ class FeatureFlag
         }
 
         if ($operator == "icontains") {
-            return strpos(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value))) !== false;
+            return strpos(
+                strtolower(FeatureFlag::valueToString($overrideValue)),
+                strtolower(FeatureFlag::valueToString($value))
+            ) !== false;
         }
 
         if ($operator == "not_icontains") {
-            return strpos(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value))) === false;
+            return strpos(
+                strtolower(FeatureFlag::valueToString($overrideValue)),
+                strtolower(FeatureFlag::valueToString($value))
+            ) === false;
         }
 
         if ($operator == "starts_with") {
-            return str_starts_with(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value)));
+            return str_starts_with(
+                strtolower(FeatureFlag::valueToString($overrideValue)),
+                strtolower(FeatureFlag::valueToString($value))
+            );
         }
 
         if ($operator == "not_starts_with") {
-            return !str_starts_with(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value)));
+            return !str_starts_with(
+                strtolower(FeatureFlag::valueToString($overrideValue)),
+                strtolower(FeatureFlag::valueToString($value))
+            );
         }
 
         if ($operator == "ends_with") {
-            return str_ends_with(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value)));
+            return str_ends_with(
+                strtolower(FeatureFlag::valueToString($overrideValue)),
+                strtolower(FeatureFlag::valueToString($value))
+            );
         }
 
         if ($operator == "not_ends_with") {
-            return !str_ends_with(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value)));
+            return !str_ends_with(
+                strtolower(FeatureFlag::valueToString($overrideValue)),
+                strtolower(FeatureFlag::valueToString($value))
+            );
         }
 
         if (in_array($operator, ["regex", "not_regex"])) {
@@ -771,7 +789,10 @@ class FeatureFlag
         $parts = explode(".", $text);
 
         // Remove trailing wildcard parts and empty parts
-        while (count($parts) > 0 && (end($parts) === "*" || end($parts) === "x" || end($parts) === "X" || end($parts) === "")) {
+        while (
+            count($parts) > 0
+            && (end($parts) === "*" || end($parts) === "x" || end($parts) === "X" || end($parts) === "")
+        ) {
             array_pop($parts);
         }
 
@@ -1411,7 +1432,8 @@ class FeatureFlag
         $propertyMatchingVersion,
         $identityAggregation
     ): ConditionMatch {
-        $rolloutPercentage = array_key_exists("rollout_percentage", $condition) ? $condition["rollout_percentage"] : null;
+        $rolloutPercentage = array_key_exists("rollout_percentage", $condition)
+            ? $condition["rollout_percentage"] : null;
 
         if (count($condition['properties'] ?? []) > 0) {
             // Filters in a condition have no defined order, so an inconclusive filter does not stop
