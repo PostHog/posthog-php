@@ -10,7 +10,7 @@ use Exception;
 class PostHog
 {
     public const LIBRARY = 'posthog-php';
-    public const VERSION = '4.23.0';
+    public const VERSION = '4.23.1';
     public const ENV_PROJECT_TOKEN = "POSTHOG_PROJECT_TOKEN";
     /**
      * @deprecated Use ENV_PROJECT_TOKEN. POSTHOG_API_KEY is still read when POSTHOG_PROJECT_TOKEN is unset or blank.

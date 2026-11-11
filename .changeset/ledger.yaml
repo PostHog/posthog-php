@@ -166,3 +166,7 @@ posthog-php@4.23.0:
   dir: ""
   intents:
     - tender-dodos-know
+posthog-php@4.23.1:
+  dir: ""
+  intents:
+    - relative-date-month-clamp
