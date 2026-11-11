@@ -87,6 +87,49 @@ def matching_distribution_commit(checkout, repository, candidate):
     return head
 
 
+def landed_commit(checkout, repository, payload):
+    """Return the commit an ambiguously failed mutation landed, or explain why it did not.
+
+    Accepts only a verified single-parent child of expectedHeadOid whose changes are
+    exactly the requested file changes. Never issues the mutation again.
+    """
+    expected = payload["variables"]["input"]["expectedHeadOid"]
+    changes = payload["variables"]["input"]["fileChanges"]
+    head = subprocess.check_output([
+        "gh", "api", f"repos/{repository}/git/ref/heads/main", "--jq", ".object.sha",
+    ]).decode().strip()
+    if head == expected:
+        raise ValueError("destination branch did not move")
+    if not re.fullmatch(r"[a-f0-9]{40}", head):
+        raise ValueError("invalid destination head")
+    commit = json.loads(subprocess.check_output(["gh", "api", f"repos/{repository}/commits/{head}"]))
+    if [parent["sha"] for parent in commit["parents"]] != [expected]:
+        raise ValueError(f"destination head {head} is not a direct child of {expected}")
+    if commit["commit"]["verification"]["verified"] is not True:
+        raise ValueError(f"destination head {head} has no verified signature")
+    def git(*args, **kwargs):
+        return subprocess.check_output(["git", "-c", "core.hooksPath=/dev/null", *args], cwd=checkout, **kwargs)
+    git("fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "origin", head)
+    wanted = {change["path"]: base64.b64decode(change["contents"]) for change in changes["additions"]}
+    wanted.update({change["path"]: None for change in changes["deletions"]})
+    landed = {}
+    fields = git("diff-tree", "-r", "-z", "--no-renames", expected, head).split(b"\0")
+    for metadata, name in zip(fields[0::2], fields[1::2]):
+        old_mode, new_mode, _, blob, status = metadata.decode().lstrip(":").split(" ")
+        if status == "D":
+            landed[name.decode()] = None
+        elif new_mode in {"100644", old_mode}:
+            landed[name.decode()] = blob
+        else:
+            raise ValueError(f"unexpected mode {new_mode} for {name.decode()}")
+    for name, data in wanted.items():
+        if data is not None:
+            wanted[name] = git("hash-object", "--stdin", input=data).decode().strip()
+    if landed != wanted:
+        raise ValueError(f"destination head {head} does not contain exactly the requested changes")
+    return head
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkout", type=Path, required=True)
@@ -101,11 +144,19 @@ def main():
             raise ValueError("Distribution retry requires the approved candidate")
         commit = matching_distribution_commit(args.checkout, args.repository, args.candidate)
     else:
-        result = subprocess.check_output(["gh", "api", "graphql", "--input", "-"], input=json.dumps(payload).encode())
-        response = json.loads(result)
-        if response.get("errors"):
-            raise RuntimeError(response["errors"])
-        commit = response["data"]["createCommitOnBranch"]["commit"]["oid"]
+        try:
+            result = subprocess.check_output(["gh", "api", "graphql", "--input", "-"], input=json.dumps(payload).encode())
+            response = json.loads(result)
+            if response.get("errors"):
+                raise RuntimeError(response["errors"])
+            commit = response["data"]["createCommitOnBranch"]["commit"]["oid"]
+        except (subprocess.CalledProcessError, RuntimeError, ValueError, KeyError, TypeError) as error:
+            # A gateway error can be returned after GitHub already applied the commit.
+            try:
+                commit = landed_commit(args.checkout, args.repository, payload)
+            except Exception as reconciliation:
+                raise RuntimeError(f"{error!r}; reconciliation: {reconciliation}") from error
+            print(f"Commit request failed ({error!r}) but GitHub applied it as {commit}", file=sys.stderr)
     if not re.fullmatch(r"[a-f0-9]{40}", commit):
         raise ValueError("Invalid commit returned by GitHub")
     print(f"commit-hash={commit}")
