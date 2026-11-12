@@ -151,6 +151,16 @@ class EmailsClientTest extends TestCase
         );
     }
 
+    public function testANullDescriptionCreatesTheCategoryWithoutOne(): void
+    {
+        $this->sendInCategory(self::NEWSLETTER + ['description' => null]);
+
+        $this->assertSame(
+            ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => '']],
+            $this->server->state()['categories']
+        );
+    }
+
     public function testTheBuiltInTransactionalCategorySendsWithoutACategory(): void
     {
         $messageId = $this->sendInCategory(Emails::CATEGORY_TRANSACTIONAL);
