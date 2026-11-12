@@ -170,3 +170,7 @@ posthog-php@4.23.1:
   dir: ""
   intents:
     - relative-date-month-clamp
+posthog-php@4.24.0:
+  dir: ""
+  intents:
+    - emails-tracking
