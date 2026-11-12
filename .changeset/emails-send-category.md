@@ -20,4 +20,4 @@ PostHog::emails()->send([
 ]);
 ```
 
-PostHog creates the category the first time a send names its key, and updates its name and description when they change. Leaving `description` out, or null, keeps the stored one, and `''` clears it. A marketing send honors the recipient's opt-outs, adds unsubscribe headers, and needs `{{ unsubscribe_url }}` in the body. PostHog refuses a send with the new `EmailError` codes `category_mismatch`, `too_many_categories`, `unsubscribe_link_required`, `copies_not_allowed` or `recipient_opted_out`.
+PostHog creates the category the first time a send names its key, or restores it if it was deleted, and otherwise leaves it unchanged. Its `name` and `description` apply only when the send creates the category; change them later in PostHog. A marketing send honors the recipient's opt-outs, adds unsubscribe headers, and needs `{{ unsubscribe_url }}` in the body. PostHog refuses a send with the new `EmailError` codes `category_mismatch`, `too_many_categories`, `unsubscribe_link_required`, `copies_not_allowed` or `recipient_opted_out`.

@@ -106,12 +106,10 @@ $send = static function (
         return $refuse(422, 'recipient_opted_out', 'The recipient opted out of this category.');
     }
     if (is_array($category) && !array_key_exists($email['template_key'], $templates)) {
-        $state['categories'][$key] = [
+        $state['categories'][$key] ??= [
             'type' => $type,
             'name' => $category['name'],
-            'description' => array_key_exists('description', $category)
-                ? $category['description']
-                : ($state['categories'][$key]['description'] ?? ''),
+            'description' => $category['description'] ?? '',
         ];
     }
     $messageId = sprintf('01a18356-c56c-0001-e494-%012d', count($state['sends']) + 1);

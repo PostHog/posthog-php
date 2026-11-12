@@ -157,13 +157,13 @@ final class Emails
      * `template_key` names. `Emails::CATEGORY_TRANSACTIONAL` sends transactional email with no category, so
      * PostHog refuses it on a template in a category. To file the email under a message category, pass the
      * category itself: its `key`, `type` (`marketing` or `transactional`), `name` and an optional
-     * `description`. PostHog creates the category the first time a send names its key, and updates its name
-     * and description when they change. Leaving `description` out, or null, keeps the stored one, and `''`
-     * clears it. A marketing send honors the recipient's opt-outs and unsubscribe headers, and needs
-     * `{{ unsubscribe_url }}` in the body. PostHog refuses a send with `category_mismatch` when the
-     * project's category with that key has another type, or when `template_key` names a template in another
-     * category, and with `too_many_categories`, `unsubscribe_link_required`, `copies_not_allowed` or
-     * `recipient_opted_out`.
+     * `description`. PostHog creates the category the first time a send names its key, or restores it if it
+     * was deleted, and otherwise leaves it unchanged. Its `name` and `description` apply only when the send
+     * creates the category; change them later in PostHog. A marketing send honors the recipient's opt-outs
+     * and unsubscribe headers, and needs `{{ unsubscribe_url }}` in the body. PostHog refuses a send with
+     * `category_mismatch` when the project's category with that key has another type, or when
+     * `template_key` names a template in another category, and with `too_many_categories`,
+     * `unsubscribe_link_required`, `copies_not_allowed` or `recipient_opted_out`.
      *
      * A send with an idempotency key PostHog already accepted queues nothing and returns the first send's
      * result. Without a key, the client makes a UUID that covers its own retries. Pass a key derived from

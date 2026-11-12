@@ -131,9 +131,11 @@ class EmailsClientTest extends TestCase
         $this->assertSame([], $this->server->state()['sends']);
     }
 
-    public function testACodeSendCreatesItsCategory(): void
+    public function testACodeSendCreatesItsCategoryAndLaterSendsLeaveItUnchanged(): void
     {
-        $messageId = $this->sendInCategory(self::NEWSLETTER + ['description' => 'Monthly product news']);
+        $first = $this->sendInCategory(self::NEWSLETTER + ['description' => 'Monthly product news']);
+
+        $second = $this->sendInCategory(['name' => 'Weekly news', 'description' => 'Weekly'] + self::NEWSLETTER);
 
         $state = $this->server->state();
         $this->assertSame(
@@ -141,30 +143,12 @@ class EmailsClientTest extends TestCase
             $state['categories']
         );
         $this->assertSame(
-            [['message_id' => $messageId, 'category' => 'newsletter', 'type' => 'marketing']],
+            [
+                ['message_id' => $first, 'category' => 'newsletter', 'type' => 'marketing'],
+                ['message_id' => $second, 'category' => 'newsletter', 'type' => 'marketing'],
+            ],
             $state['sends']
         );
-    }
-
-    public function testASendWithoutADescriptionKeepsTheStoredOne(): void
-    {
-        $this->sendInCategory(self::NEWSLETTER + ['description' => 'Monthly product news']);
-
-        $this->sendInCategory(['name' => 'Product news', 'description' => null] + self::NEWSLETTER);
-
-        $this->assertSame(
-            ['type' => 'marketing', 'name' => 'Product news', 'description' => 'Monthly product news'],
-            $this->server->state()['categories']['newsletter']
-        );
-    }
-
-    public function testAnEmptyDescriptionClearsTheStoredOne(): void
-    {
-        $this->sendInCategory(self::NEWSLETTER + ['description' => 'Monthly product news']);
-
-        $this->sendInCategory(self::NEWSLETTER + ['description' => '']);
-
-        $this->assertSame('', $this->server->state()['categories']['newsletter']['description']);
     }
 
     public function testTheBuiltInTransactionalCategorySendsWithoutACategory(): void
