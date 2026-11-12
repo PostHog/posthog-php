@@ -6,6 +6,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
 use PostHog\EmailError;
+use PostHog\Emails;
 use PostHog\PostHog;
 
 class EmailsClientTest extends TestCase
@@ -71,6 +72,230 @@ class EmailsClientTest extends TestCase
             'to' => 'user@example.com',
             'distinct_id' => 'user_123',
         ], json_decode($requests[0]['body'], true));
+    }
+
+    private const NEWSLETTER = ['key' => 'newsletter', 'type' => 'marketing', 'name' => 'Newsletter'];
+    private const RECEIPTS = ['key' => 'receipts', 'type' => 'transactional', 'name' => 'Receipts'];
+    private const MONTHLY_NEWS = [
+        'to' => 'user@example.com',
+        'template_key' => 'monthly-news',
+        'subject' => 'This month',
+        'html' => '<p>News.</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+    ];
+
+    private function sendInCategory(mixed $category, string $to = 'user@example.com'): string
+    {
+        $this->server ??= new LocalHttpServer([], 'email-send-server.php');
+
+        return $this->client()->emails()->send(['to' => $to, 'category' => $category] + self::MONTHLY_NEWS)->getId();
+    }
+
+    private function serveATemplateIn(array $category): void
+    {
+        $this->server = new LocalHttpServer(
+            ['templates' => [self::MONTHLY_NEWS['template_key'] => $category]],
+            'email-send-server.php'
+        );
+    }
+
+    public static function categoriesThatFollowTheTemplate(): array
+    {
+        return ['left out' => [[]], 'null' => [['category' => null]]];
+    }
+
+    #[DataProvider('categoriesThatFollowTheTemplate')]
+    public function testASendForATemplateInACategoryFollowsItsCategory(array $category): void
+    {
+        $this->serveATemplateIn(self::RECEIPTS);
+
+        $messageId = $this->client()->emails()->send($category + self::MONTHLY_NEWS)->getId();
+
+        $this->assertSame(
+            [['message_id' => $messageId, 'category' => 'receipts', 'type' => 'transactional']],
+            $this->server->state()['sends']
+        );
+    }
+
+    public function testTransactionalOnATemplateInACategoryIsRefused(): void
+    {
+        $this->serveATemplateIn(self::RECEIPTS);
+
+        try {
+            $this->sendInCategory(Emails::CATEGORY_TRANSACTIONAL);
+            $this->fail('send() did not throw');
+        } catch (EmailError $error) {
+            $this->assertSame('category_mismatch', $error->getErrorCode());
+            $this->assertSame('validation_error', $error->getErrorName());
+            $this->assertSame(400, $error->getStatusCode());
+            $this->assertSame('category', $error->getField());
+        }
+        $this->assertSame([], $this->server->state()['sends']);
+    }
+
+    public function testATemplateInAMarketingCategoryIsRefused(): void
+    {
+        $this->serveATemplateIn(self::NEWSLETTER);
+
+        try {
+            $this->client()->emails()->send(self::MONTHLY_NEWS);
+            $this->fail('send() did not throw');
+        } catch (EmailError $error) {
+            $this->assertSame('marketing_template', $error->getErrorCode());
+            $this->assertSame('validation_error', $error->getErrorName());
+            $this->assertSame(400, $error->getStatusCode());
+        }
+        $this->assertSame([], $this->server->state()['sends']);
+    }
+
+    public function testACodeSendCreatesItsCategoryAndLaterSendsLeaveItUnchanged(): void
+    {
+        $first = $this->sendInCategory(self::NEWSLETTER + ['description' => 'Monthly product news']);
+
+        $second = $this->sendInCategory(['name' => 'Weekly news', 'description' => 'Weekly'] + self::NEWSLETTER);
+
+        $state = $this->server->state();
+        $this->assertSame(
+            ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => 'Monthly product news']],
+            $state['categories']
+        );
+        $this->assertSame(
+            [
+                ['message_id' => $first, 'category' => 'newsletter', 'type' => 'marketing'],
+                ['message_id' => $second, 'category' => 'newsletter', 'type' => 'marketing'],
+            ],
+            $state['sends']
+        );
+    }
+
+    public function testANullDescriptionCreatesTheCategoryWithoutOne(): void
+    {
+        $this->sendInCategory(self::NEWSLETTER + ['description' => null]);
+
+        $this->assertSame(
+            ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => '']],
+            $this->server->state()['categories']
+        );
+    }
+
+    public function testTheBuiltInTransactionalCategorySendsWithoutACategory(): void
+    {
+        $messageId = $this->sendInCategory(Emails::CATEGORY_TRANSACTIONAL);
+
+        $state = $this->server->state();
+        $this->assertSame([], $state['categories']);
+        $this->assertSame(
+            [['message_id' => $messageId, 'category' => null, 'type' => 'transactional']],
+            $state['sends']
+        );
+    }
+
+    public function testANullCategorySendsWithoutACategory(): void
+    {
+        $messageId = $this->sendInCategory(null);
+
+        $this->assertSame(
+            [['message_id' => $messageId, 'category' => null, 'type' => 'transactional']],
+            $this->server->state()['sends']
+        );
+    }
+
+    public function testARecipientWhoOptedOutIsRefused(): void
+    {
+        $this->server = new LocalHttpServer(
+            ['opted_out' => ['newsletter' => ['opted-out@example.com']]],
+            'email-send-server.php'
+        );
+
+        try {
+            $this->sendInCategory(self::NEWSLETTER, 'opted-out@example.com');
+            $this->fail('send() did not throw');
+        } catch (EmailError $error) {
+            $this->assertSame('recipient_opted_out', $error->getErrorCode());
+            $this->assertSame('validation_error', $error->getErrorName());
+            $this->assertSame(422, $error->getStatusCode());
+        }
+        $this->assertSame(
+            [
+                'categories' => ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => '']],
+                'sends' => [],
+            ],
+            $this->server->state()
+        );
+    }
+
+    public static function refusedCategories(): array
+    {
+        $template = ['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID];
+        $code = ['to' => 'user@example.com', 'template_key' => 'welcome', 'subject' => 'Hi', 'html' => '<p>Hi</p>'];
+
+        return [
+            'category with a template' => [
+                $template + ['category' => Emails::CATEGORY_TRANSACTIONAL],
+                'invalid_form',
+                'category',
+            ],
+            'category as a key alone' => [$code + ['category' => 'newsletter'], 'invalid_category', 'category'],
+            'category as a list' => [$code + ['category' => ['newsletter']], 'invalid_category', 'category'],
+            'category without a key' => [
+                $code + ['category' => ['type' => 'marketing', 'name' => 'Newsletter']],
+                'invalid_category',
+                'category',
+            ],
+            'category with an unknown type' => [
+                $code + ['category' => ['type' => 'promotional'] + self::NEWSLETTER],
+                'invalid_category',
+                'category',
+            ],
+            'category with an empty name' => [
+                $code + ['category' => ['name' => ''] + self::NEWSLETTER],
+                'invalid_category',
+                'category',
+            ],
+            'category with a description that is not a string' => [
+                $code + ['category' => self::NEWSLETTER + ['description' => 42]],
+                'invalid_category',
+                'category',
+            ],
+            'category with a misspelled field' => [
+                $code + ['category' => self::NEWSLETTER + ['descripton' => 'Monthly product news']],
+                'invalid_category',
+                'category',
+            ],
+        ];
+    }
+
+    #[DataProvider('refusedCategories')]
+    public function testARefusedCategoryNeverReachesTheServer(array $email, string $code, string $field): void
+    {
+        $this->server = new LocalHttpServer([], 'email-send-server.php');
+
+        try {
+            $this->client()->emails()->send($email);
+            $this->fail('send() did not throw');
+        } catch (EmailError $error) {
+            $this->assertSame($code, $error->getErrorCode());
+            $this->assertSame('validation_error', $error->getErrorName());
+            $this->assertSame($field, $error->getField());
+        }
+        $this->assertSame([], $this->server->requests());
+    }
+
+    public function testACategoryCannotChangeItsType(): void
+    {
+        $this->sendInCategory(self::NEWSLETTER);
+
+        try {
+            $this->sendInCategory(['type' => Emails::CATEGORY_TRANSACTIONAL] + self::NEWSLETTER);
+            $this->fail('send() did not throw');
+        } catch (EmailError $error) {
+            $this->assertSame('category_mismatch', $error->getErrorCode());
+            $this->assertSame('validation_error', $error->getErrorName());
+            $this->assertSame(400, $error->getStatusCode());
+            $this->assertSame('category', $error->getField());
+        }
+        $state = $this->server->state();
+        $this->assertSame('marketing', $state['categories']['newsletter']['type']);
+        $this->assertCount(1, $state['sends']);
     }
 
     public function testARetryAfterHeaderComesBackOnTheError(): void
