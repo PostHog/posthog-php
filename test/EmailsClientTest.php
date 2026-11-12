@@ -79,7 +79,7 @@ class EmailsClientTest extends TestCase
         'to' => 'user@example.com',
         'template_key' => 'monthly-news',
         'subject' => 'This month',
-        'html' => '<p>News. {{ unsubscribe_url }}</p>',
+        'html' => '<p>News.</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
     ];
 
     private function sendInCategory(mixed $category, string $to = 'user@example.com'): string
@@ -198,7 +198,13 @@ class EmailsClientTest extends TestCase
             $this->assertSame('validation_error', $error->getErrorName());
             $this->assertSame(422, $error->getStatusCode());
         }
-        $this->assertSame(['categories' => [], 'sends' => []], $this->server->state());
+        $this->assertSame(
+            [
+                'categories' => ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => '']],
+                'sends' => [],
+            ],
+            $this->server->state()
+        );
     }
 
     public static function refusedCategories(): array

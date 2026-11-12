@@ -101,9 +101,12 @@ $send = static function (
         $key = null;
         $type = 'transactional';
     }
-    $optOuts = $key === null ? [] : array_merge($optedOut[$key] ?? [], $optedOut['$all'] ?? []);
-    if ($type === 'marketing' && in_array($email['to'], $optOuts, true)) {
-        return $refuse(422, 'recipient_opted_out', 'The recipient opted out of this category.');
+    $html = $email['html'] ?? '';
+    $content = $html !== '' ? $html : ($email['text'] ?? '');
+    $placeholder = '\{\{\s*unsubscribe_url\s*\}\}';
+    $unsubscribeLinkRequired = 'A marketing email needs a {{ unsubscribe_url }} link.';
+    if ($type === 'marketing' && preg_match("/$placeholder/", $content) !== 1) {
+        return $refuse(400, 'unsubscribe_link_required', $unsubscribeLinkRequired, 'html');
     }
     if (is_array($category) && !array_key_exists($email['template_key'], $templates)) {
         $state['categories'][$key] ??= [
@@ -111,6 +114,14 @@ $send = static function (
             'name' => $category['name'],
             'description' => $category['description'] ?? '',
         ];
+    }
+    $linked = $html === '' || preg_match("/href\\s*=\\s*[\"']\\s*$placeholder/", $html) === 1;
+    if ($type === 'marketing' && !$linked) {
+        return $refuse(400, 'unsubscribe_link_required', $unsubscribeLinkRequired, 'html');
+    }
+    $optOuts = $key === null ? [] : array_merge($optedOut[$key] ?? [], $optedOut['$all'] ?? []);
+    if ($type === 'marketing' && in_array($email['to'], $optOuts, true)) {
+        return $refuse(422, 'recipient_opted_out', 'The recipient opted out of this category.');
     }
     $messageId = sprintf('01a18356-c56c-0001-e494-%012d', count($state['sends']) + 1);
     $state['sends'][] = ['message_id' => $messageId, 'category' => $key, 'type' => $type];
