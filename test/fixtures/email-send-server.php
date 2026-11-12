@@ -80,6 +80,10 @@ $send = static function (
     }
     if (array_key_exists($email['template_key'], $templates)) {
         $template = $templates[$email['template_key']];
+        if (($template['type'] ?? null) === 'marketing') {
+            $onlyTransactional = 'The template is in a marketing category. Only transactional templates can be sent.';
+            return $refuse(400, 'marketing_template', $onlyTransactional);
+        }
         $matches = $template === null
             ? in_array($category, [null, 'transactional'], true)
             : $category === null || (

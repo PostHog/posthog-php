@@ -75,6 +75,7 @@ class EmailsClientTest extends TestCase
     }
 
     private const NEWSLETTER = ['key' => 'newsletter', 'type' => 'marketing', 'name' => 'Newsletter'];
+    private const RECEIPTS = ['key' => 'receipts', 'type' => 'transactional', 'name' => 'Receipts'];
     private const MONTHLY_NEWS = [
         'to' => 'user@example.com',
         'template_key' => 'monthly-news',
@@ -89,10 +90,10 @@ class EmailsClientTest extends TestCase
         return $this->client()->emails()->send(['to' => $to, 'category' => $category] + self::MONTHLY_NEWS)->getId();
     }
 
-    private function serveANewsletterTemplate(): void
+    private function serveATemplateIn(array $category): void
     {
         $this->server = new LocalHttpServer(
-            ['templates' => [self::MONTHLY_NEWS['template_key'] => self::NEWSLETTER]],
+            ['templates' => [self::MONTHLY_NEWS['template_key'] => $category]],
             'email-send-server.php'
         );
     }
@@ -105,19 +106,19 @@ class EmailsClientTest extends TestCase
     #[DataProvider('categoriesThatFollowTheTemplate')]
     public function testASendForATemplateInACategoryFollowsItsCategory(array $category): void
     {
-        $this->serveANewsletterTemplate();
+        $this->serveATemplateIn(self::RECEIPTS);
 
         $messageId = $this->client()->emails()->send($category + self::MONTHLY_NEWS)->getId();
 
         $this->assertSame(
-            [['message_id' => $messageId, 'category' => 'newsletter', 'type' => 'marketing']],
+            [['message_id' => $messageId, 'category' => 'receipts', 'type' => 'transactional']],
             $this->server->state()['sends']
         );
     }
 
     public function testTransactionalOnATemplateInACategoryIsRefused(): void
     {
-        $this->serveANewsletterTemplate();
+        $this->serveATemplateIn(self::RECEIPTS);
 
         try {
             $this->sendInCategory(Emails::CATEGORY_TRANSACTIONAL);
@@ -127,6 +128,21 @@ class EmailsClientTest extends TestCase
             $this->assertSame('validation_error', $error->getErrorName());
             $this->assertSame(400, $error->getStatusCode());
             $this->assertSame('category', $error->getField());
+        }
+        $this->assertSame([], $this->server->state()['sends']);
+    }
+
+    public function testATemplateInAMarketingCategoryIsRefused(): void
+    {
+        $this->serveATemplateIn(self::NEWSLETTER);
+
+        try {
+            $this->client()->emails()->send(self::MONTHLY_NEWS);
+            $this->fail('send() did not throw');
+        } catch (EmailError $error) {
+            $this->assertSame('marketing_template', $error->getErrorCode());
+            $this->assertSame('validation_error', $error->getErrorName());
+            $this->assertSame(400, $error->getStatusCode());
         }
         $this->assertSame([], $this->server->state()['sends']);
     }
