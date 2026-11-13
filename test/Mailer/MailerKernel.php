@@ -2,7 +2,6 @@
 
 namespace PostHog\Test\Mailer;
 
-use Closure;
 use PostHog\Mailer\PostHogTransportFactory;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
@@ -10,10 +9,9 @@ use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigura
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\Mailer\MailerInterface;
 
-use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
-
 /**
- * A Symfony app that registers the factory the way the docs do and sets MAILER_DSN to PostHog.
+ * A Symfony app that registers the factory the way the docs do, sets MAILER_DSN to PostHog, and answers its HTTP
+ * client's requests with RecordedRequests.
  */
 final class MailerKernel extends Kernel
 {
@@ -36,15 +34,13 @@ final class MailerKernel extends Kernel
             'test' => true,
             'http_method_override' => false,
             'mailer' => ['dsn' => 'posthog+api://phs_kernel@default'],
+            'http_client' => ['mock_response_factory' => RecordedRequests::class],
         ]);
         $services = $container->services();
         $services->alias('test.mailer', MailerInterface::class)->public();
-        $services->set('posthog.test.send_request', Closure::class)
-            ->factory([Closure::class, 'fromCallable'])
-            ->args([[RecordedRequests::class, 'send']]);
+        $services->set(RecordedRequests::class);
         $services->set(PostHogTransportFactory::class)
             ->parent('mailer.transport_factory.abstract')
-            ->arg('$sendRequest', service('posthog.test.send_request'))
             ->tag('mailer.transport_factory');
     }
 }
