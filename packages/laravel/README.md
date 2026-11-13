@@ -314,7 +314,7 @@ API. It needs `POSTHOG_API_KEY` and the project secret key in `POSTHOG_SECRET_KE
 'mailers' => [
     'posthog' => [
         'transport' => 'posthog',
-        // Optional: the template key of mail that has no class, such as Mail::raw().
+        // Optional: the template key (letters, digits, - and _) of mail that has no class, such as Mail::raw().
         'default_template_key' => 'app-mail',
     ],
 ],

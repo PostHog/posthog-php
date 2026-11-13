@@ -7,6 +7,7 @@ use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Mail\MailManager;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use PostHog\Internal\Mailer\EmailMapper;
 use PostHog\Laravel\PostHog;
 use PostHog\Mailer\PostHogTransport;
 use Symfony\Component\Mailer\DelayedEnvelope;
@@ -36,7 +37,7 @@ final class MailDriver implements TransportInterface
 
     private function __construct(private readonly ?string $defaultTemplateKey)
     {
-        if ($defaultTemplateKey !== null && !self::isTemplateKey($defaultTemplateKey)) {
+        if ($defaultTemplateKey !== null && preg_match(EmailMapper::TEMPLATE_KEY_PATTERN, $defaultTemplateKey) !== 1) {
             throw new InvalidArgumentException(
                 'The default template key can only have letters, digits, hyphens (-) and underscores (_), at most '
                 . self::TEMPLATE_KEY_LENGTH . '.'
@@ -99,12 +100,6 @@ final class MailDriver implements TransportInterface
             defaultTemplateKey: $templateKey,
             templates: false,
         );
-    }
-
-    private static function isTemplateKey(string $key): bool
-    {
-        return $key !== '' && strlen($key) <= self::TEMPLATE_KEY_LENGTH
-            && preg_match(self::NOT_IN_A_TEMPLATE_KEY, $key) !== 1;
     }
 
     public function __toString(): string
