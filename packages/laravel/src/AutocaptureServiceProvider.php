@@ -13,6 +13,7 @@ use PostHog\Laravel\Autocapture\DomainEvents;
 use PostHog\Laravel\Autocapture\ModelEvents;
 use PostHog\Laravel\Autocapture\Outcomes;
 use PostHog\Laravel\Autocapture\RequestSummary;
+use PostHog\Laravel\Jobs\DeliverEvents;
 use Throwable;
 
 /** @internal */
@@ -90,7 +91,9 @@ class AutocaptureServiceProvider extends ServiceProvider
     {
         $outcomes = new Outcomes();
         $events->listen(\Illuminate\Queue\Events\JobProcessing::class, static function ($event) use ($outcomes) {
-            $outcomes->start('jobs', $event->job);
+            if ($event->job->resolveQueuedJobClass() !== DeliverEvents::class) {
+                $outcomes->start('jobs', $event->job);
+            }
         });
         foreach (
             [

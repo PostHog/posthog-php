@@ -19,7 +19,8 @@ final class PostHogTransportFactoryTest extends TestCase
 
     private function send(string $dsn): void
     {
-        $factory = new PostHogTransportFactory(sendRequest: Closure::fromCallable([$this, 'sendRequest']));
+        $this->posthog = new FakePostHog('phs_dsn');
+        $factory = new PostHogTransportFactory(sendRequest: Closure::fromCallable($this->posthog));
         (new Transport([$factory]))->fromString($dsn)->send(
             (new Email())->from('shop@example.com')->to('ana@example.com')->subject('Hi')->text('Hi')
         );
@@ -42,7 +43,7 @@ final class PostHogTransportFactoryTest extends TestCase
     {
         $this->send($dsn);
 
-        $this->assertSame($appHost . '/api/projects/@current/messaging/send/email/', $this->requests[0]['url']);
+        $this->assertSame($appHost . '/api/projects/@current/messaging/send/email/', $this->requests()[0]['url']);
         $this->assertSame('Bearer phs_dsn', $this->header('Authorization'));
     }
 

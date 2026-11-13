@@ -1,0 +1,9 @@
+{
+  "name": "posthog-laravel",
+  "version": "0.4.2",
+  "private": true,
+  "dependencies": {
+    "posthog-php": "workspace:*"
+  },
+  "description": "Independent release metadata for posthog/posthog-laravel"
+}

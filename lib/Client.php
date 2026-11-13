@@ -253,7 +253,7 @@ class Client implements FeatureFlagEvaluationsHost
     /**
      * Create a new PostHog client with your project's API key.
      *
-     * @param string|null $apiKey Your project API key. When omitted or empty, the client is disabled
+     * @param string|null $apiKey Your project token. When omitted or empty, the client is disabled
      *     and uses the noop consumer.
      * When POSTHOG_RELEASE_ID is set at construction, its value is sent as $release_id on every
      * event unless the event already carries one.
@@ -264,7 +264,10 @@ class Client implements FeatureFlagEvaluationsHost
      * to 10000 events, `batch_size` defaults to 100 events, and `flush_interval_seconds` defaults
      * to 5 seconds. The interval is checked when another event is enqueued because PHP has no
      * portable in-process background timer. For the socket consumer, `timeout` is passed to
-     * pfsockopen() and is in seconds.
+     * pfsockopen() and is in seconds. `http_timeout_ms` independently controls SDK HTTP requests,
+     * including local flag-definition fetches. It defaults to 10000ms with the socket consumer,
+     * or inherits `timeout` for other consumers. Direct flag evaluation requests instead use
+     * `feature_flag_request_timeout_ms`.
      *
      * Feature flag requests to `/flags/?v=2` retry transient curl/network errors and HTTP 502/504.
      * `feature_flag_request_max_retries` defaults to 1; set it to 0 to disable these retries.
@@ -282,6 +285,7 @@ class Client implements FeatureFlagEvaluationsHost
      *     migrated_from?: string,
      *     ssl?: bool,
      *     timeout?: int|float,
+     *     http_timeout_ms?: int|float,
      *     verify_batch_events_request?: bool,
      *     feature_flag_request_timeout_ms?: int,
      *     feature_flag_request_max_retries?: int,
@@ -351,6 +355,8 @@ class Client implements FeatureFlagEvaluationsHost
         $Consumer = self::CONSUMERS[$this->options["consumer"] ?? "lib_curl"];
         $this->consumer = new $Consumer($this->apiKey, $this->options, $httpClient);
         $this->maximumBackoffDurationMs = (int) ($options['maximum_backoff_duration'] ?? 10000);
+        $httpTimeoutMilliseconds = $options['http_timeout_ms']
+            ?? (($this->options['consumer'] ?? null) === 'socket' ? 10000 : ($options['timeout'] ?? 10000));
         $this->httpClient = $httpClient !== null ? $httpClient : new HttpClient(
             $this->options['host'],
             $options['ssl'] ?? true,
@@ -358,7 +364,7 @@ class Client implements FeatureFlagEvaluationsHost
             false,
             $options["debug"] ?? false,
             null,
-            (int) ($options['timeout'] ?? 10000)
+            (int) ceil($httpTimeoutMilliseconds)
         );
         $this->featureFlagsRequestTimeout = (int) ($options['feature_flag_request_timeout_ms'] ?? 3000);
         $this->featureFlagRequestMaxRetries = max(0, (int) ($options['feature_flag_request_max_retries'] ?? 1));
@@ -1766,7 +1772,7 @@ class Client implements FeatureFlagEvaluationsHost
                 if ($cachedData !== null) {
                     $normalizedData = $this->normalizeFlagDefinitionCacheData($cachedData);
                     if ($normalizedData !== null) {
-                        $this->applyFlagDefinitions($normalizedData);
+                        $this->applyFlagDefinitions($normalizedData, false);
                         if ($this->debug) {
                             error_log("[PostHog][Client] Using cached flag definitions from external cache");
                         }
@@ -1872,31 +1878,37 @@ class Client implements FeatureFlagEvaluationsHost
         $this->flagsEtag = $response->getEtag();
 
         $data = $this->normalizeFlagDefinitionData($payload);
-        $this->applyFlagDefinitions($data);
-        // Only a fresh response warns: PHP builds a client per request, and a 304 or a shared-cache
-        // load carries definitions that a fresh response already warned about.
-        $this->warnAboutUnresolvableFlags();
+        $this->applyFlagDefinitions($data, true);
         $this->storeFlagDefinitionsInCacheProvider($data);
     }
 
     /**
      * Warn about flags whose definition local evaluation cannot resolve. Each flag is warned about
-     * once per client until its definition changes.
+     * once per client until its definition changes. Cache loads reconcile history without emitting
+     * warnings on every PHP-FPM request.
      *
+     * @param bool $emitWarnings Whether this load fetched a fresh API response.
      * @return void
      */
-    private function warnAboutUnresolvableFlags(): void
+    private function warnAboutUnresolvableFlags(bool $emitWarnings): void
     {
+        if (!$emitWarnings && $this->warnedUnresolvableFlags === []) {
+            return;
+        }
+
         $flagKeysByReason = [
             UnresolvedFlagReason::EXPERIENCE_CONTINUITY => [],
             UnresolvedFlagReason::UNSUPPORTED_DEFINITION => [],
         ];
-        // Rebuilt from the current definitions, so a flag that is deleted or becomes resolvable is
-        // forgotten and warns again if it later returns to an unresolvable definition.
+        // Rebuilt from the current definitions, so deleted, resolvable or client-only flags are
+        // forgotten and warn again if they later return to an eligible unresolvable definition.
         $warnedFlags = [];
         $uncheckedFlags = [];
         foreach ($this->featureFlags as $flag) {
-            if (!is_array($flag) || !is_string($flag['key'] ?? null)) {
+            if (
+                !is_array($flag) || !is_string($flag['key'] ?? null)
+                || ($flag['evaluation_runtime'] ?? null) === 'client'
+            ) {
                 continue;
             }
             try {
@@ -1914,13 +1926,20 @@ class Client implements FeatureFlagEvaluationsHost
             if ($reason === null) {
                 continue;
             }
-            $fingerprint = ($flag['version'] ?? '') . ':' . sha1(serialize($flag)) . ':' . $reason;
-            $warnedFlags[$flag['key']] = $fingerprint;
-            if (($this->warnedUnresolvableFlags[$flag['key']] ?? null) !== $fingerprint) {
+            $fingerprint = ($flag['version'] ?? '') . ':'
+                . sha1(serialize($this->sortFlagDefinitionKeys($flag))) . ':' . $reason;
+            $alreadyWarned = ($this->warnedUnresolvableFlags[$flag['key']] ?? null) === $fingerprint;
+            if ($emitWarnings || $alreadyWarned) {
+                $warnedFlags[$flag['key']] = $fingerprint;
+            }
+            if ($emitWarnings && !$alreadyWarned) {
                 $flagKeysByReason[$reason][] = $flag['key'];
             }
         }
         $this->warnedUnresolvableFlags = $warnedFlags;
+        if (!$emitWarnings) {
+            return;
+        }
 
         $experienceContinuityFlags = $flagKeysByReason[UnresolvedFlagReason::EXPERIENCE_CONTINUITY];
         if (count($experienceContinuityFlags) > 0) {
@@ -1958,6 +1977,25 @@ class Client implements FeatureFlagEvaluationsHost
                 implode(', ', $uncheckedFlags)
             ));
         }
+    }
+
+    /**
+     * Sort object keys recursively for warning deduplication without changing condition list order.
+     *
+     * @param array<mixed> $definition
+     * @return array<mixed>
+     */
+    private function sortFlagDefinitionKeys(array $definition): array
+    {
+        if (!array_is_list($definition)) {
+            ksort($definition, SORT_STRING);
+        }
+        foreach ($definition as $key => $value) {
+            if (is_array($value)) {
+                $definition[$key] = $this->sortFlagDefinitionKeys($value);
+            }
+        }
+        return $definition;
     }
 
     /**
@@ -2021,9 +2059,10 @@ class Client implements FeatureFlagEvaluationsHost
      * Apply flag definitions to in-memory state.
      *
      * @param array<string, mixed> $data
+     * @param bool $emitWarnings Whether this load fetched a fresh API response.
      * @return void
      */
-    private function applyFlagDefinitions(array $data): void
+    private function applyFlagDefinitions(array $data, bool $emitWarnings): void
     {
         $this->featureFlags = $data['flags'];
         $this->groupTypeMapping = $data['group_type_mapping'];
@@ -2040,6 +2079,7 @@ class Client implements FeatureFlagEvaluationsHost
         }
 
         $this->flagDefinitionsLoaded = true;
+        $this->warnAboutUnresolvableFlags($emitWarnings);
     }
 
     /**

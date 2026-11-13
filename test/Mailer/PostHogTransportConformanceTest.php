@@ -6,9 +6,11 @@ use Closure;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Mailer\PostHogTransport;
+use PostHog\Mailer\PostHogTransportException;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\Exception\LogicException;
 use Symfony\Component\Mailer\Header\TagHeader;
+use Symfony\Component\Mailer\Header\TrackingHeader;
 use Symfony\Component\Mailer\RemoteTemplateEmail;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
@@ -26,6 +28,11 @@ final class PostHogTransportConformanceTest extends TestCase
     use SendsThroughStubbedHttp;
 
     private const TEMPLATE_ID = '0190f0c2-7d1e-7a3b-9c2e-5f1a2b3c4d5e';
+    /** The files these cases attach, by SHA-256. */
+    private const BYTES = [
+        'e5c62df5dab5c87b6a015ef3d43597074d1eec433b15f51aec63b8582d0e4ab4' => "%PDF-1.4\n",
+        '4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6' => "\x89PNG\r\n\x1a\n",
+    ];
     private const RENDERED = [
         'to' => 'ana@example.com',
         'from' => 'Shop <shop@example.com>',
@@ -81,13 +88,8 @@ final class PostHogTransportConformanceTest extends TestCase
                 ['html' => '<img src="cid:logo">'] + self::RENDERED + [
                     'template_key' => 'posthog-php-mailer',
                     'attachments' => [
-                        ['filename' => 'invoice.pdf', 'content' => 'JVBERi0xLjQK', 'content_type' => 'application/pdf'],
-                        [
-                            'filename' => 'logo.png',
-                            'content' => 'iVBORw0KGgo=',
-                            'content_type' => 'image/png',
-                            'content_id' => 'logo',
-                        ],
+                        self::file('invoice.pdf', 'application/pdf', 'JVBERi0xLjQK'),
+                        self::logo('logo.png', 'logo'),
                     ],
                 ],
                 [],
@@ -102,7 +104,7 @@ final class PostHogTransportConformanceTest extends TestCase
                 self::RENDERED + [
                     'template_key' => 'order-shipped',
                     'distinct_id' => 'user_42',
-                    'capture_engagement' => false,
+                    'tracking' => ['engagement' => false],
                 ],
                 ['Idempotency-Key' => 'order-981-shipped'],
             ],
@@ -117,12 +119,7 @@ final class PostHogTransportConformanceTest extends TestCase
                     ->embed(base64_decode('iVBORw0KGgo='), 'logo', 'image/png'),
                 ['html' => '<img src="cid:logo">'] + self::RENDERED + [
                     'template_key' => 'posthog-php-mailer',
-                    'attachments' => [[
-                        'filename' => 'logo',
-                        'content' => 'iVBORw0KGgo=',
-                        'content_type' => 'image/png',
-                        'content_id' => 'logo',
-                    ]],
+                    'attachments' => [self::logo('logo', 'logo')],
                 ],
                 [],
             ],
@@ -177,17 +174,71 @@ final class PostHogTransportConformanceTest extends TestCase
                 ],
                 [],
             ],
-            '14 X-Track leaves engagement capture to its own header' => [
+            '14 X-Track turns opens and clicks on' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=true; clicks=true']),
+                self::RENDERED + [
+                    'template_key' => 'posthog-php-mailer',
+                    'tracking' => ['opens' => true, 'clicks' => true],
+                ],
+                [],
+            ],
+            '14 X-Track turns opens and clicks off' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=false; clicks=false']),
+                self::RENDERED + [
+                    'template_key' => 'posthog-php-mailer',
+                    'tracking' => ['opens' => false, 'clicks' => false],
+                ],
+                [],
+            ],
+            '14 X-Track sets opens and clicks apart' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=true; clicks=false']),
+                self::RENDERED + [
+                    'template_key' => 'posthog-php-mailer',
+                    'tracking' => ['opens' => true, 'clicks' => false],
+                ],
+                [],
+            ],
+            '14 X-Track leaves a default flag to PostHog' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=default; clicks=false']),
+                self::RENDERED + ['template_key' => 'posthog-php-mailer', 'tracking' => ['clicks' => false]],
+                [],
+            ],
+            '14 X-Track with both flags default sends no tracking' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=default; clicks=default']),
+                self::RENDERED + ['template_key' => 'posthog-php-mailer'],
+                [],
+            ],
+            '14 engagement capture joins the X-Track flags' => [
                 fn() => self::withHeaders(self::shipped(), [
                     'X-PostHog-Capture-Engagement' => 'false',
                     'X-Track' => 'opens=true; clicks=true',
                 ]),
-                self::RENDERED + ['template_key' => 'posthog-php-mailer', 'capture_engagement' => false],
+                self::RENDERED + [
+                    'template_key' => 'posthog-php-mailer',
+                    'tracking' => ['opens' => true, 'clicks' => true, 'engagement' => false],
+                ],
                 [],
             ],
-            '14 X-Track with clicks off, which PostHog never tracks' => [
-                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=true; clicks=false']),
-                self::RENDERED + ['template_key' => 'posthog-php-mailer'],
+            'a sensitive email' => [
+                fn() => self::withHeaders(self::shipped(), ['X-PostHog-Sensitive' => 'true']),
+                self::RENDERED + ['template_key' => 'posthog-php-mailer', 'sensitive' => true],
+                [],
+            ],
+            'an email marked not sensitive' => [
+                fn() => self::withHeaders(self::shipped(), ['X-PostHog-Sensitive' => 'false']),
+                self::RENDERED + ['template_key' => 'posthog-php-mailer', 'sensitive' => false],
+                [],
+            ],
+            'text and HTML in ISO-8859-1 arrive as UTF-8' => [
+                fn() => self::shipped()->text("Gr\xFC\xDFe.", 'iso-8859-1')
+                    ->html("<p>Gr\xFC\xDFe.</p>", 'iso-8859-1'),
+                ['html' => '<p>Grüße.</p>', 'text' => 'Grüße.'] + self::RENDERED
+                    + ['template_key' => 'posthog-php-mailer'],
+                [],
+            ],
+            'a template key of 256 characters' => [
+                fn() => self::withHeaders(self::shipped(), ['X-PostHog-Template-Key' => str_repeat('k', 256)]),
+                self::RENDERED + ['template_key' => str_repeat('k', 256)],
                 [],
             ],
         ];
@@ -203,8 +254,16 @@ final class PostHogTransportConformanceTest extends TestCase
     {
         $sent = $this->transport()->send($email());
 
-        $this->assertCount(1, $this->requests);
-        $this->assertEquals($body + ['capture_engagement' => true], $this->body());
+        $this->assertCount(1, $this->posthog()->sends());
+        $this->assertEquals($body, $this->body());
+        $this->assertEquals([$body], $this->posthog()->queued);
+        foreach ($body['attachments'] ?? [] as $attachment) {
+            $this->assertSame(
+                self::BYTES[$attachment['sha256']],
+                $this->posthog()->stored[$attachment['sha256']] ?? null,
+                "Storage holds {$attachment['filename']}."
+            );
+        }
         $this->assertMatchesRegularExpression(
             '#^posthog-php-mailer/[0-9A-Za-z.+-]+$#',
             $this->header('X-PostHog-Integration')
@@ -303,14 +362,53 @@ final class PostHogTransportConformanceTest extends TestCase
             'X-PostHog-Template-Key' => 'order-shipped',
             'X-PostHog-Idempotency-Key' => 'order-981-shipped',
             'X-PostHog-Capture-Engagement' => 'true',
+            'X-PostHog-Sensitive' => 'true',
         ]));
 
         $postHogHeaders = array_values(array_filter(
-            array_map(static fn(string $line): string => explode(':', $line, 2)[0], $this->requests[0]['headers']),
+            array_map(static fn(string $line): string => explode(':', $line, 2)[0], $this->requests()[0]['headers']),
             static fn(string $name): bool => stripos($name, 'X-PostHog-') === 0
         ));
         $this->assertSame(['X-PostHog-Integration'], $postHogHeaders);
         $this->assertArrayNotHasKey('headers', $this->body());
+    }
+
+    public static function clicksWithoutOpens(): array
+    {
+        return [
+            'as a text header' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=false; clicks=true']),
+            ],
+            'as a TrackingHeader' => [
+                function () {
+                    if (!class_exists(TrackingHeader::class)) {
+                        self::markTestSkipped('TrackingHeader arrives in Symfony Mailer 8.2.');
+                    }
+                    $email = self::shipped();
+                    $email->getHeaders()->add(new TrackingHeader(opens: false, clicks: true));
+                    return $email;
+                },
+            ],
+        ];
+    }
+
+    /**
+     * @param Closure(): Email $email
+     */
+    #[DataProvider('clicksWithoutOpens')]
+    public function testCase14ClicksWithoutOpensGoToPostHogWhichRefusesThem(Closure $email): void
+    {
+        try {
+            $this->transport()->send($email());
+            $this->fail('The send did not fail.');
+        } catch (PostHogTransportException $error) {
+            $this->assertSame(400, $error->getStatusCode());
+            $this->assertSame('clicks_need_opens', $error->getErrorCode());
+            $this->assertSame('tracking', $error->getField());
+            $this->assertFalse($error->isRetryable());
+        }
+        $this->assertSame([['opens' => false, 'clicks' => true]], array_column($this->posthog()->sends(), 'tracking'));
+        $this->assertSame([], $this->posthog()->queued);
     }
 
     public function testCase07TheDefaultTemplateKeyComesFromConfig(): void
@@ -359,35 +457,58 @@ final class PostHogTransportConformanceTest extends TestCase
                 fn() => self::withHeaders(self::shipped(), ['X-Metadata-Order' => '981']),
                 'metadata',
             ],
-            '14 open tracking off, even with engagement capture off' => [
-                fn() => self::withHeaders(self::shipped(), [
-                    'X-PostHog-Capture-Engagement' => 'false',
-                    'X-Track' => 'opens=false; clicks=false',
-                ]),
-                'open_tracking_off',
-            ],
-            '14 open tracking off' => [
-                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=false; clicks=true']),
-                'open_tracking_off',
-            ],
-            '14 open tracking off in capitals' => [
-                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'Opens=FALSE']),
-                'open_tracking_off',
-            ],
-            '14 open tracking off as 0' => [
-                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=0']),
-                'open_tracking_off',
-            ],
-            '14 open tracking off next to a value that is not ASCII' => [
-                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'note=é; opens=false']),
-                'open_tracking_off',
-            ],
-            '14 open tracking off in a second X-Track' => [
+            '14 a second X-Track' => [
                 fn() => self::withHeaders(
                     self::withHeaders(self::shipped(), ['X-Track' => 'opens=true']),
                     ['X-Track' => 'opens=false']
                 ),
-                'open_tracking_off',
+                'unsupported_header',
+            ],
+            '14 an X-Track flag that is not true, false or default' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=0']),
+                'unsupported_header',
+            ],
+            '14 an X-Track flag in capitals' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens=FALSE']),
+                'unsupported_header',
+            ],
+            '14 an X-Track flag name it does not know' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'open=false']),
+                'unsupported_header',
+            ],
+            '14 an X-Track part without a value' => [
+                fn() => self::withHeaders(self::shipped(), ['X-Track' => 'opens']),
+                'unsupported_header',
+            ],
+            'a sensitive header that is not true or false' => [
+                fn() => self::withHeaders(self::shipped(), ['X-PostHog-Sensitive' => 'yes']),
+                'unsupported_header',
+            ],
+            '08 a template key over 256 characters' => [
+                fn() => self::withHeaders(self::shipped(), ['X-PostHog-Template-Key' => str_repeat('k', 257)]),
+                'invalid_template_key',
+            ],
+            'a Content-Language header' => [
+                fn() => self::withHeaders(self::shipped(), ['Content-Language' => 'fr']),
+                'unsupported_header',
+            ],
+            'a body in a charset that cannot convert to UTF-8' => [
+                fn() => self::shipped()->text('On its way.', 'x-no-such-charset'),
+                'unsupported_part',
+            ],
+            'a custom body that leaves out the HTML' => [
+                fn() => self::shipped()->setBody(new TextPart('On its way.')),
+                'unsupported_part',
+            ],
+            'a custom body that leaves out an attachment' => [
+                function () {
+                    $email = self::shipped()->attach(base64_decode('JVBERi0xLjQK'), 'invoice.pdf', 'application/pdf');
+                    return $email->setBody(new AlternativePart(
+                        new TextPart('On its way.'),
+                        new TextPart('<p>On its way.</p>', 'utf-8', 'html')
+                    ));
+                },
+                'unsupported_part',
             ],
             'an AMP alternative set as the body' => [
                 fn() => self::shipped()->setBody(new AlternativePart(
@@ -471,7 +592,12 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->requireRemoteTemplates();
         $email = self::withHeaders(
             (new RemoteTemplateEmail())->from('shop@example.com')->to('ana@example.com')->template(self::TEMPLATE_ID),
-            ['X-PostHog-Template-Key' => 'order-shipped', 'X-PostHog-Capture-Engagement' => 'false']
+            [
+                'X-PostHog-Template-Key' => 'order-shipped',
+                'X-PostHog-Capture-Engagement' => 'false',
+                'X-PostHog-Sensitive' => 'true',
+                'X-Track' => 'opens=false; clicks=false',
+            ]
         );
 
         $this->transport()->send($email);
@@ -493,7 +619,8 @@ final class PostHogTransportConformanceTest extends TestCase
                 ['X-PostHog-Capture-Engagement' => 'yes'],
                 'unsupported_header',
             ],
-            'open tracking off' => [['X-Track' => 'opens=false'], 'open_tracking_off'],
+            'an X-Track flag it does not know' => [['X-Track' => 'open=false'], 'unsupported_header'],
+            'a sensitive header that is not true or false' => [['X-PostHog-Sensitive' => 'yes'], 'unsupported_header'],
         ];
     }
 
@@ -546,7 +673,25 @@ final class PostHogTransportConformanceTest extends TestCase
         } catch (LogicException $refusal) {
             $this->assertStringStartsWith("PostHog cannot send this email: $code. ", $refusal->getMessage());
         }
-        $this->assertSame([], $this->requests);
+        $this->assertSame([], $this->requests());
+    }
+
+    /**
+     * The reference to a file that the send carries, by its SHA-256, in place of its bytes.
+     *
+     * @return array<string, string>
+     */
+    private static function file(
+        string $filename,
+        string $contentType,
+        string $base64,
+        ?string $contentId = null
+    ): array {
+        $sha256 = hash('sha256', base64_decode($base64));
+        self::assertArrayHasKey($sha256, self::BYTES);
+
+        return ['sha256' => $sha256, 'filename' => $filename, 'content_type' => $contentType]
+            + ($contentId === null ? [] : ['content_id' => $contentId]);
     }
 
     /**
@@ -554,12 +699,7 @@ final class PostHogTransportConformanceTest extends TestCase
      */
     private static function logo(string $filename, string $contentId): array
     {
-        return [
-            'filename' => $filename,
-            'content' => 'iVBORw0KGgo=',
-            'content_type' => 'image/png',
-            'content_id' => $contentId,
-        ];
+        return self::file($filename, 'image/png', 'iVBORw0KGgo=', $contentId);
     }
 
     /**

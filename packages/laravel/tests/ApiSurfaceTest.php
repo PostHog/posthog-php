@@ -193,6 +193,10 @@ class ApiSurfaceTest extends TestCase
                 \PostHog\Laravel\Autocapture\ModelEvents::class,
                 \PostHog\Laravel\Autocapture\Outcomes::class,
                 \PostHog\Laravel\Autocapture\RequestSummary::class,
+                \PostHog\Laravel\Features\PennantCache::class,
+                \PostHog\Laravel\Features\PennantMiddleware::class,
+                \PostHog\Laravel\Features\PennantServiceProvider::class,
+                \PostHog\Laravel\Features\PostHogDriver::class,
             ] as $internal
         ) {
             $this->assertArrayNotHasKey($internal, $api['symbols']);

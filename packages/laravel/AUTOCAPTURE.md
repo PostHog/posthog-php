@@ -76,19 +76,32 @@ and pageview events. Zero drops both; the default 1 captures every eligible requ
 ### Privacy and identity
 
 Collectors emit only the properties listed below, plus normal SDK metadata and
-explicit identity, session correlation and groups. Arbitrary context properties are not copied. Collection
-never reads request bodies, query values, cookies, credentials, email, IP addresses,
-job arguments or full model/event payloads. Auth uses `getAuthIdentifier()`; configure
+explicit identity, session correlation, groups and request IP. Arbitrary context
+properties are not copied. When `posthog.capture_ip` is enabled (the default), the
+runtime's Laravel-resolved visitor IP is inherited as `$ip`. Set
+`POSTHOG_CAPTURE_IP=false` to disable automatic IP collection. Explicit event or
+context `$ip` values, including null, still win. Configure Laravel's trusted proxies
+for proxied deployments. This does not enable GeoIP enrichment, which remains off
+by default. IP addresses can be personal data; apply your consent and retention
+policies and use `sdk.before_send` for redaction. Request IPs are not propagated
+through queue payload metadata. Collection never reads request bodies, query values,
+cookies, credentials, email, job arguments or full model/event payloads. Auth uses `getAuthIdentifier()`; configure
 an opaque identifier rather than email if your application customizes that method.
 Application-selected attributes/property mappings may contain PII: allowlist only
 fields you intend to send and use `sdk.before_send` for additional redaction.
 
-Events require an existing analytics identity; collectors do not invent anonymous
-IDs. HTTP uses the runtime's lazy authenticated identity/header fallback. Queue jobs
-use the runtime's bounded queue context propagation or explicit job context. Console
-and scheduler events need explicit context or a configured identity resolver. Failed
-login/lockout events may use existing anonymous context but **never** the attempted
-user identifier. Missing credentials or disabled SDK configuration cannot send traffic.
+Events use existing analytics identity when available. Without one, the PHP SDK
+assigns a fresh random UUID to **each event** and sets `$process_person_profile=false`
+unless an explicit event property overrides it. These personless IDs are not stored
+in sessions, cookies or context and are not propagated to jobs or used to evaluate
+feature flags. They do not provide a persistent anonymous visitor identity.
+HTTP uses the runtime's lazy authenticated identity/header fallback. Queue jobs use
+the runtime's bounded queue context propagation or explicit job context. Console and
+scheduler events use context or a configured identity resolver when available and
+are otherwise personless. Failed login/lockout events may use existing analytics
+context or personless capture but **never** the attempted user identifier. Existing
+session correlation and groups are preserved. Missing credentials or disabled SDK
+configuration cannot send traffic.
 Failures in analytics do not change application responses or replace original errors.
 
 ## Exact event schemas
@@ -157,8 +170,8 @@ commit and discard rolled-back changes.
 All connections share an internal pending budget of **1,000 events and 1 MiB of
 JSON-encoded event names, properties and correlation context**. If either limit
 would be exceeded, the newest event is dropped (including an oversized allowlisted
-attribute); there are no additional configuration options. Events without a usable
-identity consume no pending capacity. Commit and rollback release capacity;
+attribute); there are no additional configuration options. Personless model events
+consume the same pending budget. Commit and rollback release capacity;
 abandoned/disconnected transactions are also discarded before the next admission.
 Callback registration happens only after admission, once per transaction record,
 and is also capped at 1,000 records (including stale records retained by Laravel

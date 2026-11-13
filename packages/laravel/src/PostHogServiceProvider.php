@@ -14,6 +14,7 @@ use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Mail\MailManager;
 use PostHog\Laravel\Mail\MailDriver;
 use PostHog\Laravel\Middleware\RequestContext as RequestContextMiddleware;
+use PostHog\Laravel\Jobs\DeliverEvents;
 use Illuminate\Support\ServiceProvider;
 use Throwable;
 
@@ -34,7 +35,7 @@ class PostHogServiceProvider extends ServiceProvider
         $this->app->scoped(\PostHog\Client::class, fn ($app) => $app->make(PostHog::class)->client());
         $this->app->scoped(FlagDefinitionCacheProvider::class, function ($app) {
             $config = $app['config']->get('posthog');
-            $key = 'posthog:definitions:' . hash('sha256', ($config['host'] ?? '') . ':' . ($config['api_key'] ?? ''));
+            $key = 'posthog:definitions:' . hash('sha256', ($config['host'] ?? '') . ':' . (ProjectToken::fromConfig($config) ?? ''));
             return new FlagDefinitionCacheProvider(
                 $app['cache']->store($config['flag_cache']['store']),
                 $key,
@@ -42,6 +43,9 @@ class PostHogServiceProvider extends ServiceProvider
                 $config['flag_cache']['refresh_interval'],
             );
         });
+        if (class_exists(\Laravel\Pennant\FeatureManager::class)) {
+            $this->app->register(Features\PennantServiceProvider::class);
+        }
         if (class_exists(AutocaptureServiceProvider::class)) {
             $this->app->register(AutocaptureServiceProvider::class);
         }
@@ -84,11 +88,12 @@ class PostHogServiceProvider extends ServiceProvider
             }
         });
         $events->listen(JobExceptionOccurred::class, function ($event) {
-            Container::getInstance()->make(ExceptionReporter::class)->remember(
-                $event->exception,
-                'task',
-                'laravel.queue_job',
-            );
+            $reporter = Container::getInstance()->make(ExceptionReporter::class);
+            if ($event->job->resolveQueuedJobClass() === DeliverEvents::class) {
+                $reporter->ignore($event->exception);
+            } else {
+                $reporter->remember($event->exception, 'task', 'laravel.queue_job');
+            }
         });
         // Only an app that builds a mailer loads Laravel's mailer, Symfony Mailer and the PostHog transport.
         $this->callAfterResolving('mail.manager', fn (MailManager $manager) => MailDriver::extend($manager));
@@ -159,6 +164,7 @@ class PostHogServiceProvider extends ServiceProvider
         } finally {
             $context = $app->make(Context::class);
             $restore ? $context->leave() : $context->end();
+            Features\PennantCache::flush();
         }
     }
 }

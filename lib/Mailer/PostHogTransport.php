@@ -22,14 +22,14 @@ use Symfony\Component\Mime\MessageConverter;
  * `PostHog cannot send this email: <code>` and sends nothing. A failed send throws a
  * PostHogTransportException that says whether sending again with the same idempotency key is safe.
  *
- * The reserved headers `X-PostHog-Distinct-Id`, `X-PostHog-Template-Key`, `X-PostHog-Idempotency-Key` and
- * `X-PostHog-Capture-Engagement` set the send's options and never go out. On a rendered email,
- * `X-PostHog-Capture-Engagement: false` only keeps the email's engagement events off the recipient's person.
- * It doesn't change the email: PostHog still adds its open pixel to count opens. It never rewrites the
- * email's links, so it counts no clicks. Symfony's `X-Track` header is dropped, and an email whose `X-Track`
- * turns opens off, such as `opens=false`, is refused with `open_tracking_off`. On Symfony Mailer 8.2 and
- * later, a RemoteTemplateEmail sends a template made in PostHog by its ID; the template follows the
- * project's engagement capture setting.
+ * The reserved headers `X-PostHog-Distinct-Id`, `X-PostHog-Template-Key` (at most 256 characters),
+ * `X-PostHog-Idempotency-Key`, `X-PostHog-Capture-Engagement` and `X-PostHog-Sensitive` set the send's options
+ * and never go out. Symfony's `X-Track` header, such as `opens=true; clicks=false`, sets which opens and clicks
+ * PostHog tracks, and `X-PostHog-Capture-Engagement: false` turns its engagement events off; a flag left out or
+ * `default` keeps PostHog's default. `X-PostHog-Sensitive: true` marks an email that carries login links, reset
+ * tokens or codes. Set `X-PostHog-Idempotency-Key` from a stable ID, such as the order ID and the email's name,
+ * when Messenger retries the send. On Symfony Mailer 8.2 and later, a RemoteTemplateEmail sends a template made
+ * in PostHog by its ID; the template sets its own tracking and sensitive setting.
  */
 final class PostHogTransport extends AbstractTransport implements RemoteTemplateSupport
 {
@@ -42,8 +42,8 @@ final class PostHogTransport extends AbstractTransport implements RemoteTemplate
      * @param string|null $integration The integration that sends, `<name>/<version>`. A framework package
      *     that registers this transport passes its own, such as `laravel/1.4.0`. Defaults to
      *     `posthog-php-mailer/<SDK version>`.
-     * @param string|null $defaultTemplateKey The template key of an email without `X-PostHog-Template-Key`.
-     *     Defaults to the integration's name.
+     * @param string|null $defaultTemplateKey The template key of an email without `X-PostHog-Template-Key`, at
+     *     most 256 characters. Defaults to the integration's name.
      * @param bool $templates Whether a RemoteTemplateEmail may send a template made in PostHog.
      */
     public function __construct(
@@ -54,9 +54,9 @@ final class PostHogTransport extends AbstractTransport implements RemoteTemplate
         ?EventDispatcherInterface $dispatcher = null,
         ?LoggerInterface $logger = null,
     ) {
-        if ($defaultTemplateKey !== null && preg_match('/^[a-zA-Z0-9_-]{1,400}$/D', $defaultTemplateKey) !== 1) {
+        if ($defaultTemplateKey !== null && preg_match(EmailMapper::TEMPLATE_KEY_PATTERN, $defaultTemplateKey) !== 1) {
             throw new InvalidArgumentException(
-                'The default template key can only have letters, digits, hyphens (-) and underscores (_), at most 400.'
+                'The default template key can only have letters, digits, hyphens (-) and underscores (_), at most 256.'
             );
         }
         parent::__construct($dispatcher, $logger);

@@ -4169,7 +4169,7 @@
             "readonly": false,
             "extends": "Symfony\\Component\\Mailer\\Transport\\AbstractTransport",
             "implements": [
-                "PostHog\\Internal\\Mailer\\NoRemoteTemplates",
+                "PostHog\\Internal\\Mailer\\RemoteTemplateSupport",
                 "Stringable",
                 "Symfony\\Component\\Mailer\\Transport\\TransportInterface"
             ],
@@ -4537,6 +4537,10 @@
                 "ENV_HOST": {
                     "type": "string",
                     "value": "POSTHOG_HOST"
+                },
+                "ENV_PROJECT_TOKEN": {
+                    "type": "string",
+                    "value": "POSTHOG_PROJECT_TOKEN"
                 },
                 "LIBRARY": {
                     "type": "string",
