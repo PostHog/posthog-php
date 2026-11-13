@@ -391,6 +391,20 @@ class PostHog
     }
 
     /**
+     * Fetch the remote config payload of a feature flag from PostHog.
+     * See Client::getRemoteConfigPayload()
+     *
+     * @param string $key Feature flag key.
+     * @return mixed The decoded payload, or null when no payload could be read.
+     */
+    public static function getRemoteConfigPayload(string $key): mixed
+    {
+        self::checkClient();
+
+        return self::$client->getRemoteConfigPayload($key);
+    }
+
+    /**
      * Evaluate every feature flag for a distinct id in a single round trip and return a snapshot.
      * When distinctId is omitted, the current request context distinctId is used if available.
      * Pass the snapshot to capture() via the `flags` key to attach $feature/<key> properties
