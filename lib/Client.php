@@ -1092,7 +1092,9 @@ class Client implements FeatureFlagEvaluationsHost
                 if (array_key_exists($key, $featureFlags)) {
                     $result = $featureFlags[$key];
                 } else {
-                    $errors[] = FeatureFlagError::FLAG_MISSING;
+                    $errors[] = ($rawFlag['failed'] ?? false)
+                        ? 'evaluation_failed'
+                        : FeatureFlagError::FLAG_MISSING;
                     $result = null;
                 }
 
