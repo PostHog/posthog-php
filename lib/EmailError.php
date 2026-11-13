@@ -126,6 +126,27 @@ class EmailError extends RuntimeException
         return $this->retryAfterMs;
     }
 
+    /**
+     * Whether sending the email again with the same idempotency key can succeed: no answer arrived, the
+     * same key is still being sent, PostHog or the file storage throttled the request, the service was
+     * unavailable, or the file storage failed to take an attachment. The client already retried these up
+     * to its retry limit.
+     */
+    public function isRetryable(): bool
+    {
+        if ($this->errorCode === 'attachment_upload_failed' && $this->statusCode !== null) {
+            return in_array($this->statusCode, [429, 500, 502, 503, 504], true);
+        }
+
+        return match ($this->statusCode) {
+            null => $this->errorCode === 'network_error',
+            409 => $this->errorCode === 'idempotency_key_in_flight',
+            429 => !in_array($this->errorCode, ['quota_limited', 'upload_quota_exceeded'], true),
+            503 => true,
+            default => false,
+        };
+    }
+
     private static function nameFor(?int $status, string $code): string
     {
         if ($code === 'attachment_upload_failed') {

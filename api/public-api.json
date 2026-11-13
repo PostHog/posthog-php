@@ -1843,6 +1843,13 @@
                     "final": false,
                     "returnType": "?string",
                     "parameters": []
+                },
+                "isRetryable": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": []
                 }
             }
         },
@@ -4152,6 +4159,204 @@
                     "final": false,
                     "returnType": "string",
                     "parameters": []
+                }
+            }
+        },
+        "PostHog\\Mailer\\PostHogTransport": {
+            "type": "class",
+            "abstract": false,
+            "final": true,
+            "readonly": false,
+            "extends": "Symfony\\Component\\Mailer\\Transport\\AbstractTransport",
+            "implements": [
+                "PostHog\\Internal\\Mailer\\RemoteTemplateSupport",
+                "Stringable",
+                "Symfony\\Component\\Mailer\\Transport\\TransportInterface"
+            ],
+            "constants": {
+                "INTEGRATION": {
+                    "type": "string",
+                    "value": "posthog-php-mailer"
+                }
+            },
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "emails",
+                            "type": "PostHog\\Emails",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "integration",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "defaultTemplateKey",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "templates",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": true,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "dispatcher",
+                            "type": "?Psr\\EventDispatcher\\EventDispatcherInterface",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "logger",
+                            "type": "?Psr\\Log\\LoggerInterface",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "__toString": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\Mailer\\PostHogTransportException": {
+            "type": "class",
+            "abstract": false,
+            "final": true,
+            "readonly": false,
+            "extends": "Symfony\\Component\\Mailer\\Exception\\TransportException",
+            "implements": [
+                "Stringable",
+                "Symfony\\Component\\Mailer\\Exception\\ExceptionInterface",
+                "Symfony\\Component\\Mailer\\Exception\\TransportExceptionInterface",
+                "Throwable"
+            ],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "error",
+                            "type": "PostHog\\EmailError",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
+                "getErrorCode": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                },
+                "getField": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": []
+                },
+                "getRetryAfter": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?int",
+                    "parameters": []
+                },
+                "getStatusCode": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?int",
+                    "parameters": []
+                },
+                "isRetryable": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\Mailer\\PostHogTransportFactory": {
+            "type": "class",
+            "abstract": false,
+            "final": true,
+            "readonly": false,
+            "extends": "Symfony\\Component\\Mailer\\Transport\\AbstractTransportFactory",
+            "implements": [
+                "Symfony\\Component\\Mailer\\Transport\\TransportFactoryInterface"
+            ],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "create": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "Symfony\\Component\\Mailer\\Transport\\TransportInterface",
+                    "parameters": [
+                        {
+                            "name": "dsn",
+                            "type": "Symfony\\Component\\Mailer\\Transport\\Dsn",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
                 }
             }
         },

@@ -7,6 +7,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
 use JsonException;
+use PostHog\Internal\Integration;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\MonotonicClock;
@@ -61,7 +62,6 @@ final class Emails
     private const IDEMPOTENCY_KEY_PATTERN = '/^[\x21-\x7e]{1,255}$/D';
     private const TEMPLATE_KEY_PATTERN = '/^[a-zA-Z0-9_-]{1,400}$/D';
     private const HEADER_TOKEN_PATTERN = '/^[\x21-\x7e]+$/D';
-    private const INTEGRATION_PATTERN = '#^[a-z0-9-]{1,40}/[0-9A-Za-z.+-]{1,40}$#D';
     private const TIMESTAMP_PATTERN = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/D';
 
     private const SHARED_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'max_retries', 'integration'];
@@ -395,13 +395,8 @@ final class Emails
         if ($integration === null) {
             return null;
         }
-        if (!is_string($integration) || preg_match(self::INTEGRATION_PATTERN, $integration) !== 1) {
-            throw self::invalid(
-                'invalid_integration',
-                "integration must be <name>/<version>, such as 'laravel/1.4.0': a name of lowercase letters, digits "
-                . 'and hyphens, and a version of letters, digits, dots, plus signs and hyphens, at most 40 each.',
-                'integration'
-            );
+        if (!Integration::isValid($integration)) {
+            throw self::invalid('invalid_integration', Integration::RULE, 'integration');
         }
 
         return $integration;
@@ -1015,28 +1010,9 @@ final class Emails
         return addcslashes($text, "\0..\37\177\\");
     }
 
-    private static function isRetryable(EmailError $error): bool
-    {
-        $status = $error->getStatusCode();
-        if ($status === null) {
-            return $error->getErrorCode() === 'network_error';
-        }
-        if ($error->getErrorCode() === 'attachment_upload_failed') {
-            return in_array($status, [429, 500, 502, 503, 504], true);
-        }
-        if ($status === 409) {
-            return $error->getErrorCode() === 'idempotency_key_in_flight';
-        }
-        if ($status === 429) {
-            return !in_array($error->getErrorCode(), ['quota_limited', 'upload_quota_exceeded'], true);
-        }
-
-        return $status === 503;
-    }
-
     private static function retryDelayMs(EmailError $error, int $attempt, int $maxRetries): ?int
     {
-        if ($attempt >= $maxRetries || !self::isRetryable($error)) {
+        if ($attempt >= $maxRetries || !$error->isRetryable()) {
             return null;
         }
         $retryAfterMs = $error->getRetryAfterMs();
