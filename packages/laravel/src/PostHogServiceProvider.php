@@ -97,9 +97,7 @@ class PostHogServiceProvider extends ServiceProvider
         });
         // Only an app that builds a mailer loads Laravel's mailer, Symfony Mailer and the PostHog transport.
         $this->callAfterResolving('mail.manager', fn (MailManager $manager) => MailDriver::extend($manager));
-        $events->listen(MessageSending::class, function (MessageSending $event) {
-            MailDriver::nameTheMail($event, Container::getInstance()['config']);
-        });
+        $events->listen(MessageSending::class, fn (MessageSending $event) => MailDriver::nameTheMail($event));
         $events->listen(CommandStarting::class, function () {
             // The first CLI kernel may already be handling input when package providers boot.
             Container::getInstance()->make(ConsoleLifecycle::class)->startRoot();
