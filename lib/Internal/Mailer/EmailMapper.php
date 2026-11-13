@@ -9,6 +9,7 @@ use Symfony\Component\Mailer\Exception\LogicException;
 use Symfony\Component\Mailer\RemoteTemplateEmail;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\Header\HeaderInterface;
 use Symfony\Component\Mime\Header\UnstructuredHeader;
 use Symfony\Component\Mime\Message;
 use Symfony\Component\Mime\Part\AbstractMultipartPart;
@@ -50,7 +51,6 @@ final class EmailMapper
         $to = $this->onlyRecipient($email);
         $options = $this->headerOptions($email);
         $this->refuseEnvelopeMismatch($email, $envelope);
-        // Checked on both forms; the template form doesn't send them.
         $templateKey = $this->templateKey($options[self::TEMPLATE_KEY] ?? null);
         $tracking = self::tracking($email, $options[self::CAPTURE_ENGAGEMENT] ?? null);
         $sensitive = self::flag('X-PostHog-Sensitive', $options[self::SENSITIVE] ?? null);
@@ -88,10 +88,7 @@ final class EmailMapper
                 if (isset($options[$name])) {
                     throw self::refusal('unsupported_header', "It takes one {$header->getName()} header.");
                 }
-                // The raw value: getBodyAsString() MIME-encodes a value that isn't ASCII, such as a distinct ID.
-                $options[$name] = $header instanceof UnstructuredHeader
-                    ? $header->getValue()
-                    : $header->getBodyAsString();
+                $options[$name] = self::unencodedValue($header);
                 continue;
             }
             self::refuseHeader($name);
@@ -131,8 +128,6 @@ final class EmailMapper
         $envelopeRecipients = self::addresses($envelope->getRecipients());
         sort($recipients);
         sort($envelopeRecipients);
-        // Symfony bounces to Sender, then Return-Path, unless the envelope names another sender. The send has one
-        // sender, the From address, so each of them must be that address.
         $senders = array_filter([$envelope->getSender(), $email->getSender(), $email->getReturnPath()]);
         foreach ($senders as $sender) {
             if ($from?->getAddress() !== $sender->getAddress()) {
@@ -155,9 +150,8 @@ final class EmailMapper
      */
     private function renderedContent(Email $email, string $templateKey): array
     {
-        // Read each body once: a stream that can't rewind is empty on a second read.
-        $html = self::text($email->getHtmlBody());
-        $text = self::text($email->getTextBody());
+        $html = self::readOnce($email->getHtmlBody());
+        $text = self::readOnce($email->getTextBody());
         self::refuseUnsupportedParts($email, $text, $html);
         $html = self::utf8($html, $email->getHtmlCharset(), 'HTML');
         $text = self::utf8($text, $email->getTextCharset(), 'text');
@@ -455,7 +449,12 @@ final class EmailMapper
     /**
      * @param string|resource|null $body
      */
-    private static function text(mixed $body): ?string
+    private static function unencodedValue(HeaderInterface $header): string
+    {
+        return $header instanceof UnstructuredHeader ? $header->getValue() : $header->getBodyAsString();
+    }
+
+    private static function readOnce(mixed $body): ?string
     {
         if (!is_resource($body)) {
             return $body;
