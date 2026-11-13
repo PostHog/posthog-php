@@ -40,6 +40,8 @@ final class EmailMapper
     private const TRACKING_FLAGS = ['true' => true, 'false' => false, 'default' => null];
     private const NORMAL_PRIORITY = 3;
     public const TEMPLATE_KEY_PATTERN = '/^[a-zA-Z0-9_-]{1,256}$/D';
+    /** The SDK's limit on an email after Base64 encoding; the SDK makes the exact check. */
+    private const MAX_MESSAGE_BYTES = 40_000_000;
 
     public function __construct(
         private readonly string $integration,
@@ -168,6 +170,11 @@ final class EmailMapper
         self::refuseUnsupportedParts($email, $text, $html);
         $html = self::utf8($html, $email->getHtmlCharset(), 'HTML');
         $text = self::utf8($text, $email->getTextCharset(), 'text');
+        $attachments = [];
+        $base64Bytes = 0;
+        foreach ($email->getAttachments() as $part) {
+            $attachments[] = self::attachment($part, $html, $base64Bytes);
+        }
 
         return [
             'template_key' => $templateKey,
@@ -178,10 +185,7 @@ final class EmailMapper
             'reply_to' => self::addresses($email->getReplyTo()),
             'cc' => self::addresses($email->getCc()),
             'bcc' => self::addresses($email->getBcc()),
-            'attachments' => array_map(
-                static fn(DataPart $part): array => self::attachment($part, $html),
-                $email->getAttachments()
-            ),
+            'attachments' => $attachments,
         ];
     }
 
@@ -434,7 +438,7 @@ final class EmailMapper
     /**
      * @return array<string, string>
      */
-    private static function attachment(DataPart $part, ?string $html): array
+    private static function attachment(DataPart $part, ?string $html, int &$base64Bytes): array
     {
         $filename = $part->getFilename() ?? $part->getName() ?? self::unnamed($part->getContentType());
         if (self::hasOwnHeaders($part)) {
@@ -443,7 +447,7 @@ final class EmailMapper
                 "It can't carry the headers set on the attachment $filename; remove them."
             );
         }
-        $attachment = ['filename' => $filename, 'content' => $part->getBody()];
+        $attachment = ['filename' => $filename, 'content' => self::content($part, $filename, $base64Bytes)];
         $attachment['content_type'] = $part->getContentType();
         $contentId = self::contentId($part, $html);
         if ($contentId !== null) {
@@ -451,6 +455,49 @@ final class EmailMapper
         }
 
         return $attachment;
+    }
+
+    /**
+     * The part's bytes, read in chunks, so a file too large for the email stops the read before it fills PHP's
+     * memory. $base64Bytes counts the files read so far, after Base64 encoding, as the SDK's limit does. Only the
+     * base64 and 8bit encodings stream; Symfony reads a quoted-printable body whole.
+     */
+    private static function content(DataPart $part, string $filename, int &$base64Bytes): string
+    {
+        $encoding = $part->getPreparedHeaders()->getHeaderBody('Content-Transfer-Encoding');
+        if ($encoding !== 'base64' && $encoding !== '8bit') {
+            $content = $part->getBody();
+            $base64Bytes += self::base64Bytes($content);
+            return $content;
+        }
+        $content = '';
+        $encoded = '';
+        foreach ($part->bodyToIterable() as $chunk) {
+            if ($encoding === '8bit') {
+                $content .= $chunk;
+            } else {
+                $encoded .= str_replace(["\r", "\n"], '', $chunk);
+                $whole = strlen($encoded) - strlen($encoded) % 4;
+                $content .= base64_decode(substr($encoded, 0, $whole));
+                $encoded = substr($encoded, $whole);
+            }
+            if ($base64Bytes + self::base64Bytes($content) > self::MAX_MESSAGE_BYTES) {
+                throw self::refusal(
+                    'message_too_large',
+                    "The files, up to $filename, make the email larger than 40 MB after Base64 encoding, about 29 MB "
+                        . 'of files; send the larger files as links.'
+                );
+            }
+        }
+        $content .= base64_decode($encoded);
+        $base64Bytes += self::base64Bytes($content);
+
+        return $content;
+    }
+
+    private static function base64Bytes(string $content): int
+    {
+        return 4 * intdiv(strlen($content) + 2, 3);
     }
 
     /**

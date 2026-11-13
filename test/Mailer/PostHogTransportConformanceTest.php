@@ -5,6 +5,8 @@ namespace PostHog\Test\Mailer;
 use Closure;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use PostHog\Mailer\PostHogTransport;
 use PostHog\Mailer\PostHogTransportException;
@@ -402,6 +404,40 @@ final class PostHogTransportConformanceTest extends TestCase
             ['attachment.pdf', 'attachment'],
             array_column($this->body()['attachments'], 'filename')
         );
+    }
+
+    public function testAFileFromAPathSendsItsBytes(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'posthog-mailer-');
+        file_put_contents($path, random_bytes(70_000));
+
+        try {
+            $this->transport()->send(self::shipped()->attachFromPath($path, 'report.bin', 'application/octet-stream'));
+
+            $this->assertSame([hash_file('sha256', $path) => file_get_contents($path)], $this->posthog->stored);
+        } finally {
+            unlink($path);
+        }
+    }
+
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testAFileTooLargeForTheEmailIsRefusedBeforeItFillsMemory(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'posthog-mailer-');
+        $file = fopen($path, 'w');
+        ftruncate($file, 200_000_000);
+        fclose($file);
+        $limit = ini_set('memory_limit', '128M');
+
+        try {
+            $this->assertRefused('message_too_large', fn() => $this->transport()->send(
+                self::shipped()->attachFromPath($path, 'export.csv', 'text/csv')
+            ));
+        } finally {
+            ini_set('memory_limit', (string) $limit);
+            unlink($path);
+        }
     }
 
     public function testABodyFromAStreamThatCannotRewindSendsInFull(): void
