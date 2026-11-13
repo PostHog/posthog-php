@@ -22,6 +22,10 @@ final class FakePostHog
     public array $requests = [];
     /** @var list<array{int, string, list<string>}|EmailError> the send route's next answers */
     public array $sendReplies = [];
+    /** @var list<array{int, string, list<string>}> the upload route's next answers, in place of negotiating */
+    public array $uploadReplies = [];
+    /** @var list<array{int, string, list<string>}> storage's next answers, in place of storing */
+    public array $storageReplies = [];
     /** @var array<string, string> the files storage holds, by SHA-256 */
     public array $stored = [];
     /** @var list<array<string, mixed>> the emails PostHog queued, in order */
@@ -49,13 +53,13 @@ final class FakePostHog
     ): array {
         $this->requests[] = compact('method', 'url', 'headers', 'body');
         if ($method === 'PUT') {
-            return $this->store($url, $headers, (string) $body);
+            return array_shift($this->storageReplies) ?? $this->store($url, $headers, (string) $body);
         }
         if (self::header($headers, 'Authorization') !== 'Bearer ' . $this->secretKey) {
             return self::error(401, 'authentication_failed', null);
         }
         if (str_ends_with($url, '/messaging/attachments/uploads/')) {
-            return $this->negotiate((string) $body);
+            return array_shift($this->uploadReplies) ?? $this->negotiate((string) $body);
         }
 
         return $this->send($headers, (string) $body);

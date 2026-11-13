@@ -123,6 +123,67 @@ final class PostHogTransportErrorsTest extends TestCase
         $this->assertSame($this->header('Idempotency-Key'), $this->header('Idempotency-Key', $requests - 1));
     }
 
+    public static function uploadFailures(): array
+    {
+        $sdkRetries = 3;
+        $quota = self::answer(429, 'upload_quota_exceeded');
+
+        return [
+            'upload quota exceeded' => [[$quota], [], 429, 'upload_quota_exceeded', false, 1],
+            'storage behind a failing gateway' => [
+                [],
+                array_fill(0, $sdkRetries, [502, '<html>Bad Gateway</html>', []]),
+                502,
+                'attachment_upload_failed',
+                true,
+                $sdkRetries,
+            ],
+            'storage refuses the file' => [
+                [],
+                [[403, '<Error><Code>AccessDenied</Code></Error>', []]],
+                403,
+                'attachment_upload_failed',
+                false,
+                1,
+            ],
+        ];
+    }
+
+    /**
+     * @param list<array{int, string, list<string>}> $uploadReplies
+     * @param list<array{int, string, list<string>}> $storageReplies
+     */
+    #[DataProvider('uploadFailures')]
+    public function testAFailedAttachmentUploadSaysWhetherToRetryAndSendsNothing(
+        array $uploadReplies,
+        array $storageReplies,
+        int $status,
+        string $code,
+        bool $retryable,
+        int $attempts
+    ): void {
+        $this->posthog()->uploadReplies = $uploadReplies;
+        $this->posthog()->storageReplies = $storageReplies;
+        $email = self::email()->attach("%PDF-1.4\n", 'invoice.pdf', 'application/pdf');
+
+        try {
+            $this->transport()->send($email);
+            $this->fail('The send did not fail.');
+        } catch (PostHogTransportException $error) {
+            $this->assertSame($status, $error->getStatusCode());
+            $this->assertSame($code, $error->getErrorCode());
+            $this->assertSame($retryable, $error->isRetryable());
+        }
+        $route = $storageReplies === [] ? 'POST' : 'PUT';
+        $this->assertCount($attempts, array_filter(
+            $this->requests(),
+            static fn(array $request): bool => $request['method'] === $route
+                && ($route === 'PUT' || str_ends_with($request['url'], '/uploads/'))
+        ));
+        $this->assertSame([], $this->posthog()->sends(), 'no email was sent');
+        $this->assertSame([], $this->posthog()->stored);
+    }
+
     public function testAnEmailTheSenderRefusesFailsWithoutARequest(): void
     {
         try {
