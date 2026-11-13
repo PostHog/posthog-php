@@ -101,6 +101,20 @@ final class PostHogTransportFactoryTest extends TestCase
                 ),
                 'app-token',
             ],
+            'a bearer token on a scope that matches every URL' => [
+                static fn(MockHttpClient $posthog) => new ScopingHttpClient(
+                    $posthog,
+                    ['https://' => ['auth_bearer' => 'app-token']]
+                ),
+                'app-token',
+            ],
+            'an Authorization header on a scope that matches every URL' => [
+                static fn(MockHttpClient $posthog) => new ScopingHttpClient(
+                    $posthog,
+                    ['https://' => ['headers' => ['Authorization' => 'Token app-token']]]
+                ),
+                'app-token',
+            ],
         ];
     }
 
@@ -141,6 +155,32 @@ final class PostHogTransportFactoryTest extends TestCase
             $this->fail('The send did not fail.');
         } catch (PostHogTransportException $error) {
             $this->assertTrue($error->isRetryable());
+            $this->assertSame(3, $requests, 'Only the SDK retries the send.');
+        } finally {
+            Clock::set($previousClock);
+        }
+    }
+
+    public function testAScopeThatSetsRetriesStillLeavesThemToTheSdk(): void
+    {
+        $previousClock = Clock::get();
+        Clock::set(new MockClock('2026-11-13 12:00:00'));
+        $requests = 0;
+        $busy = new MockHttpClient(static function () use (&$requests): MockResponse {
+            $requests++;
+            return new MockResponse('', ['http_code' => 503]);
+        });
+        $client = new ScopingHttpClient(
+            new RetryableHttpClient($busy, new GenericRetryStrategy(delayMs: 1), 3),
+            ['https://' => ['max_retries' => 3]]
+        );
+        $transport = (new Transport([new PostHogTransportFactory(client: $client)]))
+            ->fromString('posthog+api://phs_dsn@default');
+
+        try {
+            $transport->send(self::email());
+            $this->fail('The send did not fail.');
+        } catch (PostHogTransportException $error) {
             $this->assertSame(3, $requests, 'Only the SDK retries the send.');
         } finally {
             Clock::set($previousClock);

@@ -62,7 +62,7 @@ final class PostHogTransportFactory extends AbstractTransportFactory
         if ($this->client === null) {
             return null;
         }
-        $client = self::forTheSdk($this->client);
+        [$client, $retryOption] = self::forTheSdk($this->client);
 
         return static function (
             string $method,
@@ -71,15 +71,20 @@ final class PostHogTransportFactory extends AbstractTransportFactory
             ?string $body,
             int $timeoutMs,
             int $connectTimeoutMs
-        ) use ($client): array {
+        ) use (
+            $client,
+            $retryOption
+        ): array {
             try {
                 $response = $client->request($method, $url, [
-                    'headers' => $headers,
+                    'headers' => self::withoutDefaultCredentials($headers),
+                    'auth_basic' => null,
+                    'auth_bearer' => null,
                     'body' => $body ?? '',
                     'timeout' => $connectTimeoutMs / 1000,
                     'max_duration' => $timeoutMs / 1000,
                     'max_redirects' => 0,
-                ]);
+                ] + $retryOption);
                 $lines = [];
                 foreach ($response->getHeaders(false) as $name => $values) {
                     foreach ($values as $value) {
@@ -111,21 +116,42 @@ final class PostHogTransportFactory extends AbstractTransportFactory
     }
 
     /**
-     * The app's client without its default credentials or its own retries. The send and the storage upload carry
-     * their own credentials, and the SDK retries within its Retry-After cap. withOptions() reaches the client that
-     * holds the defaults through every Symfony decorator, such as ScopingHttpClient and TraceableHttpClient.
+     * The app's client without its default credentials or its own retries, and the request option that keeps a
+     * matching ScopingHttpClient scope from setting them again. The send and the storage upload carry their own
+     * credentials, and the SDK retries within its Retry-After cap. withOptions() reaches the client that holds the
+     * defaults through every Symfony decorator; a request option wins over a scope's.
+     *
+     * @return array{HttpClientInterface, array<string, int>}
      */
-    private static function forTheSdk(HttpClientInterface $client): HttpClientInterface
+    private static function forTheSdk(HttpClientInterface $client): array
     {
         $client = $client->withOptions(
             ['headers' => ['authorization' => []], 'auth_basic' => null, 'auth_bearer' => null]
         );
         try {
-            return $client->withOptions(['max_retries' => 0]);
+            return [$client->withOptions(['max_retries' => 0]), ['max_retries' => 0]];
         } catch (InvalidArgumentException) {
             // Only RetryableHttpClient knows max_retries; a client without it has no retries to turn off.
-            return $client;
+            return [$client, []];
         }
+    }
+
+    /**
+     * The request's headers, with an empty Authorization when it has none of its own, so a scope's Authorization
+     * header stays off a storage upload.
+     *
+     * @param list<string> $headers
+     * @return array<int|string, string|list<string>>
+     */
+    private static function withoutDefaultCredentials(array $headers): array
+    {
+        foreach ($headers as $header) {
+            if (stripos($header, 'authorization:') === 0) {
+                return $headers;
+            }
+        }
+
+        return [...$headers, 'authorization' => []];
     }
 
     private static function appHost(Dsn $dsn): string
