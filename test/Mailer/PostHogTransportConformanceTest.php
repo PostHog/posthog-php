@@ -536,6 +536,24 @@ final class PostHogTransportConformanceTest extends TestCase
                 )),
                 'unsupported_part',
             ],
+            'a text part in another charset than the email\'s text' => [
+                fn() => self::shipped()->setBody(new AlternativePart(
+                    new TextPart('On its way.', 'iso-8859-1'),
+                    new TextPart('<p>On its way.</p>', 'utf-8', 'html')
+                )),
+                'unsupported_part',
+            ],
+            'the email\'s HTML sent as an attachment' => [
+                fn() => self::shipped()->setBody(new MixedPart(
+                    new TextPart('On its way.'),
+                    (new TextPart('<p>On its way.</p>', 'utf-8', 'html'))->setDisposition('attachment')
+                )),
+                'unsupported_part',
+            ],
+            '13 a Return-Path other than the From address' => [
+                fn() => self::shipped()->sender('shop@example.com')->returnPath('bounce@example.com'),
+                'envelope_mismatch',
+            ],
             'an HTML part when the email has no HTML body' => [
                 fn() => self::shipped()->html(null)->setBody(new AlternativePart(
                     new TextPart('On its way.'),
@@ -565,6 +583,21 @@ final class PostHogTransportConformanceTest extends TestCase
         $envelope = new Envelope(new Address('bounce@example.com'), [new Address('ana@example.com')]);
 
         $this->assertRefused('envelope_mismatch', fn() => $this->transport()->send(self::shipped(), $envelope));
+    }
+
+    public function testCase13ASenderOtherThanTheFromIsRefusedEvenWithAMatchingEnvelope(): void
+    {
+        $envelope = new Envelope(new Address('shop@example.com'), [new Address('ana@example.com')]);
+        $email = self::shipped()->sender('ops@example.com');
+
+        $this->assertRefused('envelope_mismatch', fn() => $this->transport()->send($email, $envelope));
+    }
+
+    public function testASenderAndReturnPathOfTheFromAddressSend(): void
+    {
+        $this->transport()->send(self::shipped()->sender('shop@example.com')->returnPath('shop@example.com'));
+
+        $this->assertSame('Shop <shop@example.com>', $this->body()['from']);
     }
 
     public function testCase15ARemoteTemplateEmailSendsTheTemplate(): void

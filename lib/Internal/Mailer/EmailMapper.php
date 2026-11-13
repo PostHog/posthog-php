@@ -128,7 +128,18 @@ final class EmailMapper
         $envelopeRecipients = self::addresses($envelope->getRecipients());
         sort($recipients);
         sort($envelopeRecipients);
-        if ($from?->getAddress() !== $envelope->getSender()->getAddress() || $recipients !== $envelopeRecipients) {
+        // Symfony bounces to Sender, then Return-Path, unless the envelope names another sender. The send has one
+        // sender, the From address, so each of them must be that address.
+        $senders = array_filter([$envelope->getSender(), $email->getSender(), $email->getReturnPath()]);
+        foreach ($senders as $sender) {
+            if ($from?->getAddress() !== $sender->getAddress()) {
+                throw self::refusal(
+                    'envelope_mismatch',
+                    'It sends from the From address only; the envelope sender, Sender and Return-Path must be it.'
+                );
+            }
+        }
+        if ($recipients !== $envelopeRecipients) {
             throw self::refusal(
                 'envelope_mismatch',
                 'It sends from the From address to the To, Cc and Bcc addresses only.'
@@ -194,11 +205,7 @@ final class EmailMapper
                     );
                 }
                 unset($attachments[$index]);
-            } elseif (
-                $part instanceof TextPart
-                && ($expected[$part->getMediaSubtype()] ?? null) !== null
-                && $part->getBody() === $expected[$part->getMediaSubtype()]
-            ) {
+            } elseif ($part instanceof TextPart && self::isOwnBody($email, $part, $expected)) {
                 $expected[$part->getMediaSubtype()] = null;
             } else {
                 throw self::refusal(
@@ -215,6 +222,28 @@ final class EmailMapper
                     . ' that the email carries, so the email sent would differ from the one Symfony builds.'
             );
         }
+    }
+
+    /**
+     * Whether a custom body part is the email's own text or HTML, as Symfony would build it: the same content in the
+     * same charset, shown as the body rather than attached.
+     *
+     * @param array{plain: ?string, html: ?string} $expected the text and HTML no part has matched yet
+     */
+    private static function isOwnBody(Email $email, TextPart $part, array $expected): bool
+    {
+        $subtype = $part->getMediaSubtype();
+        $charset = match ($subtype) {
+            'plain' => $email->getTextCharset(),
+            'html' => $email->getHtmlCharset(),
+            default => null,
+        };
+        $partCharset = $part->getPreparedHeaders()->getHeaderParameter('Content-Type', 'charset');
+
+        return ($expected[$subtype] ?? null) !== null
+            && $part->getBody() === $expected[$subtype]
+            && strtolower((string) $partCharset) === strtolower((string) $charset)
+            && in_array($part->getDisposition(), [null, 'inline'], true);
     }
 
     /**
