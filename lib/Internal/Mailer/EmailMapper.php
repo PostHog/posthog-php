@@ -337,7 +337,7 @@ final class EmailMapper
         }
         $flags = ['opens' => null, 'clicks' => null];
         $header = $headers[0] ?? null;
-        $value = $header instanceof UnstructuredHeader ? $header->getValue() : (string) $header?->getBodyAsString();
+        $value = $header === null ? '' : self::unencodedValue($header);
         foreach (explode(';', $value) as $part) {
             if (trim($part) === '') {
                 continue;
@@ -517,14 +517,14 @@ final class EmailMapper
             . " <{$address->getAddress()}>";
     }
 
-    /**
-     * @param string|resource|null $body
-     */
     private static function unencodedValue(HeaderInterface $header): string
     {
         return $header instanceof UnstructuredHeader ? $header->getValue() : $header->getBodyAsString();
     }
 
+    /**
+     * @param string|resource|null $body
+     */
     private static function readOnce(mixed $body): ?string
     {
         if (!is_resource($body)) {
