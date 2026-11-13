@@ -30,6 +30,9 @@ class MockedHttpClient extends \PostHog\HttpClient
     private $batchEndpointResponse;
     private $batchEndpointResponseCode;
     private $batchEndpointCurlErrno;
+    private $remoteConfigEndpointResponse;
+    private $remoteConfigEndpointResponseCode;
+    private $remoteConfigEndpointCurlErrno;
 
     public function __construct(
         string $host,
@@ -47,7 +50,10 @@ class MockedHttpClient extends \PostHog\HttpClient
         int $flagsEndpointCurlErrno = 0,
         $batchEndpointResponse = '{"status":1}',
         int $batchEndpointResponseCode = 200,
-        int $batchEndpointCurlErrno = 0
+        int $batchEndpointCurlErrno = 0,
+        $remoteConfigEndpointResponse = '{}',
+        int $remoteConfigEndpointResponseCode = 200,
+        int $remoteConfigEndpointCurlErrno = 0
     ) {
         parent::__construct(
             $host,
@@ -71,6 +77,9 @@ class MockedHttpClient extends \PostHog\HttpClient
         $this->batchEndpointResponse = $batchEndpointResponse;
         $this->batchEndpointResponseCode = $batchEndpointResponseCode;
         $this->batchEndpointCurlErrno = $batchEndpointCurlErrno;
+        $this->remoteConfigEndpointResponse = $remoteConfigEndpointResponse;
+        $this->remoteConfigEndpointResponseCode = $remoteConfigEndpointResponseCode;
+        $this->remoteConfigEndpointCurlErrno = $remoteConfigEndpointCurlErrno;
     }
 
     /**
@@ -162,6 +171,15 @@ class MockedHttpClient extends \PostHog\HttpClient
                 $this->batchEndpointResponseCode,
                 null,
                 $this->batchEndpointCurlErrno
+            );
+        }
+
+        if (str_starts_with($path, "/api/projects/@current/feature_flags/")) {
+            return new HttpResponse(
+                $this->remoteConfigEndpointResponse,
+                $this->remoteConfigEndpointResponseCode,
+                null,
+                $this->remoteConfigEndpointCurlErrno
             );
         }
 

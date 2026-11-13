@@ -1226,6 +1226,76 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
+     * Fetch the remote config payload of a feature flag from PostHog.
+     *
+     * Needs a secret key. A Personal API Key returns encrypted payloads decrypted. A Project Secret
+     * API Key returns them redacted. The call sends one request, with no retry, and captures no
+     * `$feature_flag_called` event. It logs a warning and returns null when the client is disabled,
+     * when no secret key is set, when the key is empty, `.` or `..`, when the request fails, or when
+     * PostHog answers with a non-2xx status.
+     *
+     * @param string $key Feature flag key.
+     * @return mixed The decoded payload, or null when no payload could be read.
+     */
+    public function getRemoteConfigPayload(string $key): mixed
+    {
+        if (!$this->enabled) {
+            $this->logWarning('The client is disabled');
+            return null;
+        }
+
+        if ($this->secretKey === null) {
+            $this->logWarning('A secret key is required to fetch a remote config payload from PostHog');
+            return null;
+        }
+
+        if (in_array($key, ['', '.', '..'], true)) {
+            $this->logWarning('A feature flag key is required to fetch a remote config payload from PostHog');
+            return null;
+        }
+
+        $response = $this->httpClient->sendRequest(
+            '/api/projects/@current/feature_flags/' . rawurlencode($key)
+                . '/remote_config?token=' . rawurlencode($this->apiKey),
+            null,
+            [
+                "User-Agent: " . $this->options['library_name'] . "/" . $this->options['library_version'],
+                "Authorization: Bearer " . $this->secretKey
+            ],
+            [
+                'shouldRetry' => false,
+                'timeout' => $this->featureFlagsRequestTimeout
+            ]
+        );
+
+        $code = $response->getResponseCode();
+        if ($code < 200 || $code >= 300) {
+            error_log(
+                '[PostHog][Client] Unable to fetch remote config payload: '
+                . ($code === 0 ? 'connection error (curl errno ' . $response->getCurlErrno() . ')' : 'HTTP ' . $code)
+            );
+            return null;
+        }
+
+        try {
+            $result = json_decode((string) $response->getResponse(), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            error_log('[PostHog][Client] Unable to read remote config payload: invalid JSON response');
+            return null;
+        }
+
+        if (is_string($result)) {
+            try {
+                return json_decode($result, true, 512, JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                return $result;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * get the feature flag value for this distinct id.
      *
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.

@@ -824,6 +824,24 @@
                     "returnType": "?string",
                     "parameters": []
                 },
+                "getRemoteConfigPayload": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "mixed",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
                 "groupIdentify": {
                     "static": false,
                     "abstract": false,
@@ -4833,6 +4851,24 @@
                             "default": true,
                             "defaultConstant": null,
                             "hasDefault": true
+                        }
+                    ]
+                },
+                "getRemoteConfigPayload": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "mixed",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
                         }
                     ]
                 },
