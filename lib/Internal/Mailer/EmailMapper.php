@@ -3,6 +3,7 @@
 namespace PostHog\Internal\Mailer;
 
 use ReflectionMethod;
+use ValueError;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\Exception\LogicException;
 use Symfony\Component\Mailer\RemoteTemplateEmail;
@@ -23,15 +24,16 @@ final class EmailMapper
     private const TEMPLATE_KEY = 'x-posthog-template-key';
     private const IDEMPOTENCY_KEY = 'x-posthog-idempotency-key';
     private const CAPTURE_ENGAGEMENT = 'x-posthog-capture-engagement';
+    private const SENSITIVE = 'x-posthog-sensitive';
     private const OPTION_HEADERS = [
-        self::DISTINCT_ID, self::TEMPLATE_KEY, self::IDEMPOTENCY_KEY, self::CAPTURE_ENGAGEMENT,
+        self::DISTINCT_ID, self::TEMPLATE_KEY, self::IDEMPOTENCY_KEY, self::CAPTURE_ENGAGEMENT, self::SENSITIVE,
     ];
     private const MAPPED_HEADERS = ['from', 'to', 'cc', 'bcc', 'reply-to', 'subject', 'sender', 'return-path'];
     private const IGNORED_HEADERS = ['message-id', 'date', 'mime-version', 'x-mailer', 'x-priority'];
     private const TRACKING_HEADER = 'x-track';
-    private const TRACKING_ON = ['true', '1', 'yes', 'on'];
+    private const TRACKING_FLAGS = ['true' => true, 'false' => false, 'default' => null];
     private const NORMAL_PRIORITY = 3;
-    private const TEMPLATE_KEY_PATTERN = '/^[a-zA-Z0-9_-]{1,400}$/D';
+    public const TEMPLATE_KEY_PATTERN = '/^[a-zA-Z0-9_-]{1,256}$/D';
 
     public function __construct(
         private readonly string $integration,
@@ -48,13 +50,13 @@ final class EmailMapper
         $to = $this->onlyRecipient($email);
         $options = $this->headerOptions($email);
         $this->refuseEnvelopeMismatch($email, $envelope);
-        self::refuseOpenTrackingOff($email);
         // Checked on both forms; the template form doesn't send them.
         $templateKey = $this->templateKey($options[self::TEMPLATE_KEY] ?? null);
-        $captureEngagement = self::captureEngagement($options[self::CAPTURE_ENGAGEMENT] ?? null);
+        $tracking = self::tracking($email, $options[self::CAPTURE_ENGAGEMENT] ?? null);
+        $sensitive = self::flag('X-PostHog-Sensitive', $options[self::SENSITIVE] ?? null);
         $template = $email instanceof RemoteTemplateEmail ? $email->getRemoteTemplate() : null;
         $send = $template === null
-            ? $this->renderedContent($email, $templateKey, $captureEngagement)
+            ? $this->renderedContent($email, $templateKey) + ['tracking' => $tracking, 'sensitive' => $sensitive]
             : $this->templateContent($email, $template->getReference(), $template->getVariables());
 
         return array_filter(
@@ -106,7 +108,6 @@ final class EmailMapper
         if (
             in_array($name, self::MAPPED_HEADERS, true)
             || in_array($name, self::IGNORED_HEADERS, true)
-            || str_starts_with($name, 'content-')
             || $name === self::TRACKING_HEADER
         ) {
             return;
@@ -138,12 +139,14 @@ final class EmailMapper
     /**
      * @return array<string, mixed>
      */
-    private function renderedContent(Email $email, string $templateKey, ?bool $captureEngagement): array
+    private function renderedContent(Email $email, string $templateKey): array
     {
         // Read each body once: a stream that can't rewind is empty on a second read.
         $html = self::text($email->getHtmlBody());
         $text = self::text($email->getTextBody());
         self::refuseUnsupportedParts($email, $text, $html);
+        $html = self::utf8($html, $email->getHtmlCharset(), 'HTML');
+        $text = self::utf8($text, $email->getTextCharset(), 'text');
 
         return [
             'template_key' => $templateKey,
@@ -158,13 +161,12 @@ final class EmailMapper
                 static fn(DataPart $part): array => self::attachment($part, $html),
                 $email->getAttachments()
             ),
-            'capture_engagement' => $captureEngagement,
         ];
     }
 
     /**
-     * The send carries the email's text, HTML and attachments, so a body set with setBody() may hold only those: at
-     * most one text and one HTML part, each holding the email's own text or HTML, and the email's own attachments.
+     * The send carries the email's text, HTML and attachments, so a body set with setBody() must hold exactly those:
+     * one text and one HTML part for the email's own text and HTML, and each of the email's own attachments.
      *
      * A body Symfony generates holds nothing else, so only a custom body is walked. Message::getBody() returns it
      * without building the generated body. Building it reads a stream body, and older Symfony Mime releases, such
@@ -174,18 +176,24 @@ final class EmailMapper
     {
         $custom = (new ReflectionMethod(Message::class, 'getBody'))->invoke($email);
         $expected = ['plain' => $text, 'html' => $html];
-        $parts = $custom === null ? [] : [$custom];
+        if ($custom === null) {
+            return;
+        }
+        $attachments = $email->getAttachments();
+        $parts = [$custom];
         while (($part = array_shift($parts)) !== null) {
             $type = "{$part->getMediaType()}/{$part->getMediaSubtype()}";
             if ($part instanceof AbstractMultipartPart) {
                 array_push($parts, ...$part->getParts());
             } elseif ($part instanceof DataPart) {
-                if (!in_array($part, $email->getAttachments(), true)) {
+                $index = array_search($part, $attachments, true);
+                if ($index === false) {
                     throw self::refusal(
                         'unsupported_part',
                         "The body holds a $type part that is not one of its attachments."
                     );
                 }
+                unset($attachments[$index]);
             } elseif (
                 $part instanceof TextPart
                 && ($expected[$part->getMediaSubtype()] ?? null) !== null
@@ -198,6 +206,14 @@ final class EmailMapper
                     "It can't carry the $type part of the body: a body part must hold the email's own text or HTML."
                 );
             }
+        }
+        $missing = array_keys(array_filter($expected, static fn(?string $content): bool => $content !== null));
+        if ($missing !== [] || $attachments !== []) {
+            throw self::refusal(
+                'unsupported_part',
+                'The body leaves out ' . ($missing === [] ? 'an attachment' : "the email's {$missing[0]} part")
+                    . ' that the email carries, so the email sent would differ from the one Symfony builds.'
+            );
         }
     }
 
@@ -231,49 +247,79 @@ final class EmailMapper
         if (preg_match(self::TEMPLATE_KEY_PATTERN, $explicit) !== 1) {
             throw self::refusal(
                 'invalid_template_key',
-                'X-PostHog-Template-Key can only have letters, digits, hyphens (-) and underscores (_), at most 400.'
+                'X-PostHog-Template-Key can only have letters, digits, hyphens (-) and underscores (_), at most 256.'
             );
         }
 
         return $explicit;
     }
 
-    private static function captureEngagement(?string $explicit): ?bool
+    /**
+     * What PostHog tracks for the email: `X-Track` sets opens and clicks as Symfony's TrackingHeader does, and
+     * `X-PostHog-Capture-Engagement` sets the engagement events. A flag left out, or `default`, is left to PostHog.
+     *
+     * @return array{opens?: bool, clicks?: bool, engagement?: bool}|null
+     */
+    private static function tracking(Email $email, ?string $engagement): ?array
     {
-        return match ($explicit) {
+        $headers = $email->getHeaders()->all(self::TRACKING_HEADER);
+        $headers = $headers instanceof \Traversable ? iterator_to_array($headers, false) : $headers;
+        if (count($headers) > 1) {
+            throw self::refusal('unsupported_header', 'It takes one X-Track header; remove the others.');
+        }
+        $flags = ['opens' => null, 'clicks' => null];
+        $header = $headers[0] ?? null;
+        $value = $header instanceof UnstructuredHeader ? $header->getValue() : (string) $header?->getBodyAsString();
+        foreach (explode(';', $value) as $part) {
+            if (trim($part) === '') {
+                continue;
+            }
+            $pair = array_map('trim', explode('=', $part, 2));
+            if (count($pair) !== 2 || !array_key_exists($pair[0], $flags)) {
+                throw self::refusal(
+                    'unsupported_header',
+                    'X-Track can only set opens and clicks, such as "opens=true; clicks=false".'
+                );
+            }
+            if (!array_key_exists($pair[1], self::TRACKING_FLAGS)) {
+                throw self::refusal('unsupported_header', "X-Track's $pair[0] must be true, false or default.");
+            }
+            $flags[$pair[0]] = self::TRACKING_FLAGS[$pair[1]];
+        }
+        $flags['engagement'] = self::flag('X-PostHog-Capture-Engagement', $engagement);
+        $tracking = array_filter($flags, static fn(?bool $flag): bool => $flag !== null);
+
+        return $tracking === [] ? null : $tracking;
+    }
+
+    private static function flag(string $header, ?string $value): ?bool
+    {
+        return match ($value) {
             null => null,
             'true' => true,
             'false' => false,
-            default => throw self::refusal(
-                'unsupported_header',
-                'X-PostHog-Capture-Engagement must be "true" or "false".'
-            ),
+            default => throw self::refusal('unsupported_header', "$header must be \"true\" or \"false\"."),
         };
     }
 
-    private static function refuseOpenTrackingOff(Email $email): void
+    /**
+     * The body in UTF-8, the only charset PostHog takes, converted from the charset the email declares for it.
+     */
+    private static function utf8(?string $body, ?string $charset, string $part): ?string
     {
-        if (self::asksForNoOpenTracking($email)) {
-            throw self::refusal(
-                'open_tracking_off',
-                'It adds an open pixel to every email; remove opens=false from X-Track.'
-            );
+        if ($body === null || $charset === null || strcasecmp($charset, 'utf-8') === 0) {
+            return $body;
         }
-    }
-
-    private static function asksForNoOpenTracking(Email $email): bool
-    {
-        foreach ($email->getHeaders()->all(self::TRACKING_HEADER) as $header) {
-            $value = $header instanceof UnstructuredHeader ? $header->getValue() : $header->getBodyAsString();
-            foreach (explode(';', strtolower((string) preg_replace('/\s+/', ' ', $value))) as $part) {
-                [$name, $flag] = array_map('trim', explode('=', $part, 2)) + [1 => ''];
-                if ($name === 'opens' && !in_array($flag, self::TRACKING_ON, true)) {
-                    return true;
-                }
-            }
+        try {
+            $converted = mb_convert_encoding($body, 'UTF-8', $charset);
+        } catch (ValueError) {
+            $converted = false;
+        }
+        if (!is_string($converted)) {
+            throw self::refusal('unsupported_part', "It can't convert the $part part from $charset to UTF-8.");
         }
 
-        return false;
+        return $converted;
     }
 
     /**

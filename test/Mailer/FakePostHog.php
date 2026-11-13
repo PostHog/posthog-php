@@ -9,7 +9,7 @@ use PostHog\EmailError;
  *
  * The upload route answers `present` for a file storage holds and a signed PUT for any other. Storage takes a PUT
  * only as signed and only when the bytes match the signed checksum. The send route refuses an attachment storage
- * doesn't hold, as PostHog does, and queues one email per idempotency key.
+ * doesn't hold and click tracking without open tracking, as PostHog does, and queues one email per idempotency key.
  */
 final class FakePostHog
 {
@@ -149,6 +149,9 @@ final class FakePostHog
     private function send(array $headers, string $body): array
     {
         $email = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+        if (($email['tracking']['clicks'] ?? null) === true && ($email['tracking']['opens'] ?? null) === false) {
+            return self::error(400, 'clicks_need_opens', 'tracking');
+        }
         foreach ($email['attachments'] ?? [] as $index => $attachment) {
             if (!isset($this->stored[$attachment['sha256'] ?? ''])) {
                 return self::error(400, 'attachment_not_uploaded', "attachments__{$index}__sha256");
