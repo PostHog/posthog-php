@@ -78,6 +78,12 @@ final class PostHogTransportFactory extends AbstractTransportFactory
                     'max_duration' => $timeoutMs / 1000,
                     'max_redirects' => 0,
                 ]);
+                $lines = [];
+                foreach ($response->getHeaders(false) as $name => $values) {
+                    foreach ($values as $value) {
+                        $lines[] = "$name: $value";
+                    }
+                }
                 $answer = '';
                 foreach ($client->stream($response) as $chunk) {
                     $answer .= $chunk->getContent();
@@ -88,12 +94,6 @@ final class PostHogTransportFactory extends AbstractTransportFactory
                             'response_too_large',
                             "PostHog answered with more than $limit bytes, so the SDK stopped reading."
                         );
-                    }
-                }
-                $lines = [];
-                foreach ($response->getHeaders(false) as $name => $values) {
-                    foreach ($values as $value) {
-                        $lines[] = "$name: $value";
                     }
                 }
 

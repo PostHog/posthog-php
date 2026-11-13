@@ -93,6 +93,26 @@ final class PostHogTransportFactoryTest extends TestCase
         }
     }
 
+    public function testABusyPostHogIsRetriedThroughTheAppsHttpClient(): void
+    {
+        $previousClock = Clock::get();
+        Clock::set(new MockClock('2026-11-13 12:00:00'));
+        $this->posthog = new FakePostHog('phs_dsn');
+        $busy = ['type' => 'server_error', 'code' => 'service_unavailable', 'detail' => 'Busy.', 'attr' => null];
+        $this->posthog->sendReplies = [[503, json_encode($busy), ['Retry-After: 1']]];
+        $transport = (new Transport([new PostHogTransportFactory(client: $this->posthog->httpClient())]))
+            ->fromString('posthog+api://phs_dsn@default');
+
+        try {
+            $transport->send(self::email());
+        } finally {
+            Clock::set($previousClock);
+        }
+
+        $this->assertCount(2, $this->posthog->sends());
+        $this->assertCount(1, $this->posthog->queued);
+    }
+
     public function testAnAnswerOverTheLimitStopsTheRead(): void
     {
         $flood = new MockHttpClient(new MockResponse(str_repeat('x', 1_048_577), ['http_code' => 202]));
