@@ -27,6 +27,14 @@ use Symfony\Component\Clock\NativeClock;
  * `email_request_max_retries` times (2 by default) with the same idempotency key, waiting about 1 and
  * then 2 seconds, or the server's `Retry-After` when it is longer. A `Retry-After` over 30 seconds fails
  * at once. A send that is not queued throws EmailError.
+ *
+ * A send with attachments first uploads each file PostHog doesn't have yet to the storage URL PostHog
+ * answers, which is on another host than the app host. It uploads only to an `https` URL, unless the app
+ * host is plain `http://` for local development. Each upload gets the request timeout plus 1 ms
+ * for every 100 bytes of the file, but only the request timeout to connect. A storage 429, 500, 502, 503
+ * or 504 is retried as above.
+ *
+ * @phpstan-type Upload array{filename: string, size: int, content: string, field: string}
  */
 final class Emails
 {
@@ -34,6 +42,7 @@ final class Emails
     public const DEFAULT_MAX_RETRIES = 2;
 
     private const SEND_PATH = '/api/projects/@current/messaging/send/email/';
+    private const UPLOADS_PATH = '/api/projects/@current/messaging/attachments/uploads/';
     private const STATUS_PATH = '/api/projects/@current/messaging/emails/%s/';
     private const US_APP_HOST = 'https://us.posthog.com';
     private const EU_APP_HOST = 'https://eu.posthog.com';
@@ -63,10 +72,20 @@ final class Emails
         'text',
         'from',
         'reply_to',
+        'cc',
+        'bcc',
+        'attachments',
         'capture_engagement',
         'sensitive',
         'tracking',
     ];
+    private const ATTACHMENT_FIELDS = ['filename', 'content', 'content_type', 'content_id'];
+    private const MAX_ATTACHMENTS = 10;
+    private const MAX_MESSAGE_BYTES = 40_000_000;
+    private const MESSAGE_HEADERS_BYTES = 65_536;
+    private const UPLOAD_BYTES_PER_EXTRA_MS = 100;
+    private const MESSAGE_LIMIT = '40 MB after Base64 encoding, about 29 MB of files';
+    private const HEADER_NAME_PATTERN = "/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/D";
     private const TEMPLATE_FORM_WHY = "A template made in PostHog sets its own sender, subject, content, tracking "
         . "and sensitive setting, and follows the project's engagement setting.";
     private const CODE_FORM_WHY = 'A send with template_key takes its content from your code.';
@@ -96,7 +115,8 @@ final class Emails
      * @param string|null $appHost The PostHog app host, for a host that is not PostHog Cloud.
      * @param string|null $userAgent The User-Agent. Defaults to `posthog-php/<version>`.
      * @param Closure|null $transport `fn(string $method, string $url, list<string> $headers, ?string $body,
-     *     int $timeoutMs): array{int, string, list<string>}` returning the status, body and header lines.
+     *     int $timeoutMs, int $connectTimeoutMs): array{int, string, list<string>}` returning the status, body
+     *     and header lines.
      *     It throws EmailError with the code `network_error` when no answer arrived.
      */
     public function __construct(
@@ -143,7 +163,19 @@ final class Emails
      *   400), `subject`, and `html`, `text` or both. PostHog derives a missing `text` from the `html`, and
      *   sends the content as is without storing it. To send a React email, render it to HTML in your app
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
-     *   `reply_to` (one address or a list; an empty list is left out), `sensitive` and `tracking`.
+     *   `reply_to`, `cc` and `bcc` (one address or a list; at most 10 for `cc` and `bcc`), `attachments`,
+     *   `sensitive` and `tracking`. An empty `reply_to`, `cc`, `bcc` or `attachments` list is left out.
+     * - `attachments` is a list of at most 10 files, and the email can be at most 40 MB after Base64 encoding, which
+     *   leaves about 29 MB for the files. The 40 MB counts the subject and the bodies, and the `html` twice without
+     *   `text`, since PostHog derives the text from it. Each file is an array with `filename`, `content` (the file's
+     *   bytes, such as `file_get_contents()` returns; pass `base64_decode($content)` when you hold Base64, such as from
+     *   a Resend payload), and optional `content_type` and `content_id`. Reference a `content_id` of `logo` in the HTML
+     *   as `<img src="cid:logo">` to show the file inline. PostHog can't fetch a file from a path or URL. The client
+     *   checks both limits before any request, hashes each file with SHA-256, uploads the files PostHog doesn't have
+     *   yet, and then sends the email with each file's hash. A file that fails to upload throws
+     *   `attachment_upload_failed` with the storage's answer, and no email is sent. An upload never follows a
+     *   redirect: storage that answers one fails that file the same way. A PostHog without the upload route, or a
+     *   project that can't send email from code, answers `not_found` on `attachments`, and no email is sent.
      *
      * `sensitive` marks the email as sensitive: set it to true when the email carries login links, reset
      * tokens or codes. A sensitive email keeps its links unchanged unless `tracking` turns clicks on,
@@ -165,6 +197,9 @@ final class Emails
      *
      * `capture_engagement` is deprecated: use `tracking` with `engagement` instead. It still works, but a
      * send can't set both. The client sends `capture_engagement` only when you set it.
+     *
+     * A PostHog version that doesn't take a field yet, such as `cc`, refuses the send with an error that
+     * names the field. It never drops the field and sends the rest.
      *
      * Both forms take `to` (one address), `distinct_id` (the recipient's distinct ID in your product;
      * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
@@ -191,6 +226,17 @@ final class Emails
      *     'html' => $renderedHtml,
      *     'distinct_id' => 'user_123',
      * ]);
+     *
+     * $client->emails()->send([
+     *     'to' => 'user@example.com',
+     *     'template_key' => 'receipt',
+     *     'subject' => 'Your receipt',
+     *     'html' => $renderedHtml,
+     *     'bcc' => 'finance@example.com',
+     *     'attachments' => [
+     *         ['filename' => 'receipt.pdf', 'content' => file_get_contents($receiptPath)],
+     *     ],
+     * ]);
      * ```
      *
      * @param array{
@@ -206,6 +252,14 @@ final class Emails
      *     text?: string|null,
      *     from?: string|null,
      *     reply_to?: string|list<string>|null,
+     *     cc?: string|list<string>|null,
+     *     bcc?: string|list<string>|null,
+     *     attachments?: list<array{
+     *         filename: string,
+     *         content: string,
+     *         content_type?: string|null,
+     *         content_id?: string|null
+     *     }>|null,
      *     sensitive?: bool|null,
      *     tracking?: bool|array{opens?: bool|null, clicks?: bool|null, engagement?: bool|null}|null,
      *     capture_engagement?: bool|null
@@ -213,11 +267,19 @@ final class Emails
      * @return SendEmailResult The queued email. It means PostHog queued the email, not that it was delivered.
      * @throws EmailError PostHog did not queue the email, or the client could not tell whether it did. A
      *     failed argument check has the name `validation_error` and an `invalid_*` code, and sends nothing.
+     *     An attachment the client can't send has the code `invalid_attachment` and a field such as
+     *     `attachments__0__content`, and its message never repeats the file's content. More than 10 files
+     *     throw `too_many_attachments`, and an email over 40 MB throws `message_too_large`, before any
+     *     request.
      */
     public function send(array $email): SendEmailResult
     {
-        [$body, $idempotencyKey, $maxRetries] = $this->prepareSend($email);
+        [$body, $idempotencyKey, $maxRetries, $files] = $this->prepareSend($email);
         [$appHost, $secretKey] = $this->connect(self::SEND_NOT_DONE, self::SEND_KEY_NEEDED);
+        if ($files !== []) {
+            $this->upload($appHost, $secretKey, $files, $maxRetries);
+            $this->refuseWhenClosed(self::SEND_NOT_DONE);
+        }
         $headers = $this->headers($secretKey, [
             'Content-Type: application/json',
             'Idempotency-Key: ' . $idempotencyKey,
@@ -266,7 +328,8 @@ final class Emails
     }
 
     /**
-     * @return array{string, string, int}
+     * @return array{string, string, int, array<string, Upload>} The body, the idempotency key, the retries
+     *     and the files to upload, by SHA-256.
      */
     private function prepareSend(array $email): array
     {
@@ -286,7 +349,7 @@ final class Emails
                 'Send either template_id, or template_key with subject and html or text, so no email was sent.'
             );
         }
-        $payload = $hasTemplateId ? self::templateContent($email) : self::codeContent($email);
+        [$payload, $files] = $hasTemplateId ? [self::templateContent($email), []] : self::codeContent($email);
         $idempotencyKey = $email['idempotency_key'] ?? null;
         if (
             $idempotencyKey !== null
@@ -316,7 +379,7 @@ final class Emails
             );
         }
 
-        return [$body, $idempotencyKey ?? Uuid::v4(), $maxRetries];
+        return [$body, $idempotencyKey ?? Uuid::v4(), $maxRetries, $files];
     }
 
     /**
@@ -345,7 +408,7 @@ final class Emails
     }
 
     /**
-     * @return array<string, mixed>
+     * @return array{array<string, mixed>, array<string, Upload>}
      */
     private static function codeContent(array $email): array
     {
@@ -385,8 +448,20 @@ final class Emails
             }
             $content['from'] = $email['from'];
         }
-        if (array_key_exists('reply_to', $email) && $email['reply_to'] !== []) {
-            $content['reply_to'] = self::addresses($email['reply_to']);
+        foreach (['reply_to', 'cc', 'bcc'] as $field) {
+            if (array_key_exists($field, $email) && $email[$field] !== []) {
+                $content[$field] = self::addresses($field, $email[$field]);
+            }
+        }
+        $files = [];
+        if (array_key_exists('attachments', $email) && $email['attachments'] !== []) {
+            $html = $content['html'] ?? '';
+            $text = ($content['text'] ?? '') === '' ? $html : $content['text'];
+            [$content['attachments'], $files] = self::attachments(
+                $email['attachments'],
+                $content['subject'],
+                [$html, $text]
+            );
         }
         $tracking = self::tracking($email);
         $captureEngagement = $email['capture_engagement'] ?? null;
@@ -407,7 +482,7 @@ final class Emails
             $content['tracking'] = $tracking;
         }
 
-        return $content;
+        return [$content, $files];
     }
 
     private static function tracking(array $email): bool|object|null
@@ -436,19 +511,143 @@ final class Emails
     /**
      * @return list<string>
      */
-    private static function addresses(mixed $value): array
+    private static function addresses(string $field, mixed $value): array
     {
         $addresses = is_string($value) ? [$value] : $value;
         if (!is_array($addresses) || !array_is_list($addresses)) {
-            throw self::invalid('invalid_form', 'reply_to must be one address or a list of addresses.', 'reply_to');
+            throw self::invalid('invalid_form', "$field must be one address or a list of addresses.", $field);
         }
         foreach ($addresses as $address) {
             if (!is_string($address) || trim($address) === '') {
-                throw self::invalid('invalid_form', 'reply_to must not hold a blank address.', 'reply_to');
+                throw self::invalid('invalid_form', "$field must not hold a blank address.", $field);
             }
         }
 
         return $addresses;
+    }
+
+    /**
+     * @param list<string> $bodies
+     * @return array{list<array<string, string>>, array<string, Upload>}
+     */
+    private static function attachments(mixed $files, string $subject, array $bodies): array
+    {
+        if (!is_array($files) || !array_is_list($files)) {
+            throw self::invalidAttachment('attachments must be a list of files.', 'attachments');
+        }
+        if (count($files) > self::MAX_ATTACHMENTS) {
+            throw new EmailError(
+                'too_many_attachments',
+                'An email carries at most ' . self::MAX_ATTACHMENTS . ' files, so no email was sent.',
+                why: 'An email carries at most ' . self::MAX_ATTACHMENTS . ' files.',
+                fix: 'Attach at most ' . self::MAX_ATTACHMENTS . ' files, and link to any others from the email body.',
+                field: 'attachments'
+            );
+        }
+        $attachments = [];
+        $messageBytes = self::MESSAGE_HEADERS_BYTES + self::encodedSubjectBytes($subject);
+        foreach ($files as $index => $file) {
+            $attachments[] = $attachment = self::attachment("attachments__$index", $file);
+            $messageBytes += self::base64TransferBytes(strlen($attachment['content']));
+        }
+        foreach ($bodies as $body) {
+            $messageBytes += self::base64TransferBytes(strlen($body));
+        }
+        if ($messageBytes > self::MAX_MESSAGE_BYTES) {
+            throw new EmailError(
+                'message_too_large',
+                'These files make the email larger than 40 MB after Base64 encoding, so no email was sent.',
+                why: 'An email can be at most ' . self::MESSAGE_LIMIT . '.',
+                fix: 'Send fewer or smaller files, or link to large files from the email body.',
+                field: 'attachments'
+            );
+        }
+        $references = [];
+        $uploads = [];
+        foreach ($attachments as $index => $attachment) {
+            $sha256 = hash('sha256', $attachment['content']);
+            $uploads[$sha256] ??= [
+                'filename' => $attachment['filename'],
+                'size' => strlen($attachment['content']),
+                'content' => $attachment['content'],
+                'field' => "attachments__{$index}__content",
+            ];
+            unset($attachment['content']);
+            $references[] = ['sha256' => $sha256, ...$attachment];
+        }
+
+        return [$references, $uploads];
+    }
+
+    private static function base64TransferBytes(int $bytes): float
+    {
+        return ceil(ceil($bytes / 3) * 4 * 78 / 76);
+    }
+
+    private static function encodedSubjectBytes(string $subject): float
+    {
+        return ceil(strlen($subject) / 42) * 75;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function attachment(string $field, mixed $file): array
+    {
+        if (is_array($file)) {
+            $file = array_filter($file, static fn($value): bool => $value !== null);
+        }
+        if (!is_array($file) || ($file !== [] && array_is_list($file))) {
+            throw self::invalidAttachment(
+                "An attachment is an array with a filename and the file's bytes as its content.",
+                $field
+            );
+        }
+        if (array_key_exists('path', $file)) {
+            throw self::invalidAttachment(
+                "PostHog can't fetch an attachment from a path or URL. Read the file and pass its bytes as content.",
+                "{$field}__path"
+            );
+        }
+        foreach (array_keys($file) as $name) {
+            if (!in_array($name, self::ATTACHMENT_FIELDS, true)) {
+                throw self::invalidAttachment(
+                    "An attachment takes filename, content, content_type and content_id, not $name.",
+                    "{$field}__$name"
+                );
+            }
+        }
+        if (!self::isUtf8Text($file['filename'] ?? null)) {
+            throw self::invalidAttachment('An attachment needs its filename as a UTF-8 string.', "{$field}__filename");
+        }
+        if (!is_string($file['content'] ?? null) || $file['content'] === '') {
+            throw self::invalidAttachment(
+                "An attachment needs the file's bytes as a nonempty string, such as file_get_contents() returns.",
+                "{$field}__content"
+            );
+        }
+        $attachment = ['filename' => $file['filename'], 'content' => $file['content']];
+        foreach (['content_type', 'content_id'] as $name) {
+            if (!array_key_exists($name, $file)) {
+                continue;
+            }
+            if (!self::isUtf8Text($file[$name])) {
+                throw self::invalidAttachment("An attachment's $name must be a UTF-8 string.", "{$field}__$name");
+            }
+            $attachment[$name] = $file[$name];
+        }
+
+        return $attachment;
+    }
+
+    private static function isUtf8Text(mixed $value): bool
+    {
+        return is_string($value) && mb_check_encoding($value, 'UTF-8');
+    }
+
+    private static function invalidAttachment(string $message, string $field): EmailError
+    {
+        return new EmailError('invalid_attachment', $message . ' No email was sent.', field: $field);
     }
 
     private static function refuseFieldsOutside(array $email, bool $isTemplateForm): void
@@ -483,6 +682,199 @@ final class Emails
     }
 
     /**
+     * @param array<string, Upload> $files
+     */
+    private function upload(string $appHost, string $secretKey, array $files, int $maxRetries): void
+    {
+        $request = [];
+        foreach ($files as $sha256 => $file) {
+            $request[] = ['sha256' => (string) $sha256, 'size' => $file['size']];
+        }
+        $body = json_encode(['files' => $request], JSON_THROW_ON_ERROR);
+        $headers = $this->headers($secretKey, ['Content-Type: application/json']);
+        $url = $appHost . self::UPLOADS_PATH;
+        $plainHttp = str_starts_with(strtolower($appHost), 'http://');
+        $slots = $this->withRetries($maxRetries, function () use ($url, $headers, $body, $files, $plainHttp): array {
+            return self::parseUploadReply($files, $plainHttp, ...$this->request('POST', $url, $headers, $body));
+        });
+        foreach ($slots as $sha256 => $slot) {
+            $this->refuseWhenClosed(self::SEND_NOT_DONE);
+            $file = $files[$sha256];
+            $this->withRetries($maxRetries, function () use ($slot, $file): void {
+                $this->put($slot['url'], $slot['headers'], $file);
+            });
+        }
+    }
+
+    /**
+     * @param list<string> $headers
+     * @param Upload $file
+     */
+    private function put(string $url, array $headers, array $file): void
+    {
+        $timeoutMs = $this->requestTimeoutMs + intdiv($file['size'], self::UPLOAD_BYTES_PER_EXTRA_MS);
+        try {
+            [$status, $body, $answerHeaders] = ($this->transport)(
+                'PUT',
+                $url,
+                $headers,
+                $file['content'],
+                $timeoutMs,
+                $this->requestTimeoutMs
+            );
+        } catch (EmailError $error) {
+            if ($error->getErrorCode() !== 'network_error') {
+                throw $error;
+            }
+            throw new EmailError(
+                'network_error',
+                "A file didn't reach PostHog's file storage, so no email was sent: " . $error->getMessage(),
+                field: $file['field'],
+                previous: $error
+            );
+        }
+        if ($status >= 200 && $status < 300) {
+            return;
+        }
+        if ($status >= 300 && $status < 400) {
+            throw new EmailError(
+                'attachment_upload_failed',
+                self::onOneLogLine(
+                    "PostHog's file storage redirected the upload of {$file['filename']} (HTTP $status), and the "
+                    . "client doesn't follow an upload's redirect, so no email was sent."
+                ),
+                $status,
+                why: 'A signed upload never succeeds through a redirect, and following one would send the file to '
+                    . 'another host, maybe unencrypted.',
+                fix: "Fix the file storage's URL.",
+                field: $file['field']
+            );
+        }
+        $answer = "HTTP $status";
+        if (preg_match('#<Code>([^<]{1,100})</Code>#', $body, $code) === 1) {
+            $answer .= ' ' . html_entity_decode($code[1], ENT_XML1);
+            if (preg_match('#<Message>([^<]{1,300})</Message>#', $body, $message) === 1) {
+                $answer .= ': ' . html_entity_decode($message[1], ENT_XML1);
+            }
+        }
+        throw new EmailError(
+            'attachment_upload_failed',
+            self::onOneLogLine(
+                "PostHog's file storage refused the upload of {$file['filename']}, so no email was sent. "
+                . 'It answered ' . rtrim($answer, '.') . '.'
+            ),
+            $status,
+            why: 'PostHog sends an email with files only after every file reached its file storage.',
+            fix: 'Send the email again. The client asks for a new upload URL on every send.',
+            field: $file['field'],
+            retryAfterMs: self::retryAfterMs($answerHeaders)
+        );
+    }
+
+    /**
+     * @param array<string, Upload> $files
+     * @param list<string> $headers
+     * @return array<string, array{url: string, headers: list<string>}>
+     */
+    private static function parseUploadReply(
+        array $files,
+        bool $plainHttp,
+        int $status,
+        string $body,
+        array $headers
+    ): array {
+        $fields = self::replyFields($body);
+        if ($status === 404) {
+            $fields['code'] = self::text($fields['code'] ?? null) ?? 'not_found';
+            $fields['attr'] = 'attachments';
+            throw self::replyError($fields, $status, $headers);
+        }
+        if ($status < 200 || $status >= 300) {
+            $fields['attr'] = self::attachmentField(self::text($fields['attr'] ?? null), $files);
+            throw self::replyError($fields, $status, $headers);
+        }
+        $slots = [];
+        foreach (is_array($fields['files'] ?? null) ? $fields['files'] : [] as $slot) {
+            if (is_array($slot) && is_string($slot['sha256'] ?? null)) {
+                $slots[$slot['sha256']] = $slot;
+            }
+        }
+        $uploads = [];
+        foreach (array_keys($files) as $sha256) {
+            $slot = $slots[$sha256] ?? null;
+            if (($slot['status'] ?? null) === 'present') {
+                continue;
+            }
+            $upload = ($slot['status'] ?? null) === 'upload' ? self::uploadTarget($slot) : null;
+            if ($upload === null) {
+                throw new EmailError(
+                    'api_error',
+                    "PostHog didn't answer where to upload a file, so no email was sent.",
+                    $status
+                );
+            }
+            if (!$plainHttp && !str_starts_with(strtolower($upload['url']), 'https://')) {
+                throw new EmailError(
+                    'api_error',
+                    "PostHog named an upload URL that isn't https, so {$files[$sha256]['filename']} would travel "
+                        . 'unencrypted, and no email was sent.',
+                    $status,
+                    fix: "Fix the file storage's URL. For local development over plain HTTP, set an http:// app_host.",
+                    field: $files[$sha256]['field']
+                );
+            }
+            $uploads[$sha256] = $upload;
+        }
+
+        return $uploads;
+    }
+
+    /**
+     * @return array{url: string, headers: list<string>}|null
+     */
+    private static function uploadTarget(array $slot): ?array
+    {
+        $url = $slot['url'] ?? null;
+        $scheme = is_string($url) ? strtolower((string) parse_url($url, PHP_URL_SCHEME)) : '';
+        $headers = $slot['headers'] ?? null;
+        if (
+            !in_array($scheme, ['http', 'https'], true)
+            || !is_string($slot['method'] ?? null)
+            || strtoupper($slot['method']) !== 'PUT'
+            || !is_array($headers)
+            || ($headers !== [] && array_is_list($headers))
+        ) {
+            return null;
+        }
+        $lines = [];
+        foreach ($headers as $name => $value) {
+            if (
+                preg_match(self::HEADER_NAME_PATTERN, (string) $name) !== 1
+                || !is_string($value)
+                || strpbrk($value, "\r\n\0") !== false
+            ) {
+                return null;
+            }
+            $lines[] = "$name: $value";
+        }
+
+        return ['url' => $url, 'headers' => $lines];
+    }
+
+    /**
+     * @param array<string, Upload> $files
+     */
+    private static function attachmentField(?string $uploadField, array $files): ?string
+    {
+        if ($uploadField === null || preg_match('/^files(?:__(\d+))?(?:__|$)/D', $uploadField, $match) !== 1) {
+            return $uploadField;
+        }
+        $index = $match[1] ?? null;
+
+        return $index === null ? 'attachments' : array_values($files)[(int) $index]['field'] ?? 'attachments';
+    }
+
+    /**
      * @return array{string, string}
      */
     private function connect(string $notDone, string $keyNeeded): array
@@ -493,9 +885,7 @@ final class Emails
                 "The PostHog client is disabled because it has no project API key, so $notDone."
             );
         }
-        if (($this->isClosed)()) {
-            throw new EmailError('client_closed', "The PostHog client is shut down, so $notDone.");
-        }
+        $this->refuseWhenClosed($notDone);
         if ($this->appHost === null) {
             throw new EmailError(
                 'missing_app_host',
@@ -508,6 +898,13 @@ final class Emails
         }
 
         return [$this->appHost, $this->secretKey];
+    }
+
+    private function refuseWhenClosed(string $notDone): void
+    {
+        if (($this->isClosed)()) {
+            throw new EmailError('client_closed', "The PostHog client is shut down, so $notDone.");
+        }
     }
 
     /**
@@ -599,11 +996,14 @@ final class Emails
         if ($status === null) {
             return $error->getErrorCode() === 'network_error';
         }
+        if ($error->getErrorCode() === 'attachment_upload_failed') {
+            return in_array($status, [429, 500, 502, 503, 504], true);
+        }
         if ($status === 409) {
             return $error->getErrorCode() === 'idempotency_key_in_flight';
         }
         if ($status === 429) {
-            return $error->getErrorCode() !== 'quota_limited';
+            return !in_array($error->getErrorCode(), ['quota_limited', 'upload_quota_exceeded'], true);
         }
 
         return $status === 503;
@@ -629,7 +1029,7 @@ final class Emails
      */
     private function request(string $method, string $url, array $headers, ?string $body): array
     {
-        return ($this->transport)($method, $url, $headers, $body, $this->requestTimeoutMs);
+        return ($this->transport)($method, $url, $headers, $body, $this->requestTimeoutMs, $this->requestTimeoutMs);
     }
 
     /**
@@ -641,7 +1041,8 @@ final class Emails
         string $url,
         array $headers,
         ?string $body,
-        int $timeoutMs
+        int $timeoutMs,
+        int $connectTimeoutMs
     ): array {
         if (!function_exists('curl_init')) {
             throw new EmailError(
@@ -668,7 +1069,7 @@ final class Emails
             },
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_TIMEOUT_MS => $timeoutMs,
-            CURLOPT_CONNECTTIMEOUT_MS => $timeoutMs,
+            CURLOPT_CONNECTTIMEOUT_MS => $connectTimeoutMs,
             CURLOPT_NOSIGNAL => true,
             CURLOPT_HEADERFUNCTION => static function ($curl, string $header) use (&$responseHeaders): int {
                 $responseHeaders[] = trim($header);

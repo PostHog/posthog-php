@@ -42,6 +42,23 @@ final class LocalHttpServer
 
     public function requests(): array
     {
+        return array_map(static function (array $request): array {
+            unset($request['status']);
+            return $request;
+        }, $this->answered());
+    }
+
+    /** The requests the server answered with a 2xx status, which it took. */
+    public function acceptedRequests(): array
+    {
+        return array_values(array_map(static function (array $request): array {
+            unset($request['status']);
+            return $request;
+        }, array_filter($this->answered(), static fn(array $request): bool => intdiv($request['status'], 100) === 2)));
+    }
+
+    private function answered(): array
+    {
         return array_map(
             static fn(string $line): array => json_decode($line, true, 512, JSON_THROW_ON_ERROR),
             file($this->requestsFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)

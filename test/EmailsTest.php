@@ -17,11 +17,25 @@ class EmailsTest extends TestCase
     private const TEMPLATE_ID = '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b';
     private const MESSAGE_ID = '01a18356-c56c-0001-e494-7666bc915188';
     private const SEND_URL = 'https://us.posthog.com/api/projects/@current/messaging/send/email/';
+    private const INVITE = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n";
+    private const SECRET_CONTENT = 'secret-file-content';
 
-    /** @var list<array{method: string, url: string, headers: list<string>, body: ?string, timeoutMs: int, at: DateTimeImmutable}> */
+    /**
+     * @var list<array{method: string, url: string, headers: list<string>, body: ?string, timeoutMs: int,
+     *     at: DateTimeImmutable}>
+     */
     private array $requests = [];
-    /** @var list<array{int, string, list<string>}|EmailError> */
+    /** @var list<array{int, string, list<string>}|EmailError|string> */
     private array $replies = [];
+    /** @var array<string, array<string, string>> the headers storage signed for each upload URL */
+    private array $signedUploads = [];
+    /** @var array<string, ?string> the files storage holds, by SHA-256; null for one PostHog already had */
+    private array $stored = [];
+    /** @var array<string, int> how many times storage took each file, by SHA-256 */
+    private array $storageWrites = [];
+    /** @var array<string, array<string, mixed>> the emails PostHog queued, one per idempotency key */
+    private array $queued = [];
+    private string $secretKey = 'phs_secret';
     private ClockInterface $previousClock;
     private MockClock $clock;
 
@@ -42,8 +56,10 @@ class EmailsTest extends TestCase
 
     private function emails(array $config = []): Emails
     {
+        $this->secretKey = $config['secretKey'] ?? 'phs_secret';
+
         return new Emails(
-            $config['secretKey'] ?? 'phs_secret',
+            $this->secretKey,
             $config['host'] ?? 'us.i.posthog.com',
             appHost: $config['appHost'] ?? null,
             maxRetries: $config['maxRetries'] ?? Emails::DEFAULT_MAX_RETRIES,
@@ -59,19 +75,144 @@ class EmailsTest extends TestCase
      * @param list<string> $headers
      * @return array{int, string, list<string>}
      */
-    public function transport(string $method, string $url, array $headers, ?string $body, int $timeoutMs): array
-    {
+    public function transport(
+        string $method,
+        string $url,
+        array $headers,
+        ?string $body,
+        int $timeoutMs,
+        int $connectTimeoutMs
+    ): array {
         $at = Clock::get()->now();
         $this->requests[] = compact('method', 'url', 'headers', 'body', 'timeoutMs', 'at');
+        if ($method === 'PUT' && preg_grep('/^authorization:/i', $headers) !== []) {
+            return [400, self::BUCKET_AUTH_ERROR, []];
+        }
+        if ($method === 'PUT' && !$this->storageSigned($url, $headers)) {
+            return [403, '<Error><Code>SignatureDoesNotMatch</Code><Message>Not as signed</Message></Error>', []];
+        }
+        if ($method === 'PUT' && !self::storageAccepts($headers, (string) $body)) {
+            return [400, self::BUCKET_DIGEST_ERROR, []];
+        }
+        if ($method !== 'PUT' && self::headerIn($headers, 'Authorization') !== "Bearer {$this->secretKey}") {
+            return [401, '{"type":"authentication_error","code":"authentication_failed","detail":"Bad key."}', []];
+        }
+        $missing = $method === 'POST' && str_ends_with($url, '/send/email/') ? $this->notStored((string) $body) : null;
+        if ($missing !== null) {
+            return [400, json_encode([
+                'type' => 'validation_error',
+                'code' => 'attachment_not_uploaded',
+                'detail' => 'This file was never uploaded.',
+                'attr' => $missing,
+            ]), []];
+        }
         $reply = array_shift($this->replies) ?? [202, '{"message_id":"msg_1"}', []];
+        if ($reply === self::NEGOTIATE) {
+            $reply = $this->negotiate((string) $body);
+        }
         if ($reply instanceof EmailError) {
             throw $reply;
+        }
+        $accepted = $reply[0] >= 200 && $reply[0] < 300;
+        if ($method === 'PUT' && $accepted) {
+            $sha256 = hash('sha256', (string) $body);
+            $this->stored[$sha256] = $body;
+            $this->storageWrites[$sha256] = ($this->storageWrites[$sha256] ?? 0) + 1;
+        }
+        if ($method === 'POST' && str_ends_with($url, '/send/email/') && $accepted) {
+            $key = self::headerIn($headers, 'Idempotency-Key') ?? (string) count($this->queued);
+            $this->queued[$key] ??= json_decode((string) $body, true);
+        }
+        $answer = json_decode($reply[1], true);
+        foreach (is_array($answer) && is_array($answer['files'] ?? null) ? $answer['files'] : [] as $slot) {
+            if (is_array($slot) && is_string($slot['url'] ?? null) && is_array($slot['headers'] ?? null)) {
+                $this->signedUploads[$slot['url']] = $slot['headers'];
+            }
+            if (is_array($slot) && ($slot['status'] ?? null) === 'present' && is_string($slot['sha256'] ?? null)) {
+                $this->stored[$slot['sha256']] ??= null;
+            }
         }
 
         return $reply;
     }
 
-    /** @param array{int, string, list<string>}|EmailError ...$replies */
+    /** PostHog's answer to the upload route: present for each file it holds, a slot signed for each other file. */
+    private function negotiate(string $body): array
+    {
+        $slots = [];
+        foreach (json_decode($body, true)['files'] ?? [] as $file) {
+            $slots[] = array_key_exists($file['sha256'], $this->stored)
+                ? self::presentSlot($file['sha256'])
+                : self::signedSlot($file['sha256'], $file['size']);
+        }
+
+        return self::slots(...$slots);
+    }
+
+    /** @param list<string> $headers */
+    private static function headerIn(array $headers, string $name): ?string
+    {
+        foreach ($headers as $header) {
+            if (stripos($header, $name . ':') === 0) {
+                return trim(substr($header, strlen($name) + 1));
+            }
+        }
+
+        return null;
+    }
+
+    /** The reference of the first attachment storage doesn't hold, as PostHog names it, or null. */
+    private function notStored(string $body): ?string
+    {
+        $attachments = json_decode($body, true)['attachments'] ?? [];
+        foreach (is_array($attachments) ? $attachments : [] as $index => $attachment) {
+            if (!array_key_exists($attachment['sha256'] ?? '', $this->stored)) {
+                return "attachments__{$index}__sha256";
+            }
+        }
+
+        return null;
+    }
+
+    /** @param list<string> $headers */
+    private function storageSigned(string $url, array $headers): bool
+    {
+        if (!isset($this->signedUploads[$url])) {
+            return false;
+        }
+        $sent = [];
+        foreach ($headers as $header) {
+            [$name, $value] = array_map('trim', explode(':', $header, 2));
+            $sent[strtolower($name)] = $value;
+        }
+        foreach ($this->signedUploads[$url] as $name => $value) {
+            if (($sent[strtolower($name)] ?? null) !== $value) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @param list<string> $headers */
+    private static function storageAccepts(array $headers, string $body): bool
+    {
+        foreach ($headers as $header) {
+            [$name, $value] = array_map('trim', explode(':', $header, 2));
+            $matches = match (strtolower($name)) {
+                'content-length' => $value === (string) strlen($body),
+                'x-amz-checksum-sha256' => $value === base64_encode(hash('sha256', $body, true)),
+                default => true,
+            };
+            if (!$matches) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @param array{int, string, list<string>}|EmailError|string ...$replies */
     private function reply(...$replies): void
     {
         $this->replies = $replies;
@@ -257,6 +398,9 @@ class EmailsTest extends TestCase
             'text' => null,
             'from' => null,
             'reply_to' => [],
+            'cc' => null,
+            'bcc' => null,
+            'attachments' => null,
             'capture_engagement' => null,
             'sensitive' => null,
             'distinct_id' => null,
@@ -268,6 +412,522 @@ class EmailsTest extends TestCase
             'template_key' => 'receipt',
             'subject' => 'Your receipt',
             'html' => '<p>Thanks!</p>',
+            'to' => 'user@example.com',
+        ], $this->body());
+    }
+
+    private const UPLOAD_URL = 'https://us.posthog.com/api/projects/@current/messaging/attachments/uploads/';
+    private const INVITE_SHA256 = '215efae54e34ac5657da47b49c8d1bd8ea12649ee1efa838c9a47d7233f18afb';
+    private const PNG = "\x89PNG\r\n\x1a\n\x00";
+    private const PNG_SHA256 = '843ac23b1736b4487ec81cf7c07ddd9bb46ae5b7818c2c3843d99d62fa75f3c9';
+    private const BUCKET = 'https://attachments.example/team/2/';
+    private const SIGNATURE = '?X-Amz-Signature=signature-secret';
+    private const NEGOTIATE = 'answer the upload route from what PostHog holds';
+    private const BUCKET_AUTH_ERROR = '<Error><Code>InvalidArgument</Code>'
+        . '<Message>Only one auth mechanism allowed</Message></Error>';
+    private const BUCKET_DIGEST_ERROR = '<?xml version="1.0" encoding="UTF-8"?><Error><Code>BadDigest</Code>'
+        . '<Message>The SHA256 you specified did not match the calculated checksum.</Message></Error>';
+
+    private static function uploadSlot(string $content): array
+    {
+        return self::signedSlot(hash('sha256', $content), strlen($content));
+    }
+
+    private static function signedSlot(string $sha256, int $size): array
+    {
+        return [
+            'sha256' => $sha256,
+            'status' => 'upload',
+            'url' => self::BUCKET . $sha256 . self::SIGNATURE,
+            'method' => 'PUT',
+            'headers' => [
+                'Content-Length' => (string) $size,
+                'x-amz-checksum-sha256' => base64_encode((string) hex2bin($sha256)),
+            ],
+            'url_expires_at' => '2026-11-02T12:15:00Z',
+        ];
+    }
+
+    private static function presentSlot(string $sha256): array
+    {
+        return ['sha256' => $sha256, 'status' => 'present', 'expires_at' => '2026-12-09T12:00:00Z'];
+    }
+
+    /** @return array{int, string, list<string>} */
+    private static function slots(array ...$slots): array
+    {
+        return [200, json_encode(['files' => $slots]), []];
+    }
+
+    private static function sendWithFiles(array $attachments, array $email = []): array
+    {
+        return $email + [
+            'to' => 'user@example.com',
+            'template_key' => 'receipt',
+            'subject' => 'Your receipt',
+            'text' => 'Thanks!',
+            'attachments' => $attachments,
+        ];
+    }
+
+    private static function invite(array $file = []): array
+    {
+        return $file + ['filename' => 'invite.ics', 'content' => self::INVITE];
+    }
+
+    public function testFilesAreHashedUploadedThenSentByReferenceWithCopies(): void
+    {
+        $this->stored[self::PNG_SHA256] = null;
+        $this->reply(self::NEGOTIATE, [200, '', []], [202, '{"message_id":"msg_1"}', []]);
+
+        $result = $this->emails(['migratedFrom' => 'resend'])->send([
+            'to' => 'user@example.com',
+            'template_key' => 'invite',
+            'subject' => 'You are invited',
+            'html' => '<img src="cid:logo">',
+            'cc' => 'manager@example.com',
+            'bcc' => ['audit@example.com', 'archive@example.com'],
+            'attachments' => [
+                self::invite(['content_type' => 'text/calendar']),
+                ['filename' => 'logo.png', 'content' => self::PNG, 'content_id' => 'logo'],
+            ],
+        ]);
+
+        $this->assertSame('msg_1', $result->getId());
+        $this->assertSame(self::INVITE, $this->stored[self::INVITE_SHA256], 'storage holds the new file');
+        $this->assertSame([self::INVITE_SHA256 => 1], $this->storageWrites, 'the file PostHog held went nowhere');
+        $this->assertSame([[
+            'template_key' => 'invite',
+            'subject' => 'You are invited',
+            'html' => '<img src="cid:logo">',
+            'cc' => ['manager@example.com'],
+            'bcc' => ['audit@example.com', 'archive@example.com'],
+            'attachments' => [
+                ['sha256' => self::INVITE_SHA256, 'filename' => 'invite.ics', 'content_type' => 'text/calendar'],
+                ['sha256' => self::PNG_SHA256, 'filename' => 'logo.png', 'content_id' => 'logo'],
+            ],
+            'to' => 'user@example.com',
+        ]], array_values($this->queued));
+    }
+
+    public function testTheSameFileTwiceIsUploadedOnceAndAttachedTwice(): void
+    {
+        $this->reply(self::slots(self::uploadSlot(self::INVITE)), [200, '', []]);
+
+        $this->emails()->send(self::sendWithFiles([self::invite(), self::invite(['filename' => 'copy.ics'])]));
+
+        $this->assertSame([self::INVITE_SHA256 => 1], $this->storageWrites);
+        $this->assertSame(
+            [
+                ['sha256' => self::INVITE_SHA256, 'filename' => 'invite.ics'],
+                ['sha256' => self::INVITE_SHA256, 'filename' => 'copy.ics'],
+            ],
+            array_values($this->queued)[0]['attachments']
+        );
+    }
+
+    public function testARetriedSendDoesNotUploadAgain(): void
+    {
+        $this->reply(
+            self::slots(self::uploadSlot(self::INVITE)),
+            [200, '', []],
+            [503, '{"code":"unavailable"}', []],
+            [202, '{"message_id":"msg_1"}', []]
+        );
+
+        $result = $this->emails()->send(self::sendWithFiles([self::invite()]));
+
+        $this->assertSame('msg_1', $result->getId());
+        $this->assertSame([self::INVITE_SHA256 => 1], $this->storageWrites);
+        $this->assertCount(1, $this->queued);
+    }
+
+    public function testANullContentTypeOrContentIdCountsAsLeftOut(): void
+    {
+        $this->reply(self::slots(self::presentSlot(self::INVITE_SHA256)));
+
+        $this->emails()->send(self::sendWithFiles([self::invite(['content_type' => null, 'content_id' => null])]));
+
+        $this->assertSame(
+            [['sha256' => self::INVITE_SHA256, 'filename' => 'invite.ics']],
+            array_values($this->queued)[0]['attachments']
+        );
+    }
+
+    public static function bucketFailures(): array
+    {
+        return [
+            'refused' => [
+                [400, self::BUCKET_DIGEST_ERROR, []],
+                400,
+                'BadDigest: The SHA256 you specified did not match',
+                'application_error',
+            ],
+            'expired' => [[403, '<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>', []],
+                403, 'AccessDenied: Request has expired', 'application_error'],
+            'not XML' => [[501, 'not implemented', []], 501, 'HTTP 501', 'service_unavailable'],
+            'unauthorized' => [[401, '<Error><Code>Unauthorized</Code><Message>No access</Message></Error>', []],
+                401, 'Unauthorized: No access', 'application_error'],
+        ];
+    }
+
+    /** @param array{int, string, list<string>} $failure */
+    #[DataProvider('bucketFailures')]
+    public function testAFailedUploadSendsNothingAndSaysWhatTheBucketAnswered(
+        array $failure,
+        int $status,
+        string $answer,
+        string $name
+    ): void {
+        $this->reply(
+            self::slots(self::presentSlot(self::PNG_SHA256), self::uploadSlot(self::INVITE)),
+            $failure
+        );
+
+        $error = $this->sendError(self::sendWithFiles([
+            ['filename' => 'logo.png', 'content' => self::PNG],
+            self::invite(),
+        ]));
+
+        $this->assertSame('attachment_upload_failed', $error->getErrorCode());
+        $this->assertSame($name, $error->getErrorName());
+        $this->assertSame($status, $error->getStatusCode());
+        $this->assertSame('attachments__1__content', $error->getField());
+        $this->assertStringContainsString($answer, $error->getMessage());
+        $this->assertStringContainsString('invite.ics', $error->getMessage());
+        $this->assertStringEndsNotWith('..', $error->getMessage());
+        $this->assertStringNotContainsString('signature-secret', $error->getMessage() . $error->getFix());
+        $this->assertSame([], $this->queued, 'no email was sent');
+    }
+
+    public static function retriedUploadFailures(): array
+    {
+        return [
+            'network error' => [new EmailError('network_error', 'The request failed.')],
+            'bucket slowing down' => [[503, '<Error><Code>SlowDown</Code><Message>Slow down</Message></Error>', []]],
+            'storage internal error' => [
+                [500, '<Error><Code>InternalError</Code><Message>Please try again.</Message></Error>', []],
+            ],
+            'bad gateway' => [[502, 'Bad Gateway', []]],
+            'gateway timeout' => [[504, 'Gateway Timeout', []]],
+            'storage throttling' => [
+                [429, '<Error><Code>SlowDown</Code><Message>Reduce your rate</Message></Error>', []],
+            ],
+        ];
+    }
+
+    /** @param array{int, string, list<string>}|EmailError $failure */
+    #[DataProvider('retriedUploadFailures')]
+    public function testAnUploadThatFailsOnTheWayIsRetried($failure): void
+    {
+        $this->reply(self::slots(self::uploadSlot(self::INVITE)), $failure, [200, '', []]);
+
+        $result = $this->emails()->send(self::sendWithFiles([self::invite()]));
+
+        $this->assertSame('msg_1', $result->getId());
+        $this->assertSame(self::INVITE, $this->stored[self::INVITE_SHA256]);
+        $this->assertCount(1, $this->queued);
+    }
+
+    public function testStorageThrottlingThatOutlastsTheRetriesIsARateLimit(): void
+    {
+        $slowDown = [429, '<Error><Code>SlowDown</Code><Message>Reduce your rate</Message></Error>', []];
+        $this->reply(self::slots(self::uploadSlot(self::INVITE)), $slowDown);
+
+        $error = $this->sendError(self::sendWithFiles([self::invite()]), $this->emails(['maxRetries' => 0]));
+
+        $this->assertSame('attachment_upload_failed', $error->getErrorCode());
+        $this->assertSame('rate_limit_exceeded', $error->getErrorName());
+        $this->assertSame([], $this->queued, 'no email was sent');
+    }
+
+    public function testAStorageRetryAfterOverThirtySecondsFailsAtOnce(): void
+    {
+        $slowDown = '<Error><Code>SlowDown</Code><Message>Slow down</Message></Error>';
+        $this->reply(self::slots(self::uploadSlot(self::INVITE)), [503, $slowDown, ['Retry-After: 60']]);
+
+        $error = $this->sendError(self::sendWithFiles([self::invite()]));
+
+        $this->assertSame('attachment_upload_failed', $error->getErrorCode());
+        $this->assertSame(60_000, $error->getRetryAfterMs());
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued);
+    }
+
+    public static function shutdownsDuringTheUploads(): array
+    {
+        return ['after the upload request' => [1, 0], 'after an upload' => [2, 1], 'after the last upload' => [3, 2]];
+    }
+
+    #[DataProvider('shutdownsDuringTheUploads')]
+    public function testAClientShutDownDuringTheUploadsSendsNothingMore(
+        int $requestsBeforeTheShutdown,
+        int $filesStored
+    ): void {
+        $emails = $this->emails(['isClosed' => fn(): bool => count($this->requests) >= $requestsBeforeTheShutdown]);
+        $this->reply(
+            self::slots(self::uploadSlot(self::INVITE), self::uploadSlot(self::PNG)),
+            [200, '', []],
+            [200, '', []]
+        );
+
+        $error = $this->sendError(
+            self::sendWithFiles([self::invite(), ['filename' => 'logo.png', 'content' => self::PNG]]),
+            $emails
+        );
+
+        $this->assertSame('client_closed', $error->getErrorCode());
+        $this->assertCount($filesStored, $this->storageWrites);
+        $this->assertSame([], $this->queued);
+    }
+
+    public function testAnUploadRefusalNamesTheAttachmentAndSendsNothing(): void
+    {
+        $this->reply([400, json_encode([
+            'type' => 'invalid_request',
+            'code' => 'message_too_large',
+            'detail' => 'These files are too large for one email, so PostHog didn\'t prepare the uploads.',
+            'attr' => 'files__1__size',
+            'why' => 'An email can be at most 40 MB after Base64 encoding, about 29 MB of files.',
+            'fix' => 'Send fewer or smaller files, or link to large files from the email body.',
+        ]), []]);
+
+        $error = $this->sendError(self::sendWithFiles([
+            self::invite(),
+            self::invite(['filename' => 'copy.ics']),
+            ['filename' => 'logo.png', 'content' => self::PNG],
+        ]));
+
+        $this->assertSame('message_too_large', $error->getErrorCode());
+        $this->assertSame('validation_error', $error->getErrorName());
+        $this->assertSame('attachments__2__content', $error->getField());
+        $this->assertSame('Send fewer or smaller files, or link to large files from the email body.', $error->getFix());
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
+    }
+
+    public function testBytesThatDoNotMatchTheSignedChecksumAreRefusedByStorageAndNothingIsSent(): void
+    {
+        $slot = self::uploadSlot(self::INVITE);
+        $slot['headers']['x-amz-checksum-sha256'] = base64_encode(hash('sha256', self::PNG, true));
+        $this->reply(self::slots($slot));
+
+        $error = $this->sendError(self::sendWithFiles([self::invite()]));
+
+        $this->assertSame('attachment_upload_failed', $error->getErrorCode());
+        $this->assertSame(400, $error->getStatusCode());
+        $this->assertStringContainsString('BadDigest', $error->getMessage());
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued);
+    }
+
+    public function testTheDailyUploadLimitIsNotRetried(): void
+    {
+        $this->reply([429, '{"code":"upload_quota_exceeded","detail":"No more uploads today."}', []]);
+
+        $error = $this->sendError(self::sendWithFiles([self::invite()]));
+
+        $this->assertSame('upload_quota_exceeded', $error->getErrorCode());
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
+    }
+
+    public static function uploadRouteNotFound(): array
+    {
+        return [
+            "PostHog's answer" => [
+                '{"type":"invalid_request","code":"not_found","detail":"Endpoint not found.","attr":null}',
+                'Endpoint not found.',
+            ],
+            'an answer without JSON' => ['<html>Not Found</html>', 'PostHog answered HTTP 404.'],
+        ];
+    }
+
+    #[DataProvider('uploadRouteNotFound')]
+    public function testAnUploadRouteNotFoundReportsPostHogsAnswerAndSendsNothing(string $answer, string $message): void
+    {
+        $this->reply([404, $answer, []]);
+
+        $error = $this->sendError(self::sendWithFiles([self::invite()]));
+
+        $this->assertSame('not_found', $error->getErrorCode());
+        $this->assertSame('not_found', $error->getErrorName());
+        $this->assertSame(404, $error->getStatusCode());
+        $this->assertSame('attachments', $error->getField());
+        $this->assertSame($message, $error->getMessage());
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
+    }
+
+    public function testAnUnavailableUploadRouteIsRetried(): void
+    {
+        $this->reply([503, '{"code":"delivery_unavailable"}', []], self::slots(self::presentSlot(self::INVITE_SHA256)));
+
+        $result = $this->emails()->send(self::sendWithFiles([self::invite()]));
+
+        $this->assertSame('msg_1', $result->getId());
+        $this->assertCount(1, $this->queued);
+    }
+
+    public static function unusableUploadAnswers(): array
+    {
+        $slot = self::uploadSlot(self::INVITE);
+
+        return [
+            'no slot for the file' => [['files' => [self::presentSlot(self::PNG_SHA256)]]],
+            'no files' => [[]],
+            'no status' => [['files' => [['sha256' => self::INVITE_SHA256]]]],
+            'an unknown status' => [['files' => [['status' => 'later'] + $slot]]],
+            'a file URL' => [['files' => [['url' => 'file:///etc/passwd'] + $slot]]],
+            'another method' => [['files' => [['method' => 'POST'] + $slot]]],
+            'a header with a line break' => [['files' => [['headers' => ['X-A' => "a\r\nAuthorization: b"]] + $slot]]],
+            'headers as a list' => [['files' => [['headers' => ['Content-Length: 32']] + $slot]]],
+        ];
+    }
+
+    #[DataProvider('unusableUploadAnswers')]
+    public function testAnUploadAnswerTheClientCannotFollowSendsNothing(array $answer): void
+    {
+        $this->reply([200, json_encode($answer), []]);
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new \ErrorException($message, 0, $severity);
+        });
+
+        try {
+            $error = $this->sendError(self::sendWithFiles([self::invite()]));
+        } finally {
+            restore_error_handler();
+        }
+
+        $this->assertSame('api_error', $error->getErrorCode());
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
+    }
+
+    public function testAPlainHttpUploadUrlIsRefusedBeforeAnyUpload(): void
+    {
+        $plainUrl = 'http://attachments.example/team/2/' . self::INVITE_SHA256 . self::SIGNATURE;
+        $this->reply(self::slots(['url' => $plainUrl] + self::uploadSlot(self::INVITE)));
+
+        $error = $this->sendError(self::sendWithFiles([self::invite()]));
+
+        $this->assertSame('api_error', $error->getErrorCode());
+        $this->assertSame('attachments__0__content', $error->getField());
+        $this->assertStringContainsString('invite.ics', $error->getMessage());
+        $this->assertStringContainsString("Fix the file storage's URL", $error->getFix());
+        $this->assertStringNotContainsString('attachments.example', $error->getMessage() . $error->getFix());
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
+    }
+
+    public function testAPlainHttpAppHostForLocalDevelopmentUploadsOverPlainHttp(): void
+    {
+        $plainUrl = 'http://localhost:8333/team/2/' . self::INVITE_SHA256 . self::SIGNATURE;
+        $this->reply(self::slots(['url' => $plainUrl] + self::uploadSlot(self::INVITE)), [200, '', []]);
+
+        $result = $this->emails(['appHost' => 'http://localhost:8010'])->send(self::sendWithFiles([self::invite()]));
+
+        $this->assertSame('msg_1', $result->getId());
+        $this->assertSame(self::INVITE, $this->stored[self::INVITE_SHA256]);
+    }
+
+    public static function subjectsAndTheLargestFileThatFits(): array
+    {
+        return [
+            'a 12-byte subject adds 75' => ['Your receipt', 29_182_812],
+            '42 ASCII bytes add 75' => [str_repeat('s', 42), 29_182_812],
+            '43 ASCII bytes add 150' => [str_repeat('s', 43), 29_182_758],
+            '21 two-byte characters add 75' => [str_repeat('é', 21), 29_182_812],
+            '22 two-byte characters add 150' => [str_repeat('é', 22), 29_182_758],
+        ];
+    }
+
+    #[DataProvider('subjectsAndTheLargestFileThatFits')]
+    public function testTheLargestFileThatFitsBesideTheSubjectIsUploaded(string $subject, int $largest): void
+    {
+        $file = str_repeat('a', $largest);
+        $this->reply(self::slots(self::presentSlot(hash('sha256', $file))));
+
+        $result = $this->emails()->send(
+            self::sendWithFiles([['filename' => 'big.pdf', 'content' => $file]], ['subject' => $subject])
+        );
+
+        $this->assertSame('msg_1', $result->getId());
+    }
+
+    #[DataProvider('subjectsAndTheLargestFileThatFits')]
+    public function testOneByteMoreThanFitsBesideTheSubjectIsRefused(string $subject, int $largest): void
+    {
+        $file = str_repeat('a', $largest + 1);
+
+        $error = $this->sendError(
+            self::sendWithFiles([['filename' => 'big.pdf', 'content' => $file]], ['subject' => $subject])
+        );
+
+        $this->assertSame('message_too_large', $error->getErrorCode());
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
+    }
+
+    public static function messagesTooLarge(): array
+    {
+        return [
+            'a body that leaves no room' => [[str_repeat('a', 29_000_000)], ['text' => str_repeat('b', 200_000)]],
+            'files that only fit alone' => [[str_repeat('a', 15_000_000), str_repeat('b', 15_000_000)], []],
+            'an HTML body that fits once but not again as its derived text' => [
+                [str_repeat('a', 29_000_000)],
+                ['html' => str_repeat('h', 100_000), 'text' => ''],
+            ],
+        ];
+    }
+
+    #[DataProvider('messagesTooLarge')]
+    public function testAMessageOverFortyMegabytesIsRefusedBeforeAnyRequest(array $contents, array $email): void
+    {
+        $files = array_map(
+            static fn(string $content): array => ['filename' => 'f.pdf', 'content' => $content],
+            $contents
+        );
+
+        $error = $this->sendError(self::sendWithFiles($files, $email));
+
+        $this->assertSame('message_too_large', $error->getErrorCode());
+        $this->assertSame('validation_error', $error->getErrorName());
+        $this->assertSame('attachments', $error->getField());
+        $this->assertNull($error->getStatusCode());
+        $this->assertStringContainsString('40 MB', $error->getMessage());
+        $this->assertStringContainsString('about 29 MB of files', $error->getWhy());
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
+    }
+
+    public function testMoreThanTenFilesAreRefusedBeforeAnyRequest(): void
+    {
+        $error = $this->sendError(self::sendWithFiles(array_fill(0, 11, self::invite())));
+
+        $this->assertSame('too_many_attachments', $error->getErrorCode());
+        $this->assertSame('validation_error', $error->getErrorName());
+        $this->assertSame('attachments', $error->getField());
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued, 'no email was sent');
+    }
+
+    public function testEmptyCopyAndAttachmentListsAreLeftOut(): void
+    {
+        $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_key' => 'receipt',
+            'subject' => 'Your receipt',
+            'text' => 'Thanks!',
+            'cc' => [],
+            'bcc' => [],
+            'attachments' => [],
+        ]);
+
+        $this->assertSame([
+            'template_key' => 'receipt',
+            'subject' => 'Your receipt',
+            'text' => 'Thanks!',
             'to' => 'user@example.com',
         ], $this->body());
     }
@@ -371,7 +1031,14 @@ class EmailsTest extends TestCase
             ],
             'tracking with a template' => [$template + ['tracking' => false], 'invalid_form', 'tracking'],
             'sensitive with a template' => [$template + ['sensitive' => true], 'invalid_form', 'sensitive'],
-            'unknown option' => [$template + ['cc' => 'boss@example.com'], 'invalid_form', 'cc'],
+            'unknown option' => [$template + ['headers' => ['X-A' => 'b']], 'invalid_form', 'headers'],
+            'cc with a template' => [$template + ['cc' => 'boss@example.com'], 'invalid_form', 'cc'],
+            'bcc with a template' => [$template + ['bcc' => ['boss@example.com']], 'invalid_form', 'bcc'],
+            'attachments with a template' => [
+                $template + ['attachments' => [['filename' => 'a.txt', 'content' => 'hi']]],
+                'invalid_form',
+                'attachments',
+            ],
             'template_data with code' => [$code + ['template_data' => ['a' => 1]], 'invalid_form', 'template_data'],
             'bad template key' => [['template_key' => 'pass word'] + $code, 'invalid_template_key', 'template_key'],
             'template key too long' => [
@@ -386,6 +1053,9 @@ class EmailsTest extends TestCase
             'html not a string' => [['html' => ['<p>']] + $code, 'invalid_form', 'html'],
             'empty from' => [$code + ['from' => ''], 'invalid_form', 'from'],
             'blank reply_to' => [$code + ['reply_to' => ['a@example.com', ' ']], 'invalid_form', 'reply_to'],
+            'blank cc' => [$code + ['cc' => ' '], 'invalid_form', 'cc'],
+            'bcc not text' => [$code + ['bcc' => [123]], 'invalid_form', 'bcc'],
+            'cc as a map' => [$code + ['cc' => ['boss' => 'boss@example.com']], 'invalid_form', 'cc'],
             'capture_engagement not a bool' => [
                 $code + ['capture_engagement' => 'no'],
                 'invalid_form',
@@ -421,6 +1091,84 @@ class EmailsTest extends TestCase
         $this->assertSame($field, $error->getField());
         $this->assertNull($error->getStatusCode());
         $this->assertSame([], $this->requests);
+    }
+
+    public static function attachmentErrors(): array
+    {
+        $file = ['filename' => 'a.txt', 'content' => self::SECRET_CONTENT];
+
+        return [
+            'one file, not a list' => [$file, 'attachments'],
+            'content, not a list' => [self::SECRET_CONTENT, 'attachments'],
+            'file not an array' => [[self::SECRET_CONTENT], 'attachments__0'],
+            'file as a list' => [[['a.txt', self::SECRET_CONTENT]], 'attachments__0'],
+            'no content' => [[['filename' => 'a.txt']], 'attachments__0__content'],
+            'content as a list of bytes' => [
+                [['filename' => 'a.txt', 'content' => array_map('ord', str_split(self::SECRET_CONTENT))]],
+                'attachments__0__content',
+            ],
+            'no filename' => [[['content' => self::SECRET_CONTENT]], 'attachments__0__filename'],
+            'empty content' => [[['filename' => 'a.txt', 'content' => '']], 'attachments__0__content'],
+            'filename not text' => [[['filename' => 1] + $file], 'attachments__0__filename'],
+            'path' => [[$file + ['path' => '/tmp/a.txt']], 'attachments__0__path'],
+            'unknown field' => [[$file + ['contentType' => 'text/plain']], 'attachments__0__contentType'],
+            'second file with content_type not text' => [
+                [$file, $file + ['content_type' => 1]],
+                'attachments__1__content_type',
+            ],
+            'content_id not text' => [[$file + ['content_id' => ['logo']]], 'attachments__0__content_id'],
+            'filename not UTF-8' => [[['filename' => "Rechnung_M\xE4rz.pdf"] + $file], 'attachments__0__filename'],
+            'content_type not UTF-8' => [[$file + ['content_type' => "text/pl\xE4in"]], 'attachments__0__content_type'],
+            'content_id not UTF-8' => [[$file + ['content_id' => "l\xF6go"]], 'attachments__0__content_id'],
+        ];
+    }
+
+    public static function invalidOptionsBesideFiles(): array
+    {
+        return [
+            'sensitive not a bool' => [['sensitive' => 'yes'], 'sensitive'],
+            'tracking not a bool or array' => [['tracking' => 'off'], 'tracking'],
+        ];
+    }
+
+    #[DataProvider('invalidOptionsBesideFiles')]
+    public function testAnInvalidOptionOnASendWithFilesUploadsNothing(array $option, string $field): void
+    {
+        $this->reply(self::NEGOTIATE, [200, '', []], [202, '{"message_id":"msg_1"}', []]);
+
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_key' => 'invite',
+            'subject' => 'You are invited',
+            'text' => 'See you there',
+            'attachments' => [['filename' => 'invite.ics', 'content' => self::INVITE]],
+        ] + $option);
+
+        $this->assertSame('invalid_form', $error->getErrorCode());
+        $this->assertSame($field, $error->getField());
+        $this->assertSame([], $this->storageWrites, 'no file was uploaded');
+        $this->assertSame([], $this->queued, 'nothing was sent');
+    }
+
+    #[DataProvider('attachmentErrors')]
+    public function testAnAttachmentTheClientCannotSendIsRefusedWithoutRepeatingItsContent(
+        mixed $attachments,
+        string $field
+    ): void {
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_key' => 'receipt',
+            'subject' => 'Your receipt',
+            'text' => 'Thanks!',
+            'attachments' => $attachments,
+        ]);
+
+        $this->assertSame('invalid_attachment', $error->getErrorCode());
+        $this->assertSame('validation_error', $error->getErrorName());
+        $this->assertSame($field, $error->getField());
+        $this->assertStringNotContainsString(self::SECRET_CONTENT, $error->getMessage() . $error->getFix());
+        $this->assertSame([], $this->storageWrites);
+        $this->assertSame([], $this->queued);
     }
 
     public function testAnOptionOfTheOtherFormSaysHowToSendIt(): void

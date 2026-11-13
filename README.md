@@ -58,11 +58,23 @@ PostHog::emails()->send([
     'distinct_id' => 'user_123',
 ]);
 
+// With copies and a file: content is the file's bytes, and the SDK uploads them before the send
+PostHog::emails()->send([
+    'to' => 'user@example.com',
+    'template_key' => 'receipt',
+    'subject' => 'Your receipt',
+    'html' => $html,
+    'bcc' => 'finance@example.com',
+    'attachments' => [['filename' => 'receipt.pdf', 'content' => file_get_contents($receiptPath)]],
+]);
+
 // Later, such as in a job: for a few seconds after the send, get() throws not_found
 $status = PostHog::emails()->get($result->getId()); // queued, sent, delivered, bounced, ...
 ```
 
-- **Two forms.** Pass `template_id` with optional `template_data`, or `template_key` with `subject` and `html`, `text` or both. The content form also takes `from` (a verified sender), `reply_to`, `sensitive` and `tracking`. PostHog derives a missing `text` from the `html`. To send an email built with a template library such as React Email, render it to HTML in your app and pass `html`. The SDK adds no rendering dependency.
+- **Two forms.** Pass `template_id` with optional `template_data`, or `template_key` with `subject` and `html`, `text` or both. The content form also takes `from` (a verified sender), `reply_to`, `cc`, `bcc`, `attachments`, `sensitive` and `tracking`. PostHog derives a missing `text` from the `html`. To send an email built with a template library such as React Email, render it to HTML in your app and pass `html`. The SDK adds no rendering dependency.
+- **Copies and files.** `cc` and `bcc` take one address or a list of up to 10. `attachments` takes up to 10 files, each with `filename`, `content` (the file's bytes) and optional `content_type` and `content_id`. The whole email can be at most 40 MB after Base64 encoding, which leaves about 29 MB for the files. The 40 MB counts the subject and the bodies, and without `text` it counts the `html` twice, since PostHog sends the text it derives from it. The SDK checks both limits before any request (`too_many_attachments`, `message_too_large`). Pass the bytes, not Base64: when you hold Base64, such as from a Resend payload, pass `base64_decode($content)`. Show a file inline with `<img src="cid:logo">` and `'content_id' => 'logo'`. A PostHog version that doesn't take these fields yet refuses the send with an error naming the field, and never drops it.
+- **How files travel.** The SDK hashes each file with SHA-256, asks PostHog which files it still needs, uploads those straight to PostHog's file storage with the URL and headers PostHog answers (never with your secret key), then sends the email with each file's hash. A file the project already uploaded isn't uploaded again. The storage host differs from your app host, so allow it if your servers restrict outbound traffic. Files go only to an `https` storage URL, unless your `app_host` is plain `http://` for local development. A storage 429, 500, 502, 503 or 504 is retried like the send. A failed upload throws `attachment_upload_failed` with the storage's answer, and no email is sent. An upload never follows a redirect: storage that answers one fails that file the same way, without naming the URL.
 - **Sensitive emails.** Pass `'sensitive' => true` when the email carries login links, reset tokens or codes. A sensitive email keeps its links unchanged unless `tracking` turns clicks on, leaves its subject off engagement events, and keeps its content out of logs. Left out, the email takes the setting of the template made in PostHog whose key matches `template_key`, and is sensitive when no template matches.
 - **Tracking.** Left out, PostHog counts the email's opens and captures its engagement events, and tracks clicks only when the email isn't sensitive. `'tracking' => true` turns on opens, clicks and engagement events. `'tracking' => false` turns them all off: no open pixel, no rewritten links, no engagement events. An array such as `['clicks' => true]` sets `opens` (default `true`), `clicks` (default: on unless the email is sensitive) and `engagement` (default `true`) one by one. Turn clicks on for a sensitive email only when its links are safe to rewrite. Click tracking needs open tracking. `capture_engagement` is deprecated in favor of `tracking` with `engagement`. It still works, but a send can't set both.
 - **Pass `distinct_id`.** Without it, the email's engagement events go to a person whose distinct ID is the email address.

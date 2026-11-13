@@ -31,13 +31,35 @@ while ($connection = stream_socket_accept($server, 30)) {
     if (($headers['content-encoding'] ?? '') === 'gzip') {
         $body = gzdecode($body);
     }
+    $next = $responses[0] ?? [];
+    $refusal = null;
+    foreach ($next['accepts'] ?? [] as $name => $expected) {
+        $actual = match ($name) {
+            'request_line' => $requestLine,
+            'json_body' => json_decode($body, true),
+            default => $headers[$name] ?? null,
+        };
+        if ($name === 'json_body' ? $actual != $expected : $actual !== $expected) {
+            $refusal = $next['refusal'];
+        }
+    }
+    $checksum = $headers['x-amz-checksum-sha256'] ?? null;
+    if ($checksum !== null && $checksum !== base64_encode(hash('sha256', $body, true))) {
+        $refusal = ['status' => 400, 'body' => '<?xml version="1.0" encoding="UTF-8"?><Error><Code>BadDigest</Code>'
+            . '<Message>The SHA256 you specified did not match the calculated checksum.</Message></Error>'];
+    }
+    if (str_contains($requestLine, 'X-Amz-Signature=') && isset($headers['authorization'])) {
+        $refusal = ['status' => 400, 'body' => '<?xml version="1.0" encoding="UTF-8"?>'
+            . '<Error><Code>InvalidArgument</Code><Message>Only one auth mechanism allowed</Message></Error>'];
+    }
+    $response = $refusal ?? array_shift($responses) ?? [];
     file_put_contents($argv[1], json_encode([
         'requestLine' => $requestLine,
         'headers' => $headers,
         'body' => $body,
+        'status' => $response['status'] ?? 200,
     ], JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
-
-    $response = array_shift($responses) ?? [];
+    usleep(($response['delay_ms'] ?? 0) * 1000);
     $closeServer = $response['close_server'] ?? false;
     if ($closeServer) {
         fclose($server);
