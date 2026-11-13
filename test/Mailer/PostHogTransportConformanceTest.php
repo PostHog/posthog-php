@@ -742,6 +742,19 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->assertSame('On its way.', $this->body()['text']);
     }
 
+    public function testAMessageWithBodiesFromStreamsThatCannotRewindSends(): void
+    {
+        $body = new AlternativePart(
+            new TextPart(self::streamThatCannotRewind('On its way.')),
+            new TextPart(self::streamThatCannotRewind('<p>On its way.</p>'), 'utf-8', 'html')
+        );
+
+        $this->transport()->send(new Message(clone self::shipped()->getHeaders(), $body));
+
+        $this->assertSame('<p>On its way.</p>', $this->body()['html']);
+        $this->assertSame('On its way.', $this->body()['text']);
+    }
+
     public static function messagesConversionWouldChange(): array
     {
         $text = new TextPart('On its way.');

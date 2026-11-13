@@ -52,6 +52,9 @@ final class EmailMapper
      */
     public function map(Message $message, Envelope $envelope): array
     {
+        if (!$message instanceof Email) {
+            self::refuseWhatConversionDrops($message);
+        }
         $email = MessageConverter::toEmail($message);
         $to = $this->onlyRecipient($email);
         $options = $this->headerOptions($email);
@@ -61,8 +64,7 @@ final class EmailMapper
         $sensitive = self::flag('X-PostHog-Sensitive', $options[self::SENSITIVE] ?? null);
         $template = $email instanceof RemoteTemplateEmail ? $email->getRemoteTemplate() : null;
         $send = $template === null
-            ? $this->renderedContent($email, $message, $templateKey)
-                + ['tracking' => $tracking, 'sensitive' => $sensitive]
+            ? $this->renderedContent($email, $templateKey) + ['tracking' => $tracking, 'sensitive' => $sensitive]
             : $this->templateContent($email, $template->getReference(), $template->getVariables());
 
         return array_filter(
@@ -158,11 +160,11 @@ final class EmailMapper
     /**
      * @return array<string, mixed>
      */
-    private function renderedContent(Email $email, Message $message, string $templateKey): array
+    private function renderedContent(Email $email, string $templateKey): array
     {
         $html = self::readOnce($email->getHtmlBody());
         $text = self::readOnce($email->getTextBody());
-        self::refuseUnsupportedParts($email, $message, $text, $html);
+        self::refuseUnsupportedParts($email, $text, $html);
         $html = self::utf8($html, $email->getHtmlCharset(), 'HTML');
         $text = self::utf8($text, $email->getTextCharset(), 'text');
 
@@ -184,17 +186,15 @@ final class EmailMapper
 
     /**
      * The send carries the email's text, HTML and attachments, so a body set with setBody() must hold exactly those:
-     * one text and one HTML part for the email's own text and HTML, and each of the email's own attachments. The
-     * same holds for the body of a Message that isn't an Email, which MessageConverter rebuilds without the parts'
-     * own headers and dispositions.
+     * one text and one HTML part for the email's own text and HTML, and each of the email's own attachments.
      *
      * A body Symfony generates holds nothing else, so only a custom body is walked. Message::getBody() returns it
      * without building the generated body. Building it reads a stream body, and older Symfony Mime releases, such
      * as 6.4.0, rename each part the HTML refers to after its generated content ID.
      */
-    private static function refuseUnsupportedParts(Email $email, Message $message, ?string $text, ?string $html): void
+    private static function refuseUnsupportedParts(Email $email, ?string $text, ?string $html): void
     {
-        $custom = (new ReflectionMethod(Message::class, 'getBody'))->invoke($message);
+        $custom = (new ReflectionMethod(Message::class, 'getBody'))->invoke($email);
         $expected = ['plain' => $text, 'html' => $html];
         if ($custom === null) {
             return;
@@ -236,6 +236,36 @@ final class EmailMapper
                 'The body leaves out ' . ($missing === [] ? 'an attachment' : "the email's {$missing[0]} part")
                     . ' that the email carries, so the email sent would differ from the one Symfony builds.'
             );
+        }
+    }
+
+    /**
+     * MessageConverter turns a Message that isn't an Email into one with the same text, HTML and attachments, but
+     * it rebuilds the text and HTML without their parts' own headers and dispositions, and drops the headers of
+     * the multipart parts. It already holds a stream body it read, so this walk reads no body again.
+     */
+    private static function refuseWhatConversionDrops(Message $message): void
+    {
+        $parts = [$message->getBody()];
+        while (($part = array_shift($parts)) !== null) {
+            if ($part instanceof DataPart) {
+                continue;
+            }
+            $type = "{$part->getMediaType()}/{$part->getMediaSubtype()}";
+            if (self::hasOwnHeaders($part)) {
+                throw self::refusal(
+                    'unsupported_part',
+                    "It can't carry the headers set on the body's $type part; remove them."
+                );
+            }
+            if ($part instanceof AbstractMultipartPart) {
+                array_push($parts, ...$part->getParts());
+            } elseif ($part instanceof TextPart && !in_array($part->getDisposition(), [null, 'inline'], true)) {
+                throw self::refusal(
+                    'unsupported_part',
+                    "It can't carry the $type part of the body as an attachment; the text and HTML go out as the body."
+                );
+            }
         }
     }
 
