@@ -13,6 +13,7 @@ use Symfony\Component\Mime\Header\HeaderInterface;
 use Symfony\Component\Mime\Header\IdentificationHeader;
 use Symfony\Component\Mime\Header\UnstructuredHeader;
 use Symfony\Component\Mime\Message;
+use Symfony\Component\Mime\MimeTypes;
 use Symfony\Component\Mime\Part\AbstractMultipartPart;
 use Symfony\Component\Mime\Part\AbstractPart;
 use Symfony\Component\Mime\Part\DataPart;
@@ -130,7 +131,11 @@ final class EmailMapper
         $envelopeRecipients = self::addresses($envelope->getRecipients());
         sort($recipients);
         sort($envelopeRecipients);
-        $senders = array_filter([$envelope->getSender(), $email->getSender(), $email->getReturnPath()]);
+        $senders = [$envelope->getSender(), $email->getSender()];
+        foreach ($email->getHeaders()->all('return-path') as $returnPath) {
+            $senders[] = $returnPath->getBody();
+        }
+        $senders = array_filter($senders);
         foreach ($senders as $sender) {
             if ($from?->getAddress() !== $sender->getAddress()) {
                 throw self::refusal(
@@ -249,7 +254,7 @@ final class EmailMapper
 
         return ($expected[$subtype] ?? null) !== null
             && ($body === $expected[$subtype]
-                || ($subtype === 'html' && $body === self::withContentIds($email, $expected['html'])))
+                || ($subtype === 'html' && $body === self::htmlAsEmailBuildsIt($email, $expected['html'])))
             && strtolower((string) $partCharset) === strtolower((string) $charset)
             && in_array($part->getDisposition(), [null, 'inline'], true);
     }
@@ -260,20 +265,25 @@ final class EmailMapper
     }
 
     /**
-     * The email's HTML with each `cid:<name>` an inline part answers turned into `cid:<content ID>`, as Symfony
-     * writes it when it builds the email's own body.
+     * The email's HTML as Symfony writes it when it builds the email's own body, which turns some `cid:<name>`
+     * references into `cid:<content ID>`. A copy of the email builds it, so the app's attachments keep their names.
      */
-    private static function withContentIds(Email $email, string $html): string
+    private static function htmlAsEmailBuildsIt(Email $email, string $html): ?string
     {
-        $replacements = [];
+        $copy = (new Email())->html($html, $email->getHtmlCharset() ?? 'utf-8');
         foreach ($email->getAttachments() as $part) {
-            $name = $part->getName();
-            if ($name !== null && $part->hasContentId() && self::refersTo($html, $name)) {
-                $replacements["cid:$name"] = 'cid:' . $part->getContentId();
+            $copy->addPart(clone $part);
+        }
+        $parts = [$copy->getBody()];
+        while (($part = array_shift($parts)) !== null) {
+            if ($part instanceof AbstractMultipartPart) {
+                array_push($parts, ...$part->getParts());
+            } elseif ($part instanceof TextPart && !$part instanceof DataPart && $part->getMediaSubtype() === 'html') {
+                return $part->getBody();
             }
         }
 
-        return strtr($html, $replacements);
+        return null;
     }
 
     /**
@@ -385,13 +395,14 @@ final class EmailMapper
      */
     private static function attachment(DataPart $part, ?string $html): array
     {
+        $filename = $part->getFilename() ?? $part->getName() ?? self::unnamed($part->getContentType());
         if (self::hasOwnHeaders($part)) {
             throw self::refusal(
                 'unsupported_part',
-                "It can't carry the headers set on the attachment {$part->getFilename()}; remove them."
+                "It can't carry the headers set on the attachment $filename; remove them."
             );
         }
-        $attachment = ['filename' => $part->getFilename() ?? $part->getName(), 'content' => $part->getBody()];
+        $attachment = ['filename' => $filename, 'content' => $part->getBody()];
         $attachment['content_type'] = $part->getContentType();
         $contentId = self::contentId($part, $html);
         if ($contentId !== null) {
@@ -399,6 +410,17 @@ final class EmailMapper
         }
 
         return $attachment;
+    }
+
+    /**
+     * The filename PostHog needs for a part with neither a filename nor a name: `attachment.<extension>` for its
+     * type, or `attachment` when the type has no known extension.
+     */
+    private static function unnamed(string $contentType): string
+    {
+        $extension = MimeTypes::getDefault()->getExtensions($contentType)[0] ?? null;
+
+        return $extension === null ? 'attachment' : "attachment.$extension";
     }
 
     /**

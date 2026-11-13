@@ -367,6 +367,42 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->assertSame('logo', $this->body()['attachments'][0]['content_id']);
     }
 
+    public function testABodyThatEmailBuiltKeepsTheReferencesItDoesNotRewrite(): void
+    {
+        $badge = (new DataPart(base64_decode('iVBORw0KGgo='), 'badge', 'image/png'))
+            ->setContentId('badge@shop.example')->asInline();
+        $email = self::shipped()->html('<img src="cid:logo"><div style="background: url(cid:badge)">Paid</div>')
+            ->embed(base64_decode('iVBORw0KGgo='), 'logo', 'image/png')
+            ->addPart($badge);
+        $email->setBody($email->getBody());
+        if ($email->getAttachments()[0]->getName() !== 'logo') {
+            $this->markTestSkipped(
+                'Symfony Mime before 6.4.37 and 7.4.9 renames the part when the app renders the email.'
+            );
+        }
+
+        $this->transport()->send($email);
+
+        $this->assertSame(
+            '<img src="cid:logo"><div style="background: url(cid:badge)">Paid</div>',
+            $this->body()['html']
+        );
+        $this->assertSame(['logo', 'badge'], array_column($this->body()['attachments'], 'content_id'));
+    }
+
+    public function testAnAttachmentWithNoNameSendsAFilenameFromItsType(): void
+    {
+        $email = self::shipped()->attach(base64_decode('JVBERi0xLjQK'), null, 'application/pdf')
+            ->attach('bytes', null, 'application/x-posthog-unknown');
+
+        $this->transport()->send($email);
+
+        $this->assertSame(
+            ['attachment.pdf', 'attachment'],
+            array_column($this->body()['attachments'], 'filename')
+        );
+    }
+
     public function testABodyFromAStreamThatCannotRewindSendsInFull(): void
     {
         $html = self::streamThatCannotRewind('<p>On its way.</p><img src="cid:logo">');
@@ -661,6 +697,14 @@ final class PostHogTransportConformanceTest extends TestCase
             ],
             '13 a Return-Path other than the From address' => [
                 fn() => self::shipped()->sender('shop@example.com')->returnPath('bounce@example.com'),
+                'envelope_mismatch',
+            ],
+            'a second Return-Path other than the From address' => [
+                function () {
+                    $email = self::shipped()->returnPath('shop@example.com');
+                    $email->getHeaders()->addPathHeader('Return-Path', 'bounce@example.com');
+                    return $email;
+                },
                 'envelope_mismatch',
             ],
             'an HTML part when the email has no HTML body' => [
