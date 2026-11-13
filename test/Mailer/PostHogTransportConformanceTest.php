@@ -755,6 +755,19 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->assertSame('On its way.', $this->body()['text']);
     }
 
+    public function testAMessageWithAnAttachmentAfterItsBodySendsTheAttachment(): void
+    {
+        $body = new MixedPart(
+            new AlternativePart(new TextPart('On its way.'), new TextPart('<p>On its way.</p>', 'utf-8', 'html')),
+            new DataPart(base64_decode('JVBERi0xLjQK'), 'invoice.pdf', 'application/pdf')
+        );
+
+        $this->transport()->send(new Message(clone self::shipped()->getHeaders(), $body));
+
+        $this->assertSame('<p>On its way.</p>', $this->body()['html']);
+        $this->assertSame(['invoice.pdf'], array_column($this->body()['attachments'], 'filename'));
+    }
+
     public static function messagesConversionWouldChange(): array
     {
         $text = new TextPart('On its way.');
@@ -772,6 +785,18 @@ final class PostHogTransportConformanceTest extends TestCase
             ],
             'a multipart body with a header of its own' => [
                 fn() => new Message(clone self::shipped()->getHeaders(), $body),
+            ],
+            'an attachment as the body' => [
+                fn() => new Message(
+                    clone self::shipped()->getHeaders(),
+                    new DataPart('Invoice 981', 'invoice.txt', 'text/plain')
+                ),
+            ],
+            'an attachment as the first part of a mixed body' => [
+                fn() => new Message(clone self::shipped()->getHeaders(), new MixedPart(
+                    new DataPart('Invoice 981', 'invoice.txt', 'text/plain'),
+                    new DataPart(base64_decode('JVBERi0xLjQK'), 'invoice.pdf', 'application/pdf')
+                )),
             ],
         ];
     }

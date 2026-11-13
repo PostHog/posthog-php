@@ -18,6 +18,7 @@ use Symfony\Component\Mime\MimeTypes;
 use Symfony\Component\Mime\Part\AbstractMultipartPart;
 use Symfony\Component\Mime\Part\AbstractPart;
 use Symfony\Component\Mime\Part\DataPart;
+use Symfony\Component\Mime\Part\Multipart\AlternativePart;
 use Symfony\Component\Mime\Part\TextPart;
 
 /**
@@ -240,17 +241,17 @@ final class EmailMapper
     }
 
     /**
-     * MessageConverter turns a Message that isn't an Email into one with the same text, HTML and attachments, but
-     * it rebuilds the text and HTML without their parts' own headers and dispositions, and drops the headers of
-     * the multipart parts. It already holds a stream body it read, so this walk reads no body again.
+     * MessageConverter turns a Message that isn't an Email into one with the same text, HTML and attachments. It
+     * takes the text and HTML from the body, the first part of a mixed or related part, and both parts of an
+     * alternative part, and rebuilds them without their own headers and dispositions; it keeps every later part
+     * of a mixed or related part as an attachment. A DataPart is a TextPart, so one in a text or HTML position
+     * would lose its filename and go out as the body. This walk reads no body, since the converter already read
+     * a stream body that may not rewind.
      */
     private static function refuseWhatConversionDrops(Message $message): void
     {
         $parts = [$message->getBody()];
         while (($part = array_shift($parts)) !== null) {
-            if ($part instanceof DataPart) {
-                continue;
-            }
             $type = "{$part->getMediaType()}/{$part->getMediaSubtype()}";
             if (self::hasOwnHeaders($part)) {
                 throw self::refusal(
@@ -258,9 +259,14 @@ final class EmailMapper
                     "It can't carry the headers set on the body's $type part; remove them."
                 );
             }
-            if ($part instanceof AbstractMultipartPart) {
+            if ($part instanceof AlternativePart) {
                 array_push($parts, ...$part->getParts());
-            } elseif ($part instanceof TextPart && !in_array($part->getDisposition(), [null, 'inline'], true)) {
+            } elseif ($part instanceof AbstractMultipartPart) {
+                array_push($parts, ...array_slice($part->getParts(), 0, 1));
+            } elseif (
+                $part instanceof TextPart
+                && ($part instanceof DataPart || !in_array($part->getDisposition(), [null, 'inline'], true))
+            ) {
                 throw self::refusal(
                     'unsupported_part',
                     "It can't carry the $type part of the body as an attachment; the text and HTML go out as the body."
