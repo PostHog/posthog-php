@@ -5,6 +5,7 @@ namespace PostHog\Mailer;
 use Closure;
 use PostHog\EmailError;
 use PostHog\Emails;
+use Symfony\Component\HttpClient\Exception\InvalidArgumentException;
 use Symfony\Component\Mailer\Exception\UnsupportedSchemeException;
 use Symfony\Component\Mailer\Transport\AbstractTransportFactory;
 use Symfony\Component\Mailer\Transport\Dsn;
@@ -20,7 +21,8 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
  * without `X-PostHog-Template-Key`. Register this class with the `mailer.transport_factory` service tag.
  *
  * It sends through the app's `http_client` service when Symfony passes one, so the app's proxy, TLS and
- * mock settings apply; without one, it sends with curl.
+ * mock settings apply; without one, it sends with curl. The SDK still owns retries and credentials: the
+ * client's own retries are off for these requests, and its default credentials never go out with them.
  *
  * Symfony's own PostHog bridge, once installed, handles the same scheme, so this factory steps aside.
  */
@@ -61,6 +63,7 @@ final class PostHogTransportFactory extends AbstractTransportFactory
         if ($client === null) {
             return null;
         }
+        $retriesOff = true;
 
         return static function (
             string $method,
@@ -69,15 +72,30 @@ final class PostHogTransportFactory extends AbstractTransportFactory
             ?string $body,
             int $timeoutMs,
             int $connectTimeoutMs
-        ) use ($client): array {
+        ) use (
+            $client,
+            &$retriesOff
+        ): array {
+            $options = [
+                'headers' => self::withoutDefaultCredentials($headers),
+                'auth_basic' => null,
+                'auth_bearer' => null,
+                'body' => $body ?? '',
+                'timeout' => $connectTimeoutMs / 1000,
+                'max_duration' => $timeoutMs / 1000,
+                'max_redirects' => 0,
+            ];
             try {
-                $response = $client->request($method, $url, [
-                    'headers' => $headers,
-                    'body' => $body ?? '',
-                    'timeout' => $connectTimeoutMs / 1000,
-                    'max_duration' => $timeoutMs / 1000,
-                    'max_redirects' => 0,
-                ]);
+                try {
+                    $response = $client->request($method, $url, $options + ($retriesOff ? ['max_retries' => 0] : []));
+                } catch (InvalidArgumentException $error) {
+                    if (!$retriesOff || !str_contains($error->getMessage(), '"max_retries"')) {
+                        throw $error;
+                    }
+                    // Only RetryableHttpClient knows max_retries; a client without it has no retries to turn off.
+                    $retriesOff = false;
+                    $response = $client->request($method, $url, $options);
+                }
                 $lines = [];
                 foreach ($response->getHeaders(false) as $name => $values) {
                     foreach ($values as $value) {
@@ -106,6 +124,24 @@ final class PostHogTransportFactory extends AbstractTransportFactory
                 );
             }
         };
+    }
+
+    /**
+     * The request's headers, with an empty Authorization when it has none of its own, so the client's default
+     * Authorization header stays off a storage upload.
+     *
+     * @param list<string> $headers
+     * @return array<int|string, string|list<string>>
+     */
+    private static function withoutDefaultCredentials(array $headers): array
+    {
+        foreach ($headers as $header) {
+            if (stripos($header, 'authorization:') === 0) {
+                return $headers;
+            }
+        }
+
+        return [...$headers, 'authorization' => []];
     }
 
     private static function appHost(Dsn $dsn): string
