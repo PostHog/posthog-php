@@ -3,6 +3,8 @@
 namespace PostHog\Test\Mailer;
 
 use PostHog\EmailError;
+use Symfony\Component\HttpClient\MockHttpClient;
+use Symfony\Component\HttpClient\Response\MockResponse;
 
 /**
  * PostHog's send and upload routes and its file storage, in place of the network.
@@ -63,6 +65,19 @@ final class FakePostHog
         }
 
         return $this->send($headers, (string) $body);
+    }
+
+    /**
+     * This fake behind Symfony's HTTP client, as an app's `http_client` service reaches it.
+     */
+    public function httpClient(): MockHttpClient
+    {
+        return new MockHttpClient(function (string $method, string $url, array $options): MockResponse {
+            $body = $options['body'] ?? '';
+            [$status, $answer, $headers] = $this($method, $url, $options['headers'], $body === '' ? null : $body, 0);
+
+            return new MockResponse($answer, ['http_code' => $status, 'response_headers' => $headers]);
+        });
     }
 
     /**

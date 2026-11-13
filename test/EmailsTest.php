@@ -1060,6 +1060,8 @@ class EmailsTest extends TestCase
                 'invalid_form',
                 'capture_engagement',
             ],
+            'tracking with a template' => [$template + ['tracking' => false], 'invalid_form', 'tracking'],
+            'sensitive with a template' => [$template + ['sensitive' => true], 'invalid_form', 'sensitive'],
             'unknown option' => [$template + ['headers' => ['X-A' => 'b']], 'invalid_form', 'headers'],
             'cc with a template' => [$template + ['cc' => 'boss@example.com'], 'invalid_form', 'cc'],
             'bcc with a template' => [$template + ['bcc' => ['boss@example.com']], 'invalid_form', 'bcc'],
@@ -1068,8 +1070,6 @@ class EmailsTest extends TestCase
                 'invalid_form',
                 'attachments',
             ],
-            'tracking with a template' => [$template + ['tracking' => false], 'invalid_form', 'tracking'],
-            'sensitive with a template' => [$template + ['sensitive' => true], 'invalid_form', 'sensitive'],
             'template_data with code' => [$code + ['template_data' => ['a' => 1]], 'invalid_form', 'template_data'],
             'bad template key' => [['template_key' => 'pass word'] + $code, 'invalid_template_key', 'template_key'],
             'template key too long' => [
@@ -1182,6 +1182,33 @@ class EmailsTest extends TestCase
             'content_type not UTF-8' => [[$file + ['content_type' => "text/pl\xE4in"]], 'attachments__0__content_type'],
             'content_id not UTF-8' => [[$file + ['content_id' => "l\xF6go"]], 'attachments__0__content_id'],
         ];
+    }
+
+    public static function invalidOptionsBesideFiles(): array
+    {
+        return [
+            'sensitive not a bool' => [['sensitive' => 'yes'], 'sensitive'],
+            'tracking not a bool or array' => [['tracking' => 'off'], 'tracking'],
+        ];
+    }
+
+    #[DataProvider('invalidOptionsBesideFiles')]
+    public function testAnInvalidOptionOnASendWithFilesUploadsNothing(array $option, string $field): void
+    {
+        $this->reply(self::NEGOTIATE, [200, '', []], [202, '{"message_id":"msg_1"}', []]);
+
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_key' => 'invite',
+            'subject' => 'You are invited',
+            'text' => 'See you there',
+            'attachments' => [['filename' => 'invite.ics', 'content' => self::INVITE]],
+        ] + $option);
+
+        $this->assertSame('invalid_form', $error->getErrorCode());
+        $this->assertSame($field, $error->getField());
+        $this->assertSame([], $this->storageWrites, 'no file was uploaded');
+        $this->assertSame([], $this->queued, 'nothing was sent');
     }
 
     #[DataProvider('attachmentErrors')]

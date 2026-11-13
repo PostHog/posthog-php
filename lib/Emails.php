@@ -7,6 +7,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
 use JsonException;
+use PostHog\Internal\Integration;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\MonotonicClock;
@@ -61,7 +62,6 @@ final class Emails
     private const IDEMPOTENCY_KEY_PATTERN = '/^[\x21-\x7e]{1,255}$/D';
     private const TEMPLATE_KEY_PATTERN = '/^[a-zA-Z0-9_-]{1,400}$/D';
     private const HEADER_TOKEN_PATTERN = '/^[\x21-\x7e]+$/D';
-    private const INTEGRATION_PATTERN = '#^[a-z0-9-]{1,40}/[0-9A-Za-z.+-]{1,40}$#D';
     private const TIMESTAMP_PATTERN = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/D';
 
     private const SHARED_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'max_retries', 'integration'];
@@ -395,13 +395,8 @@ final class Emails
         if ($integration === null) {
             return null;
         }
-        if (!is_string($integration) || preg_match(self::INTEGRATION_PATTERN, $integration) !== 1) {
-            throw self::invalid(
-                'invalid_integration',
-                "integration must be <name>/<version>, such as 'laravel/1.4.0': a name of lowercase letters, digits "
-                . 'and hyphens, and a version of letters, digits, dots, plus signs and hyphens, at most 40 each.',
-                'integration'
-            );
+        if (!Integration::isValid($integration)) {
+            throw self::invalid('invalid_integration', Integration::RULE, 'integration');
         }
 
         return $integration;

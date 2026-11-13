@@ -3,6 +3,7 @@
 namespace PostHog\Test\Mailer;
 
 use Closure;
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Mailer\PostHogTransport;
@@ -312,6 +313,17 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->assertArrayNotHasKey('content_id', $this->body()['attachments'][0]);
     }
 
+    public function testAnInlinePartWithANameButNoFilenameSendsItsNameAsTheFilename(): void
+    {
+        $email = self::shipped()->html('<img src="cid:logo">')
+            ->addPart((new DataPart(base64_decode('iVBORw0KGgo='), null, 'image/png'))->setName('logo')->asInline());
+
+        $this->transport()->send($email);
+
+        $this->assertSame('logo', $this->body()['attachments'][0]['filename']);
+        $this->assertSame('logo', $this->body()['attachments'][0]['content_id']);
+    }
+
     public function testACustomBodyThatHoldsTheEmailsOwnPartsSends(): void
     {
         $email = self::shipped()->attach(base64_decode('JVBERi0xLjQK'), 'invoice.pdf', 'application/pdf');
@@ -325,6 +337,34 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->assertSame('<p>On its way.</p>', $this->body()['html']);
         $this->assertSame('On its way.', $this->body()['text']);
         $this->assertSame(['invoice.pdf'], array_column($this->body()['attachments'], 'filename'));
+    }
+
+    public function testAnAttachmentWhoseContentIdIsSetAsAHeaderSendsThatId(): void
+    {
+        $logo = new DataPart(base64_decode('iVBORw0KGgo='), 'logo.png', 'image/png');
+        $logo->getHeaders()->addIdHeader('Content-ID', 'logo@shop.example');
+        $email = self::shipped()->html('<img src="cid:logo@shop.example">')->addPart($logo);
+
+        $this->transport()->send($email);
+
+        $this->assertSame('logo@shop.example', $this->body()['attachments'][0]['content_id']);
+    }
+
+    public function testTheEmailsOwnRenderedBodySetAsItsBodySends(): void
+    {
+        $email = self::shipped()->html('<p>On its way.</p><img src="cid:logo">')
+            ->embed(base64_decode('iVBORw0KGgo='), 'logo', 'image/png');
+        $email->setBody($email->getBody());
+        if ($email->getAttachments()[0]->getName() !== 'logo') {
+            $this->markTestSkipped(
+                'Symfony Mime before 6.4.37 and 7.4.9 renames the part when the app renders the email.'
+            );
+        }
+
+        $this->transport()->send($email);
+
+        $this->assertSame('<p>On its way.</p><img src="cid:logo">', $this->body()['html']);
+        $this->assertSame('logo', $this->body()['attachments'][0]['content_id']);
     }
 
     public function testABodyFromAStreamThatCannotRewindSendsInFull(): void
@@ -418,6 +458,32 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->assertSame('transactional', $this->body()['template_key']);
     }
 
+    public static function badSettings(): array
+    {
+        return [
+            'an integration name in capitals' => [['integration' => 'Laravel/11.0']],
+            'an integration without a version' => [['integration' => 'laravel/']],
+            'an integration without a name' => [['integration' => '/1.0']],
+            'a default template key with spaces' => [['defaultTemplateKey' => 'order shipped']],
+        ];
+    }
+
+    /** @param array<string, string> $settings */
+    #[DataProvider('badSettings')]
+    public function testABadSettingFailsWhenTheTransportIsBuiltBeforeAnySend(array $settings): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        new PostHogTransport($this->emails(), ...$settings);
+    }
+
+    public function testAFrameworkPackagesIntegrationGoesOutOnTheSend(): void
+    {
+        (new PostHogTransport($this->emails(), integration: 'laravel/11.0.0'))->send(self::shipped());
+
+        $this->assertSame('laravel/11.0.0', $this->header('X-PostHog-Integration'));
+    }
+
     public static function refusals(): array
     {
         return [
@@ -436,6 +502,28 @@ final class PostHogTransportConformanceTest extends TestCase
                 fn() => self::shipped()->addPart((new DataPart(base64_decode('iVBORw0KGgo='), null, 'image/png'))
                     ->asInline()),
                 'inline_without_cid',
+            ],
+            '10 an inline part the HTML refers to by its name and by its content ID' => [
+                fn() => self::shipped()->html('<img src="cid:logo"><img src="cid:logo@shop.example">')
+                    ->addPart((new DataPart(base64_decode('iVBORw0KGgo='), 'logo', 'image/png'))
+                        ->setContentId('logo@shop.example')->asInline()),
+                'unsupported_part',
+            ],
+            'an attachment with a header of its own' => [
+                function () {
+                    $invite = new DataPart("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n", 'invite.ics', 'text/calendar');
+                    $invite->getHeaders()
+                        ->addParameterizedHeader('Content-Type', 'text/calendar', ['method' => 'REQUEST']);
+                    return self::shipped()->addPart($invite);
+                },
+                'unsupported_part',
+            ],
+            'a second X-PostHog-Distinct-Id' => [
+                fn() => self::withHeaders(
+                    self::withHeaders(self::shipped(), ['X-PostHog-Distinct-Id' => 'user-1']),
+                    ['X-PostHog-Distinct-Id' => 'user-2']
+                ),
+                'unsupported_header',
             ],
             'an engagement header that is not true or false' => [
                 fn() => self::withHeaders(self::shipped(), ['X-PostHog-Capture-Engagement' => 'yes']),
@@ -536,6 +624,45 @@ final class PostHogTransportConformanceTest extends TestCase
                 )),
                 'unsupported_part',
             ],
+            'a text part in another charset than the email\'s text' => [
+                fn() => self::shipped()->setBody(new AlternativePart(
+                    new TextPart('On its way.', 'iso-8859-1'),
+                    new TextPart('<p>On its way.</p>', 'utf-8', 'html')
+                )),
+                'unsupported_part',
+            ],
+            'the email\'s HTML sent as an attachment' => [
+                fn() => self::shipped()->setBody(new MixedPart(
+                    new TextPart('On its way.'),
+                    (new TextPart('<p>On its way.</p>', 'utf-8', 'html'))->setDisposition('attachment')
+                )),
+                'unsupported_part',
+            ],
+            'a body part with a header of its own' => [
+                function () {
+                    $text = new TextPart('On its way.');
+                    $text->getHeaders()->addTextHeader('X-Note', 'kept by Symfony');
+                    return self::shipped()->setBody(
+                        new AlternativePart($text, new TextPart('<p>On its way.</p>', 'utf-8', 'html'))
+                    );
+                },
+                'unsupported_part',
+            ],
+            'a multipart body with a header of its own' => [
+                function () {
+                    $body = new AlternativePart(
+                        new TextPart('On its way.'),
+                        new TextPart('<p>On its way.</p>', 'utf-8', 'html')
+                    );
+                    $body->getHeaders()->addTextHeader('X-Note', 'kept by Symfony');
+                    return self::shipped()->setBody($body);
+                },
+                'unsupported_part',
+            ],
+            '13 a Return-Path other than the From address' => [
+                fn() => self::shipped()->sender('shop@example.com')->returnPath('bounce@example.com'),
+                'envelope_mismatch',
+            ],
             'an HTML part when the email has no HTML body' => [
                 fn() => self::shipped()->html(null)->setBody(new AlternativePart(
                     new TextPart('On its way.'),
@@ -565,6 +692,21 @@ final class PostHogTransportConformanceTest extends TestCase
         $envelope = new Envelope(new Address('bounce@example.com'), [new Address('ana@example.com')]);
 
         $this->assertRefused('envelope_mismatch', fn() => $this->transport()->send(self::shipped(), $envelope));
+    }
+
+    public function testCase13ASenderOtherThanTheFromIsRefusedEvenWithAMatchingEnvelope(): void
+    {
+        $envelope = new Envelope(new Address('shop@example.com'), [new Address('ana@example.com')]);
+        $email = self::shipped()->sender('ops@example.com');
+
+        $this->assertRefused('envelope_mismatch', fn() => $this->transport()->send($email, $envelope));
+    }
+
+    public function testASenderAndReturnPathOfTheFromAddressSend(): void
+    {
+        $this->transport()->send(self::shipped()->sender('shop@example.com')->returnPath('shop@example.com'));
+
+        $this->assertSame('Shop <shop@example.com>', $this->body()['from']);
     }
 
     public function testCase15ARemoteTemplateEmailSendsTheTemplate(): void

@@ -5,6 +5,7 @@ namespace PostHog\Mailer;
 use InvalidArgumentException;
 use PostHog\EmailError;
 use PostHog\Emails;
+use PostHog\Internal\Integration;
 use PostHog\Internal\Mailer\EmailMapper;
 use PostHog\Internal\Mailer\RemoteTemplateSupport;
 use PostHog\PostHog;
@@ -54,6 +55,9 @@ final class PostHogTransport extends AbstractTransport implements RemoteTemplate
         ?EventDispatcherInterface $dispatcher = null,
         ?LoggerInterface $logger = null,
     ) {
+        if ($integration !== null && !Integration::isValid($integration)) {
+            throw new InvalidArgumentException(ucfirst(Integration::RULE));
+        }
         if ($defaultTemplateKey !== null && preg_match(EmailMapper::TEMPLATE_KEY_PATTERN, $defaultTemplateKey) !== 1) {
             throw new InvalidArgumentException(
                 'The default template key can only have letters, digits, hyphens (-) and underscores (_), at most 256.'

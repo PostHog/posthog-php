@@ -9,9 +9,12 @@ use Symfony\Component\Mailer\Exception\LogicException;
 use Symfony\Component\Mailer\RemoteTemplateEmail;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\Header\HeaderInterface;
+use Symfony\Component\Mime\Header\IdentificationHeader;
 use Symfony\Component\Mime\Header\UnstructuredHeader;
 use Symfony\Component\Mime\Message;
 use Symfony\Component\Mime\Part\AbstractMultipartPart;
+use Symfony\Component\Mime\Part\AbstractPart;
 use Symfony\Component\Mime\Part\DataPart;
 use Symfony\Component\Mime\Part\TextPart;
 
@@ -50,7 +53,6 @@ final class EmailMapper
         $to = $this->onlyRecipient($email);
         $options = $this->headerOptions($email);
         $this->refuseEnvelopeMismatch($email, $envelope);
-        // Checked on both forms; the template form doesn't send them.
         $templateKey = $this->templateKey($options[self::TEMPLATE_KEY] ?? null);
         $tracking = self::tracking($email, $options[self::CAPTURE_ENGAGEMENT] ?? null);
         $sensitive = self::flag('X-PostHog-Sensitive', $options[self::SENSITIVE] ?? null);
@@ -85,10 +87,10 @@ final class EmailMapper
         foreach ($email->getHeaders()->all() as $header) {
             $name = strtolower($header->getName());
             if (in_array($name, self::OPTION_HEADERS, true)) {
-                // The raw value: getBodyAsString() MIME-encodes a value that isn't ASCII, such as a distinct ID.
-                $options[$name] = $header instanceof UnstructuredHeader
-                    ? $header->getValue()
-                    : $header->getBodyAsString();
+                if (isset($options[$name])) {
+                    throw self::refusal('unsupported_header', "It takes one {$header->getName()} header.");
+                }
+                $options[$name] = self::unencodedValue($header);
                 continue;
             }
             self::refuseHeader($name);
@@ -128,7 +130,16 @@ final class EmailMapper
         $envelopeRecipients = self::addresses($envelope->getRecipients());
         sort($recipients);
         sort($envelopeRecipients);
-        if ($from?->getAddress() !== $envelope->getSender()->getAddress() || $recipients !== $envelopeRecipients) {
+        $senders = array_filter([$envelope->getSender(), $email->getSender(), $email->getReturnPath()]);
+        foreach ($senders as $sender) {
+            if ($from?->getAddress() !== $sender->getAddress()) {
+                throw self::refusal(
+                    'envelope_mismatch',
+                    'It sends from the From address only; the envelope sender, Sender and Return-Path must be it.'
+                );
+            }
+        }
+        if ($recipients !== $envelopeRecipients) {
             throw self::refusal(
                 'envelope_mismatch',
                 'It sends from the From address to the To, Cc and Bcc addresses only.'
@@ -141,9 +152,8 @@ final class EmailMapper
      */
     private function renderedContent(Email $email, string $templateKey): array
     {
-        // Read each body once: a stream that can't rewind is empty on a second read.
-        $html = self::text($email->getHtmlBody());
-        $text = self::text($email->getTextBody());
+        $html = self::readOnce($email->getHtmlBody());
+        $text = self::readOnce($email->getTextBody());
         self::refuseUnsupportedParts($email, $text, $html);
         $html = self::utf8($html, $email->getHtmlCharset(), 'HTML');
         $text = self::utf8($text, $email->getTextCharset(), 'text');
@@ -183,6 +193,12 @@ final class EmailMapper
         $parts = [$custom];
         while (($part = array_shift($parts)) !== null) {
             $type = "{$part->getMediaType()}/{$part->getMediaSubtype()}";
+            if (self::hasOwnHeaders($part)) {
+                throw self::refusal(
+                    'unsupported_part',
+                    "It can't carry the headers set on the body's $type part; remove them."
+                );
+            }
             if ($part instanceof AbstractMultipartPart) {
                 array_push($parts, ...$part->getParts());
             } elseif ($part instanceof DataPart) {
@@ -194,11 +210,7 @@ final class EmailMapper
                     );
                 }
                 unset($attachments[$index]);
-            } elseif (
-                $part instanceof TextPart
-                && ($expected[$part->getMediaSubtype()] ?? null) !== null
-                && $part->getBody() === $expected[$part->getMediaSubtype()]
-            ) {
+            } elseif ($part instanceof TextPart && self::isOwnBody($email, $part, $expected)) {
                 $expected[$part->getMediaSubtype()] = null;
             } else {
                 throw self::refusal(
@@ -215,6 +227,53 @@ final class EmailMapper
                     . ' that the email carries, so the email sent would differ from the one Symfony builds.'
             );
         }
+    }
+
+    /**
+     * Whether a custom body part is the email's own text or HTML, as Symfony would build it: the same content in the
+     * same charset, shown as the body rather than attached.
+     *
+     * @param array{plain: ?string, html: ?string} $expected the text and HTML no part has matched yet
+     */
+    private static function isOwnBody(Email $email, TextPart $part, array $expected): bool
+    {
+        $subtype = $part->getMediaSubtype();
+        $charset = match ($subtype) {
+            'plain' => $email->getTextCharset(),
+            'html' => $email->getHtmlCharset(),
+            default => null,
+        };
+        $partCharset = $part->getPreparedHeaders()->getHeaderParameter('Content-Type', 'charset');
+
+        $body = $part->getBody();
+
+        return ($expected[$subtype] ?? null) !== null
+            && ($body === $expected[$subtype]
+                || ($subtype === 'html' && $body === self::withContentIds($email, $expected['html'])))
+            && strtolower((string) $partCharset) === strtolower((string) $charset)
+            && in_array($part->getDisposition(), [null, 'inline'], true);
+    }
+
+    private static function hasOwnHeaders(AbstractPart $part): bool
+    {
+        return array_diff($part->getHeaders()->getNames(), ['content-id']) !== [];
+    }
+
+    /**
+     * The email's HTML with each `cid:<name>` an inline part answers turned into `cid:<content ID>`, as Symfony
+     * writes it when it builds the email's own body.
+     */
+    private static function withContentIds(Email $email, string $html): string
+    {
+        $replacements = [];
+        foreach ($email->getAttachments() as $part) {
+            $name = $part->getName();
+            if ($name !== null && $part->hasContentId() && self::refersTo($html, $name)) {
+                $replacements["cid:$name"] = 'cid:' . $part->getContentId();
+            }
+        }
+
+        return strtr($html, $replacements);
     }
 
     /**
@@ -262,8 +321,7 @@ final class EmailMapper
      */
     private static function tracking(Email $email, ?string $engagement): ?array
     {
-        $headers = $email->getHeaders()->all(self::TRACKING_HEADER);
-        $headers = $headers instanceof \Traversable ? iterator_to_array($headers, false) : $headers;
+        $headers = iterator_to_array($email->getHeaders()->all(self::TRACKING_HEADER), false);
         if (count($headers) > 1) {
             throw self::refusal('unsupported_header', 'It takes one X-Track header; remove the others.');
         }
@@ -327,7 +385,13 @@ final class EmailMapper
      */
     private static function attachment(DataPart $part, ?string $html): array
     {
-        $attachment = ['filename' => $part->getFilename(), 'content' => $part->getBody()];
+        if (self::hasOwnHeaders($part)) {
+            throw self::refusal(
+                'unsupported_part',
+                "It can't carry the headers set on the attachment {$part->getFilename()}; remove them."
+            );
+        }
+        $attachment = ['filename' => $part->getFilename() ?? $part->getName(), 'content' => $part->getBody()];
         $attachment['content_type'] = $part->getContentType();
         $contentId = self::contentId($part, $html);
         if ($contentId !== null) {
@@ -345,23 +409,46 @@ final class EmailMapper
     private static function contentId(DataPart $part, ?string $html): ?string
     {
         $name = $part->getName();
+        $ownId = self::ownContentId($part);
         if ($name !== null && self::refersTo($html, $name)) {
+            if ($ownId !== null && $ownId !== $name && self::refersTo($html, $ownId)) {
+                throw self::refusal(
+                    'unsupported_part',
+                    "The HTML refers to one inline part as both cid:$name and cid:$ownId; use one."
+                );
+            }
             return $name;
         }
-        if ($part->hasContentId() && self::refersTo($html, $part->getContentId())) {
-            return $part->getContentId();
+        if ($ownId !== null && self::refersTo($html, $ownId)) {
+            return $ownId;
         }
         if ($part->getDisposition() !== 'inline') {
             return null;
         }
-        if (!$part->hasContentId()) {
+        if ($ownId === null) {
             throw self::refusal(
                 'inline_without_cid',
                 'An inline attachment needs a content ID, or a name the HTML refers to as cid:<name>.'
             );
         }
 
-        return $part->getContentId();
+        return $ownId;
+    }
+
+    /**
+     * The content ID the part was given, by setContentId() or by a Content-ID header of its own, or null.
+     */
+    private static function ownContentId(DataPart $part): ?string
+    {
+        if ($part->hasContentId()) {
+            return $part->getContentId();
+        }
+        $header = $part->getHeaders()->get('Content-ID');
+        if ($header === null) {
+            return null;
+        }
+
+        return $header instanceof IdentificationHeader ? $header->getId() : trim($header->getBodyAsString(), '<> ');
     }
 
     /**
@@ -411,7 +498,12 @@ final class EmailMapper
     /**
      * @param string|resource|null $body
      */
-    private static function text(mixed $body): ?string
+    private static function unencodedValue(HeaderInterface $header): string
+    {
+        return $header instanceof UnstructuredHeader ? $header->getValue() : $header->getBodyAsString();
+    }
+
+    private static function readOnce(mixed $body): ?string
     {
         if (!is_resource($body)) {
             return $body;

@@ -159,7 +159,7 @@ jobs:
           composer config minimum-stability "$STABILITY"
           if [ "$ALLOW_INSECURE" = "true" ]; then composer config policy.advisories.block false; fi
           composer config prefer-stable true
-          composer require --dev --no-update "symfony/mailer:$SYMFONY" "symfony/mime:$SYMFONY" "symfony/framework-bundle:$SYMFONY"
+          composer require --dev --no-update "symfony/mailer:$SYMFONY" "symfony/mime:$SYMFONY" "symfony/framework-bundle:$SYMFONY" "symfony/http-client:$SYMFONY"
           composer update --with-all-dependencies --prefer-dist --no-progress
 
       # Apps that deploy with an authoritative classmap load only the classes Composer found.

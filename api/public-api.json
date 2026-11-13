@@ -4340,54 +4340,6 @@
             "constants": [],
             "properties": [],
             "methods": {
-                "__construct": {
-                    "static": false,
-                    "abstract": false,
-                    "final": false,
-                    "returnType": null,
-                    "parameters": [
-                        {
-                            "name": "dispatcher",
-                            "type": "?Psr\\EventDispatcher\\EventDispatcherInterface",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": true,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": true
-                        },
-                        {
-                            "name": "client",
-                            "type": "?Symfony\\Contracts\\HttpClient\\HttpClientInterface",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": true,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": true
-                        },
-                        {
-                            "name": "logger",
-                            "type": "?Psr\\Log\\LoggerInterface",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": true,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": true
-                        },
-                        {
-                            "name": "sendRequest",
-                            "type": "?Closure",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": true,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": true
-                        }
-                    ]
-                },
                 "create": {
                     "static": false,
                     "abstract": false,
