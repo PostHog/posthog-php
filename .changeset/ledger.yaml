@@ -174,3 +174,7 @@ posthog-php@4.24.0:
   dir: ""
   intents:
     - emails-tracking
+posthog-php@4.25.0:
+  dir: ""
+  intents:
+    - emails-cc-bcc-attachments

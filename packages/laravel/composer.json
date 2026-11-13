@@ -6,7 +6,7 @@
     "laravel"
   ],
   "homepage": "https://posthog.com/docs/libraries/laravel",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "license": "MIT",
   "authors": [
     {
@@ -22,7 +22,7 @@
   },
   "require": {
     "php": ">=8.2",
-    "posthog/posthog-php": "4.24.0",
+    "posthog/posthog-php": "4.25.0",
     "illuminate/support": "^12.0 || ^13.0",
     "illuminate/contracts": "^12.0 || ^13.0"
   },
