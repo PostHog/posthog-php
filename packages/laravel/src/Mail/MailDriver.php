@@ -14,6 +14,7 @@ use Symfony\Component\Mailer\DelayedEnvelope;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\SentMessage;
 use Symfony\Component\Mailer\Transport\TransportInterface;
+use Symfony\Component\Mime\Message;
 use Symfony\Component\Mime\RawMessage;
 use WeakMap;
 
@@ -25,12 +26,15 @@ use WeakMap;
  * Each mail sends under its Mailable or notification class in kebab case as its template key, so
  * `App\Mail\OrderShipped` sends as `order-shipped`. An `X-PostHog-Template-Key` header on the mail wins;
  * mail with no class, such as `Mail::raw()`, uses the mailer's `default_template_key`, or `laravel`.
+ * Once PostHog has tried a mail, its `X-PostHog-*` headers are gone, so the next mailer of a failover
+ * never sends them.
  */
 final class MailDriver implements TransportInterface
 {
     private const INTEGRATION = 'laravel';
     private const TEMPLATE_KEY_LENGTH = 256;
     private const NOT_IN_A_TEMPLATE_KEY = '/[^a-zA-Z0-9_-]+/';
+    private const POSTHOG_HEADER = 'x-posthog-';
 
     /** @var WeakMap<object, string>|null The class-name key of each mail Laravel sends. */
     private static ?WeakMap $templateKeys = null;
@@ -54,8 +58,7 @@ final class MailDriver implements TransportInterface
     }
 
     /**
-     * Remembers the mail's class as its template key for the PostHog transport. The mail itself is left as is,
-     * so no other transport, such as the next one of a failover mailer, sends a PostHog header.
+     * Remembers the mail's class as its template key for the PostHog transport, without a header on the mail.
      */
     public static function nameTheMail(MessageSending $event): void
     {
@@ -74,9 +77,24 @@ final class MailDriver implements TransportInterface
     public function send(RawMessage $message, ?Envelope $envelope = null): ?SentMessage
     {
         $mail = $this->mailLaravelHandedOver($envelope) ?? $message;
+        try {
+            return $this->transportForThisSend(self::$templateKeys[$mail] ?? $this->defaultTemplateKey)
+                ->send($message, $envelope);
+        } finally {
+            self::removePostHogHeaders($mail);
+        }
+    }
 
-        return $this->transportForThisSend(self::$templateKeys[$mail] ?? $this->defaultTemplateKey)
-            ->send($message, $envelope);
+    private static function removePostHogHeaders(RawMessage $mail): void
+    {
+        if (!$mail instanceof Message) {
+            return;
+        }
+        foreach ($mail->getHeaders()->getNames() as $name) {
+            if (str_starts_with($name, self::POSTHOG_HEADER)) {
+                $mail->getHeaders()->remove($name);
+            }
+        }
     }
 
     /**

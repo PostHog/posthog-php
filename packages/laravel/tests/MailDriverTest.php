@@ -219,11 +219,15 @@ class MailDriverTest extends TestCase
             $sent[] = $event->message;
         });
 
-        Mail::mailer('failover')->to('ana@example.com')->send(new OrderShipped());
+        Mail::mailer('failover')->to('ana@example.com')->send(new OrderShipped([
+            'X-PostHog-Distinct-Id' => 'user_123',
+            'X-PostHog-Idempotency-Key' => 'order-42:order-shipped',
+        ]));
 
         $this->assertCount(1, $this->api->requests());
         $this->assertCount(1, $sent);
-        $this->assertFalse($sent[0]->getHeaders()->has('X-PostHog-Template-Key'));
+        $headers = $sent[0]->getHeaders()->getNames();
+        $this->assertSame([], array_values(preg_grep('/^x-posthog-/i', $headers)));
     }
 
     public function testAnotherMailerSendsTheMailableWithoutPostHogHeaders(): void
