@@ -119,7 +119,7 @@ final class PostHogTransportErrorsTest extends TestCase
                 $this->assertSame('to', $error->getField());
             }
         }
-        $this->assertCount($requests, $this->requests);
+        $this->assertCount($requests, $this->requests());
         $this->assertSame($this->header('Idempotency-Key'), $this->header('Idempotency-Key', $requests - 1));
     }
 
@@ -134,6 +134,6 @@ final class PostHogTransportErrorsTest extends TestCase
             $this->assertSame('subject', $error->getField());
             $this->assertFalse($error->isRetryable());
         }
-        $this->assertSame([], $this->requests);
+        $this->assertSame([], $this->requests());
     }
 }

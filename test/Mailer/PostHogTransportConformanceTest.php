@@ -26,6 +26,11 @@ final class PostHogTransportConformanceTest extends TestCase
     use SendsThroughStubbedHttp;
 
     private const TEMPLATE_ID = '0190f0c2-7d1e-7a3b-9c2e-5f1a2b3c4d5e';
+    /** The files these cases attach, by SHA-256. */
+    private const BYTES = [
+        'e5c62df5dab5c87b6a015ef3d43597074d1eec433b15f51aec63b8582d0e4ab4' => "%PDF-1.4\n",
+        '4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6' => "\x89PNG\r\n\x1a\n",
+    ];
     private const RENDERED = [
         'to' => 'ana@example.com',
         'from' => 'Shop <shop@example.com>',
@@ -81,13 +86,8 @@ final class PostHogTransportConformanceTest extends TestCase
                 ['html' => '<img src="cid:logo">'] + self::RENDERED + [
                     'template_key' => 'posthog-php-mailer',
                     'attachments' => [
-                        ['filename' => 'invoice.pdf', 'content' => 'JVBERi0xLjQK', 'content_type' => 'application/pdf'],
-                        [
-                            'filename' => 'logo.png',
-                            'content' => 'iVBORw0KGgo=',
-                            'content_type' => 'image/png',
-                            'content_id' => 'logo',
-                        ],
+                        self::file('invoice.pdf', 'application/pdf', 'JVBERi0xLjQK'),
+                        self::logo('logo.png', 'logo'),
                     ],
                 ],
                 [],
@@ -117,12 +117,7 @@ final class PostHogTransportConformanceTest extends TestCase
                     ->embed(base64_decode('iVBORw0KGgo='), 'logo', 'image/png'),
                 ['html' => '<img src="cid:logo">'] + self::RENDERED + [
                     'template_key' => 'posthog-php-mailer',
-                    'attachments' => [[
-                        'filename' => 'logo',
-                        'content' => 'iVBORw0KGgo=',
-                        'content_type' => 'image/png',
-                        'content_id' => 'logo',
-                    ]],
+                    'attachments' => [self::logo('logo', 'logo')],
                 ],
                 [],
             ],
@@ -203,8 +198,16 @@ final class PostHogTransportConformanceTest extends TestCase
     {
         $sent = $this->transport()->send($email());
 
-        $this->assertCount(1, $this->requests);
-        $this->assertEquals($body + ['capture_engagement' => true], $this->body());
+        $this->assertCount(1, $this->posthog()->sends());
+        $this->assertEquals($body, $this->body());
+        $this->assertEquals([$body], $this->posthog()->queued);
+        foreach ($body['attachments'] ?? [] as $attachment) {
+            $this->assertSame(
+                self::BYTES[$attachment['sha256']],
+                $this->posthog()->stored[$attachment['sha256']] ?? null,
+                "Storage holds {$attachment['filename']}."
+            );
+        }
         $this->assertMatchesRegularExpression(
             '#^posthog-php-mailer/[0-9A-Za-z.+-]+$#',
             $this->header('X-PostHog-Integration')
@@ -306,7 +309,7 @@ final class PostHogTransportConformanceTest extends TestCase
         ]));
 
         $postHogHeaders = array_values(array_filter(
-            array_map(static fn(string $line): string => explode(':', $line, 2)[0], $this->requests[0]['headers']),
+            array_map(static fn(string $line): string => explode(':', $line, 2)[0], $this->requests()[0]['headers']),
             static fn(string $name): bool => stripos($name, 'X-PostHog-') === 0
         ));
         $this->assertSame(['X-PostHog-Integration'], $postHogHeaders);
@@ -546,7 +549,25 @@ final class PostHogTransportConformanceTest extends TestCase
         } catch (LogicException $refusal) {
             $this->assertStringStartsWith("PostHog cannot send this email: $code. ", $refusal->getMessage());
         }
-        $this->assertSame([], $this->requests);
+        $this->assertSame([], $this->requests());
+    }
+
+    /**
+     * The reference to a file that the send carries, by its SHA-256, in place of its bytes.
+     *
+     * @return array<string, string>
+     */
+    private static function file(
+        string $filename,
+        string $contentType,
+        string $base64,
+        ?string $contentId = null
+    ): array {
+        $sha256 = hash('sha256', base64_decode($base64));
+        self::assertArrayHasKey($sha256, self::BYTES);
+
+        return ['sha256' => $sha256, 'filename' => $filename, 'content_type' => $contentType]
+            + ($contentId === null ? [] : ['content_id' => $contentId]);
     }
 
     /**
@@ -554,12 +575,7 @@ final class PostHogTransportConformanceTest extends TestCase
      */
     private static function logo(string $filename, string $contentId): array
     {
-        return [
-            'filename' => $filename,
-            'content' => 'iVBORw0KGgo=',
-            'content_type' => 'image/png',
-            'content_id' => $contentId,
-        ];
+        return self::file($filename, 'image/png', 'iVBORw0KGgo=', $contentId);
     }
 
     /**
