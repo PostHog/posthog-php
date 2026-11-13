@@ -14,7 +14,7 @@ use Throwable;
 
 class PostHog
 {
-    public const VERSION = '0.4.3';
+    public const VERSION = '0.4.4';
 
     private ?Client $client = null;
     private ?int $definitionsLoadedAt = null;

@@ -1,3 +1,9 @@
+## 4.25.1
+
+### Patch Changes
+
+- Report evaluation_failed instead of flag_missing for failed direct flag reads, including inconclusive local fallback, while retaining response-wide errors.
+
 ## 4.25.0
 
 ### Minor Changes

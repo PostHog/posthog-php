@@ -178,3 +178,7 @@ posthog-php@4.25.0:
   dir: ""
   intents:
     - emails-cc-bcc-attachments
+posthog-php@4.25.1:
+  dir: ""
+  intents:
+    - twelve-corners-report
