@@ -1134,6 +1134,11 @@ class EmailsTest extends TestCase
                 'invalid_integration',
                 'integration',
             ],
+            'invalid integration on a send with files' => [
+                self::sendWithFiles([self::invite()]) + ['integration' => 'laravel'],
+                'invalid_integration',
+                'integration',
+            ],
         ];
     }
 
