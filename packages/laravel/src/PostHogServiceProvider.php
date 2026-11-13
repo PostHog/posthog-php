@@ -10,6 +10,9 @@ use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobExceptionOccurred;
 use Illuminate\Queue\Events\Looping;
+use Illuminate\Mail\Events\MessageSending;
+use Illuminate\Mail\MailManager;
+use PostHog\Laravel\Mail\MailDriver;
 use PostHog\Laravel\Middleware\RequestContext as RequestContextMiddleware;
 use PostHog\Laravel\Jobs\DeliverEvents;
 use Illuminate\Support\ServiceProvider;
@@ -92,6 +95,9 @@ class PostHogServiceProvider extends ServiceProvider
                 $reporter->remember($event->exception, 'task', 'laravel.queue_job');
             }
         });
+        // Only an app that builds a mailer loads Laravel's mailer, Symfony Mailer and the PostHog transport.
+        $this->callAfterResolving('mail.manager', fn (MailManager $manager) => MailDriver::extend($manager));
+        $events->listen(MessageSending::class, fn (MessageSending $event) => MailDriver::nameTheMail($event));
         $events->listen(CommandStarting::class, function () {
             // The first CLI kernel may already be handling input when package providers boot.
             Container::getInstance()->make(ConsoleLifecycle::class)->startRoot();
