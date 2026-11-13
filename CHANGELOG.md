@@ -1,3 +1,21 @@
+## 4.24.0
+
+### Minor Changes
+
+- A send with your own content (`template_key`) takes `sensitive` and `tracking`. Set `sensitive` to true when the email carries login links, reset tokens or codes: PostHog then keeps its links unchanged unless `tracking` turns clicks on, leaves its subject off engagement events, and keeps its content out of logs. Left out, the email takes the setting of the template made in PostHog whose key matches `template_key`, and is sensitive when no template matches. `tracking` chooses what PostHog tracks for the email. Left out, PostHog counts opens and captures engagement events, and tracks clicks only when the email isn't sensitive. `true` turns on opens, clicks and engagement events, and `false` turns them all off. An array such as `['clicks' => true]` sets `opens`, `clicks` and `engagement` one by one. `capture_engagement` is deprecated in favor of `tracking` with `engagement`; it still works, but a send can't set both. The client now sends it only when you set it; PostHog already reads a missing value as on. The client sends `sensitive` and `tracking` only when you set them. They need PostHog's API support for the fields, which is rolling out.
+
+## 4.23.1
+
+### Patch Changes
+
+- Relative date filters in local flag evaluation no longer roll past the end of a shorter month. `1m` on March 31 now resolves to February 28 instead of March 3.
+
+## 4.23.0
+
+### Minor Changes
+
+- Read the project token from `POSTHOG_PROJECT_TOKEN`. `POSTHOG_API_KEY` still works as a fallback, and the Laravel config gains a `project_token` key. The `api_key` key is deprecated and still read when `project_token` is blank.
+
 ## 4.22.1
 
 ### Patch Changes

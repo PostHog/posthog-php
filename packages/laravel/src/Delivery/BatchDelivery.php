@@ -6,6 +6,7 @@ use Closure;
 use Illuminate\Contracts\Container\Container;
 use PostHog\Consumer\LibCurl;
 use PostHog\Laravel\PostHog;
+use PostHog\Laravel\ProjectToken;
 use PostHog\StringNormalizer;
 
 /** @internal Uses verified HTTP in workers without re-enriching or re-enqueueing events. */
@@ -27,13 +28,13 @@ class BatchDelivery extends LibCurl
         if (isset($options['error_handler'])) {
             $options['error_handler'] = Closure::fromCallable($options['error_handler']);
         }
-        parent::__construct(StringNormalizer::normalizeOptional($config['api_key'] ?? null) ?? '', $options);
+        parent::__construct(ProjectToken::fromConfig($config) ?? '', $options);
     }
 
     public function deliver(string $events): void
     {
         if (trim($this->apiKey) === '') {
-            throw new DeliveryFailed('PostHog queued delivery requires a project API key.');
+            throw new DeliveryFailed('PostHog queued delivery requires a project token.');
         }
         $result = $this->flushBatch(json_decode($events, flags: JSON_THROW_ON_ERROR));
         if ($result !== true) {

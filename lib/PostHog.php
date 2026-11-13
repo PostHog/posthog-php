@@ -10,7 +10,11 @@ use Exception;
 class PostHog
 {
     public const LIBRARY = 'posthog-php';
-    public const VERSION = '4.22.1';
+    public const VERSION = '4.24.0';
+    public const ENV_PROJECT_TOKEN = "POSTHOG_PROJECT_TOKEN";
+    /**
+     * @deprecated Use ENV_PROJECT_TOKEN. POSTHOG_API_KEY is still read when POSTHOG_PROJECT_TOKEN is unset or blank.
+     */
     public const ENV_API_KEY = "POSTHOG_API_KEY";
     public const ENV_HOST = "POSTHOG_HOST";
 
@@ -19,12 +23,13 @@ class PostHog
     /**
      * Initializes the default client to use. Uses the libcurl consumer by default.
      *
-     * When $apiKey is omitted or blank, POSTHOG_API_KEY is used when present. When no
-     * non-empty API key can be resolved, a disabled no-op client is initialized. When the
+     * When $apiKey is omitted or blank, the POSTHOG_PROJECT_TOKEN environment variable is used, then
+     * the older POSTHOG_API_KEY. When no non-empty project token can be resolved, a disabled
+     * no-op client is initialized. When the
      * host option is omitted, POSTHOG_HOST is used when present. When POSTHOG_RELEASE_ID is set,
      * its value is sent as $release_id on every event unless the event already carries one.
      *
-     * @param string|null $apiKey Your project API key.
+     * @param string|null $apiKey Your project token.
      * Time-based options use milliseconds unless the option name says otherwise:
      * `timeout` defaults to 10000ms, `feature_flag_request_timeout_ms` defaults to 3000ms,
      * and `maximum_backoff_duration` defaults to 10000ms for retry backoff. Retry backoff starts
@@ -97,8 +102,7 @@ class PostHog
             $options = $options ?? [];
             $apiKey = StringNormalizer::normalizeOptional($apiKey);
             if ($apiKey === null) {
-                $envApiKey = getenv(self::ENV_API_KEY);
-                $apiKey = $envApiKey === false ? null : StringNormalizer::normalizeOptional($envApiKey);
+                $apiKey = self::tokenFromEnvironment();
             }
 
             $rawHost = null;
@@ -127,6 +131,19 @@ class PostHog
         } else {
             self::$client = $client;
         }
+    }
+
+    private static function tokenFromEnvironment(): ?string
+    {
+        foreach ([self::ENV_PROJECT_TOKEN, self::ENV_API_KEY] as $name) {
+            $value = getenv($name);
+            $token = $value === false ? null : StringNormalizer::normalizeOptional($value);
+            if ($token !== null) {
+                return $token;
+            }
+        }
+
+        return null;
     }
 
     /**

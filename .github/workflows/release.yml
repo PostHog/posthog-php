@@ -6,6 +6,12 @@ on:
     paths:
       - '.changeset/*.md'
   workflow_dispatch:
+    inputs:
+      resume_run_id:
+        description: "Run ID of a partially published Release run to complete with its approved candidate"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -23,6 +29,7 @@ concurrency:
 jobs:
   check-changesets:
     name: Check for change intents
+    if: ${{ !inputs.resume_run_id }}
     runs-on: ubuntu-latest
     outputs:
       has-changesets: ${{ steps.check.outputs.has-changesets }}
@@ -227,8 +234,8 @@ jobs:
 
   notify-approval-needed:
     name: Notify Slack - Approval Needed
-    needs: [check-changesets, prepare-release-candidate, verify-release-candidate]
-    if: needs.check-changesets.outputs.has-changesets == 'true' && needs.prepare-release-candidate.result == 'success' && needs.verify-release-candidate.result == 'success'
+    needs: [check-changesets, prepare-release-candidate, verify-release-candidate, resume-check]
+    if: always() && !cancelled() && ((needs.check-changesets.outputs.has-changesets == 'true' && needs.prepare-release-candidate.result == 'success' && needs.verify-release-candidate.result == 'success') || (needs.resume-check.result == 'success' && needs.resume-check.outputs.slack-ts == ''))
     uses: posthog/.github/.github/workflows/notify-approval-needed.yml@5ba5d24966f2c416ca792654638e4ce6f19f545b # main
     with:
       slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
@@ -240,6 +247,26 @@ jobs:
       slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
       posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
 
+  preserve-slack-thread:
+    name: Preserve Slack thread
+    needs: notify-approval-needed
+    if: needs.notify-approval-needed.outputs.slack_ts != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - name: Save approval thread timestamp
+        env:
+          THREAD_TS: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+        run: printf '%s' "$THREAD_TS" > thread-ts.txt
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-slack-thread-${{ github.run_attempt }}
+          path: thread-ts.txt
+          retention-days: 30
+          if-no-files-found: error
+
   release:
     name: Publish PHP then Laravel
     needs: [check-changesets, prepare-release-candidate, verify-release-candidate, notify-approval-needed]
@@ -249,10 +276,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-    outputs:
-      core-published: ${{ steps.publish-core.outcome == 'success' }}
-      distribution-published: ${{ steps.publish-distribution.outcome == 'success' }}
-      laravel-published: ${{ steps.publish-laravel.outcome == 'success' }}
     steps:
       - name: Notify Slack - Approved
         if: needs.notify-approval-needed.outputs.slack_ts != ''
@@ -363,22 +386,7 @@ jobs:
       - name: Wait for the exact published core and verify production dependencies
         env:
           CORE_VERSION: ${{ needs.prepare-release-candidate.outputs.core-version }}
-        run: |
-          set -euo pipefail
-          mkdir "$RUNNER_TEMP/production-check"
-          tar -xzf "$RUNNER_TEMP/candidate/package.tar.gz" -C "$RUNNER_TEMP/production-check"
-          for attempt in {1..30}; do
-            if curl --fail --silent --show-error --connect-timeout 10 --max-time 30 https://repo.packagist.org/p2/posthog/posthog-php.json -o "$RUNNER_TEMP/core.json" &&
-              python3 -c 'import json,sys; sys.exit(not any(v["version"].lstrip("v") == sys.argv[1] for v in json.load(open(sys.argv[2]))["packages"]["posthog/posthog-php"]))' "$CORE_VERSION" "$RUNNER_TEMP/core.json"; then
-              composer install --working-dir="$RUNNER_TEMP/production-check" --no-dev --prefer-dist --no-progress --no-interaction --no-scripts --no-plugins
-              exit 0
-            fi
-            if [ "$attempt" -eq 30 ]; then
-              echo "Core $CORE_VERSION is not available on Packagist; Laravel was not published" >&2
-              exit 1
-            fi
-            sleep 20
-          done
+        run: bash scripts/verify-laravel-production-dependencies.sh
       - name: Require signed source commit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -459,20 +467,414 @@ jobs:
           printf '\nDistribution: %s@%s\nArchive SHA256: %s\n' "$DISTRIBUTION_REPOSITORY" "$DISTRIBUTION_COMMIT" "$ARCHIVE_SHA256" >> "$RUNNER_TEMP/candidate/notes.md"
           gh release create "posthog-laravel-v$VERSION" --latest=false --repo "$REPOSITORY" --target "$COMMIT" --title "posthog-laravel-v$VERSION" --notes-file "$RUNNER_TEMP/candidate/notes.md" "$RUNNER_TEMP/candidate/package.tar.gz" "$RUNNER_TEMP/candidate/candidate.json"
 
-  notify-released:
-    name: Notify Slack - Released
-    needs: [prepare-release-candidate, notify-approval-needed, release]
+  resume-check:
+    name: Check resumable publication
+    if: ${{ inputs.resume_run_id }}
     runs-on: ubuntu-latest
-    if: always() && needs.release.result == 'success' && needs.notify-approval-needed.outputs.slack_ts != ''
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      source: ${{ steps.run.outputs.source }}
+      version: ${{ steps.candidate.outputs.version }}
+      core-version: ${{ steps.candidate.outputs.core_version }}
+      core-changed: ${{ steps.candidate.outputs.core_changed }}
+      patch-sha256: ${{ steps.candidate.outputs.patch_sha256 }}
+      archive-sha256: ${{ steps.candidate.outputs.archive_sha256 }}
+      manifest-sha256: ${{ steps.candidate.outputs.manifest_sha256 }}
+      version-commit: ${{ steps.candidate.outputs.version_commit }}
+      slack-ts: ${{ steps.thread.outputs.slack_ts }}
     steps:
-      - name: Notify Slack - Released
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require a completed Release run of this repository on main
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          RESUME_RUN_ID: ${{ inputs.resume_run_id }}
+        run: |
+          set -euo pipefail
+          test "$REF" = refs/heads/main
+          [[ "$RESUME_RUN_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/$REPOSITORY/actions/runs/$RESUME_RUN_ID" > "$RUNNER_TEMP/resume-run.json"
+          SOURCE=$(python3 - "$RUNNER_TEMP/resume-run.json" "$REPOSITORY" <<'PY'
+          import json, re, sys
+          run, repository = json.load(open(sys.argv[1])), sys.argv[2].lower()
+          if not (run["name"] == "Release" and run["path"] == ".github/workflows/release.yml"
+                  and run["head_branch"] == "main" and run["event"] in {"push", "workflow_dispatch"}
+                  and run["status"] == "completed"
+                  and run["repository"]["full_name"].lower() == repository
+                  and run["head_repository"]["full_name"].lower() == repository
+                  and re.fullmatch(r"[0-9a-f]{40}", run["head_sha"])):
+              raise SystemExit("Resume requires a completed Release run of this repository on main")
+          print(run["head_sha"])
+          PY
+          )
+          AVAILABLE=$(gh api "repos/$REPOSITORY/actions/runs/$RESUME_RUN_ID/artifacts?name=release-candidate-$SOURCE" --jq '[.artifacts[] | select(.expired | not)] | length')
+          if [ "$AVAILABLE" != 1 ]; then
+            echo "Approved candidate release-candidate-$SOURCE is missing or expired; see Partial publication in RELEASING.md" >&2
+            exit 1
+          fi
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+      - name: Download the resumed run's approval thread
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-slack-thread-*
+          path: ${{ runner.temp }}/resumed-slack-thread
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.resume_run_id }}
+      - name: Reuse the approval thread
+        id: thread
+        continue-on-error: true
+        env:
+          DIRECTORY: ${{ runner.temp }}/resumed-slack-thread
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          FILE="$DIRECTORY/thread-ts.txt"
+          if [ ! -f "$FILE" ]; then
+            ATTEMPTS=("$DIRECTORY"/release-slack-thread-*/thread-ts.txt)
+            FILE=$(printf '%s\n' "${ATTEMPTS[@]}" | sort -V | tail -1)
+          fi
+          THREAD_TS=$(cat "$FILE")
+          [[ "$THREAD_TS" =~ ^[0-9]+\.[0-9]+$ ]]
+          printf '%s' "$THREAD_TS" > "$RUNNER_TEMP/thread-ts.txt"
+          echo "slack_ts=$THREAD_TS" >> "$GITHUB_OUTPUT"
+      - name: Preserve the approval thread for failure alerts
+        if: steps.thread.outputs.slack_ts != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-slack-thread-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/thread-ts.txt
+          retention-days: 30
+          if-no-files-found: error
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-candidate-${{ steps.run.outputs.source }}
+          path: ${{ runner.temp }}/candidate
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.resume_run_id }}
+      - name: Verify the approved candidate and its signed shared version commit
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE: ${{ steps.run.outputs.source }}
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/candidate" "$SOURCE" >> "$GITHUB_OUTPUT" <<'PY'
+          import hashlib, json, pathlib, sys
+          candidate = pathlib.Path(sys.argv[1])
+          manifest = json.loads((candidate / "candidate.json").read_text())
+          if manifest["source"] != sys.argv[2]:
+              raise SystemExit("Candidate source does not match the resumed run")
+          for name, key in [("release.patch", "patch_sha256"), ("package.tar.gz", "archive_sha256")]:
+              if hashlib.sha256((candidate / name).read_bytes()).hexdigest() != manifest[key]:
+                  raise SystemExit(f"{name} does not match candidate.json")
+          for key, value in manifest.items():
+              print(f'{key}={str(value).lower() if isinstance(value, bool) else value}')
+          print(f'manifest_sha256={hashlib.sha256((candidate / "candidate.json").read_bytes()).hexdigest()}')
+          PY
+          if ! python3 scripts/release.py validate --candidate "$RUNNER_TEMP/candidate"; then
+            echo "main no longer carries the candidate versions; a later release consumed them" >&2
+            exit 1
+          fi
+          COMMIT=$(PATCH="$RUNNER_TEMP/candidate/release.patch" bash scripts/find-version-commit.sh)
+          echo "version_commit=$COMMIT" >> "$GITHUB_OUTPUT"
+      - name: Check release refs are unused or already at the expected commits
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          VERSION: ${{ steps.candidate.outputs.version }}
+          CORE_VERSION: ${{ steps.candidate.outputs.core_version }}
+          CORE_CHANGED: ${{ steps.candidate.outputs.core_changed }}
+          RESUME_SOURCE_COMMIT: ${{ steps.candidate.outputs.version_commit }}
+        run: |
+          set -euo pipefail
+          RESUME_DISTRIBUTION_COMMIT=$(gh api "repos/$DISTRIBUTION_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          export RESUME_DISTRIBUTION_COMMIT
+          bash scripts/check-release-refs.sh
+      - name: Notify Slack - Resume approval needed
+        if: steps.thread.outputs.slack_ts != ''
+        continue-on-error: true
         uses: posthog/.github/.github/actions/slack-thread-reply@cb0979b67dcd585828b61ac45927eef4da8f6287 # main
         with:
           slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
           slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-          thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-          message: "🚀 Released ${{ needs.prepare-release-candidate.outputs.core-changed == 'true' && format('posthog-php@{0} and ', needs.prepare-release-candidate.outputs.core-version) || '' }}posthog-laravel@${{ needs.prepare-release-candidate.outputs.version }} successfully!"
+          thread_ts: ${{ steps.thread.outputs.slack_ts }}
+          emoji_reaction: hourglass_flowing_sand
+          message: "<!subteam^${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}|@support-hero-client-libraries> Resume approval needed: <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|run ${{ github.run_id }}> completes ${{ steps.candidate.outputs.core_changed == 'true' && format('PHP core {0} and ', steps.candidate.outputs.core_version) || '' }}Laravel ${{ steps.candidate.outputs.version }} from run ${{ inputs.resume_run_id }}. Please review and approve the resume."
+      - name: Send failure event to PostHog
+        if: ${{ failure() }}
+        continue-on-error: true
+        uses: PostHog/posthog-github-action@9a6a19d360820ab4d95ecc4a5a7564062c895f84 # v1.3.0
+        with:
+          posthog-token: "${{ secrets.POSTHOG_PROJECT_API_KEY }}"
+          event: "posthog-sdk-github-release-workflow-failure"
+          properties: >-
+            {
+              "commitSha": "${{ github.sha }}",
+              "jobStatus": "${{ job.status }}",
+              "ref": "${{ github.ref }}",
+              "repository": "${{ github.repository }}",
+              "sdk": "posthog-php",
+              "jobName": "resume-check",
+              "packageName": "posthog-php,posthog-laravel",
+              "packageVersion": "${{ steps.candidate.outputs.version || 'unknown' }}",
+              "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "alertText": ":rotating_light: posthog-php release resume check failed :rotating_light:",
+              "alertContext": "Resuming the partially published release run failed its checks before approval."
+            }
+
+  resume-publication:
+    name: Resume publication
+    needs: [resume-check, notify-approval-needed]
+    if: always() && !cancelled() && needs.resume-check.result == 'success' && (needs.notify-approval-needed.result == 'success' || needs.notify-approval-needed.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: Release
+    env:
+      SLACK_TS: ${{ needs.resume-check.outputs.slack-ts || needs.notify-approval-needed.outputs.slack_ts }}
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Notify Slack - Approved
+        if: env.SLACK_TS != ''
+        continue-on-error: true
+        uses: posthog/.github/.github/actions/slack-thread-reply@cb0979b67dcd585828b61ac45927eef4da8f6287 # main
+        with:
+          slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+          slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+          thread_ts: ${{ env.SLACK_TS }}
+          remove_emoji_reaction: hourglass_flowing_sand
+          message: "✅ Resume approved! Completing the missing publication..."
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-candidate-${{ needs.resume-check.outputs.source }}
+          path: ${{ runner.temp }}/candidate
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.resume_run_id }}
+      - name: Recheck main, refs, approved candidate digests and the shared version commit
+        id: recheck
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          SOURCE: ${{ needs.resume-check.outputs.source }}
+          VERSION: ${{ needs.resume-check.outputs.version }}
+          CORE_VERSION: ${{ needs.resume-check.outputs.core-version }}
+          CORE_CHANGED: ${{ needs.resume-check.outputs.core-changed }}
+          EXPECTED_MAIN: ${{ github.sha }}
+          EXPECTED_PATCH: ${{ needs.resume-check.outputs.patch-sha256 }}
+          EXPECTED_ARCHIVE: ${{ needs.resume-check.outputs.archive-sha256 }}
+          EXPECTED_MANIFEST: ${{ needs.resume-check.outputs.manifest-sha256 }}
+          RESUME_SOURCE_COMMIT: ${{ needs.resume-check.outputs.version-commit }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$SOURCE_REPOSITORY/git/ref/heads/main" --jq '.object.sha')" = "$EXPECTED_MAIN"
+          echo "$EXPECTED_PATCH  $RUNNER_TEMP/candidate/release.patch" | sha256sum --check --strict
+          echo "$EXPECTED_ARCHIVE  $RUNNER_TEMP/candidate/package.tar.gz" | sha256sum --check --strict
+          echo "$EXPECTED_MANIFEST  $RUNNER_TEMP/candidate/candidate.json" | sha256sum --check --strict
+          python3 scripts/release.py validate --candidate "$RUNNER_TEMP/candidate"
+          test "$(PATCH="$RUNNER_TEMP/candidate/release.patch" bash scripts/find-version-commit.sh)" = "$RESUME_SOURCE_COMMIT"
+          RESUME_DISTRIBUTION_COMMIT=$(gh api "repos/$DISTRIBUTION_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          export RESUME_DISTRIBUTION_COMMIT
+          bash scripts/check-release-refs.sh | tee -a "$GITHUB_OUTPUT"
+      - name: Get GitHub App token
+        id: releaser
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_APP_ID }}
+          private-key: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          skip-token-revoke: false
+      - name: Require the releaser App authored the shared version commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          APP_SLUG: ${{ steps.releaser.outputs.app-slug }}
+          COMMIT: ${{ needs.resume-check.outputs.version-commit }}
+        run: test "$(gh api "repos/$REPOSITORY/commits/$COMMIT" --jq '.author.login')" = "${APP_SLUG}[bot]"
+      - name: Publish core GitHub release if missing
+        if: needs.resume-check.outputs.core-changed == 'true' && steps.recheck.outputs.core-release == 'missing'
+        env:
+          GH_TOKEN: ${{ steps.releaser.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          VERSION: ${{ needs.resume-check.outputs.core-version }}
+          COMMIT: ${{ needs.resume-check.outputs.version-commit }}
+        run: gh release create "$VERSION" --repo "$REPOSITORY" --target "$COMMIT" --title "$VERSION" --notes-file "$RUNNER_TEMP/candidate/core-notes.md"
+      - name: Revoke source release token before dependency checks
+        env:
+          GH_TOKEN: ${{ steps.releaser.outputs.token }}
+        run: gh api --method DELETE /installation/token
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2.40.0
+        with:
+          php-version: '8.4'
+          extensions: curl, mbstring, dom, xml, sqlite3, pdo_sqlite
+          tools: composer
+      - name: Wait for the exact published core and verify production dependencies
+        env:
+          CORE_VERSION: ${{ needs.resume-check.outputs.core-version }}
+        run: bash scripts/verify-laravel-production-dependencies.sh
+      - name: Resolve distribution repository
+        id: distribution-repository
+        env:
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+        run: python3 scripts/resolve_distribution_repository.py >> "$GITHUB_OUTPUT"
+      - name: Get distribution GitHub App token
+        id: distribution-releaser
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_APP_ID }}
+          private-key: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ steps.distribution-repository.outputs.name }}
+          permission-contents: write
+          skip-token-revoke: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          ref: main
+          path: laravel-distribution
+          token: ${{ steps.distribution-releaser.outputs.token }}
+          persist-credentials: false
+      - name: Replace dedicated distribution tree with package-only files
+        env:
+          REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+        run: python3 scripts/release.py install --candidate "$RUNNER_TEMP/candidate" --destination "$GITHUB_WORKSPACE/laravel-distribution" --repository "$REPOSITORY"
+      - name: Reuse or create the GitHub-signed distribution commit
+        id: distribution-commit
+        env:
+          GH_TOKEN: ${{ steps.distribution-releaser.outputs.token }}
+          REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          VERSION: ${{ needs.resume-check.outputs.version }}
+          SOURCE: ${{ needs.resume-check.outputs.source }}
+          DISTRIBUTION_TAG: ${{ steps.recheck.outputs.distribution-tag }}
+        run: |
+          set -euo pipefail
+          if [ "$DISTRIBUTION_TAG" = present ] && [ -n "$(git -C "$GITHUB_WORKSPACE/laravel-distribution" status --porcelain)" ]; then
+            echo "Distribution tag $VERSION exists but distribution main does not hold the approved archive" >&2
+            exit 1
+          fi
+          python3 scripts/commit_release.py --checkout "$GITHUB_WORKSPACE/laravel-distribution" --repository "$REPOSITORY" --mode distribution --candidate "$RUNNER_TEMP/candidate" --message "Release $VERSION from source $SOURCE" >> "$GITHUB_OUTPUT"
+      - name: Recheck refs at the resolved distribution commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          VERSION: ${{ needs.resume-check.outputs.version }}
+          CORE_VERSION: ${{ needs.resume-check.outputs.core-version }}
+          CORE_CHANGED: ${{ needs.resume-check.outputs.core-changed }}
+          RESUME_SOURCE_COMMIT: ${{ needs.resume-check.outputs.version-commit }}
+          RESUME_DISTRIBUTION_COMMIT: ${{ steps.distribution-commit.outputs.commit-hash }}
+        run: bash scripts/check-release-refs.sh
+      - name: Publish distribution version if missing
+        if: steps.recheck.outputs.distribution-release == 'missing'
+        env:
+          GH_TOKEN: ${{ steps.distribution-releaser.outputs.token }}
+          REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          COMMIT: ${{ steps.distribution-commit.outputs.commit-hash }}
+          VERSION: ${{ needs.resume-check.outputs.version }}
+        run: |
+          set -euo pipefail
+          test -n "$COMMIT"
+          test "$(gh api "repos/$REPOSITORY/commits/$COMMIT" --jq '.commit.verification.verified')" = true
+          gh release create "$VERSION" --repo "$REPOSITORY" --target "$COMMIT" --title "$VERSION" --notes-file "$RUNNER_TEMP/candidate/notes.md"
+      - name: Get source GitHub App token
+        id: source-releaser
+        if: steps.recheck.outputs.source-release == 'missing'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_APP_ID }}
+          private-key: ${{ secrets.GH_APP_POSTHOG_PHP_RELEASER_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          skip-token-revoke: false
+      - name: Publish independent source release and archive if missing
+        if: steps.recheck.outputs.source-release == 'missing'
+        env:
+          GH_TOKEN: ${{ steps.source-releaser.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ needs.resume-check.outputs.version-commit }}
+          VERSION: ${{ needs.resume-check.outputs.version }}
+          DISTRIBUTION_REPOSITORY: ${{ vars.LARAVEL_DISTRIBUTION_REPOSITORY }}
+          DISTRIBUTION_COMMIT: ${{ steps.distribution-commit.outputs.commit-hash }}
+          ARCHIVE_SHA256: ${{ needs.resume-check.outputs.archive-sha256 }}
+        run: |
+          set -euo pipefail
+          printf '\nDistribution: %s@%s\nArchive SHA256: %s\n' "$DISTRIBUTION_REPOSITORY" "$DISTRIBUTION_COMMIT" "$ARCHIVE_SHA256" >> "$RUNNER_TEMP/candidate/notes.md"
+          gh release create "posthog-laravel-v$VERSION" --latest=false --repo "$REPOSITORY" --target "$COMMIT" --title "posthog-laravel-v$VERSION" --notes-file "$RUNNER_TEMP/candidate/notes.md" "$RUNNER_TEMP/candidate/package.tar.gz" "$RUNNER_TEMP/candidate/candidate.json"
+      - name: Send failure event to PostHog
+        if: ${{ failure() }}
+        continue-on-error: true
+        uses: PostHog/posthog-github-action@9a6a19d360820ab4d95ecc4a5a7564062c895f84 # v1.3.0
+        with:
+          posthog-token: "${{ secrets.POSTHOG_PROJECT_API_KEY }}"
+          event: "posthog-sdk-github-release-workflow-failure"
+          properties: >-
+            {
+              "commitSha": "${{ github.sha }}",
+              "jobStatus": "${{ job.status }}",
+              "ref": "${{ github.ref }}",
+              "repository": "${{ github.repository }}",
+              "sdk": "posthog-php",
+              "jobName": "resume-publication",
+              "packageName": "posthog-php,posthog-laravel",
+              "packageVersion": "posthog-php@${{ needs.resume-check.outputs.core-version }},posthog-laravel@${{ needs.resume-check.outputs.version }}",
+              "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "alertText": ":rotating_light: Failed to resume PHP/Laravel publication :rotating_light:",
+              "alertContext": "Resuming the partially published release failed before completion."
+            }
+
+  notify-released:
+    name: Notify Slack - Released
+    needs: [prepare-release-candidate, notify-approval-needed, release, resume-check, resume-publication]
+    runs-on: ubuntu-latest
+    if: always() && ((needs.release.result == 'success' && needs.notify-approval-needed.outputs.slack_ts != '') || needs.resume-publication.result == 'success')
+    env:
+      SLACK_TS: ${{ needs.notify-approval-needed.outputs.slack_ts || needs.resume-check.outputs.slack-ts }}
+      CORE_CHANGED: ${{ needs.prepare-release-candidate.outputs.core-changed || needs.resume-check.outputs.core-changed }}
+      CORE_VERSION: ${{ needs.prepare-release-candidate.outputs.core-version || needs.resume-check.outputs.core-version }}
+      VERSION: ${{ needs.prepare-release-candidate.outputs.version || needs.resume-check.outputs.version }}
+    steps:
+      - name: Notify Slack - Released
+        if: env.SLACK_TS != ''
+        uses: posthog/.github/.github/actions/slack-thread-reply@cb0979b67dcd585828b61ac45927eef4da8f6287 # main
+        with:
+          slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+          slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+          thread_ts: ${{ env.SLACK_TS }}
+          message: "🚀 Released ${{ env.CORE_CHANGED == 'true' && format('posthog-php@{0} and ', env.CORE_VERSION) || '' }}posthog-laravel@${{ env.VERSION }} successfully!"
           emoji_reaction: "rocket"
+      - name: Notify Slack - Released without an approval thread
+        if: env.SLACK_TS == ''
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+          errors: true
+          payload: |
+            {
+              "channel": "${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}",
+              "text": "🚀 Released ${{ env.CORE_CHANGED == 'true' && format('posthog-php@{0} and ', env.CORE_VERSION) || '' }}posthog-laravel@${{ env.VERSION }} successfully!"
+            }
 
   notify-release-failed:
     name: Notify Slack/PostHog - Release Failed
@@ -527,20 +929,6 @@ jobs:
               "alertText": ":rotating_light: Failed to release PHP/Laravel packages :rotating_light:",
               "alertContext": "The release workflow failed before completion."
             }
-
-      - name: Notify Slack - Failed
-        if: steps.check-failure.outputs.was_rejected != 'true'
-        uses: posthog/.github/.github/actions/slack-thread-reply@cb0979b67dcd585828b61ac45927eef4da8f6287 # main
-        with:
-          slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-          slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-          thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-          message: |
-            ❌ Release workflow failed or was cancelled.
-            ${{ needs.prepare-release-candidate.outputs.core-changed == 'true' && format('posthog-php@{0}: {1}', needs.prepare-release-candidate.outputs.core-version, needs.release.outputs.core-published == 'true' && 'published' || 'not completed') || 'posthog-php: unchanged (no release planned)' }}
-            posthog-laravel@${{ needs.prepare-release-candidate.outputs.version }}: ${{ needs.release.outputs.laravel-published == 'true' && 'published' || needs.release.outputs.distribution-published == 'true' && 'mirror published; source release incomplete' || 'not completed' }}
-            <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>
-          emoji_reaction: "x"
 
       - name: Notify Slack - Rejected
         if: steps.check-failure.outputs.was_rejected == 'true'
