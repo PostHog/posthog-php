@@ -99,6 +99,36 @@ class RemoteConfigPayloadTest extends TestCase
         $this->assertStringContainsString('invalid JSON response', $errorMessages[0]);
     }
 
+    #[DataProvider('emptyBodies')]
+    public function testReturnsNullWithoutLoggingForEmpty2xxBody(string $body)
+    {
+        global $errorMessages;
+        $http = $this->httpClient($body);
+        $client = $this->client($http);
+
+        $this->assertNull($client->getRemoteConfigPayload('test-flag'));
+        $this->assertCount(1, $http->calls);
+        $this->assertSame([], $errorMessages);
+    }
+
+    public static function emptyBodies(): array
+    {
+        return [
+            'empty' => [''],
+            'whitespace' => [" \r\n\t"],
+        ];
+    }
+
+    public function testReturnsNullAndLogsOn404WithEmptyBody()
+    {
+        global $errorMessages;
+        $client = $this->client($this->httpClient('', 404));
+
+        $this->assertNull($client->getRemoteConfigPayload('test-flag'));
+        $this->assertCount(1, $errorMessages);
+        $this->assertStringContainsString('HTTP 404', $errorMessages[0]);
+    }
+
     public function testReturnsNullAndLogsWhenNoSecretKey()
     {
         global $errorMessages;

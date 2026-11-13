@@ -1232,7 +1232,8 @@ class Client implements FeatureFlagEvaluationsHost
      * API Key returns them redacted. The call sends one request, with no retry, and captures no
      * `$feature_flag_called` event. It logs a warning and returns null when the client is disabled,
      * when no secret key is set, when the key is empty, `.` or `..`, when the request fails, or when
-     * PostHog answers with a non-2xx status.
+     * PostHog answers with a non-2xx status. An empty response means the flag has no payload: the
+     * call returns null without a warning.
      *
      * @param string $key Feature flag key.
      * @return mixed The decoded payload, or null when no payload could be read.
@@ -1277,8 +1278,14 @@ class Client implements FeatureFlagEvaluationsHost
             return null;
         }
 
+        // PostHog answers a flag that has no payload with an empty 2xx body.
+        $body = (string) $response->getResponse();
+        if (trim($body) === '') {
+            return null;
+        }
+
         try {
-            $result = json_decode((string) $response->getResponse(), true, 512, JSON_THROW_ON_ERROR);
+            $result = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             error_log('[PostHog][Client] Unable to read remote config payload: invalid JSON response');
             return null;
