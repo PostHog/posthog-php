@@ -72,8 +72,10 @@ jobs:
       - name: Check public API snapshot
         run: composer api:check
 
-      - name: Install Laravel dependencies
-        run: composer install --working-dir=packages/laravel --prefer-dist --no-progress
+      - name: Install Laravel dependencies against the current SDK
+        run: |
+          composer --working-dir=packages/laravel config repositories.current-sdk path ../..
+          composer install --working-dir=packages/laravel --prefer-dist --no-progress
 
       - name: Check Laravel public API snapshot
         run: composer api:check:laravel

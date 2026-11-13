@@ -266,6 +266,44 @@ No cache is enabled implicitly, and there is no background timer. The PHP client
 `loadFlags()` remains available for an explicit refresh. You can instead supply a
 custom provider class in `sdk.flag_definition_cache_provider`.
 
+## Send email
+
+Add a `posthog` mailer to `config/mail.php` and set `MAIL_MAILER=posthog`. Every
+Mailable and mail notification then sends through PostHog's transactional email
+API. It needs `POSTHOG_API_KEY` and the project secret key in `POSTHOG_SECRET_KEY`:
+
+```php
+'mailers' => [
+    'posthog' => [
+        'transport' => 'posthog',
+        // Optional: the template key of mail that has no class, such as Mail::raw().
+        'default_template_key' => 'app-mail',
+    ],
+],
+```
+
+Each mail sends under its class name in kebab case as its template key, so
+`App\Mail\OrderShipped` groups as `order-shipped` in PostHog. Set options on a
+Mailable with headers, which never go out with the email:
+
+```php
+public function headers(): Headers
+{
+    return new Headers(text: [
+        'X-PostHog-Distinct-Id' => (string) $this->order->user_id,
+        // A queued Mailable retries with the same key, so PostHog sends it once.
+        'X-PostHog-Idempotency-Key' => "order-{$this->order->id}-shipped",
+    ]);
+}
+```
+
+`X-PostHog-Template-Key` overrides the template key. An email PostHog can't carry,
+such as one with two `To` addresses or custom headers, throws
+`PostHog cannot send this email: <code>` and sends nothing. A failed send throws
+`PostHog\Mailer\PostHogTransportException`, whose `isRetryable()` says whether
+sending again with the same idempotency key is safe. Templates made in PostHog
+aren't supported here; send them with `PostHog::client()->emails()->send()`.
+
 ## Configuration callbacks and full PHP access
 
 `posthog.sdk` passes PHP SDK options through. `before_send`, `error_handler`, and
