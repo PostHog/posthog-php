@@ -210,6 +210,16 @@ class RemoteConfigPayloadTest extends TestCase
         $this->assertStringContainsString('curl errno ' . $errno, $errorMessages[0]);
     }
 
+    public function testReturnsNullAndLogsWhenTransferFailsAfter2xxHeaders()
+    {
+        global $errorMessages;
+        $client = $this->client($this->httpClient(false, 200, 28));
+
+        $this->assertNull($client->getRemoteConfigPayload('test-flag'));
+        $this->assertCount(1, $errorMessages);
+        $this->assertStringContainsString('curl errno 28', $errorMessages[0]);
+    }
+
     public static function curlErrnos(): array
     {
         return [[28], [6]];

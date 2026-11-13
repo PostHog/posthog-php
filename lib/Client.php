@@ -1270,10 +1270,14 @@ class Client implements FeatureFlagEvaluationsHost
         );
 
         $code = $response->getResponseCode();
-        if ($code < 200 || $code >= 300) {
+        // cURL keeps the 2xx status when the transfer fails after the headers arrive.
+        $curlErrno = $response->getCurlErrno();
+        if ($curlErrno !== 0 || $code < 200 || $code >= 300) {
             error_log(
                 '[PostHog][Client] Unable to fetch remote config payload: '
-                . ($code === 0 ? 'connection error (curl errno ' . $response->getCurlErrno() . ')' : 'HTTP ' . $code)
+                . ($curlErrno !== 0 || $code === 0
+                    ? 'connection error (curl errno ' . $curlErrno . ')'
+                    : 'HTTP ' . $code)
             );
             return null;
         }
