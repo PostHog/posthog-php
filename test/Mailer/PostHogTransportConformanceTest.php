@@ -339,6 +339,34 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->assertSame(['invoice.pdf'], array_column($this->body()['attachments'], 'filename'));
     }
 
+    public function testAnAttachmentWhoseContentIdIsSetAsAHeaderSendsThatId(): void
+    {
+        $logo = new DataPart(base64_decode('iVBORw0KGgo='), 'logo.png', 'image/png');
+        $logo->getHeaders()->addIdHeader('Content-ID', 'logo@shop.example');
+        $email = self::shipped()->html('<img src="cid:logo@shop.example">')->addPart($logo);
+
+        $this->transport()->send($email);
+
+        $this->assertSame('logo@shop.example', $this->body()['attachments'][0]['content_id']);
+    }
+
+    public function testTheEmailsOwnRenderedBodySetAsItsBodySends(): void
+    {
+        $email = self::shipped()->html('<p>On its way.</p><img src="cid:logo">')
+            ->embed(base64_decode('iVBORw0KGgo='), 'logo', 'image/png');
+        $email->setBody($email->getBody());
+        if ($email->getAttachments()[0]->getName() !== 'logo') {
+            $this->markTestSkipped(
+                'Symfony Mime before 6.4.37 and 7.4.9 renames the part when the app renders the email.'
+            );
+        }
+
+        $this->transport()->send($email);
+
+        $this->assertSame('<p>On its way.</p><img src="cid:logo">', $this->body()['html']);
+        $this->assertSame('logo', $this->body()['attachments'][0]['content_id']);
+    }
+
     public function testABodyFromAStreamThatCannotRewindSendsInFull(): void
     {
         $html = self::streamThatCannotRewind('<p>On its way.</p><img src="cid:logo">');
@@ -608,6 +636,27 @@ final class PostHogTransportConformanceTest extends TestCase
                     new TextPart('On its way.'),
                     (new TextPart('<p>On its way.</p>', 'utf-8', 'html'))->setDisposition('attachment')
                 )),
+                'unsupported_part',
+            ],
+            'a body part with a header of its own' => [
+                function () {
+                    $text = new TextPart('On its way.');
+                    $text->getHeaders()->addTextHeader('X-Note', 'kept by Symfony');
+                    return self::shipped()->setBody(
+                        new AlternativePart($text, new TextPart('<p>On its way.</p>', 'utf-8', 'html'))
+                    );
+                },
+                'unsupported_part',
+            ],
+            'a multipart body with a header of its own' => [
+                function () {
+                    $body = new AlternativePart(
+                        new TextPart('On its way.'),
+                        new TextPart('<p>On its way.</p>', 'utf-8', 'html')
+                    );
+                    $body->getHeaders()->addTextHeader('X-Note', 'kept by Symfony');
+                    return self::shipped()->setBody($body);
+                },
                 'unsupported_part',
             ],
             '13 a Return-Path other than the From address' => [

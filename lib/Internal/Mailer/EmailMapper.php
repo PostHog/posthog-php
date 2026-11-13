@@ -10,9 +10,11 @@ use Symfony\Component\Mailer\RemoteTemplateEmail;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
 use Symfony\Component\Mime\Header\HeaderInterface;
+use Symfony\Component\Mime\Header\IdentificationHeader;
 use Symfony\Component\Mime\Header\UnstructuredHeader;
 use Symfony\Component\Mime\Message;
 use Symfony\Component\Mime\Part\AbstractMultipartPart;
+use Symfony\Component\Mime\Part\AbstractPart;
 use Symfony\Component\Mime\Part\DataPart;
 use Symfony\Component\Mime\Part\TextPart;
 
@@ -191,6 +193,12 @@ final class EmailMapper
         $parts = [$custom];
         while (($part = array_shift($parts)) !== null) {
             $type = "{$part->getMediaType()}/{$part->getMediaSubtype()}";
+            if (self::hasOwnHeaders($part)) {
+                throw self::refusal(
+                    'unsupported_part',
+                    "It can't carry the headers set on the body's $type part; remove them."
+                );
+            }
             if ($part instanceof AbstractMultipartPart) {
                 array_push($parts, ...$part->getParts());
             } elseif ($part instanceof DataPart) {
@@ -237,10 +245,35 @@ final class EmailMapper
         };
         $partCharset = $part->getPreparedHeaders()->getHeaderParameter('Content-Type', 'charset');
 
+        $body = $part->getBody();
+
         return ($expected[$subtype] ?? null) !== null
-            && $part->getBody() === $expected[$subtype]
+            && ($body === $expected[$subtype]
+                || ($subtype === 'html' && $body === self::withContentIds($email, $expected['html'])))
             && strtolower((string) $partCharset) === strtolower((string) $charset)
             && in_array($part->getDisposition(), [null, 'inline'], true);
+    }
+
+    private static function hasOwnHeaders(AbstractPart $part): bool
+    {
+        return array_diff($part->getHeaders()->getNames(), ['content-id']) !== [];
+    }
+
+    /**
+     * The email's HTML with each `cid:<name>` an inline part answers turned into `cid:<content ID>`, as Symfony
+     * writes it when it builds the email's own body.
+     */
+    private static function withContentIds(Email $email, string $html): string
+    {
+        $replacements = [];
+        foreach ($email->getAttachments() as $part) {
+            $name = $part->getName();
+            if ($name !== null && $part->hasContentId() && self::refersTo($html, $name)) {
+                $replacements["cid:$name"] = 'cid:' . $part->getContentId();
+            }
+        }
+
+        return strtr($html, $replacements);
     }
 
     /**
@@ -352,7 +385,7 @@ final class EmailMapper
      */
     private static function attachment(DataPart $part, ?string $html): array
     {
-        if (array_diff($part->getHeaders()->getNames(), ['content-id']) !== []) {
+        if (self::hasOwnHeaders($part)) {
             throw self::refusal(
                 'unsupported_part',
                 "It can't carry the headers set on the attachment {$part->getFilename()}; remove them."
@@ -376,30 +409,46 @@ final class EmailMapper
     private static function contentId(DataPart $part, ?string $html): ?string
     {
         $name = $part->getName();
+        $ownId = self::ownContentId($part);
         if ($name !== null && self::refersTo($html, $name)) {
-            $contentId = $part->hasContentId() ? $part->getContentId() : $name;
-            if ($contentId !== $name && self::refersTo($html, $contentId)) {
+            if ($ownId !== null && $ownId !== $name && self::refersTo($html, $ownId)) {
                 throw self::refusal(
                     'unsupported_part',
-                    "The HTML refers to one inline part as both cid:$name and cid:$contentId; use one."
+                    "The HTML refers to one inline part as both cid:$name and cid:$ownId; use one."
                 );
             }
             return $name;
         }
-        if ($part->hasContentId() && self::refersTo($html, $part->getContentId())) {
-            return $part->getContentId();
+        if ($ownId !== null && self::refersTo($html, $ownId)) {
+            return $ownId;
         }
         if ($part->getDisposition() !== 'inline') {
             return null;
         }
-        if (!$part->hasContentId()) {
+        if ($ownId === null) {
             throw self::refusal(
                 'inline_without_cid',
                 'An inline attachment needs a content ID, or a name the HTML refers to as cid:<name>.'
             );
         }
 
-        return $part->getContentId();
+        return $ownId;
+    }
+
+    /**
+     * The content ID the part was given, by setContentId() or by a Content-ID header of its own, or null.
+     */
+    private static function ownContentId(DataPart $part): ?string
+    {
+        if ($part->hasContentId()) {
+            return $part->getContentId();
+        }
+        $header = $part->getHeaders()->get('Content-ID');
+        if ($header === null) {
+            return null;
+        }
+
+        return $header instanceof IdentificationHeader ? $header->getId() : trim($header->getBodyAsString(), '<> ');
     }
 
     /**
