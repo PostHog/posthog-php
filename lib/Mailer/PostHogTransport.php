@@ -13,7 +13,6 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Mailer\SentMessage;
 use Symfony\Component\Mailer\Transport\AbstractTransport;
-use Symfony\Component\Mime\MessageConverter;
 
 /**
  * Sends Symfony Mailer emails through PostHog's transactional email API, one send per email.
@@ -78,7 +77,7 @@ final class PostHogTransport extends AbstractTransport implements RemoteTemplate
 
     protected function doSend(SentMessage $message): void
     {
-        $send = $this->mapper->map(MessageConverter::toEmail($message->getOriginalMessage()), $message->getEnvelope());
+        $send = $this->mapper->map($message->getOriginalMessage(), $message->getEnvelope());
         try {
             $result = $this->emails->send($send);
         } catch (EmailError $error) {

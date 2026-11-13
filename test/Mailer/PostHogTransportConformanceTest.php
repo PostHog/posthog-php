@@ -15,6 +15,7 @@ use Symfony\Component\Mailer\Header\TrackingHeader;
 use Symfony\Component\Mailer\RemoteTemplateEmail;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\Message;
 use Symfony\Component\Mime\Part\DataPart;
 use Symfony\Component\Mime\Part\Multipart\AlternativePart;
 use Symfony\Component\Mime\Part\Multipart\MixedPart;
@@ -367,6 +368,42 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->assertSame('logo', $this->body()['attachments'][0]['content_id']);
     }
 
+    public function testABodyThatEmailBuiltKeepsTheReferencesItDoesNotRewrite(): void
+    {
+        $badge = (new DataPart(base64_decode('iVBORw0KGgo='), 'badge', 'image/png'))
+            ->setContentId('badge@shop.example')->asInline();
+        $email = self::shipped()->html('<img src="cid:logo"><div style="background: url(cid:badge)">Paid</div>')
+            ->embed(base64_decode('iVBORw0KGgo='), 'logo', 'image/png')
+            ->addPart($badge);
+        $email->setBody($email->getBody());
+        if ($email->getAttachments()[0]->getName() !== 'logo') {
+            $this->markTestSkipped(
+                'Symfony Mime before 6.4.37 and 7.4.9 renames the part when the app renders the email.'
+            );
+        }
+
+        $this->transport()->send($email);
+
+        $this->assertSame(
+            '<img src="cid:logo"><div style="background: url(cid:badge)">Paid</div>',
+            $this->body()['html']
+        );
+        $this->assertSame(['logo', 'badge'], array_column($this->body()['attachments'], 'content_id'));
+    }
+
+    public function testAnAttachmentWithNoNameSendsAFilenameFromItsType(): void
+    {
+        $email = self::shipped()->attach(base64_decode('JVBERi0xLjQK'), null, 'application/pdf')
+            ->attach('bytes', null, 'application/x-posthog-unknown');
+
+        $this->transport()->send($email);
+
+        $this->assertSame(
+            ['attachment.pdf', 'attachment'],
+            array_column($this->body()['attachments'], 'filename')
+        );
+    }
+
     public function testABodyFromAStreamThatCannotRewindSendsInFull(): void
     {
         $html = self::streamThatCannotRewind('<p>On its way.</p><img src="cid:logo">');
@@ -663,6 +700,14 @@ final class PostHogTransportConformanceTest extends TestCase
                 fn() => self::shipped()->sender('shop@example.com')->returnPath('bounce@example.com'),
                 'envelope_mismatch',
             ],
+            'a second Return-Path other than the From address' => [
+                function () {
+                    $email = self::shipped()->returnPath('shop@example.com');
+                    $email->getHeaders()->addPathHeader('Return-Path', 'bounce@example.com');
+                    return $email;
+                },
+                'envelope_mismatch',
+            ],
             'an HTML part when the email has no HTML body' => [
                 fn() => self::shipped()->html(null)->setBody(new AlternativePart(
                     new TextPart('On its way.'),
@@ -685,6 +730,84 @@ final class PostHogTransportConformanceTest extends TestCase
     public function testAnEmailPostHogCannotCarryIsRefusedBeforeAnyRequest(Closure $email, string $code): void
     {
         $this->assertRefused($code, fn() => $this->transport()->send($email()));
+    }
+
+    public function testAMessageThatIsNotAnEmailSendsItsTextAndHtml(): void
+    {
+        $body = new AlternativePart(new TextPart('On its way.'), new TextPart('<p>On its way.</p>', 'utf-8', 'html'));
+
+        $this->transport()->send(new Message(clone self::shipped()->getHeaders(), $body));
+
+        $this->assertSame('<p>On its way.</p>', $this->body()['html']);
+        $this->assertSame('On its way.', $this->body()['text']);
+    }
+
+    public function testAMessageWithBodiesFromStreamsThatCannotRewindSends(): void
+    {
+        $body = new AlternativePart(
+            new TextPart(self::streamThatCannotRewind('On its way.')),
+            new TextPart(self::streamThatCannotRewind('<p>On its way.</p>'), 'utf-8', 'html')
+        );
+
+        $this->transport()->send(new Message(clone self::shipped()->getHeaders(), $body));
+
+        $this->assertSame('<p>On its way.</p>', $this->body()['html']);
+        $this->assertSame('On its way.', $this->body()['text']);
+    }
+
+    public function testAMessageWithAnAttachmentAfterItsBodySendsTheAttachment(): void
+    {
+        $body = new MixedPart(
+            new AlternativePart(new TextPart('On its way.'), new TextPart('<p>On its way.</p>', 'utf-8', 'html')),
+            new DataPart(base64_decode('JVBERi0xLjQK'), 'invoice.pdf', 'application/pdf')
+        );
+
+        $this->transport()->send(new Message(clone self::shipped()->getHeaders(), $body));
+
+        $this->assertSame('<p>On its way.</p>', $this->body()['html']);
+        $this->assertSame(['invoice.pdf'], array_column($this->body()['attachments'], 'filename'));
+    }
+
+    public static function messagesConversionWouldChange(): array
+    {
+        $text = new TextPart('On its way.');
+        $text->getHeaders()->addTextHeader('Content-Language', 'de');
+        $attached = (new TextPart('<p>On its way.</p>', 'utf-8', 'html'))->setDisposition('attachment');
+        $body = new AlternativePart(new TextPart('On its way.'), new TextPart('<p>On its way.</p>', 'utf-8', 'html'));
+        $body->getHeaders()->addTextHeader('X-Note', 'kept by Symfony');
+
+        return [
+            'a text part with a header of its own' => [
+                fn() => new Message(clone self::shipped()->getHeaders(), $text),
+            ],
+            'an HTML part sent as an attachment' => [
+                fn() => new Message(clone self::shipped()->getHeaders(), $attached),
+            ],
+            'a multipart body with a header of its own' => [
+                fn() => new Message(clone self::shipped()->getHeaders(), $body),
+            ],
+            'an attachment as the body' => [
+                fn() => new Message(
+                    clone self::shipped()->getHeaders(),
+                    new DataPart('Invoice 981', 'invoice.txt', 'text/plain')
+                ),
+            ],
+            'an attachment as the first part of a mixed body' => [
+                fn() => new Message(clone self::shipped()->getHeaders(), new MixedPart(
+                    new DataPart('Invoice 981', 'invoice.txt', 'text/plain'),
+                    new DataPart(base64_decode('JVBERi0xLjQK'), 'invoice.pdf', 'application/pdf')
+                )),
+            ],
+        ];
+    }
+
+    /**
+     * @param Closure(): Message $message
+     */
+    #[DataProvider('messagesConversionWouldChange')]
+    public function testAMessageThatConversionToAnEmailWouldChangeIsRefused(Closure $message): void
+    {
+        $this->assertRefused('unsupported_part', fn() => $this->transport()->send($message()));
     }
 
     public function testCase13AnEnvelopeThatDiffersFromTheHeadersIsRefused(): void

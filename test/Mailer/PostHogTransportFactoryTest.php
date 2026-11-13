@@ -2,6 +2,7 @@
 
 namespace PostHog\Test\Mailer;
 
+use Closure;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
@@ -11,6 +12,11 @@ use PostHog\Mailer\PostHogTransportFactory;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\MockClock;
 use Symfony\Component\HttpClient\MockHttpClient;
+use Symfony\Component\HttpClient\NativeHttpClient;
+use Symfony\Component\HttpClient\RetryableHttpClient;
+use Symfony\Component\HttpClient\ScopingHttpClient;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
+use Symfony\Component\HttpClient\Retry\GenericRetryStrategy;
 use Symfony\Component\HttpClient\Response\MockResponse;
 use Symfony\Component\Mailer\Exception\UnsupportedSchemeException;
 use Symfony\Component\Mailer\Transport;
@@ -71,13 +77,143 @@ final class PostHogTransportFactoryTest extends TestCase
         $this->assertCount(1, $this->posthog->queued);
     }
 
+    public static function appCredentials(): array
+    {
+        return [
+            'a bearer token' => [
+                static fn(MockHttpClient $posthog) => $posthog->withOptions(['auth_bearer' => 'app-token']),
+                'app-token',
+            ],
+            'basic auth' => [
+                static fn(MockHttpClient $posthog) => $posthog->withOptions(['auth_basic' => 'app:secret']),
+                base64_encode('app:secret'),
+            ],
+            'an Authorization header' => [
+                static fn(MockHttpClient $posthog) => $posthog->withOptions(
+                    ['headers' => ['Authorization' => 'Token app-token']]
+                ),
+                'app-token',
+            ],
+            'an Authorization header under a scope that matches every URL' => [
+                static fn(MockHttpClient $posthog) => new ScopingHttpClient(
+                    $posthog->withOptions(['headers' => ['Authorization' => 'Token app-token']]),
+                    ['https://' => ['headers' => ['X-App' => 'shop']]]
+                ),
+                'app-token',
+            ],
+            'a bearer token on a scope that matches every URL' => [
+                static fn(MockHttpClient $posthog) => new ScopingHttpClient(
+                    $posthog,
+                    ['https://' => ['auth_bearer' => 'app-token']]
+                ),
+                'app-token',
+            ],
+            'an Authorization header on a scope that matches every URL' => [
+                static fn(MockHttpClient $posthog) => new ScopingHttpClient(
+                    $posthog,
+                    ['https://' => ['headers' => ['Authorization' => 'Token app-token']]]
+                ),
+                'app-token',
+            ],
+        ];
+    }
+
+    /**
+     * @param Closure(MockHttpClient): HttpClientInterface $appClient
+     */
+    #[DataProvider('appCredentials')]
+    public function testTheAppsHttpClientCredentialsStayOffEveryRequest(Closure $appClient, string $credential): void
+    {
+        $this->posthog = new FakePostHog('phs_dsn');
+        $client = $appClient($this->posthog->httpClient());
+        $factory = new PostHogTransportFactory(client: $client);
+
+        (new Transport([$factory]))->fromString('posthog+api://phs_dsn@default')
+            ->send(self::email()->attach("%PDF-1.4\n", 'invoice.pdf', 'application/pdf'));
+
+        $this->assertCount(1, $this->posthog->queued);
+        foreach ($this->posthog->requests as $request) {
+            $this->assertStringNotContainsString($credential, implode("\n", $request['headers']), $request['url']);
+        }
+    }
+
+    public function testTheAppsRetryingHttpClientLeavesRetriesToTheSdk(): void
+    {
+        $previousClock = Clock::get();
+        Clock::set(new MockClock('2026-11-13 12:00:00'));
+        $requests = 0;
+        $busy = new MockHttpClient(static function () use (&$requests): MockResponse {
+            $requests++;
+            return new MockResponse('', ['http_code' => 503]);
+        });
+        $client = new RetryableHttpClient($busy, new GenericRetryStrategy(delayMs: 1), 3);
+        $transport = (new Transport([new PostHogTransportFactory(client: $client)]))
+            ->fromString('posthog+api://phs_dsn@default');
+
+        try {
+            $transport->send(self::email());
+            $this->fail('The send did not fail.');
+        } catch (PostHogTransportException $error) {
+            $this->assertTrue($error->isRetryable());
+            $this->assertSame(3, $requests, 'Only the SDK retries the send.');
+        } finally {
+            Clock::set($previousClock);
+        }
+    }
+
+    public function testAScopeThatSetsRetriesStillLeavesThemToTheSdk(): void
+    {
+        $previousClock = Clock::get();
+        Clock::set(new MockClock('2026-11-13 12:00:00'));
+        $requests = 0;
+        $busy = new MockHttpClient(static function () use (&$requests): MockResponse {
+            $requests++;
+            return new MockResponse('', ['http_code' => 503]);
+        });
+        $client = new ScopingHttpClient(
+            new RetryableHttpClient($busy, new GenericRetryStrategy(delayMs: 1), 3),
+            ['https://' => ['max_retries' => 3]]
+        );
+        $transport = (new Transport([new PostHogTransportFactory(client: $client)]))
+            ->fromString('posthog+api://phs_dsn@default');
+
+        try {
+            $transport->send(self::email());
+            $this->fail('The send did not fail.');
+        } catch (PostHogTransportException $error) {
+            $this->assertSame(3, $requests, 'Only the SDK retries the send.');
+        } finally {
+            Clock::set($previousClock);
+        }
+    }
+
+    public function testAClientWithoutRetriesOfItsOwnSendsAsItIs(): void
+    {
+        $previousClock = Clock::get();
+        Clock::set(new MockClock('2026-11-13 12:00:00'));
+        $transport = (new Transport([new PostHogTransportFactory(client: new NativeHttpClient())]))
+            ->fromString('posthog+api://phs_dsn@127.0.0.1:1');
+
+        try {
+            $transport->send(self::email());
+            $this->fail('The send did not fail.');
+        } catch (PostHogTransportException $error) {
+            $this->assertSame('network_error', $error->getErrorCode());
+            $this->assertStringNotContainsString('max_retries', $error->getMessage());
+        } finally {
+            Clock::set($previousClock);
+        }
+    }
+
     public function testAFailureOfTheAppsHttpClientIsANetworkErrorToRetry(): void
     {
         $previousClock = Clock::get();
         Clock::set(new MockClock('2026-11-13 12:00:00'));
-        $unreachable = new MockHttpClient(
-            static fn(): MockResponse => new MockResponse('', ['error' => 'Could not resolve host: us.posthog.com'])
-        );
+        $requests = 0;
+        $unreachable = new MockHttpClient(static function () use (&$requests): MockResponse {
+            $requests++;
+            return new MockResponse('', ['error' => 'Could not resolve host: us.posthog.com']);
+        });
         $transport = (new Transport([new PostHogTransportFactory(client: $unreachable)]))
             ->fromString('posthog+api://phs_dsn@default');
 
@@ -87,7 +223,7 @@ final class PostHogTransportFactoryTest extends TestCase
         } catch (PostHogTransportException $error) {
             $this->assertSame('network_error', $error->getErrorCode());
             $this->assertTrue($error->isRetryable());
-            $this->assertSame(3, $unreachable->getRequestsCount());
+            $this->assertSame(3, $requests);
         } finally {
             Clock::set($previousClock);
         }

@@ -13,9 +13,12 @@ use Symfony\Component\Mime\Header\HeaderInterface;
 use Symfony\Component\Mime\Header\IdentificationHeader;
 use Symfony\Component\Mime\Header\UnstructuredHeader;
 use Symfony\Component\Mime\Message;
+use Symfony\Component\Mime\MessageConverter;
+use Symfony\Component\Mime\MimeTypes;
 use Symfony\Component\Mime\Part\AbstractMultipartPart;
 use Symfony\Component\Mime\Part\AbstractPart;
 use Symfony\Component\Mime\Part\DataPart;
+use Symfony\Component\Mime\Part\Multipart\AlternativePart;
 use Symfony\Component\Mime\Part\TextPart;
 
 /**
@@ -48,8 +51,12 @@ final class EmailMapper
     /**
      * @return array<string, mixed> The options of Emails::send().
      */
-    public function map(Email $email, Envelope $envelope): array
+    public function map(Message $message, Envelope $envelope): array
     {
+        if (!$message instanceof Email) {
+            self::refuseWhatConversionDrops($message);
+        }
+        $email = MessageConverter::toEmail($message);
         $to = $this->onlyRecipient($email);
         $options = $this->headerOptions($email);
         $this->refuseEnvelopeMismatch($email, $envelope);
@@ -130,7 +137,11 @@ final class EmailMapper
         $envelopeRecipients = self::addresses($envelope->getRecipients());
         sort($recipients);
         sort($envelopeRecipients);
-        $senders = array_filter([$envelope->getSender(), $email->getSender(), $email->getReturnPath()]);
+        $senders = [$envelope->getSender(), $email->getSender()];
+        foreach ($email->getHeaders()->all('return-path') as $returnPath) {
+            $senders[] = $returnPath->getBody();
+        }
+        $senders = array_filter($senders);
         foreach ($senders as $sender) {
             if ($from?->getAddress() !== $sender->getAddress()) {
                 throw self::refusal(
@@ -230,6 +241,41 @@ final class EmailMapper
     }
 
     /**
+     * MessageConverter turns a Message that isn't an Email into one with the same text, HTML and attachments. It
+     * takes the text and HTML from the body, the first part of a mixed or related part, and both parts of an
+     * alternative part, and rebuilds them without their own headers and dispositions; it keeps every later part
+     * of a mixed or related part as an attachment. A DataPart is a TextPart, so one in a text or HTML position
+     * would lose its filename and go out as the body. This walk reads no body, since the converter already read
+     * a stream body that may not rewind.
+     */
+    private static function refuseWhatConversionDrops(Message $message): void
+    {
+        $parts = [$message->getBody()];
+        while (($part = array_shift($parts)) !== null) {
+            $type = "{$part->getMediaType()}/{$part->getMediaSubtype()}";
+            if (self::hasOwnHeaders($part)) {
+                throw self::refusal(
+                    'unsupported_part',
+                    "It can't carry the headers set on the body's $type part; remove them."
+                );
+            }
+            if ($part instanceof AlternativePart) {
+                array_push($parts, ...$part->getParts());
+            } elseif ($part instanceof AbstractMultipartPart) {
+                array_push($parts, ...array_slice($part->getParts(), 0, 1));
+            } elseif (
+                $part instanceof TextPart
+                && ($part instanceof DataPart || !in_array($part->getDisposition(), [null, 'inline'], true))
+            ) {
+                throw self::refusal(
+                    'unsupported_part',
+                    "It can't carry the $type part of the body as an attachment; the text and HTML go out as the body."
+                );
+            }
+        }
+    }
+
+    /**
      * Whether a custom body part is the email's own text or HTML, as Symfony would build it: the same content in the
      * same charset, shown as the body rather than attached.
      *
@@ -249,7 +295,7 @@ final class EmailMapper
 
         return ($expected[$subtype] ?? null) !== null
             && ($body === $expected[$subtype]
-                || ($subtype === 'html' && $body === self::withContentIds($email, $expected['html'])))
+                || ($subtype === 'html' && $body === self::htmlAsEmailBuildsIt($email, $expected['html'])))
             && strtolower((string) $partCharset) === strtolower((string) $charset)
             && in_array($part->getDisposition(), [null, 'inline'], true);
     }
@@ -260,20 +306,25 @@ final class EmailMapper
     }
 
     /**
-     * The email's HTML with each `cid:<name>` an inline part answers turned into `cid:<content ID>`, as Symfony
-     * writes it when it builds the email's own body.
+     * The email's HTML as Symfony writes it when it builds the email's own body, which turns some `cid:<name>`
+     * references into `cid:<content ID>`. A copy of the email builds it, so the app's attachments keep their names.
      */
-    private static function withContentIds(Email $email, string $html): string
+    private static function htmlAsEmailBuildsIt(Email $email, string $html): ?string
     {
-        $replacements = [];
+        $copy = (new Email())->html($html, $email->getHtmlCharset() ?? 'utf-8');
         foreach ($email->getAttachments() as $part) {
-            $name = $part->getName();
-            if ($name !== null && $part->hasContentId() && self::refersTo($html, $name)) {
-                $replacements["cid:$name"] = 'cid:' . $part->getContentId();
+            $copy->addPart(clone $part);
+        }
+        $parts = [$copy->getBody()];
+        while (($part = array_shift($parts)) !== null) {
+            if ($part instanceof AbstractMultipartPart) {
+                array_push($parts, ...$part->getParts());
+            } elseif ($part instanceof TextPart && !$part instanceof DataPart && $part->getMediaSubtype() === 'html') {
+                return $part->getBody();
             }
         }
 
-        return strtr($html, $replacements);
+        return null;
     }
 
     /**
@@ -327,7 +378,7 @@ final class EmailMapper
         }
         $flags = ['opens' => null, 'clicks' => null];
         $header = $headers[0] ?? null;
-        $value = $header instanceof UnstructuredHeader ? $header->getValue() : (string) $header?->getBodyAsString();
+        $value = $header === null ? '' : self::unencodedValue($header);
         foreach (explode(';', $value) as $part) {
             if (trim($part) === '') {
                 continue;
@@ -385,13 +436,14 @@ final class EmailMapper
      */
     private static function attachment(DataPart $part, ?string $html): array
     {
+        $filename = $part->getFilename() ?? $part->getName() ?? self::unnamed($part->getContentType());
         if (self::hasOwnHeaders($part)) {
             throw self::refusal(
                 'unsupported_part',
-                "It can't carry the headers set on the attachment {$part->getFilename()}; remove them."
+                "It can't carry the headers set on the attachment $filename; remove them."
             );
         }
-        $attachment = ['filename' => $part->getFilename() ?? $part->getName(), 'content' => $part->getBody()];
+        $attachment = ['filename' => $filename, 'content' => $part->getBody()];
         $attachment['content_type'] = $part->getContentType();
         $contentId = self::contentId($part, $html);
         if ($contentId !== null) {
@@ -399,6 +451,17 @@ final class EmailMapper
         }
 
         return $attachment;
+    }
+
+    /**
+     * The filename PostHog needs for a part with neither a filename nor a name: `attachment.<extension>` for its
+     * type, or `attachment` when the type has no known extension.
+     */
+    private static function unnamed(string $contentType): string
+    {
+        $extension = MimeTypes::getDefault()->getExtensions($contentType)[0] ?? null;
+
+        return $extension === null ? 'attachment' : "attachment.$extension";
     }
 
     /**
@@ -495,14 +558,14 @@ final class EmailMapper
             . " <{$address->getAddress()}>";
     }
 
-    /**
-     * @param string|resource|null $body
-     */
     private static function unencodedValue(HeaderInterface $header): string
     {
         return $header instanceof UnstructuredHeader ? $header->getValue() : $header->getBodyAsString();
     }
 
+    /**
+     * @param string|resource|null $body
+     */
     private static function readOnce(mixed $body): ?string
     {
         if (!is_resource($body)) {
