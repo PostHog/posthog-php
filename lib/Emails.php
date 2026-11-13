@@ -67,7 +67,18 @@ final class Emails
     private const SHARED_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'max_retries', 'integration'];
     private const TEMPLATE_FIELDS = ['template_id', 'template_data'];
     private const CODE_FIELDS = [
-        'template_key', 'subject', 'html', 'text', 'from', 'reply_to', 'cc', 'bcc', 'attachments', 'capture_engagement',
+        'template_key',
+        'subject',
+        'html',
+        'text',
+        'from',
+        'reply_to',
+        'cc',
+        'bcc',
+        'attachments',
+        'capture_engagement',
+        'sensitive',
+        'tracking',
     ];
     private const ATTACHMENT_FIELDS = ['filename', 'content', 'content_type', 'content_id'];
     private const MAX_ATTACHMENTS = 10;
@@ -76,8 +87,8 @@ final class Emails
     private const UPLOAD_BYTES_PER_EXTRA_MS = 100;
     private const MESSAGE_LIMIT = '40 MB after Base64 encoding, about 29 MB of files';
     private const HEADER_NAME_PATTERN = "/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/D";
-    private const TEMPLATE_FORM_WHY = "A template made in PostHog sets its own sender, subject and content, "
-        . "and follows the project's engagement setting.";
+    private const TEMPLATE_FORM_WHY = "A template made in PostHog sets its own sender, subject, content, tracking "
+        . "and sensitive setting, and follows the project's engagement setting.";
     private const CODE_FORM_WHY = 'A send with template_key takes its content from your code.';
 
     private const SEND_NOT_DONE = 'no email was sent';
@@ -153,10 +164,8 @@ final class Emails
      *   400), `subject`, and `html`, `text` or both. PostHog derives a missing `text` from the `html`, and
      *   sends the content as is without storing it. To send a React email, render it to HTML in your app
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
-     *   `reply_to`, `cc` and `bcc` (one address or a list; at most 10 for `cc` and `bcc`), `attachments`
-     *   and `capture_engagement` (default true; a project whose admin turned engagement capture off
-     *   captures nothing, whatever the send asks). An empty `reply_to`, `cc`, `bcc` or `attachments` list
-     *   is left out.
+     *   `reply_to`, `cc` and `bcc` (one address or a list; at most 10 for `cc` and `bcc`), `attachments`,
+     *   `sensitive` and `tracking`. An empty `reply_to`, `cc`, `bcc` or `attachments` list is left out.
      * - `attachments` is a list of at most 10 files, and the email can be at most 40 MB after Base64 encoding, which
      *   leaves about 29 MB for the files. The 40 MB counts the subject and the bodies, and the `html` twice without
      *   `text`, since PostHog derives the text from it. Each file is an array with `filename`, `content` (the file's
@@ -168,6 +177,27 @@ final class Emails
      *   `attachment_upload_failed` with the storage's answer, and no email is sent. An upload never follows a
      *   redirect: storage that answers one fails that file the same way. A PostHog without the upload route, or a
      *   project that can't send email from code, answers `not_found` on `attachments`, and no email is sent.
+     *
+     * `sensitive` marks the email as sensitive: set it to true when the email carries login links, reset
+     * tokens or codes. A sensitive email keeps its links unchanged unless `tracking` turns clicks on,
+     * leaves its subject off engagement events, and keeps its content out of logs. Left out, the email
+     * takes the setting of the template made in PostHog whose key matches `template_key`, and is
+     * sensitive when no template matches.
+     *
+     * `tracking` says what PostHog tracks for the email. Left out, PostHog counts opens and captures
+     * engagement events, and tracks clicks only when the email isn't sensitive. `true` turns on opens,
+     * clicks and engagement events, even for a sensitive email. `false` turns them all off: the email
+     * has no open pixel and no rewritten links, and PostHog captures no engagement events for it. An
+     * array such as `['clicks' => true]` sets `opens` (default true), `clicks` (default: on unless the
+     * email is sensitive) and `engagement` (default true) one by one. Turn clicks on for a sensitive
+     * email only when its links are safe to rewrite. Click tracking needs open tracking. A project whose
+     * admin turned engagement capture off captures nothing, whatever the send says.
+     *
+     * The client sends `sensitive` and `tracking` only when you set them, and they need a PostHog
+     * version that takes them.
+     *
+     * `capture_engagement` is deprecated: use `tracking` with `engagement` instead. It still works, but a
+     * send can't set both. The client sends `capture_engagement` only when you set it.
      *
      * A PostHog version that doesn't take a field yet, such as `cc`, refuses the send with an error that
      * names the field. It never drops the field and sends the rest.
@@ -236,6 +266,8 @@ final class Emails
      *         content_type?: string|null,
      *         content_id?: string|null
      *     }>|null,
+     *     sensitive?: bool|null,
+     *     tracking?: bool|array{opens?: bool|null, clicks?: bool|null, engagement?: bool|null}|null,
      *     capture_engagement?: bool|null
      * } $email
      * @return SendEmailResult The queued email. It means PostHog queued the email, not that it was delivered.
@@ -456,13 +488,49 @@ final class Emails
                 [$html, $text]
             );
         }
-        $captureEngagement = $email['capture_engagement'] ?? true;
-        if (!is_bool($captureEngagement)) {
+        $tracking = self::tracking($email);
+        $captureEngagement = $email['capture_engagement'] ?? null;
+        if ($captureEngagement !== null && !is_bool($captureEngagement)) {
             throw self::invalid('invalid_form', 'capture_engagement must be true or false.', 'capture_engagement');
         }
-        $content['capture_engagement'] = $captureEngagement;
+        if ($captureEngagement !== null) {
+            $content['capture_engagement'] = $captureEngagement;
+        }
+        $sensitive = $email['sensitive'] ?? null;
+        if ($sensitive !== null && !is_bool($sensitive)) {
+            throw self::invalid('invalid_form', 'sensitive must be true or false.', 'sensitive');
+        }
+        if ($sensitive !== null) {
+            $content['sensitive'] = $sensitive;
+        }
+        if ($tracking !== null) {
+            $content['tracking'] = $tracking;
+        }
 
         return [$content, $files];
+    }
+
+    private static function tracking(array $email): bool|object|null
+    {
+        $tracking = $email['tracking'] ?? null;
+        if ($tracking === null || is_bool($tracking)) {
+            return $tracking;
+        }
+        if (!is_array($tracking) || ($tracking !== [] && array_is_list($tracking))) {
+            throw self::invalid(
+                'invalid_form',
+                "tracking must be true, false or an array such as ['clicks' => true].",
+                'tracking'
+            );
+        }
+        $tracking = array_filter($tracking, static fn($value): bool => $value !== null);
+        foreach ($tracking as $kind => $on) {
+            if (!is_bool($on)) {
+                throw self::invalid('invalid_form', "tracking['$kind'] must be true or false.", 'tracking');
+            }
+        }
+
+        return (object) $tracking;
     }
 
     /**

@@ -15,7 +15,7 @@ final class DoctorCommand extends Command
     public function handle(PostHog $posthog): int
     {
         if (!$posthog->enabled()) {
-            $this->warn('PostHog is disabled or has no project API key. No traffic will be sent.');
+            $this->warn('PostHog is disabled or has no project token. No traffic will be sent.');
             return self::FAILURE;
         }
         $host = config('posthog.host');

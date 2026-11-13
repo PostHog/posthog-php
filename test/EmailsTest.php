@@ -319,7 +319,6 @@ class EmailsTest extends TestCase
             'text' => 'Reset it here: https://example.com/r',
             'from' => 'Acme <security@example.com>',
             'reply_to' => ['help@example.com'],
-            'capture_engagement' => true,
             'to' => 'user@example.com',
             'distinct_id' => 'user_123',
         ], $this->body());
@@ -346,6 +345,49 @@ class EmailsTest extends TestCase
         ], $this->body());
     }
 
+    #[DataProvider('trackingCases')]
+    public function testCodeSendPassesSensitiveAndTrackingOnlyWhenSet(array $options, string $expected): void
+    {
+        $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_key' => 'welcome',
+            'subject' => 'Welcome',
+            'html' => '<p>Hi</p>',
+        ] + $options);
+
+        $this->assertSame(
+            '{"template_key":"welcome","subject":"Welcome","html":"<p>Hi</p>",' . $expected
+                . '"to":"user@example.com"}',
+            $this->requests[0]['body']
+        );
+    }
+
+    public static function trackingCases(): array
+    {
+        return [
+            'unset' => [['tracking' => null], ''],
+            'true' => [['tracking' => true], '"tracking":true,'],
+            'false' => [['tracking' => false], '"tracking":false,'],
+            'clicks on' => [['tracking' => ['clicks' => true]], '"tracking":{"clicks":true},'],
+            'null kinds left out' => [
+                ['tracking' => ['opens' => false, 'clicks' => null, 'engagement' => false]],
+                '"tracking":{"opens":false,"engagement":false},',
+            ],
+            'empty array' => [['tracking' => []], '"tracking":{},'],
+            'with capture_engagement' => [
+                ['tracking' => true, 'capture_engagement' => false],
+                '"capture_engagement":false,"tracking":true,',
+            ],
+            'sensitive unset' => [['sensitive' => null], ''],
+            'sensitive' => [['sensitive' => true], '"sensitive":true,'],
+            'not sensitive' => [['sensitive' => false], '"sensitive":false,'],
+            'not sensitive with clicks off' => [
+                ['sensitive' => false, 'tracking' => ['clicks' => false]],
+                '"sensitive":false,"tracking":{"clicks":false},',
+            ],
+        ];
+    }
+
     public function testNullOptionsAndAnEmptyReplyToCountAsLeftOut(): void
     {
         $this->emails()->send([
@@ -360,6 +402,7 @@ class EmailsTest extends TestCase
             'bcc' => null,
             'attachments' => null,
             'capture_engagement' => null,
+            'sensitive' => null,
             'distinct_id' => null,
             'idempotency_key' => null,
             'template_id' => null,
@@ -369,7 +412,6 @@ class EmailsTest extends TestCase
             'template_key' => 'receipt',
             'subject' => 'Your receipt',
             'html' => '<p>Thanks!</p>',
-            'capture_engagement' => true,
             'to' => 'user@example.com',
         ], $this->body());
     }
@@ -464,7 +506,6 @@ class EmailsTest extends TestCase
                 ['sha256' => self::INVITE_SHA256, 'filename' => 'invite.ics', 'content_type' => 'text/calendar'],
                 ['sha256' => self::PNG_SHA256, 'filename' => 'logo.png', 'content_id' => 'logo'],
             ],
-            'capture_engagement' => true,
             'to' => 'user@example.com',
         ]], array_values($this->queued));
     }
@@ -887,7 +928,6 @@ class EmailsTest extends TestCase
             'template_key' => 'receipt',
             'subject' => 'Your receipt',
             'text' => 'Thanks!',
-            'capture_engagement' => true,
             'to' => 'user@example.com',
         ], $this->body());
     }
@@ -1028,6 +1068,8 @@ class EmailsTest extends TestCase
                 'invalid_form',
                 'attachments',
             ],
+            'tracking with a template' => [$template + ['tracking' => false], 'invalid_form', 'tracking'],
+            'sensitive with a template' => [$template + ['sensitive' => true], 'invalid_form', 'sensitive'],
             'template_data with code' => [$code + ['template_data' => ['a' => 1]], 'invalid_form', 'template_data'],
             'bad template key' => [['template_key' => 'pass word'] + $code, 'invalid_template_key', 'template_key'],
             'template key too long' => [
@@ -1050,6 +1092,10 @@ class EmailsTest extends TestCase
                 'invalid_form',
                 'capture_engagement',
             ],
+            'tracking not a bool or an array' => [$code + ['tracking' => 'no'], 'invalid_form', 'tracking'],
+            'tracking a list' => [$code + ['tracking' => [true]], 'invalid_form', 'tracking'],
+            'tracking kind not a bool' => [$code + ['tracking' => ['clicks' => 'yes']], 'invalid_form', 'tracking'],
+            'sensitive not a bool' => [$code + ['sensitive' => 'yes'], 'invalid_form', 'sensitive'],
             'idempotency key with a space' => [
                 $template + ['idempotency_key' => 'welcome user'],
                 'invalid_idempotency_key',
