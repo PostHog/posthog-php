@@ -2,12 +2,15 @@
 
 namespace PostHog\Laravel\Tests;
 
+use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Mail\Events\MessageSent;
 use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
+use InvalidArgumentException;
 use Orchestra\Testbench\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PostHog\Laravel\Facades\PostHog as PostHogFacade;
 use PostHog\Laravel\PostHog;
 use PostHog\Laravel\PostHogServiceProvider;
@@ -152,6 +155,46 @@ class MailDriverTest extends TestCase
         );
         $this->assertSame(['order-shipped', 'receipts'], $keys);
         $this->assertNotNull($first);
+    }
+
+    public function testAMailSentWhileAnotherIsSendingLeavesTheOtherItsClassName(): void
+    {
+        $this->app['config']->set('mail.mailers.failover', self::FAILOVER);
+        $this->sendApi();
+        $archived = null;
+        Event::listen(MessageSending::class, function (MessageSending $event) use (&$archived) {
+            if ($archived === null && ($event->data['__laravel_mailable'] ?? null) === OrderShipped::class) {
+                $archived = Mail::mailer('archive')->to('ana@example.com')->send(new ShipmentUpdate());
+            }
+        });
+
+        Mail::mailer('failover')->to('ana@example.com')->send(new OrderShipped());
+
+        $this->assertNotNull($archived);
+        $this->assertSame('order-shipped', $this->templateKeyOfOnlySend());
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function templateKeysTheSendApiRejects(): array
+    {
+        return ['a space' => ['App mail'], 'empty' => [''], 'too long' => [str_repeat('a', 257)]];
+    }
+
+    #[DataProvider('templateKeysTheSendApiRejects')]
+    public function testAMailerWithADefaultTemplateKeyTheSendApiRejectsIsRefusedForEveryMail(string $key): void
+    {
+        $this->app['config']->set('mail.mailers.posthog.default_template_key', $key);
+        $this->sendApi();
+
+        try {
+            Mail::to('ana@example.com')->send(new OrderShipped());
+            $this->fail('A mailer with an invalid default template key sent.');
+        } catch (InvalidArgumentException $refusal) {
+            $this->assertStringContainsString('default template key', $refusal->getMessage());
+        }
+        $this->assertSame([], $this->api->requests());
     }
 
     public function testAMailableSendsUnderItsClassNameThroughAMailerBuiltOnDemand(): void

@@ -6,8 +6,10 @@ use Illuminate\Container\Container;
 use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Mail\MailManager;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use PostHog\Laravel\PostHog;
 use PostHog\Mailer\PostHogTransport;
+use Symfony\Component\Mailer\DelayedEnvelope;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\SentMessage;
 use Symfony\Component\Mailer\Transport\TransportInterface;
@@ -26,14 +28,20 @@ use WeakMap;
 final class MailDriver implements TransportInterface
 {
     private const INTEGRATION = 'laravel';
-    // The longest template key the send API takes.
     private const TEMPLATE_KEY_LENGTH = 256;
+    private const NOT_IN_A_TEMPLATE_KEY = '/[^a-zA-Z0-9_-]+/';
 
-    /** @var WeakMap<object, string>|null The class-name key of each mail Laravel sends, or '' for mail with no class. */
+    /** @var WeakMap<object, string>|null The class-name key of each mail Laravel sends. */
     private static ?WeakMap $templateKeys = null;
 
     private function __construct(private readonly ?string $defaultTemplateKey)
     {
+        if ($defaultTemplateKey !== null && !self::isTemplateKey($defaultTemplateKey)) {
+            throw new InvalidArgumentException(
+                'The default template key can only have letters, digits, hyphens (-) and underscores (_), at most '
+                . self::TEMPLATE_KEY_LENGTH . '.'
+            );
+        }
     }
 
     public static function extend(MailManager $manager): void
@@ -51,47 +59,52 @@ final class MailDriver implements TransportInterface
     public static function nameTheMail(MessageSending $event): void
     {
         $class = $event->data['__laravel_mailable'] ?? $event->data['__laravel_notification'] ?? null;
-        $key = '';
-        if (is_string($class)) {
-            $key = (string) preg_replace('/[^a-zA-Z0-9_-]+/', '-', Str::kebab(class_basename($class)));
-            $key = substr(trim($key, '-'), 0, self::TEMPLATE_KEY_LENGTH);
+        if (!is_string($class)) {
+            return;
         }
-        self::$templateKeys ??= new WeakMap();
-        self::$templateKeys[$event->message] = $key;
+        $key = (string) preg_replace(self::NOT_IN_A_TEMPLATE_KEY, '-', Str::kebab(class_basename($class)));
+        $key = substr(trim($key, '-'), 0, self::TEMPLATE_KEY_LENGTH);
+        if ($key !== '') {
+            self::$templateKeys ??= new WeakMap();
+            self::$templateKeys[$event->message] = $key;
+        }
     }
 
     public function send(RawMessage $message, ?Envelope $envelope = null): ?SentMessage
     {
-        // Built per send, so each request, job or Octane worker sends with its own scoped client. The core
-        // transport still gives an `X-PostHog-Template-Key` header on the mail precedence over this key.
-        $transport = new PostHogTransport(
-            Container::getInstance()->make(PostHog::class)->client()->emails(),
-            integration: self::INTEGRATION . '/' . PostHog::VERSION,
-            defaultTemplateKey: self::templateKeyOf($message) ?? $this->defaultTemplateKey,
-            templates: false,
-        );
+        $mail = $this->mailLaravelHandedOver($envelope) ?? $message;
 
-        return $transport->send($message, $envelope);
+        return $this->transportForThisSend(self::$templateKeys[$mail] ?? $this->defaultTemplateKey)
+            ->send($message, $envelope);
     }
 
-    private static function templateKeyOf(RawMessage $message): ?string
+    /**
+     * A failover or round-robin mailer hands each transport a clone of the mail with Laravel's own envelope,
+     * which holds the mail Laravel named.
+     */
+    private function mailLaravelHandedOver(?Envelope $envelope): ?RawMessage
     {
-        if (self::$templateKeys === null) {
+        if (!$envelope instanceof DelayedEnvelope) {
             return null;
         }
-        $match = self::$templateKeys[$message] ?? null;
-        if ($match === null) {
-            // A failover or round-robin mailer sends each transport a clone of the mail, equal to it until sent.
-            // Laravel names each mail just before its transport sends it, so of the equal mails an app still
-            // holds, the one named last is the one being sent.
-            foreach (self::$templateKeys as $mail => $key) {
-                if ($mail == $message) {
-                    $match = $key;
-                }
-            }
-        }
 
-        return $match === '' ? null : $match;
+        return (fn(): ?RawMessage => $this->message ?? null)->call($envelope);
+    }
+
+    private function transportForThisSend(?string $templateKey): PostHogTransport
+    {
+        return new PostHogTransport(
+            Container::getInstance()->make(PostHog::class)->client()->emails(),
+            integration: self::INTEGRATION . '/' . PostHog::VERSION,
+            defaultTemplateKey: $templateKey,
+            templates: false,
+        );
+    }
+
+    private static function isTemplateKey(string $key): bool
+    {
+        return $key !== '' && strlen($key) <= self::TEMPLATE_KEY_LENGTH
+            && preg_match(self::NOT_IN_A_TEMPLATE_KEY, $key) !== 1;
     }
 
     public function __toString(): string
