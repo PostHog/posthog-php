@@ -312,6 +312,17 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->assertArrayNotHasKey('content_id', $this->body()['attachments'][0]);
     }
 
+    public function testAnInlinePartWithANameButNoFilenameSendsItsNameAsTheFilename(): void
+    {
+        $email = self::shipped()->html('<img src="cid:logo">')
+            ->addPart((new DataPart(base64_decode('iVBORw0KGgo='), null, 'image/png'))->setName('logo')->asInline());
+
+        $this->transport()->send($email);
+
+        $this->assertSame('logo', $this->body()['attachments'][0]['filename']);
+        $this->assertSame('logo', $this->body()['attachments'][0]['content_id']);
+    }
+
     public function testACustomBodyThatHoldsTheEmailsOwnPartsSends(): void
     {
         $email = self::shipped()->attach(base64_decode('JVBERi0xLjQK'), 'invoice.pdf', 'application/pdf');
@@ -436,6 +447,28 @@ final class PostHogTransportConformanceTest extends TestCase
                 fn() => self::shipped()->addPart((new DataPart(base64_decode('iVBORw0KGgo='), null, 'image/png'))
                     ->asInline()),
                 'inline_without_cid',
+            ],
+            '10 an inline part the HTML refers to by its name and by its content ID' => [
+                fn() => self::shipped()->html('<img src="cid:logo"><img src="cid:logo@shop.example">')
+                    ->addPart((new DataPart(base64_decode('iVBORw0KGgo='), 'logo', 'image/png'))
+                        ->setContentId('logo@shop.example')->asInline()),
+                'unsupported_part',
+            ],
+            'an attachment with a header of its own' => [
+                function () {
+                    $invite = new DataPart("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n", 'invite.ics', 'text/calendar');
+                    $invite->getHeaders()
+                        ->addParameterizedHeader('Content-Type', 'text/calendar', ['method' => 'REQUEST']);
+                    return self::shipped()->addPart($invite);
+                },
+                'unsupported_part',
+            ],
+            'a second X-PostHog-Distinct-Id' => [
+                fn() => self::withHeaders(
+                    self::withHeaders(self::shipped(), ['X-PostHog-Distinct-Id' => 'user-1']),
+                    ['X-PostHog-Distinct-Id' => 'user-2']
+                ),
+                'unsupported_header',
             ],
             'an engagement header that is not true or false' => [
                 fn() => self::withHeaders(self::shipped(), ['X-PostHog-Capture-Engagement' => 'yes']),

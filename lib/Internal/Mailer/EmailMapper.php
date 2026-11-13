@@ -85,6 +85,9 @@ final class EmailMapper
         foreach ($email->getHeaders()->all() as $header) {
             $name = strtolower($header->getName());
             if (in_array($name, self::OPTION_HEADERS, true)) {
+                if (isset($options[$name])) {
+                    throw self::refusal('unsupported_header', "It takes one {$header->getName()} header.");
+                }
                 // The raw value: getBodyAsString() MIME-encodes a value that isn't ASCII, such as a distinct ID.
                 $options[$name] = $header instanceof UnstructuredHeader
                     ? $header->getValue()
@@ -291,8 +294,7 @@ final class EmailMapper
      */
     private static function tracking(Email $email, ?string $engagement): ?array
     {
-        $headers = $email->getHeaders()->all(self::TRACKING_HEADER);
-        $headers = $headers instanceof \Traversable ? iterator_to_array($headers, false) : $headers;
+        $headers = iterator_to_array($email->getHeaders()->all(self::TRACKING_HEADER), false);
         if (count($headers) > 1) {
             throw self::refusal('unsupported_header', 'It takes one X-Track header; remove the others.');
         }
@@ -356,7 +358,13 @@ final class EmailMapper
      */
     private static function attachment(DataPart $part, ?string $html): array
     {
-        $attachment = ['filename' => $part->getFilename(), 'content' => $part->getBody()];
+        if (array_diff($part->getHeaders()->getNames(), ['content-id']) !== []) {
+            throw self::refusal(
+                'unsupported_part',
+                "It can't carry the headers set on the attachment {$part->getFilename()}; remove them."
+            );
+        }
+        $attachment = ['filename' => $part->getFilename() ?? $part->getName(), 'content' => $part->getBody()];
         $attachment['content_type'] = $part->getContentType();
         $contentId = self::contentId($part, $html);
         if ($contentId !== null) {
@@ -375,6 +383,13 @@ final class EmailMapper
     {
         $name = $part->getName();
         if ($name !== null && self::refersTo($html, $name)) {
+            $contentId = $part->hasContentId() ? $part->getContentId() : $name;
+            if ($contentId !== $name && self::refersTo($html, $contentId)) {
+                throw self::refusal(
+                    'unsupported_part',
+                    "The HTML refers to one inline part as both cid:$name and cid:$contentId; use one."
+                );
+            }
             return $name;
         }
         if ($part->hasContentId() && self::refersTo($html, $part->getContentId())) {
