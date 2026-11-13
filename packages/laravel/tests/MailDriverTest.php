@@ -13,6 +13,7 @@ use PostHog\Laravel\PostHog;
 use PostHog\Laravel\PostHogServiceProvider;
 use PostHog\Laravel\Tests\Fixtures\InvoicePaid;
 use PostHog\Laravel\Tests\Fixtures\OrderShipped;
+use PostHog\Laravel\Tests\Fixtures\ShipmentUpdate;
 use PostHog\Mailer\PostHogTransportException;
 use PostHog\Test\LocalHttpServer;
 use Symfony\Component\Mailer\Exception\LogicException;
@@ -115,6 +116,42 @@ class MailDriverTest extends TestCase
         Mail::mailer('failover')->to('ana@example.com')->send(new OrderShipped());
 
         $this->assertSame('order-shipped', $this->templateKeyOfOnlySend());
+    }
+
+    public function testTwoMailablesThatReadAlikeSendUnderTheirOwnClassNamesThroughAFailoverMailer(): void
+    {
+        $this->app['config']->set('mail.mailers.failover', self::FAILOVER);
+        $this->sendApi([self::SENT, self::SENT]);
+
+        // The app keeps the first sent mail, as a log or an event listener might.
+        $first = Mail::mailer('failover')->to('ana@example.com')->send(new OrderShipped());
+        Mail::mailer('failover')->to('ana@example.com')->send(new ShipmentUpdate());
+
+        $keys = array_map(
+            fn(array $request) => json_decode($request['body'], true)['template_key'],
+            $this->api->requests()
+        );
+        $this->assertSame(['order-shipped', 'shipment-update'], $keys);
+        $this->assertNotNull($first);
+    }
+
+    public function testMailWithNoClassThatReadsLikeAnEarlierMailableSendsUnderTheDefaultTemplateKey(): void
+    {
+        $this->app['config']->set('mail.mailers.posthog.default_template_key', 'receipts');
+        $this->app['config']->set('mail.mailers.failover', self::FAILOVER);
+        $this->sendApi([self::SENT, self::SENT]);
+
+        $first = Mail::mailer('failover')->to('ana@example.com')->send(new OrderShipped());
+        Mail::mailer('failover')->html('<p>On its way.</p>', function ($message) {
+            $message->from('shop@example.com')->to('ana@example.com')->subject('Your order shipped');
+        });
+
+        $keys = array_map(
+            fn(array $request) => json_decode($request['body'], true)['template_key'],
+            $this->api->requests()
+        );
+        $this->assertSame(['order-shipped', 'receipts'], $keys);
+        $this->assertNotNull($first);
     }
 
     public function testAMailableSendsUnderItsClassNameThroughAMailerBuiltOnDemand(): void

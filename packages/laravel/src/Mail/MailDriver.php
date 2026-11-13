@@ -11,7 +11,6 @@ use PostHog\Mailer\PostHogTransport;
 use Symfony\Component\Mailer\Envelope;
 use Symfony\Component\Mailer\SentMessage;
 use Symfony\Component\Mailer\Transport\TransportInterface;
-use Symfony\Component\Mime\Message;
 use Symfony\Component\Mime\RawMessage;
 use WeakMap;
 
@@ -27,11 +26,10 @@ use WeakMap;
 final class MailDriver implements TransportInterface
 {
     private const INTEGRATION = 'laravel';
-    private const TEMPLATE_KEY = 'X-PostHog-Template-Key';
     // The longest template key the send API takes.
     private const TEMPLATE_KEY_LENGTH = 256;
 
-    /** @var WeakMap<object, string>|null The template key of each mail Laravel is sending. */
+    /** @var WeakMap<object, string>|null The class-name key of each mail Laravel sends, or '' for mail with no class. */
     private static ?WeakMap $templateKeys = null;
 
     private function __construct(private readonly ?string $defaultTemplateKey)
@@ -53,30 +51,23 @@ final class MailDriver implements TransportInterface
     public static function nameTheMail(MessageSending $event): void
     {
         $class = $event->data['__laravel_mailable'] ?? $event->data['__laravel_notification'] ?? null;
-        if (!is_string($class)) {
-            return;
+        $key = '';
+        if (is_string($class)) {
+            $key = (string) preg_replace('/[^a-zA-Z0-9_-]+/', '-', Str::kebab(class_basename($class)));
+            $key = substr(trim($key, '-'), 0, self::TEMPLATE_KEY_LENGTH);
         }
-        $key = preg_replace('/[^a-zA-Z0-9_-]+/', '-', Str::kebab(class_basename($class)));
-        $key = substr(trim((string) $key, '-'), 0, self::TEMPLATE_KEY_LENGTH);
-        if ($key !== '') {
-            self::$templateKeys ??= new WeakMap();
-            self::$templateKeys[$event->message] = $key;
-        }
+        self::$templateKeys ??= new WeakMap();
+        self::$templateKeys[$event->message] = $key;
     }
 
     public function send(RawMessage $message, ?Envelope $envelope = null): ?SentMessage
     {
-        $key = self::templateKeyOf($message);
-        if ($key !== null && $message instanceof Message && !$message->getHeaders()->has(self::TEMPLATE_KEY)) {
-            // PostHogTransport reads the reserved header and strips it, so it never goes out.
-            $message->getHeaders()->addTextHeader(self::TEMPLATE_KEY, $key);
-        }
-
-        // Built per send, so each request, job or Octane worker sends with its own scoped client.
+        // Built per send, so each request, job or Octane worker sends with its own scoped client. The core
+        // transport still gives an `X-PostHog-Template-Key` header on the mail precedence over this key.
         $transport = new PostHogTransport(
             Container::getInstance()->make(PostHog::class)->client()->emails(),
             integration: self::INTEGRATION . '/' . PostHog::VERSION,
-            defaultTemplateKey: $this->defaultTemplateKey,
+            defaultTemplateKey: self::templateKeyOf($message) ?? $this->defaultTemplateKey,
             templates: false,
         );
 
@@ -88,17 +79,19 @@ final class MailDriver implements TransportInterface
         if (self::$templateKeys === null) {
             return null;
         }
-        if (isset(self::$templateKeys[$message])) {
-            return self::$templateKeys[$message];
-        }
-        // A failover or round-robin mailer sends each transport a clone of the mail, equal to it until sent.
-        foreach (self::$templateKeys as $mail => $key) {
-            if ($mail == $message) {
-                return $key;
+        $match = self::$templateKeys[$message] ?? null;
+        if ($match === null) {
+            // A failover or round-robin mailer sends each transport a clone of the mail, equal to it until sent.
+            // Laravel names each mail just before its transport sends it, so of the equal mails an app still
+            // holds, the one named last is the one being sent.
+            foreach (self::$templateKeys as $mail => $key) {
+                if ($mail == $message) {
+                    $match = $key;
+                }
             }
         }
 
-        return null;
+        return $match === '' ? null : $match;
     }
 
     public function __toString(): string
