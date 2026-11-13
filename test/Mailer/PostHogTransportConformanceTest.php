@@ -3,6 +3,7 @@
 namespace PostHog\Test\Mailer;
 
 use Closure;
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Mailer\PostHogTransport;
@@ -427,6 +428,32 @@ final class PostHogTransportConformanceTest extends TestCase
         $this->transport(defaultTemplateKey: 'transactional')->send(self::shipped());
 
         $this->assertSame('transactional', $this->body()['template_key']);
+    }
+
+    public static function badSettings(): array
+    {
+        return [
+            'an integration name in capitals' => [['integration' => 'Laravel/11.0']],
+            'an integration without a version' => [['integration' => 'laravel/']],
+            'an integration without a name' => [['integration' => '/1.0']],
+            'a default template key with spaces' => [['defaultTemplateKey' => 'order shipped']],
+        ];
+    }
+
+    /** @param array<string, string> $settings */
+    #[DataProvider('badSettings')]
+    public function testABadSettingFailsWhenTheTransportIsBuiltBeforeAnySend(array $settings): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        new PostHogTransport($this->emails(), ...$settings);
+    }
+
+    public function testAFrameworkPackagesIntegrationGoesOutOnTheSend(): void
+    {
+        (new PostHogTransport($this->emails(), integration: 'laravel/11.0.0'))->send(self::shipped());
+
+        $this->assertSame('laravel/11.0.0', $this->header('X-PostHog-Integration'));
     }
 
     public static function refusals(): array
