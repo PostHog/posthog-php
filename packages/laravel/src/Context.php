@@ -53,6 +53,20 @@ class Context
             if ($route instanceof Route) {
                 $data['properties']['$request_path'] ??= '/' . ltrim($route->uri(), '/');
             }
+            $config = $this->app['config'];
+            if (
+                $config->get('posthog.capture_ip', true) && $this->app->make(PostHog::class)->enabled()
+                && !array_key_exists('$ip', $data['properties'] ?? [])
+            ) {
+                try {
+                    $ip = $this->request->ip();
+                    if (is_string($ip) && $ip !== '') {
+                        $data['properties']['$ip'] = $ip;
+                    }
+                } catch (Throwable $exception) {
+                    $this->logResolverFailure('request IP', $exception);
+                }
+            }
         }
         $resolver = $this->app['config']->get('posthog.distinct_id');
         $explicitId = !$this->headerIdentity && isset($data['distinctId']);

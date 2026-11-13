@@ -4,15 +4,17 @@ namespace PostHog\Laravel;
 
 use Closure;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Contracts\Bus\Dispatcher;
 use PostHog\Client;
 use PostHog\ContextScope;
 use PostHog\FeatureFlagEvaluations;
 use PostHog\FeatureFlagResult;
+use PostHog\Laravel\Delivery\QueuedConsumer;
 use Throwable;
 
 class PostHog
 {
-    public const VERSION = '0.1.0';
+    public const VERSION = '0.4.2';
 
     private ?Client $client = null;
     private ?int $definitionsLoadedAt = null;
@@ -24,7 +26,7 @@ class PostHog
     public function enabled(): bool
     {
         return (bool) $this->app['config']->get('posthog.enabled', true)
-            && trim((string) $this->app['config']->get('posthog.api_key')) !== '';
+            && ProjectToken::fromConfig($this->app['config']->get('posthog', [])) !== null;
     }
 
     public function client(): Client
@@ -36,6 +38,7 @@ class PostHog
             return $this->client = new Client(null, ['consumer' => 'noop'], loadFeatureFlags: false);
         }
         $config = $this->app['config']->get('posthog', []);
+        $token = ProjectToken::fromConfig($config);
         $options = $config['sdk'] ?? [];
         $options += ['disableGeoip' => true];
         $options['host'] = $config['host'] ?? 'https://us.i.posthog.com';
@@ -54,11 +57,22 @@ class PostHog
         if (!isset($options['flag_definition_cache_provider']) && ($config['flag_cache']['enabled'] ?? false)) {
             $options['flag_definition_cache_provider'] = $this->app->make(FlagDefinitionCacheProvider::class);
         }
+        $laravelQueue = $config['laravel_queue'] ?? [];
+        $queuedConsumer = ($laravelQueue['enabled'] ?? false) && ($options['consumer'] ?? null) !== 'noop'
+            ? new QueuedConsumer(
+                $token,
+                $options,
+                $this->app->make(Dispatcher::class),
+                $laravelQueue,
+                $this->app,
+            )
+            : null;
         return $this->client = new LaravelClient(
-            $config['api_key'],
+            $token,
             $options,
             $config['release_id'] ?? null,
             $config['secret_key'] ?? null,
+            $queuedConsumer,
         );
     }
 

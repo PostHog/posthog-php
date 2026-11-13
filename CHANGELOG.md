@@ -1,3 +1,76 @@
+## 4.24.0
+
+### Minor Changes
+
+- A send with your own content (`template_key`) takes `sensitive` and `tracking`. Set `sensitive` to true when the email carries login links, reset tokens or codes: PostHog then keeps its links unchanged unless `tracking` turns clicks on, leaves its subject off engagement events, and keeps its content out of logs. Left out, the email takes the setting of the template made in PostHog whose key matches `template_key`, and is sensitive when no template matches. `tracking` chooses what PostHog tracks for the email. Left out, PostHog counts opens and captures engagement events, and tracks clicks only when the email isn't sensitive. `true` turns on opens, clicks and engagement events, and `false` turns them all off. An array such as `['clicks' => true]` sets `opens`, `clicks` and `engagement` one by one. `capture_engagement` is deprecated in favor of `tracking` with `engagement`; it still works, but a send can't set both. The client now sends it only when you set it; PostHog already reads a missing value as on. The client sends `sensitive` and `tracking` only when you set them. They need PostHog's API support for the fields, which is rolling out.
+
+## 4.23.1
+
+### Patch Changes
+
+- Relative date filters in local flag evaluation no longer roll past the end of a shorter month. `1m` on March 31 now resolves to February 28 instead of March 3.
+
+## 4.23.0
+
+### Minor Changes
+
+- Read the project token from `POSTHOG_PROJECT_TOKEN`. `POSTHOG_API_KEY` still works as a fallback, and the Laravel config gains a `project_token` key. The `api_key` key is deprecated and still read when `project_token` is blank.
+
+## 4.22.1
+
+### Patch Changes
+
+- Suppress definition-load warnings for client-only flags. Preserve PHP's fresh-response-only warning policy to avoid per-request log spam from shared-cache readers, while reconciling warning history on cache loads so flags warn again after returning from client-only runtime.
+
+## 4.22.0
+
+### Minor Changes
+
+- The new `emails()` sends transactional email from your PHP code and reads each email's delivery status.
+
+  ```php
+  PostHog::init('phc_...', ['host' => 'https://us.i.posthog.com'], secretKey: 'phs_...');
+
+  $result = PostHog::emails()->send([
+      'to' => 'user@example.com',
+      'distinct_id' => 'user_123',
+      'template_key' => 'password-reset',
+      'subject' => 'Reset your password',
+      'html' => $renderedHtml,
+  ]);
+
+  // 'delivered', 'bounced', ...
+  $status = PostHog::emails()->get($result->getId())->getStatus();
+  ```
+
+  You can also send a template made in PostHog by its `template_id`.
+
+  You need a project secret API key, the kind that starts with `phs_`. Create one under **Project secret API keys** in your project settings. Set its **Transactional email** scope to Write to send emails, or to Read for a key that only reads statuses. Pass it to the client as `secretKey`. Set the `app_host` option to your PostHog app URL when you self-host PostHog or send through a reverse proxy. The client also loads feature flags with this key when it starts, so give it **Feature flags: Read** too, or it logs an error each time a client starts.
+
+  PostHog records each email's delivery, opens and clicks on the person with that `distinct_id`. It groups every email with the same `template_key`, so you see their metrics and logs in one place. The SDK retries a request that hits a network error, a rate limit or an outage twice by default. Every send carries an idempotency key, so a retry never sends the email twice. Pass your own `idempotency_key`, such as `welcome:user_123`, and your job runner's retries are safe too.
+
+  A send with your own content also takes `from`, `reply_to` and `'capture_engagement' => false`. Set the `migrated_from` option to tell PostHog which email provider you moved from. A failed call throws a `PostHog\EmailError`. Its `getErrorCode()` returns PostHog's code, and `getStatusCode()` returns the HTTP status.
+
+  Docs: [Send transactional emails with PHP](https://posthog.com/docs/workflows/transactional-emails/php) and the [transactional email overview](https://posthog.com/docs/workflows/transactional-emails).
+
+## 4.21.0
+
+### Minor Changes
+
+- Separate socket delivery timeouts from SDK HTTP deadlines and add http_timeout_ms for explicit HTTP configuration.
+
+## 4.20.2
+
+### Patch Changes
+
+- Test the release process
+
+## 4.20.1
+
+### Patch Changes
+
+- Fix URL-style hosts for feature flag evaluation and definition requests.
+
 ## 4.20.0
 
 ### Minor Changes

@@ -397,19 +397,22 @@ class ModelEventsTest extends TestCase
         $this->assertSame(['attempt 2', 'final'], $this->states());
     }
 
-    public function testNoIdentityConsumesNoPendingCapacityAndModelIsNotRetained(): void
+    public function testPersonlessModelsUsePendingCapacityWithoutRetainingModels(): void
     {
         $this->app->make(Context::class)->begin([]);
         DB::beginTransaction();
         $this->record('no identity');
-        $this->assertUsage(0, 0);
-        $this->assertTransactionCallbackCount(0);
+        $this->assertSame(1, $this->buffer()->pendingUsage()['count']);
+        $this->assertGreaterThan(0, $this->buffer()->pendingUsage()['bytes']);
+        $this->assertTransactionCallbackCount(1);
         $this->identity('original');
         $model = $this->record('admitted');
         $reference = \WeakReference::create($model);
         unset($model);
         gc_collect_cycles();
         $this->assertNull($reference->get());
+        $this->assertSame(2, $this->buffer()->pendingUsage()['count']);
+        $this->assertTransactionCallbackCount(1);
         DB::rollBack();
         $this->assertUsage(0, 0);
         PostHog::assertNothingCaptured();

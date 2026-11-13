@@ -17,7 +17,7 @@ SDK usage examples and code snippets live in the official documentation so they 
 
 The optional `PostHog\OpenTelemetry\ContextSpanProcessor` adds session and person IDs to application spans inside this client's request context. Register it on the application's existing OpenTelemetry provider. OpenTelemetry remains an optional application dependency.
 
-A client with no project key keeps request context but adds no span attributes. A valid-key client with the `noop` consumer still adds them.
+A client with no project token keeps request context but adds no span attributes. A client with a valid token and with the `noop` consumer still adds them.
 
 The registered processor also enables request span enrichment when `withContext()` starts. This lookup skips Fibers because uninitialized OpenTelemetry Fiber storage can return another execution path's span. Child spans still use the active Fiber's PostHog context. New Fibers and queue jobs need explicit context propagation.
 
@@ -27,7 +27,7 @@ Existing span attributes take precedence. The processor preserves the applicatio
 
 `emails()` sends one email to one recipient, from an email template made transactional in PostHog or from content your code rendered, and reads what happened to it.
 
-The client needs a project secret API key (`phs_...`) as `secretKey`. Sending needs the `hog_flow:write` scope, and reading a status needs `hog_flow:read`. A client whose `host` is PostHog Cloud sends to its region's app host. For any other `host`, such as a reverse proxy, set the `app_host` option to your PostHog app host: email requests never go to a custom `host`. Loading flag definitions still sends the secret key to `host`, so when your proxy must not see the key, build the client with `loadFeatureFlags: false` and don't call `loadFlags()`:
+The client needs a project secret API key (`phs_...`) as `secretKey`. Create it with the "Send transactional email" preset (`transactional_email:write`) in your project settings, and add `transactional_email:read` if you read statuses with a key that can't send. Keys made with `hog_flow:write` still work. A client whose `host` is PostHog Cloud sends to its region's app host. For any other `host`, such as a reverse proxy, set the `app_host` option to your PostHog app host: email requests never go to a custom `host`. Loading flag definitions still sends the secret key to `host`, so when your proxy must not see the key, build the client with `loadFeatureFlags: false` and don't call `loadFlags()`:
 
 ```php
 $client = new \PostHog\Client('phc_...', [
@@ -58,7 +58,7 @@ PostHog::emails()->send([
     'distinct_id' => 'user_123',
 ]);
 
-// With copies and a file: content is the file's bytes, and the SDK encodes them
+// With copies and a file: content is the file's bytes, and the SDK uploads them before the send
 PostHog::emails()->send([
     'to' => 'user@example.com',
     'template_key' => 'receipt',
@@ -72,8 +72,11 @@ PostHog::emails()->send([
 $status = PostHog::emails()->get($result->getId()); // queued, sent, delivered, bounced, ...
 ```
 
-- **Two forms.** Pass `template_id` with optional `template_data`, or `template_key` with `subject` and `html`, `text` or both. The content form also takes `from` (a verified sender), `reply_to`, `cc`, `bcc`, `attachments` and `capture_engagement` (default `true`). PostHog derives a missing `text` from the `html`. To send an email built with a template library such as React Email, render it to HTML in your app and pass `html`. The SDK adds no rendering dependency.
-- **Copies and files.** `cc` and `bcc` take one address or a list of up to 10. `attachments` takes up to 10 files, 512 KB in total, each with `filename`, `content` (the file's bytes) and optional `content_type` and `content_id`. The SDK encodes `content` as Base64, so pass the bytes, not Base64: when you hold Base64, such as from a Resend payload, pass `base64_decode($content)`. Show a file inline with `<img src="cid:logo">` and `'content_id' => 'logo'`. A PostHog version that doesn't take these fields yet refuses the send with an error naming the field, and never drops it.
+- **Two forms.** Pass `template_id` with optional `template_data`, or `template_key` with `subject` and `html`, `text` or both. The content form also takes `from` (a verified sender), `reply_to`, `cc`, `bcc`, `attachments`, `sensitive` and `tracking`. PostHog derives a missing `text` from the `html`. To send an email built with a template library such as React Email, render it to HTML in your app and pass `html`. The SDK adds no rendering dependency.
+- **Copies and files.** `cc` and `bcc` take one address or a list of up to 10. `attachments` takes up to 10 files, each with `filename`, `content` (the file's bytes) and optional `content_type` and `content_id`. The whole email can be at most 40 MB after Base64 encoding, which leaves about 29 MB for the files. The 40 MB counts the subject and the bodies, and without `text` it counts the `html` twice, since PostHog sends the text it derives from it. The SDK checks both limits before any request (`too_many_attachments`, `message_too_large`). Pass the bytes, not Base64: when you hold Base64, such as from a Resend payload, pass `base64_decode($content)`. Show a file inline with `<img src="cid:logo">` and `'content_id' => 'logo'`. A PostHog version that doesn't take these fields yet refuses the send with an error naming the field, and never drops it.
+- **How files travel.** The SDK hashes each file with SHA-256, asks PostHog which files it still needs, uploads those straight to PostHog's file storage with the URL and headers PostHog answers (never with your secret key), then sends the email with each file's hash. A file the project already uploaded isn't uploaded again. The storage host differs from your app host, so allow it if your servers restrict outbound traffic. Files go only to an `https` storage URL, unless your `app_host` is plain `http://` for local development. A storage 429, 500, 502, 503 or 504 is retried like the send. A failed upload throws `attachment_upload_failed` with the storage's answer, and no email is sent. An upload never follows a redirect: storage that answers one fails that file the same way, without naming the URL.
+- **Sensitive emails.** Pass `'sensitive' => true` when the email carries login links, reset tokens or codes. A sensitive email keeps its links unchanged unless `tracking` turns clicks on, leaves its subject off engagement events, and keeps its content out of logs. Left out, the email takes the setting of the template made in PostHog whose key matches `template_key`, and is sensitive when no template matches.
+- **Tracking.** Left out, PostHog counts the email's opens and captures its engagement events, and tracks clicks only when the email isn't sensitive. `'tracking' => true` turns on opens, clicks and engagement events. `'tracking' => false` turns them all off: no open pixel, no rewritten links, no engagement events. An array such as `['clicks' => true]` sets `opens` (default `true`), `clicks` (default: on unless the email is sensitive) and `engagement` (default `true`) one by one. Turn clicks on for a sensitive email only when its links are safe to rewrite. Click tracking needs open tracking. `capture_engagement` is deprecated in favor of `tracking` with `engagement`. It still works, but a send can't set both.
 - **Pass `distinct_id`.** Without it, the email's engagement events go to a person whose distinct ID is the email address.
 - **A result means queued**, not delivered. `send()` returns a `SendEmailResult` with the message ID. `get()` reads the status for 30 days after the send. For a few seconds after the send, it throws `not_found`.
 - **Errors.** A send that is not queued throws `PostHog\EmailError`. Branch on `getErrorCode()`, such as `recipient_suppressed` or `missing_app_host`, or on `getErrorName()`, such as `validation_error`. An invalid argument throws before any request, with an `invalid_*` code.

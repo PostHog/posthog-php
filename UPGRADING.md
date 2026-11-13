@@ -1,5 +1,16 @@
 # Upgrade notes
 
+## Socket and HTTP timeout isolation
+
+With the socket consumer, `timeout` remains in seconds for event delivery. It no
+longer supplies milliseconds to SDK HTTP requests such as local flag-definition
+fetches. Those requests use a 10000-millisecond default instead of potentially
+turning a fractional socket timeout into an unlimited HTTP request.
+
+Use `http_timeout_ms` to set the SDK HTTP timeout independently, or explicitly set
+it to `0` to disable that timeout. For other consumers it defaults to the existing
+`timeout` value. Remote flag evaluations still use `feature_flag_request_timeout_ms`.
+
 ## GeoIP configuration
 
 The SDK keeps `disableGeoip => false` by default for compatibility with existing

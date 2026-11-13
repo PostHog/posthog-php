@@ -3,6 +3,7 @@
 namespace PostHog\Laravel;
 
 use PostHog\Client;
+use PostHog\Laravel\Delivery\QueuedConsumer;
 
 /** @internal Reports Laravel library metadata and the cached-config release id. */
 final class LaravelClient extends Client
@@ -14,9 +15,18 @@ final class LaravelClient extends Client
         array $options,
         ?string $releaseId,
         ?string $secretKey = null,
+        ?QueuedConsumer $queuedConsumer = null,
     ) {
         $this->configuredReleaseId = $releaseId;
+        if ($queuedConsumer !== null) {
+            $options['http_timeout_ms'] ??= ($options['consumer'] ?? null) === 'socket'
+                ? 10000 : ($options['timeout'] ?? 10000);
+            $options['consumer'] = 'noop';
+        }
         parent::__construct($apiKey, $options, loadFeatureFlags: false, secretKey: $secretKey);
+        if ($queuedConsumer !== null) {
+            $this->consumer = $queuedConsumer;
+        }
     }
 
     protected function libraryName(): string
