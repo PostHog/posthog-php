@@ -162,6 +162,10 @@ jobs:
           composer require --dev --no-update "symfony/mailer:$SYMFONY" "symfony/mime:$SYMFONY" "symfony/framework-bundle:$SYMFONY"
           composer update --with-all-dependencies --prefer-dist --no-progress
 
+      # Apps that deploy with an authoritative classmap load only the classes Composer found.
+      - name: Use an authoritative classmap
+        run: composer dump-autoload --classmap-authoritative
+
       - name: Run the Symfony Mailer tests
         run: ./vendor/bin/phpunit --bootstrap vendor/autoload.php --configuration phpunit.xml --no-coverage test/Mailer
 
