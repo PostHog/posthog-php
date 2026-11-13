@@ -7,7 +7,7 @@ use PostHog\Laravel\Context;
 use PostHog\Laravel\PostHog;
 use Throwable;
 
-/** @internal Collectors retain correlation IDs and groups, never arbitrary context payloads. */
+/** @internal Collectors retain correlation IDs, groups and IP, never arbitrary context payloads. */
 class Collector
 {
     private array $loggedFailures = [];
@@ -21,14 +21,19 @@ class Collector
 
     public static function snapshot(): array
     {
-        return array_intersect_key(Container::getInstance()->make(Context::class)->snapshot(), [
+        $data = Container::getInstance()->make(Context::class)->snapshot();
+        $snapshot = array_intersect_key($data, [
             'distinctId' => true, 'sessionId' => true, 'groups' => true,
         ]);
+        if (array_key_exists('$ip', $data['properties'] ?? [])) {
+            $snapshot['properties']['$ip'] = $data['properties']['$ip'];
+        }
+        return $snapshot;
     }
 
     public static function capture(string $event, array $properties, ?array $snapshot = null): void
     {
-        $context = null;
+        $scope = null;
         try {
             $app = Container::getInstance();
             if (!self::enabled()) {
@@ -36,20 +41,15 @@ class Collector
             }
             $snapshot ??= self::snapshot();
             $id = $snapshot['distinctId'] ?? null;
-            if (!is_scalar($id) || (string) $id === '') {
-                return;
-            }
-            $context = $app->make(Context::class);
-            $context->enter();
-            $context->begin($snapshot);
+            $scope = $app->make(Context::class)->enterResolvedContext($snapshot);
             $app->make(PostHog::class)->capture([
                 'event' => $event, 'properties' => $properties,
-                'distinctId' => (string) $id, 'groups' => $snapshot['groups'] ?? [],
+                'distinctId' => is_scalar($id) ? (string) $id : null, 'groups' => $snapshot['groups'] ?? [],
             ]);
         } catch (Throwable $exception) {
             self::logFailure(__METHOD__, $exception);
         } finally {
-            $context?->leave();
+            $scope?->close();
         }
     }
 

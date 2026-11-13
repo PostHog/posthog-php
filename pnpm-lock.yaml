@@ -7,3 +7,9 @@ settings:
 importers:
 
   .: {}
+
+  packages/laravel:
+    dependencies:
+      posthog-php:
+        specifier: workspace:*
+        version: link:../..

@@ -5,5 +5,10 @@
   <file>lib</file>
   <file>test</file>
 
+  <exclude-pattern>*/examples/laravel/resources/views/*.blade.php</exclude-pattern>
+
   <rule  ref="PSR12"/>
+  <rule ref="PSR1.Files.SideEffects">
+    <exclude-pattern>*/examples/laravel/public/index.php</exclude-pattern>
+  </rule>
 </ruleset>
