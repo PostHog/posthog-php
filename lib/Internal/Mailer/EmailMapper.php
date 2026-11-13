@@ -13,6 +13,7 @@ use Symfony\Component\Mime\Header\HeaderInterface;
 use Symfony\Component\Mime\Header\IdentificationHeader;
 use Symfony\Component\Mime\Header\UnstructuredHeader;
 use Symfony\Component\Mime\Message;
+use Symfony\Component\Mime\MessageConverter;
 use Symfony\Component\Mime\MimeTypes;
 use Symfony\Component\Mime\Part\AbstractMultipartPart;
 use Symfony\Component\Mime\Part\AbstractPart;
@@ -49,8 +50,9 @@ final class EmailMapper
     /**
      * @return array<string, mixed> The options of Emails::send().
      */
-    public function map(Email $email, Envelope $envelope): array
+    public function map(Message $message, Envelope $envelope): array
     {
+        $email = MessageConverter::toEmail($message);
         $to = $this->onlyRecipient($email);
         $options = $this->headerOptions($email);
         $this->refuseEnvelopeMismatch($email, $envelope);
@@ -59,7 +61,8 @@ final class EmailMapper
         $sensitive = self::flag('X-PostHog-Sensitive', $options[self::SENSITIVE] ?? null);
         $template = $email instanceof RemoteTemplateEmail ? $email->getRemoteTemplate() : null;
         $send = $template === null
-            ? $this->renderedContent($email, $templateKey) + ['tracking' => $tracking, 'sensitive' => $sensitive]
+            ? $this->renderedContent($email, $message, $templateKey)
+                + ['tracking' => $tracking, 'sensitive' => $sensitive]
             : $this->templateContent($email, $template->getReference(), $template->getVariables());
 
         return array_filter(
@@ -155,11 +158,11 @@ final class EmailMapper
     /**
      * @return array<string, mixed>
      */
-    private function renderedContent(Email $email, string $templateKey): array
+    private function renderedContent(Email $email, Message $message, string $templateKey): array
     {
         $html = self::readOnce($email->getHtmlBody());
         $text = self::readOnce($email->getTextBody());
-        self::refuseUnsupportedParts($email, $text, $html);
+        self::refuseUnsupportedParts($email, $message, $text, $html);
         $html = self::utf8($html, $email->getHtmlCharset(), 'HTML');
         $text = self::utf8($text, $email->getTextCharset(), 'text');
 
@@ -181,15 +184,17 @@ final class EmailMapper
 
     /**
      * The send carries the email's text, HTML and attachments, so a body set with setBody() must hold exactly those:
-     * one text and one HTML part for the email's own text and HTML, and each of the email's own attachments.
+     * one text and one HTML part for the email's own text and HTML, and each of the email's own attachments. The
+     * same holds for the body of a Message that isn't an Email, which MessageConverter rebuilds without the parts'
+     * own headers and dispositions.
      *
      * A body Symfony generates holds nothing else, so only a custom body is walked. Message::getBody() returns it
      * without building the generated body. Building it reads a stream body, and older Symfony Mime releases, such
      * as 6.4.0, rename each part the HTML refers to after its generated content ID.
      */
-    private static function refuseUnsupportedParts(Email $email, ?string $text, ?string $html): void
+    private static function refuseUnsupportedParts(Email $email, Message $message, ?string $text, ?string $html): void
     {
-        $custom = (new ReflectionMethod(Message::class, 'getBody'))->invoke($email);
+        $custom = (new ReflectionMethod(Message::class, 'getBody'))->invoke($message);
         $expected = ['plain' => $text, 'html' => $html];
         if ($custom === null) {
             return;

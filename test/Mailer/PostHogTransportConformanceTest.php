@@ -15,6 +15,7 @@ use Symfony\Component\Mailer\Header\TrackingHeader;
 use Symfony\Component\Mailer\RemoteTemplateEmail;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\Message;
 use Symfony\Component\Mime\Part\DataPart;
 use Symfony\Component\Mime\Part\Multipart\AlternativePart;
 use Symfony\Component\Mime\Part\Multipart\MixedPart;
@@ -729,6 +730,46 @@ final class PostHogTransportConformanceTest extends TestCase
     public function testAnEmailPostHogCannotCarryIsRefusedBeforeAnyRequest(Closure $email, string $code): void
     {
         $this->assertRefused($code, fn() => $this->transport()->send($email()));
+    }
+
+    public function testAMessageThatIsNotAnEmailSendsItsTextAndHtml(): void
+    {
+        $body = new AlternativePart(new TextPart('On its way.'), new TextPart('<p>On its way.</p>', 'utf-8', 'html'));
+
+        $this->transport()->send(new Message(clone self::shipped()->getHeaders(), $body));
+
+        $this->assertSame('<p>On its way.</p>', $this->body()['html']);
+        $this->assertSame('On its way.', $this->body()['text']);
+    }
+
+    public static function messagesConversionWouldChange(): array
+    {
+        $text = new TextPart('On its way.');
+        $text->getHeaders()->addTextHeader('Content-Language', 'de');
+        $attached = (new TextPart('<p>On its way.</p>', 'utf-8', 'html'))->setDisposition('attachment');
+        $body = new AlternativePart(new TextPart('On its way.'), new TextPart('<p>On its way.</p>', 'utf-8', 'html'));
+        $body->getHeaders()->addTextHeader('X-Note', 'kept by Symfony');
+
+        return [
+            'a text part with a header of its own' => [
+                fn() => new Message(clone self::shipped()->getHeaders(), $text),
+            ],
+            'an HTML part sent as an attachment' => [
+                fn() => new Message(clone self::shipped()->getHeaders(), $attached),
+            ],
+            'a multipart body with a header of its own' => [
+                fn() => new Message(clone self::shipped()->getHeaders(), $body),
+            ],
+        ];
+    }
+
+    /**
+     * @param Closure(): Message $message
+     */
+    #[DataProvider('messagesConversionWouldChange')]
+    public function testAMessageThatConversionToAnEmailWouldChangeIsRefused(Closure $message): void
+    {
+        $this->assertRefused('unsupported_part', fn() => $this->transport()->send($message()));
     }
 
     public function testCase13AnEnvelopeThatDiffersFromTheHeadersIsRefused(): void
