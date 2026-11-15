@@ -89,7 +89,6 @@ function handleRequest(array $request, AdapterState $state): array
             [$normalizedHost, $useSsl] = normalizeHost($host);
             $flushAt = max(1, (int) ($data['flush_at'] ?? 100));
             $flushIntervalMs = max(0, (int) ($data['flush_interval_ms'] ?? 5000));
-            $maxRetries = max(0, (int) ($data['max_retries'] ?? 3));
             $enableCompression = (bool) ($data['enable_compression'] ?? false);
             $timeoutMs = max(1000, (int) ($data['timeout_ms'] ?? 10000));
 
@@ -98,7 +97,10 @@ function handleRequest(array $request, AdapterState $state): array
                 throw new InvalidArgumentException('Unsupported consumer: ' . $consumer);
             }
 
-            $maximumBackoffDuration = maxBackoffDurationForRetries($maxRetries, $consumer);
+            // Do not lower the SDK's native Retry-After ceiling when no retry count was requested.
+            $maximumBackoffDuration = isset($data['max_retries'])
+                ? maxBackoffDurationForRetries(max(0, (int) $data['max_retries']), $consumer)
+                : 10000;
             $state->client = new Client($apiKey, [
                 'host' => $normalizedHost,
                 'ssl' => $useSsl,

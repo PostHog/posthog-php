@@ -1,7 +1,7 @@
 # PostHog PHP SDK compliance adapter
 
 The adapter runs the repository's `PostHog\Client` with production capture consumers
-and production `HttpClient` feature-flag requests. Harness 1.0.0 selects **30 server
+and production `HttpClient` feature-flag requests. Harness 1.31.1 selects **30 server
 capture V0 tests and 17 flag tests per profile**, including UTC timestamp overrides
 and gzip. No tests are filtered; compliance assertions remain advisory in CI.
 
@@ -15,7 +15,7 @@ and gzip. No tests are filtered; compliance assertions remain advisory in CI.
 
 CI runs all three profiles with distinct report artifacts. An independent
 `report-completeness` job checks each artifact against `expected_inventory.json`
-(the harness 1.0.0 server V0 and flags IDs). Missing, empty, incomplete, duplicate,
+(the harness 1.31.1 server V0 and flags IDs). Missing, empty, incomplete, duplicate,
 or unexpected results and inconsistent summary counts fail this gate. Complete
 reports with failing assertions still pass the inventory gate; SDK compliance
 assertions remain advisory. The checker reads the pinned harness's Markdown result
@@ -28,9 +28,12 @@ uncompressed HTTP client even when capture compression is enabled.
 
 The adapter maps `flush_at` to `batch_size` and `flush_interval_ms` to
 `flush_interval_seconds` (SDK default: 5 seconds, enforced on enqueue, not an idle
-timer). `max_retries` maps to the existing backoff-duration option: for three
-retries, 801 ms for HttpClient and 800 ms for Socket and foreground ForkCurl,
-reflecting their different limit checks. Socket's connection
+timer). When `max_retries` is omitted, the SDK's native 10000 ms maximum
+backoff duration is preserved, including for Retry-After. An explicit `max_retries`
+maps to the existing backoff-duration option: for three retries, 801 ms for
+HttpClient and 800 ms for Socket and foreground ForkCurl, reflecting their different
+limit checks. This mapping also caps Retry-After at that duration; the SDK has no
+independent ingestion retry-count option. Socket's connection
 timeout is expressed in seconds; the PHP worker's `default_socket_timeout=1`
 bounds reads, including idle retry connections. This is a configured runtime
 profile, not certification of default PHP socket timing.
