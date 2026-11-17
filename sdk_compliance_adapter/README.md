@@ -1,7 +1,7 @@
 # PostHog PHP SDK compliance adapter
 
 The adapter runs the repository's `PostHog\Client` with production capture consumers
-and production `HttpClient` feature-flag requests. Harness 1.31.1 selects **30 server
+and production `HttpClient` feature-flag requests. Harness 1.32.0 selects **30 server
 capture V0 tests and 17 flag tests per profile**, including UTC timestamp overrides
 and gzip. No tests are filtered; compliance assertions remain advisory in CI.
 
@@ -15,7 +15,7 @@ and gzip. No tests are filtered; compliance assertions remain advisory in CI.
 
 CI runs all three profiles with distinct report artifacts. An independent
 `report-completeness` job checks each artifact against `expected_inventory.json`
-(the harness 1.31.1 server V0 and flags IDs). Missing, empty, incomplete, duplicate,
+(the harness 1.32.0 server V0 and flags IDs). Missing, empty, incomplete, duplicate,
 or unexpected results and inconsistent summary counts fail this gate. Complete
 reports with failing assertions still pass the inventory gate; SDK compliance
 assertions remain advisory. The checker reads the pinned harness's Markdown result
