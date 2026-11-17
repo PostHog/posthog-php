@@ -3458,6 +3458,16 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": false
+                        },
+                        {
+                            "name": "defaultValue",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },

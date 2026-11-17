@@ -235,6 +235,39 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertSame(1, $this->flagsRequestCount());
     }
 
+    public function testIsEnabledResolvesMissingFlagsToTheCallerDefault(): void
+    {
+        $this->makeClient();
+        $snapshot = PostHog::evaluateFlags('user-1');
+
+        $this->assertTrue($snapshot->isEnabled('does-not-exist', true));
+        $this->assertFalse($snapshot->isEnabled('does-not-exist', false));
+        $this->assertFalse($snapshot->isEnabled('does-not-exist'));
+    }
+
+    public function testIsEnabledPrefersTheFlagValueOverTheCallerDefault(): void
+    {
+        $this->makeClient();
+        $snapshot = PostHog::evaluateFlags('user-1');
+
+        $this->assertFalse($snapshot->isEnabled('having_fun', true));
+        $this->assertTrue($snapshot->isEnabled('multivariate-test', false));
+        $this->assertTrue($snapshot->isEnabled('simple-test', false));
+    }
+
+    public function testIsEnabledUsesTheCallerDefaultForUnresolvedAndFilteredOutFlags(): void
+    {
+        $this->makeLocalClient(self::localDefinitions(
+            self::localFlag('beta-ui'),
+            self::localFlag('checkout', continuity: true),
+        ));
+
+        $snapshot = $this->client->evaluateFlags('user-123', onlyEvaluateLocally: true);
+
+        $this->assertTrue($snapshot->isEnabled('checkout', true));
+        $this->assertTrue($snapshot->only(['beta-ui'])->isEnabled('checkout', true));
+    }
+
     public function testUnknownKeyAccessRecordsFlagMissingError(): void
     {
         $this->makeClient();
