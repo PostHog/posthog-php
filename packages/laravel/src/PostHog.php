@@ -314,6 +314,11 @@ class PostHog
         ], $distinctId);
     }
 
+    public function getRemoteConfigPayload(string $key): mixed
+    {
+        return $this->client()->getRemoteConfigPayload($key);
+    }
+
     public function getAllFlags(
         ?string $distinctId = null,
         array $groups = [],
