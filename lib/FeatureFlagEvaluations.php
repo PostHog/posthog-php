@@ -106,6 +106,8 @@ class FeatureFlagEvaluations
     /**
      * Returns the decoded payload for a flag without recording access or firing a $feature_flag_called event.
      * Returns null for unknown keys or flags without a payload.
+     * A remote config flag with an encrypted payload is not in the snapshot; use
+     * `Client::getRemoteConfigPayload()` for it.
      *
      * @param string $key Feature flag key.
      * @return mixed

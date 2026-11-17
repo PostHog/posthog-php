@@ -301,7 +301,12 @@ class PostHog
         ], $distinctId);
     }
 
-    /** @deprecated Use evaluateFlags()->getFlagPayload() instead. */
+    /**
+     * @deprecated Use evaluateFlags()->getFlagPayload() instead.
+     *
+     * A remote config flag with an encrypted payload is not available here; use
+     * getRemoteConfigPayload() for it.
+     */
     public function getFeatureFlagPayload(
         string $key,
         ?string $distinctId = null,
@@ -314,6 +319,15 @@ class PostHog
         ], $distinctId);
     }
 
+    /**
+     * Fetch the payload of a remote config feature flag by key, with no distinct ID. Use this
+     * instead of `evaluateFlags()->getFlagPayload()` (or the deprecated `getFeatureFlagPayload()`)
+     * for a remote config flag, and always when its payload is encrypted: flag evaluation leaves a
+     * remote config flag with an encrypted payload out of its response. Needs `posthog.secret_key`
+     * (`POSTHOG_SECRET_KEY`).
+     *
+     * See \PostHog\Client::getRemoteConfigPayload() for the key types and failure behavior.
+     */
     public function getRemoteConfigPayload(string $key): mixed
     {
         return $this->client()->getRemoteConfigPayload($key);

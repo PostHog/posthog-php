@@ -1189,6 +1189,9 @@ class Client implements FeatureFlagEvaluationsHost
      * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
      * `/flags` request per incoming request.
      *
+     * A remote config flag with an encrypted payload is not available here; use
+     * `getRemoteConfigPayload()` for it.
+     *
      * @param string $key Feature flag key.
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array<string, mixed> $groups Group identifiers for group-based flags.
@@ -1226,10 +1229,14 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
-     * Fetch the remote config payload of a feature flag from PostHog.
+     * Fetch the payload of a remote config feature flag by key, with no distinct ID. Use this
+     * instead of `evaluateFlags()->getFlagPayload()` (or the deprecated `getFeatureFlagPayload()`)
+     * for a remote config flag, and always when its payload is encrypted: flag evaluation leaves a
+     * remote config flag with an encrypted payload out of its response. Needs the `secretKey` the
+     * client was created with. A Personal API Key returns an encrypted payload decrypted, and a
+     * Project Secret API Key returns it redacted.
      *
-     * Needs a secret key. A Personal API Key returns encrypted payloads decrypted. A Project Secret
-     * API Key returns them redacted. The call sends one request, with no retry, and captures no
+     * The call sends one request, with no retry, and captures no
      * `$feature_flag_called` event. It logs a warning and returns null when the client is disabled,
      * when no secret key is set, when the key is empty, `.` or `..`, when the request fails, or when
      * PostHog answers with a non-2xx status. An empty response means the flag has no payload: the
