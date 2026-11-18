@@ -31,6 +31,10 @@ posthog-laravel@0.4.0:
   dir: packages/laravel
   intents:
     - tender-dodos-know
+posthog-laravel@0.5.0:
+  dir: packages/laravel
+  intents:
+    - three-pants-ask
 posthog-php@4.12.1:
   dir: ""
   intents:
@@ -182,3 +186,7 @@ posthog-php@4.25.1:
   dir: ""
   intents:
     - twelve-corners-report
+posthog-php@4.26.0:
+  dir: ""
+  intents:
+    - three-pants-ask
