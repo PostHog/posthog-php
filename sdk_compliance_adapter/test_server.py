@@ -5,6 +5,7 @@ import json
 import os
 import socket
 import threading
+import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
@@ -20,10 +21,13 @@ class MockHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers["Content-Length"]))
         self.server.requests.append((self.path, dict(self.headers), body))
+        self.server.request_times.append(time.monotonic())
         status = self.server.statuses.pop(0) if self.server.statuses else 200
         response = b'{"featureFlags":{"test-flag":"variant-a"}}' if "/flags/" in self.path else b'{}'
         self.send_response(status)
         self.send_header("Content-Length", str(len(response)))
+        for name, value in self.server.response_headers.items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(response)
 
@@ -39,7 +43,9 @@ class AdapterTest(unittest.TestCase):
         self.mock = ThreadingHTTPServer(("127.0.0.1", MOCK_PORT), MockHandler)
         self.addCleanup(self.mock.server_close)
         self.mock.requests = []
+        self.mock.request_times = []
         self.mock.statuses = []
+        self.mock.response_headers = {}
         self.thread = threading.Thread(target=self.mock.serve_forever, daemon=True)
         self.thread.start()
         self.addCleanup(self.thread.join)
@@ -55,7 +61,9 @@ class AdapterTest(unittest.TestCase):
     def init(self, consumer="lib_curl", **options):
         os.environ["POSTHOG_CONSUMER"] = consumer
         self.mock.requests.clear()
+        self.mock.request_times.clear()
         self.mock.statuses.clear()
+        self.mock.response_headers.clear()
         self.call("/init", {"host": f"http://127.0.0.1:{self.mock.server_address[1]}",
                             "api_key": "phc_local_test", **options})
 
@@ -128,6 +136,17 @@ class AdapterTest(unittest.TestCase):
                     self.assertEqual([r["retry_attempt"] for r in requests], list(range(len(expected_statuses))))
                     self.assertTrue(all(r["uuid_list"] == [captured["uuid"]] for r in requests))
                     self.assertTrue(all(r[2] == self.mock.requests[0][2] for r in self.mock.requests))
+
+    def test_default_backoff_honors_retry_after(self):
+        for consumer in ("lib_curl", "socket", "fork_curl"):
+            with self.subTest(consumer=consumer):
+                self.init(consumer)
+                self.mock.statuses = [429, 200]
+                self.mock.response_headers = {"Retry-After": "3"}
+                self.capture()
+                self.assertTrue(self.call("/flush", {})["success"])
+                self.assertEqual(len(self.mock.requests), 2)
+                self.assertGreaterEqual(self.mock.request_times[1] - self.mock.request_times[0], 2.5)
 
     def test_terminal_response_exposes_sdk_boolean_not_observer_success(self):
         for consumer in ("lib_curl", "socket", "fork_curl"):
