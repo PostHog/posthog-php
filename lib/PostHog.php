@@ -365,6 +365,9 @@ class PostHog
      * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
      * `/flags` request per incoming request.
      *
+     * A remote config flag with an encrypted payload is not available here; use
+     * `getRemoteConfigPayload()` for it.
+     *
      * @param string $key
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array<string, mixed> $groups
@@ -388,6 +391,25 @@ class PostHog
             $personProperties,
             $groupProperties
         );
+    }
+
+    /**
+     * Fetch the payload of a remote config feature flag by key, with no distinct ID. Use this
+     * instead of `evaluateFlags()->getFlagPayload()` (or the deprecated `getFeatureFlagPayload()`)
+     * for a remote config flag, and always when its payload is encrypted: flag evaluation leaves a
+     * remote config flag with an encrypted payload out of its response. Needs the `secretKey`
+     * option.
+     *
+     * See Client::getRemoteConfigPayload() for the key types and failure behavior.
+     *
+     * @param string $key Feature flag key.
+     * @return mixed The decoded payload, or null when no payload could be read.
+     */
+    public static function getRemoteConfigPayload(string $key): mixed
+    {
+        self::checkClient();
+
+        return self::$client->getRemoteConfigPayload($key);
     }
 
     /**
