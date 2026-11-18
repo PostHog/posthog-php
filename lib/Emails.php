@@ -41,9 +41,9 @@ final class Emails
     public const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
     public const DEFAULT_MAX_RETRIES = 2;
 
-    private const SEND_PATH = '/api/projects/@current/messaging/send/email/';
-    private const UPLOADS_PATH = '/api/projects/@current/messaging/attachments/uploads/';
-    private const STATUS_PATH = '/api/projects/@current/messaging/emails/%s/';
+    private const SEND_PATH = '/api/messaging/send/email/';
+    private const UPLOADS_PATH = '/api/messaging/attachments/uploads/';
+    private const STATUS_PATH = '/api/messaging/emails/%s/';
     private const US_APP_HOST = 'https://us.posthog.com';
     private const EU_APP_HOST = 'https://eu.posthog.com';
     private const CLOUD_APP_HOSTS = [

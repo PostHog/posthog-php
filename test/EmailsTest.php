@@ -16,7 +16,7 @@ class EmailsTest extends TestCase
 {
     private const TEMPLATE_ID = '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b';
     private const MESSAGE_ID = '01a18356-c56c-0001-e494-7666bc915188';
-    private const SEND_URL = 'https://us.posthog.com/api/projects/@current/messaging/send/email/';
+    private const SEND_URL = 'https://us.posthog.com/api/messaging/send/email/';
     private const INVITE = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n";
     private const SECRET_CONTENT = 'secret-file-content';
 
@@ -416,7 +416,7 @@ class EmailsTest extends TestCase
         ], $this->body());
     }
 
-    private const UPLOAD_URL = 'https://us.posthog.com/api/projects/@current/messaging/attachments/uploads/';
+    private const UPLOAD_URL = 'https://us.posthog.com/api/messaging/attachments/uploads/';
     private const INVITE_SHA256 = '215efae54e34ac5657da47b49c8d1bd8ea12649ee1efa838c9a47d7233f18afb';
     private const PNG = "\x89PNG\r\n\x1a\n\x00";
     private const PNG_SHA256 = '843ac23b1736b4487ec81cf7c07ddd9bb46ae5b7818c2c3843d99d62fa75f3c9';
@@ -1246,7 +1246,7 @@ class EmailsTest extends TestCase
         $this->emails(['host' => $host, 'appHost' => $appHost])
             ->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
 
-        $this->assertSame($expected . '/api/projects/@current/messaging/send/email/', $this->requests[0]['url']);
+        $this->assertSame($expected . '/api/messaging/send/email/', $this->requests[0]['url']);
     }
 
     public static function responseErrors(): array
@@ -1527,7 +1527,7 @@ class EmailsTest extends TestCase
 
         $this->assertSame('GET', $this->requests[0]['method']);
         $this->assertSame(
-            'https://us.posthog.com/api/projects/@current/messaging/emails/' . self::MESSAGE_ID . '/',
+            'https://us.posthog.com/api/messaging/emails/' . self::MESSAGE_ID . '/',
             $this->requests[0]['url']
         );
         $this->assertNull($this->requests[0]['body']);
