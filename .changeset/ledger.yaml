@@ -190,3 +190,7 @@ posthog-php@4.26.0:
   dir: ""
   intents:
     - three-pants-ask
+posthog-php@4.26.1:
+  dir: ""
+  intents:
+    - easy-toys-deny
