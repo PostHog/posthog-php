@@ -56,7 +56,7 @@ class EmailsClientTest extends TestCase
         $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
         $requests = $this->server->requests();
         $this->assertCount(1, $requests);
-        $this->assertSame('POST /api/projects/@current/messaging/send/email/ HTTP/1.1', $requests[0]['requestLine']);
+        $this->assertSame('POST /api/messaging/send/email/ HTTP/1.1', $requests[0]['requestLine']);
         $headers = $requests[0]['headers'];
         $this->assertSame('Bearer phs_secret', $headers['authorization']);
         $this->assertSame('application/json', $headers['content-type']);
@@ -105,7 +105,7 @@ class EmailsClientTest extends TestCase
                     'url_expires_at' => '2026-11-02T12:15:00Z',
                 ]]]),
                 'accepts' => [
-                    'request_line' => 'POST /api/projects/@current/messaging/attachments/uploads/ HTTP/1.1',
+                    'request_line' => 'POST /api/messaging/attachments/uploads/ HTTP/1.1',
                     'authorization' => 'Bearer phs_secret',
                     'json_body' => ['files' => [['sha256' => $sha256, 'size' => strlen($file)]]],
                 ],
@@ -144,7 +144,7 @@ class EmailsClientTest extends TestCase
     {
         return array_map(
             static fn(array $send): array => json_decode($send['body'], true),
-            self::accepted($this->server, 'POST /api/projects/@current/messaging/send/email/ ')
+            self::accepted($this->server, 'POST /api/messaging/send/email/ ')
         );
     }
 
