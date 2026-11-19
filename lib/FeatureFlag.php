@@ -22,17 +22,35 @@ class FeatureFlag
         UnresolvedFlagReason::MISSING_CONTEXT,
     ];
 
+    // Operators that match a property key the caller listed as known absent; every other operator doesn't.
+    private const KNOWN_ABSENT_MATCHING_OPERATORS = [
+        "is_not_set", "is_not", "not_icontains", "not_starts_with", "not_ends_with", "not_regex",
+    ];
+
     /**
      * Match a single property filter against provided property values.
      *
      * @param array<string, mixed> $property Feature flag property filter.
      * @param array<string, mixed> $propertyValues Available property values keyed by property name.
      * @param mixed $propertyMatchingVersion Definition snapshot selector; only 2 enables explicit matching.
+     * @param array<string, true> $knownAbsentKeys Property keys known to be absent, as array keys. A listed
+     *     key is absent even when $propertyValues holds a value for it.
      * @return bool Whether the property matches.
      * @throws InconclusiveMatchException When the property cannot be evaluated locally.
      */
-    public static function matchProperty($property, $propertyValues, $propertyMatchingVersion = 1)
-    {
+    public static function matchProperty(
+        $property,
+        $propertyValues,
+        $propertyMatchingVersion = 1,
+        $knownAbsentKeys = []
+    ) {
+        $key = $property["key"] ?? null;
+        if ((is_string($key) || is_int($key)) && isset($knownAbsentKeys[$key])) {
+            // An unsupported operator or malformed filter stays inconclusive even for a known-absent key.
+            FeatureFlag::assertFilterSupported($property);
+            return in_array($property["operator"] ?? "exact", self::KNOWN_ABSENT_MATCHING_OPERATORS, true);
+        }
+
         try {
             return FeatureFlag::matchPropertyValue($property, $propertyValues, $propertyMatchingVersion);
         } catch (InconclusiveMatchException $e) {
@@ -305,7 +323,8 @@ class FeatureFlag
         $flagsByKey = null,
         $evaluationCache = null,
         $distinctId = null,
-        $propertyMatchingVersion = 1
+        $propertyMatchingVersion = 1,
+        $knownAbsentKeys = []
     ) {
         return FeatureFlag::matchCohortForIdentity(
             $property,
@@ -315,7 +334,8 @@ class FeatureFlag
             $evaluationCache,
             $distinctId,
             $propertyMatchingVersion,
-            false
+            false,
+            $knownAbsentKeys
         );
     }
 
@@ -328,7 +348,8 @@ class FeatureFlag
         &$evaluationCache,
         $distinctId,
         $propertyMatchingVersion,
-        $identityAggregation
+        $identityAggregation,
+        array $knownAbsentKeys
     ) {
         $cohortId = strval($property["value"]);
         if (!array_key_exists($cohortId, $cohortProperties)) {
@@ -347,7 +368,8 @@ class FeatureFlag
             $evaluationCache,
             $distinctId,
             $propertyMatchingVersion,
-            $identityAggregation
+            $identityAggregation,
+            $knownAbsentKeys
         );
     }
 
@@ -372,7 +394,8 @@ class FeatureFlag
         $flagsByKey = null,
         $evaluationCache = null,
         $distinctId = null,
-        $propertyMatchingVersion = 1
+        $propertyMatchingVersion = 1,
+        $knownAbsentKeys = []
     ) {
         return FeatureFlag::matchPropertyGroupForIdentity(
             $propertyGroup,
@@ -382,7 +405,8 @@ class FeatureFlag
             $evaluationCache,
             $distinctId,
             $propertyMatchingVersion,
-            false
+            false,
+            $knownAbsentKeys
         );
     }
 
@@ -395,7 +419,8 @@ class FeatureFlag
         &$evaluationCache,
         $distinctId,
         $propertyMatchingVersion,
-        $identityAggregation
+        $identityAggregation,
+        array $knownAbsentKeys
     ) {
         if (!$propertyGroup) {
             return true;
@@ -423,7 +448,8 @@ class FeatureFlag
                         $evaluationCache,
                         $distinctId,
                         $propertyMatchingVersion,
-                        $identityAggregation
+                        $identityAggregation,
+                        $knownAbsentKeys
                     );
                     if ($propertyGroupType === 'AND') {
                         if (!$matches) {
@@ -465,7 +491,8 @@ class FeatureFlag
                             $evaluationCache,
                             $distinctId,
                             $propertyMatchingVersion,
-                            $identityAggregation
+                            $identityAggregation,
+                            $knownAbsentKeys
                         );
                     } elseif ($propType === 'flag') {
                         $matches = FeatureFlag::evaluateFlagDependencyForIdentity(
@@ -476,10 +503,16 @@ class FeatureFlag
                             $propertyValues,
                             $cohortProperties,
                             $propertyMatchingVersion,
-                            $identityAggregation
+                            $identityAggregation,
+                            $knownAbsentKeys
                         );
                     } else {
-                        $matches = FeatureFlag::matchProperty($prop, $propertyValues, $propertyMatchingVersion);
+                        $matches = FeatureFlag::matchProperty(
+                            $prop,
+                            $propertyValues,
+                            $propertyMatchingVersion,
+                            $knownAbsentKeys
+                        );
                     }
 
                     $negation = $prop["negation"] ?? false;
@@ -1247,6 +1280,9 @@ class FeatureFlag
      * @param array<string, array<string, mixed>> $groupProperties Group properties for evaluation.
      * @param array<string, string> $groupTypeMapping Mapping from group type index to group type name.
      * @param mixed $propertyMatchingVersion Definition snapshot selector; defaults to legacy matching.
+     * @param array<string, true> $knownAbsentKeys Keys of $properties known to be absent, as array keys.
+     * @param array<string, array<string, true>> $groupKnownAbsentKeys Group property keys known to be absent,
+     *     as array keys, by group type name.
      * @return bool|string False for disabled, true for enabled boolean flags, or variant key.
      * @throws RequiresServerEvaluationException When server-side data is required.
      * @throws InconclusiveMatchException When the flag cannot be evaluated locally.
@@ -1261,7 +1297,9 @@ class FeatureFlag
         $groups = [],
         $groupProperties = [],
         $groupTypeMapping = [],
-        $propertyMatchingVersion = 1
+        $propertyMatchingVersion = 1,
+        $knownAbsentKeys = [],
+        $groupKnownAbsentKeys = []
     ) {
         return FeatureFlag::matchFeatureFlagPropertiesForIdentity(
             $flag,
@@ -1274,7 +1312,9 @@ class FeatureFlag
             $groupProperties,
             $groupTypeMapping,
             $propertyMatchingVersion,
-            ($flag["filters"] ?? [])["aggregation_group_type_index"] ?? null
+            ($flag["filters"] ?? [])["aggregation_group_type_index"] ?? null,
+            $knownAbsentKeys,
+            $groupKnownAbsentKeys
         );
     }
 
@@ -1295,7 +1335,9 @@ class FeatureFlag
         $groupProperties,
         $groupTypeMapping,
         $propertyMatchingVersion,
-        $identityAggregation
+        $identityAggregation,
+        array $knownAbsentKeys,
+        array $groupKnownAbsentKeys
     ) {
         $flagFilters = $flag["filters"] ?? [];
 
@@ -1322,6 +1364,7 @@ class FeatureFlag
                     : $flagAggregation;
 
                 $effectiveProperties = $properties;
+                $effectiveKnownAbsentKeys = $knownAbsentKeys;
                 $effectiveBucketing = $distinctId;
                 $effectiveAggregation = $identityAggregation;
                 $conditionEvaluationCache = &$evaluationCache;
@@ -1342,6 +1385,7 @@ class FeatureFlag
                             continue;
                         }
                         $effectiveProperties = $groupProperties[$groupName];
+                        $effectiveKnownAbsentKeys = $groupKnownAbsentKeys[$groupName] ?? [];
                         $effectiveBucketing = $groups[$groupName];
                         $effectiveAggregation = $conditionAggregation;
                         // Dependency results depend on the bucketing identity, so each group keeps its own.
@@ -1359,7 +1403,8 @@ class FeatureFlag
                     $flagsByKey,
                     $conditionEvaluationCache,
                     $propertyMatchingVersion,
-                    $effectiveAggregation
+                    $effectiveAggregation,
+                    $effectiveKnownAbsentKeys
                 );
 
                 if ($matchResult === ConditionMatch::Match) {
@@ -1430,7 +1475,8 @@ class FeatureFlag
         $flagsByKey,
         &$evaluationCache,
         $propertyMatchingVersion,
-        $identityAggregation
+        $identityAggregation,
+        array $knownAbsentKeys
     ): ConditionMatch {
         $rolloutPercentage = array_key_exists("rollout_percentage", $condition)
             ? $condition["rollout_percentage"] : null;
@@ -1452,7 +1498,8 @@ class FeatureFlag
                             $evaluationCache,
                             $distinctId,
                             $propertyMatchingVersion,
-                            $identityAggregation
+                            $identityAggregation,
+                            $knownAbsentKeys
                         );
                     } elseif ($propertyType == 'flag') {
                         $matches = FeatureFlag::evaluateFlagDependencyForIdentity(
@@ -1463,10 +1510,16 @@ class FeatureFlag
                             $properties,
                             $cohorts,
                             $propertyMatchingVersion,
-                            $identityAggregation
+                            $identityAggregation,
+                            $knownAbsentKeys
                         );
                     } else {
-                        $matches = FeatureFlag::matchProperty($property, $properties, $propertyMatchingVersion);
+                        $matches = FeatureFlag::matchProperty(
+                            $property,
+                            $properties,
+                            $propertyMatchingVersion,
+                            $knownAbsentKeys
+                        );
                     }
                 } catch (RequiresServerEvaluationException $e) {
                     // Fall back to the server only when this is the first filter that could not be
@@ -1730,7 +1783,8 @@ class FeatureFlag
         $distinctId,
         $properties,
         $cohortProperties,
-        $propertyMatchingVersion = 1
+        $propertyMatchingVersion = 1,
+        $knownAbsentKeys = []
     ) {
         return FeatureFlag::evaluateFlagDependencyForIdentity(
             $property,
@@ -1740,7 +1794,8 @@ class FeatureFlag
             $properties,
             $cohortProperties,
             $propertyMatchingVersion,
-            false
+            false,
+            $knownAbsentKeys
         );
     }
 
@@ -1756,7 +1811,8 @@ class FeatureFlag
         $properties,
         $cohortProperties,
         $propertyMatchingVersion,
-        $identityAggregation
+        $identityAggregation,
+        array $knownAbsentKeys
     ) {
         if ($flagsByKey === null || $evaluationCache === null) {
             throw new InconclusiveMatchException(
@@ -1821,7 +1877,9 @@ class FeatureFlag
                         [],
                         [],
                         $propertyMatchingVersion,
-                        $identityAggregation
+                        $identityAggregation,
+                        $knownAbsentKeys,
+                        []
                     );
                     $evaluationCache[$depFlagKey] = $depResult;
                 } catch (RequiresServerEvaluationException $e) {

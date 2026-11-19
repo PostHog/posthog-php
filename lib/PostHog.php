@@ -264,6 +264,10 @@ class PostHog
      * @param array<string, array<string, mixed>> $groupProperties
      * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
      * @param bool $sendFeatureFlagEvents Whether to send $feature_flag_called events.
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys known to be absent.
+     *     See Client::evaluateFlags().
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to be
+     *     absent, by group type name. See Client::evaluateFlags().
      * @return bool|null
      * @throws Exception
      */
@@ -274,7 +278,9 @@ class PostHog
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
-        bool $sendFeatureFlagEvents = true
+        bool $sendFeatureFlagEvents = true,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): null | bool {
         self::checkClient();
         return self::$client->isFeatureEnabled(
@@ -284,7 +290,9 @@ class PostHog
             $personProperties,
             $groupProperties,
             $onlyEvaluateLocally,
-            $sendFeatureFlagEvents
+            $sendFeatureFlagEvents,
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
         );
     }
 
@@ -300,6 +308,10 @@ class PostHog
      * @param array<string, array<string, mixed>> $groupProperties
      * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
      * @param bool $sendFeatureFlagEvents Whether to send $feature_flag_called events.
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys known to be absent.
+     *     See Client::evaluateFlags().
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to be
+     *     absent, by group type name. See Client::evaluateFlags().
      * @return bool|string|null
      * @throws Exception
      */
@@ -310,7 +322,9 @@ class PostHog
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
-        bool $sendFeatureFlagEvents = true
+        bool $sendFeatureFlagEvents = true,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): null | bool | string {
         self::checkClient();
         return self::$client->GetFeatureFlag(
@@ -320,7 +334,9 @@ class PostHog
             $personProperties,
             $groupProperties,
             $onlyEvaluateLocally,
-            $sendFeatureFlagEvents
+            $sendFeatureFlagEvents,
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
         );
     }
 
@@ -336,6 +352,10 @@ class PostHog
      * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
      * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
      * @param bool $sendFeatureFlagEvents Whether to send $feature_flag_called events.
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys known to be absent.
+     *     See Client::evaluateFlags().
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to be
+     *     absent, by group type name. See Client::evaluateFlags().
      * @return FeatureFlagResult|null
      * @throws Exception
      */
@@ -346,7 +366,9 @@ class PostHog
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
-        bool $sendFeatureFlagEvents = true
+        bool $sendFeatureFlagEvents = true,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): ?FeatureFlagResult {
         self::checkClient();
         return self::$client->getFeatureFlagResult(
@@ -356,7 +378,9 @@ class PostHog
             $personProperties,
             $groupProperties,
             $onlyEvaluateLocally,
-            $sendFeatureFlagEvents
+            $sendFeatureFlagEvents,
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
         );
     }
 
@@ -373,6 +397,10 @@ class PostHog
      * @param array<string, mixed> $groups
      * @param array<string, mixed> $personProperties
      * @param array<string, array<string, mixed>> $groupProperties
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys known to be absent.
+     *     See Client::evaluateFlags().
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to be
+     *     absent, by group type name. See Client::evaluateFlags().
      * @return mixed
      */
     public static function getFeatureFlagPayload(
@@ -381,6 +409,8 @@ class PostHog
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null,
     ): mixed {
         self::checkClient();
 
@@ -389,7 +419,9 @@ class PostHog
             $distinctId,
             $groups,
             $personProperties,
-            $groupProperties
+            $groupProperties,
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
         );
     }
 
@@ -429,6 +461,10 @@ class PostHog
      *     subset, which makes the response smaller and the request cheaper. Use this when you
      *     only need a handful of flags out of many. Distinct from FeatureFlagEvaluations::only(),
      *     which scopes which already-evaluated flags get attached to a captured event.
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys known to be absent.
+     *     See Client::evaluateFlags().
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to be
+     *     absent, by group type name. See Client::evaluateFlags().
      * @return FeatureFlagEvaluations
      * @throws Exception
      */
@@ -439,7 +475,9 @@ class PostHog
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
         ?bool $disableGeoip = null,
-        ?array $flagKeys = null
+        ?array $flagKeys = null,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): FeatureFlagEvaluations {
         self::checkClient();
         return self::$client->evaluateFlags(
@@ -449,7 +487,9 @@ class PostHog
             $groupProperties,
             $onlyEvaluateLocally,
             $disableGeoip,
-            $flagKeys
+            $flagKeys,
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
         );
     }
 
@@ -461,6 +501,10 @@ class PostHog
      * @param array<string, mixed> $personProperties
      * @param array<string, array<string, mixed>> $groupProperties
      * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys known to be absent.
+     *     See Client::evaluateFlags().
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to be
+     *     absent, by group type name. See Client::evaluateFlags().
      * @return array<string, bool|string>
      * @throws Exception
      */
@@ -469,7 +513,9 @@ class PostHog
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
-        bool $onlyEvaluateLocally = false
+        bool $onlyEvaluateLocally = false,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): array {
         self::checkClient();
         return self::$client->getAllFlags(
@@ -477,7 +523,9 @@ class PostHog
             $groups,
             $personProperties,
             $groupProperties,
-            $onlyEvaluateLocally
+            $onlyEvaluateLocally,
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
         );
     }
 

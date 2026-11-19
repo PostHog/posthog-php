@@ -412,6 +412,26 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -458,6 +478,26 @@
                             "variadic": false,
                             "optional": true,
                             "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         }
@@ -528,6 +568,26 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -591,6 +651,26 @@
                             "variadic": false,
                             "optional": true,
                             "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         }
@@ -678,6 +758,26 @@
                             "default": true,
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -734,6 +834,26 @@
                             "variadic": false,
                             "optional": true,
                             "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         }
@@ -812,6 +932,26 @@
                             "variadic": false,
                             "optional": true,
                             "default": true,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         }
@@ -951,6 +1091,26 @@
                             "variadic": false,
                             "optional": true,
                             "default": true,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         }
@@ -2798,6 +2958,16 @@
                             "default": 1,
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "knownAbsentKeys",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -2924,6 +3094,16 @@
                             "default": 1,
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "knownAbsentKeys",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -3032,6 +3212,26 @@
                             "default": 1,
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "knownAbsentKeys",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupKnownAbsentKeys",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -3068,6 +3268,16 @@
                             "variadic": false,
                             "optional": true,
                             "default": 1,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "knownAbsentKeys",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
                             "defaultConstant": null,
                             "hasDefault": true
                         }
@@ -3146,6 +3356,16 @@
                             "variadic": false,
                             "optional": true,
                             "default": 1,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "knownAbsentKeys",
+                            "type": null,
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
                             "defaultConstant": null,
                             "hasDefault": true
                         }
@@ -4540,6 +4760,26 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -4631,6 +4871,26 @@
                             "variadic": false,
                             "optional": true,
                             "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         }
@@ -4725,6 +4985,26 @@
                             "default": true,
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -4781,6 +5061,26 @@
                             "variadic": false,
                             "optional": true,
                             "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         }
@@ -4859,6 +5159,26 @@
                             "variadic": false,
                             "optional": true,
                             "default": true,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         }
@@ -5049,6 +5369,26 @@
                             "variadic": false,
                             "optional": true,
                             "default": true,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
                         }
