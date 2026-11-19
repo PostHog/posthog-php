@@ -243,6 +243,14 @@ class FeatureFlagEvaluationsTest extends TestCase
         $this->assertTrue($snapshot->isEnabled('does-not-exist', true));
         $this->assertFalse($snapshot->isEnabled('does-not-exist', false));
         $this->assertFalse($snapshot->isEnabled('does-not-exist'));
+        PostHog::flush();
+
+        $batches = $this->batchRequests();
+        $this->assertCount(1, $batches);
+        $this->assertCount(1, $batches[0]['batch']);
+        $properties = $batches[0]['batch'][0]['properties'];
+        $this->assertNull($properties['$feature_flag_response']);
+        $this->assertSame('flag_missing', $properties['$feature_flag_error']);
     }
 
     public function testIsEnabledPrefersTheFlagValueOverTheCallerDefault(): void
