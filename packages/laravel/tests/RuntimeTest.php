@@ -373,6 +373,39 @@ class RuntimeTest extends TestCase
         }
     }
 
+    public function testEvaluateFlagsForwardsKnownAbsentKeysAndScopesTheSnapshotByThem(): void
+    {
+        $bodies = [];
+        $http = $this->createMock(HttpClient::class);
+        $http->expects($this->exactly(2))->method('sendRequest')->willReturnCallback(
+            function ($path, $payload) use (&$bodies) {
+                $bodies[] = json_decode($payload, true);
+                return new HttpResponse(json_encode(['flags' => []]), 200);
+            },
+        );
+        $sdk = new Client('project-key', ['consumer' => 'noop'], $http, loadFeatureFlags: false);
+        $manager = $this->app->make(PostHog::class);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $sdk);
+        $context = $this->app->make(Context::class);
+        $context->begin(['distinctId' => 'user']);
+        try {
+            $listed = $manager->evaluateFlags(
+                personPropertyKeysKnownAbsent: ['plan'],
+                groupPropertyKeysKnownAbsent: ['team' => ['tier']],
+            );
+            $this->assertSame($listed, $manager->evaluateFlags(
+                personPropertyKeysKnownAbsent: ['plan'],
+                groupPropertyKeysKnownAbsent: ['team' => ['tier']],
+            ));
+            $this->assertNotSame($listed, $manager->evaluateFlags());
+        } finally {
+            $context->end();
+        }
+        $this->assertSame(['plan'], $bodies[0]['person_property_keys_known_absent']);
+        $this->assertSame(['team' => ['tier']], $bodies[0]['group_property_keys_known_absent']);
+        $this->assertArrayNotHasKey('person_property_keys_known_absent', $bodies[1]);
+    }
+
     public function testNoIdentityNeverLoadsPrivilegedDefinitionsAndResolversUseContainer(): void
     {
         $this->app['config']->set('posthog.secret_key', 'server-secret');
