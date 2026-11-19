@@ -152,6 +152,7 @@ class PostHog
         ?array $personPropertyKeysKnownAbsent = null,
         ?array $groupPropertyKeysKnownAbsent = null,
     ): FeatureFlagEvaluations {
+        Client::assertKnownAbsentKeysValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
         $context = $this->app->make(Context::class);
         $data = $context->data();
         $distinctId ??= $data['distinctId'] ?? null;

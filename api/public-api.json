@@ -150,6 +150,34 @@
                         }
                     ]
                 },
+                "assertKnownAbsentKeysValid": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": [
+                        {
+                            "name": "personPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "groupPropertyKeysKnownAbsent",
+                            "type": "?array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
                 "capture": {
                     "static": false,
                     "abstract": false,

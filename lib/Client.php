@@ -3073,11 +3073,13 @@ class Client implements FeatureFlagEvaluationsHost
      * Reject known-absent lists the flags service would refuse, before any evaluation or request.
      * Lists are never truncated.
      *
+     * @internal Used by PostHog framework integrations that return before calling the client;
+     *     not part of the customer API.
      * @param list<string>|null $personPropertyKeysKnownAbsent
      * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent
      * @throws InvalidArgumentException
      */
-    private static function assertKnownAbsentKeysValid(
+    public static function assertKnownAbsentKeysValid(
         ?array $personPropertyKeysKnownAbsent,
         ?array $groupPropertyKeysKnownAbsent
     ): void {
