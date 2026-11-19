@@ -412,6 +412,12 @@ class RuntimeTest extends TestCase
         $this->app->make(PostHog::class)->evaluateFlags(personPropertyKeysKnownAbsent: array_fill(0, 1001, 'plan'));
     }
 
+    public function testFakeEvaluateFlagsRejectsTooManyKnownAbsentKeys(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        Facade::fake()->evaluateFlags(groupPropertyKeysKnownAbsent: ['team' => array_fill(0, 1001, 'tier')]);
+    }
+
     public function testNoIdentityNeverLoadsPrivilegedDefinitionsAndResolversUseContainer(): void
     {
         $this->app['config']->set('posthog.secret_key', 'server-secret');

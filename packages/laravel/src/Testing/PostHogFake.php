@@ -63,6 +63,7 @@ class PostHogFake extends PostHog
         ?array $personPropertyKeysKnownAbsent = null,
         ?array $groupPropertyKeysKnownAbsent = null,
     ): FeatureFlagEvaluations {
+        Client::assertKnownAbsentKeysValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
         return $this->flagSnapshot ?? new FeatureFlagEvaluations($distinctId ?? '', [], $groups, $this->client());
     }
 
