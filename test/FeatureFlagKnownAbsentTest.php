@@ -320,6 +320,36 @@ class FeatureFlagKnownAbsentTest extends TestCase
         yield 'negated is_not' => ['is_not', true, false];
     }
 
+    #[DataProvider('cohortUnsupportedLeafProvider')]
+    public function testDynamicCohortUnsupportedLeafOnKnownAbsentKeyFallsBack(bool $negation): void
+    {
+        $leaf = self::personFilter('not_between', [1, 2]) + ['negation' => $negation];
+        $this->makeClient(
+            [self::flag('cohort-flag', [['key' => 'id', 'type' => 'cohort', 'value' => 1]])],
+            cohorts: ['1' => ['type' => 'AND', 'values' => [$leaf]]]
+        );
+
+        $local = $this->client->evaluateFlags(
+            'user-1',
+            onlyEvaluateLocally: true,
+            personPropertyKeysKnownAbsent: ['plan']
+        );
+        $this->assertSame(
+            ['cohort-flag' => UnresolvedFlagReason::UNSUPPORTED_DEFINITION],
+            $local->getUnresolvedFlags()
+        );
+
+        $snapshot = $this->client->evaluateFlags('user-1', personPropertyKeysKnownAbsent: ['plan']);
+        $this->assertSame(self::REMOTE_VALUE, $snapshot->getFlag('cohort-flag'));
+        $this->assertCount(1, $this->flagsRequestBodies());
+    }
+
+    public static function cohortUnsupportedLeafProvider(): iterable
+    {
+        yield 'not_between' => [false];
+        yield 'negated not_between' => [true];
+    }
+
     public function testFlagDependencyUsesKnownAbsentKeys(): void
     {
         $dependency = self::flag('profile-incomplete', [self::personFilter('is_not_set', null)]);
