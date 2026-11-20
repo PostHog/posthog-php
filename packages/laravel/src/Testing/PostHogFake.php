@@ -60,7 +60,10 @@ class PostHogFake extends PostHog
         bool $onlyEvaluateLocally = false,
         ?bool $disableGeoip = null,
         ?array $flagKeys = null,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null,
     ): FeatureFlagEvaluations {
+        Client::assertKnownAbsentKeysValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
         return $this->flagSnapshot ?? new FeatureFlagEvaluations($distinctId ?? '', [], $groups, $this->client());
     }
 
