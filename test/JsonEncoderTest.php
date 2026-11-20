@@ -734,10 +734,12 @@ class JsonEncoderTest extends TestCase
         };
         self::assertFalse(json_encode(["\xB1" => $serializer]));
         self::assertSame(JSON_ERROR_UTF8, json_last_error());
-        self::assertSame(1, $serializer->calls);
+        // PHP 8.4.28 and 8.5.13 stopped calling jsonSerialize() before rejecting a malformed key.
+        $nativeCalls = $serializer->calls;
+        self::assertContains($nativeCalls, [0, 1]);
         self::assertFalse(JsonEncoder::encode(["\xB1" => $serializer]));
         self::assertSame(JSON_ERROR_UTF8, json_last_error());
-        self::assertSame(2, $serializer->calls);
+        self::assertSame(2 * $nativeCalls, $serializer->calls);
         self::assertSame('7', JsonEncoder::encode(7));
         self::assertSame(JSON_ERROR_NONE, json_last_error());
     }
