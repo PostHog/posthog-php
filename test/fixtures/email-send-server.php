@@ -6,6 +6,8 @@
 // `templates`, which maps a template_key that names a template made in PostHog to that template's category,
 // or null for a template with no category.
 
+require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
+
 $server = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
 if ($server === false) {
     throw new RuntimeException($error, $errno);
@@ -37,7 +39,7 @@ foreach (array_filter($templates) as $template) {
 $refuse = static fn(int $status, string $code, string $detail, ?string $attr = null): array
     => [$status, ['type' => 'validation_error', 'code' => $code, 'detail' => $detail, 'attr' => $attr]];
 $isText = static fn(mixed $value, int $maxLength): bool
-    => is_string($value) && trim($value) !== '' && strlen($value) <= $maxLength;
+    => is_string($value) && trim($value) !== '' && mb_strlen($value, 'UTF-8') <= $maxLength;
 
 $send = static function (
     string $requestLine,
@@ -72,7 +74,10 @@ $send = static function (
             && $isText($category['key'] ?? null, 64) && $category['key'] !== '$all'
             && in_array($category['type'] ?? null, $categoryTypes, true)
             && $isText($category['name'] ?? null, 128)
-            && (!array_key_exists('description', $category) || is_string($category['description']));
+            && (
+                !array_key_exists('description', $category)
+                || (is_string($category['description']) && mb_strlen($category['description'], 'UTF-8') <= 1000)
+            );
         if (!$valid) {
             $shape = 'Send transactional, or a category with a key, type and name.';
             return $refuse(400, 'invalid_input', $shape, 'category');
@@ -124,7 +129,7 @@ $send = static function (
             'description' => $category['description'] ?? '',
         ];
     }
-    $anchorPattern = "/<a\\b[^>]*\\shref\\s*=\\s*([\"'])\\s*$placeholder(?:#[^\"']*)?\\s*\\1/i";
+    $anchorPattern = "/(?i:<a(?=[\\s>])[^>]*\\shref\\s*=\\s*)([\"'])\\s*$placeholder(?:[?#][^\"']*)?\\s*\\1/";
     $linked = $html === '' || preg_match($anchorPattern, $visibleHtml) === 1;
     if ($type === 'marketing' && !$linked) {
         return $refuse(400, 'unsubscribe_link_required', $unsubscribeLinkRequired, 'html');

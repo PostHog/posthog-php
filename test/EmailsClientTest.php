@@ -151,10 +151,35 @@ class EmailsClientTest extends TestCase
         );
     }
 
-    public function testANullDescriptionCreatesTheCategoryWithoutOne(): void
+    public static function omittedDescriptions(): array
     {
-        $this->sendInCategory(self::NEWSLETTER + ['description' => null]);
+        return ['left out' => [[]], 'null' => [['description' => null]]];
+    }
 
+    #[DataProvider('omittedDescriptions')]
+    public function testANullDescriptionCreatesTheCategoryWithoutOne(array $description): void
+    {
+        $this->sendInCategory(self::NEWSLETTER + $description);
+
+        $requests = $this->server->requests();
+        $this->assertCount(1, $requests);
+        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertArrayNotHasKey('description', $sent['category']);
+        $this->assertSame(
+            ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => '']],
+            $this->server->state()['categories']
+        );
+    }
+
+    public function testAnEmptyDescriptionStaysOnTheWire(): void
+    {
+        $this->sendInCategory(self::NEWSLETTER + ['description' => '']);
+
+        $requests = $this->server->requests();
+        $this->assertCount(1, $requests);
+        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertArrayHasKey('description', $sent['category']);
+        $this->assertSame('', $sent['category']['description']);
         $this->assertSame(
             ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => '']],
             $this->server->state()['categories']
