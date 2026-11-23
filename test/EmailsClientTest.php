@@ -140,6 +140,10 @@ class EmailsClientTest extends TestCase
     {
         $messageId = $this->sendInCategory(self::NEWSLETTER + ['description' => 'Monthly product news']);
 
+        $requests = $this->server->requests();
+        $this->assertCount(1, $requests);
+        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(self::MONTHLY_NEWS['html'], $sent['html']);
         $state = $this->server->state();
         $this->assertSame(
             ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => 'Monthly product news']],
@@ -148,6 +152,48 @@ class EmailsClientTest extends TestCase
         $this->assertSame(
             [['message_id' => $messageId, 'category' => 'newsletter', 'type' => 'marketing']],
             $state['sends']
+        );
+    }
+
+    public function testUnsubscribeLinkRequiredRefusalIsSurfacedWithoutRetrying(): void
+    {
+        $this->server = new LocalHttpServer([[
+            'status' => 400,
+            'body' => json_encode([
+                'type' => 'validation_error',
+                'code' => 'unsubscribe_link_required',
+                'detail' => 'A marketing email needs a clickable `{{ unsubscribe_url }}` link.',
+                'attr' => 'html',
+            ], JSON_THROW_ON_ERROR),
+        ]]);
+
+        try {
+            $this->client()->emails()->send([
+                'to' => 'user@example.com',
+                'template_key' => 'monthly-news',
+                'subject' => 'This month',
+                'html' => '<p>News.</p>',
+                'category' => self::NEWSLETTER,
+            ]);
+            $this->fail('send() did not throw');
+        } catch (EmailError $error) {
+            $this->assertSame('unsubscribe_link_required', $error->getErrorCode());
+            $this->assertSame('validation_error', $error->getErrorName());
+            $this->assertSame(400, $error->getStatusCode());
+            $this->assertSame('html', $error->getField());
+        }
+
+        $requests = $this->server->requests();
+        $this->assertCount(1, $requests);
+        $this->assertSame(
+            [
+                'template_key' => 'monthly-news',
+                'subject' => 'This month',
+                'html' => '<p>News.</p>',
+                'category' => self::NEWSLETTER,
+                'to' => 'user@example.com',
+            ],
+            json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR)
         );
     }
 
@@ -290,9 +336,19 @@ class EmailsClientTest extends TestCase
         $this->assertCount(1, $state['sends']);
     }
 
+    private static function traceSteps(array $requests): array
+    {
+        return array_map(static function (array $request): string {
+            [$method, $target] = explode(' ', $request['requestLine'], 3);
+            $path = strtok($target, '?');
+
+            return $method === 'PUT' ? 'PUT' : "$method $path";
+        }, $requests);
+    }
+
     public function testACategorizedTransactionalSendUploadsAndQueuesAnAttachment(): void
     {
-        $file = "%PDF-1.7\nreceipt bytes\n";
+        $file = "%PDF-1.7\n%\xE2\xE3\xCF\xD3\n\xFF\x00\xFEreceipt bytes\n";
         $sha256 = hash('sha256', $file);
         $this->server = new LocalHttpServer([], 'email-send-server.php');
 
@@ -302,15 +358,17 @@ class EmailsClientTest extends TestCase
         ]);
 
         $requests = $this->server->requests();
-        $this->assertCount(3, $requests);
-        $this->assertSame('POST /api/messaging/attachments/uploads/ HTTP/1.1', $requests[0]['requestLine']);
-        $this->assertSame("PUT /attachments/team/2/$sha256?X-Amz-Signature=abc HTTP/1.1", $requests[1]['requestLine']);
-        $this->assertSame($file, $requests[1]['body']);
+        $this->assertSame(
+            ['POST /api/messaging/attachments/uploads/', 'PUT', 'POST /api/messaging/send/email/'],
+            self::traceSteps($requests)
+        );
+        $this->assertSame($file, base64_decode($requests[1]['body_base64'], true));
         $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
-        $this->assertSame('POST /api/messaging/send/email/ HTTP/1.1', $requests[2]['requestLine']);
         $sent = json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame(self::RECEIPTS, $sent['category']);
         $this->assertSame([['sha256' => $sha256, 'filename' => 'receipt.pdf']], $sent['attachments']);
+        $state = $this->server->state();
+        $this->assertSame($file, base64_decode($state['stored'][$sha256], true));
         $this->assertSame(
             [[
                 'message_id' => $result->getId(),
@@ -318,13 +376,13 @@ class EmailsClientTest extends TestCase
                 'type' => 'transactional',
                 'attachments' => [['sha256' => $sha256, 'filename' => 'receipt.pdf']],
             ]],
-            $this->server->state()['sends']
+            $state['sends']
         );
     }
 
     public function testAMarketingSendWithAnAttachmentUploadsBeforeWorkflowCanWaitRefusal(): void
     {
-        $file = "%PDF-1.7\nbrochure bytes\n";
+        $file = "%PDF-1.7\n%\xE2\xE3\xCF\xD3\n\xFF\x00\xFEbrochure bytes\n";
         $sha256 = hash('sha256', $file);
         $this->server = new LocalHttpServer([], 'email-send-server.php');
 
@@ -342,16 +400,18 @@ class EmailsClientTest extends TestCase
         }
 
         $requests = $this->server->requests();
-        $this->assertCount(3, $requests);
-        $this->assertSame('POST /api/messaging/attachments/uploads/ HTTP/1.1', $requests[0]['requestLine']);
-        $this->assertSame("PUT /attachments/team/2/$sha256?X-Amz-Signature=abc HTTP/1.1", $requests[1]['requestLine']);
-        $this->assertSame($file, $requests[1]['body']);
+        $this->assertSame(
+            ['POST /api/messaging/attachments/uploads/', 'PUT', 'POST /api/messaging/send/email/'],
+            self::traceSteps($requests)
+        );
+        $this->assertSame($file, base64_decode($requests[1]['body_base64'], true));
         $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
-        $this->assertSame('POST /api/messaging/send/email/ HTTP/1.1', $requests[2]['requestLine']);
         $sent = json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame(self::NEWSLETTER, $sent['category']);
         $this->assertSame([['sha256' => $sha256, 'filename' => 'brochure.pdf']], $sent['attachments']);
-        $this->assertSame([], $this->server->state()['sends']);
+        $state = $this->server->state();
+        $this->assertSame($file, base64_decode($state['stored'][$sha256], true));
+        $this->assertSame([], $state['sends']);
     }
 
     public function testAFileIsUploadedWithAPlainPutBeforeTheSendOverHttp(): void

@@ -29,12 +29,12 @@ $codeSendFields = [
     'to', 'distinct_id', 'template_key', 'subject', 'html', 'text', 'from', 'reply_to', 'capture_engagement',
     'sensitive', 'tracking', 'category', 'cc', 'bcc', 'attachments',
 ];
+$uploadFileFields = ['sha256', 'size'];
 $attachmentFields = ['sha256', 'filename', 'content_type', 'content_id'];
 $categoryFields = ['key', 'type', 'name', 'description'];
 $categoryTypes = ['marketing', 'transactional'];
-$rawTextTags = ['textarea', 'title', 'script', 'style', 'xmp', 'iframe', 'noembed', 'noframes', 'noscript'];
 
-$state = ['categories' => [], 'sends' => []];
+$state = ['categories' => [], 'sends' => [], 'stored' => []];
 $signedUploads = [];
 $storedAttachments = [];
 foreach (array_filter($templates) as $template) {
@@ -50,146 +50,39 @@ $refuse = static fn(int $status, string $code, string $detail, ?string $attr = n
 $isText = static fn(mixed $value, int $maxLength): bool
     => is_string($value) && trim($value) !== '' && mb_strlen(trim($value), 'UTF-8') <= $maxLength;
 
-$placeholder = '\{\{\s*unsubscribe_url\s*\}\}';
-$unsubscribeHref = "/^\s*$placeholder(?:[?#].*)?\s*$/u";
-
-$hasClickableUnsubscribeLink = static function (string $html) use ($unsubscribeHref, $rawTextTags): bool {
-    $len = strlen($html);
-    $pos = 0;
-    while ($pos < $len) {
-        $open = strpos($html, '<', $pos);
-        if ($open === false || $open + 1 >= $len) {
-            return false;
-        }
-        $pos = $open + 1;
-        if (substr($html, $pos, 3) === '!--') {
-            $endComment = strpos($html, '-->', $pos + 3);
-            if ($endComment === false) {
-                return false;
-            }
-            $pos = $endComment + 3;
-            continue;
-        }
-        $first = $html[$pos];
-        if ($first === '/' || $first === '!' || $first === '?') {
-            $close = strpos($html, '>', $pos);
-            if ($close === false) {
-                return false;
-            }
-            $pos = $close + 1;
-            continue;
-        }
-        if (!ctype_alpha($first)) {
-            continue;
-        }
-        $tagStart = $pos;
-        while ($pos < $len && !ctype_space($html[$pos]) && $html[$pos] !== '>' && $html[$pos] !== '/') {
-            $pos++;
-        }
-        $tagName = strtolower(substr($html, $tagStart, $pos - $tagStart));
-        $isAnchor = $tagName === 'a';
-        $sawHref = false;
-        $matched = false;
-        while ($pos < $len && $html[$pos] !== '>') {
-            while ($pos < $len && ctype_space($html[$pos])) {
-                $pos++;
-            }
-            if ($pos >= $len || $html[$pos] === '>') {
-                break;
-            }
-            if ($html[$pos] === '/') {
-                $pos++;
-                continue;
-            }
-            $nameStart = $pos;
-            while (
-                $pos < $len
-                && !ctype_space($html[$pos])
-                && $html[$pos] !== '='
-                && $html[$pos] !== '>'
-                && $html[$pos] !== '/'
-            ) {
-                $pos++;
-            }
-            $name = substr($html, $nameStart, $pos - $nameStart);
-            while ($pos < $len && ctype_space($html[$pos])) {
-                $pos++;
-            }
-            if ($pos < $len && $html[$pos] === '=') {
-                $pos++;
-                while ($pos < $len && ctype_space($html[$pos])) {
-                    $pos++;
-                }
-                if ($pos < $len && ($html[$pos] === '"' || $html[$pos] === "'")) {
-                    $quote = $html[$pos++];
-                    $valStart = $pos;
-                    while ($pos < $len && $html[$pos] !== $quote) {
-                        $pos++;
-                    }
-                    $value = substr($html, $valStart, $pos - $valStart);
-                    if ($pos < $len) {
-                        $pos++;
-                    }
-                } else {
-                    $valStart = $pos;
-                    while ($pos < $len && !ctype_space($html[$pos]) && $html[$pos] !== '>') {
-                        $pos++;
-                    }
-                    $value = substr($html, $valStart, $pos - $valStart);
-                }
-                if ($isAnchor && !$sawHref && strtolower($name) === 'href') {
-                    $sawHref = true;
-                    $matched = preg_match($unsubscribeHref, $value) === 1;
-                }
-            } else {
-                if ($isAnchor && !$sawHref && strtolower($name) === 'href') {
-                    $sawHref = true;
-                }
-                if ($name === '') {
-                    $pos++;
-                }
-            }
-        }
-        if ($pos >= $len) {
-            return false;
-        }
-        if ($matched) {
-            return true;
-        }
-        if (in_array($tagName, $rawTextTags, true)) {
-            if (preg_match("/<\/$tagName(?:\s|>|\/)/i", $html, $endTag, PREG_OFFSET_CAPTURE, $pos + 1) === 1) {
-                $close = strpos($html, '>', $endTag[0][1]);
-                if ($close === false) {
-                    return false;
-                }
-                $pos = $close + 1;
-                continue;
-            }
-            return false;
-        }
-        $pos++;
-    }
-
-    return false;
-};
-
-$uploads = static function (string $body) use ($selfAddress, $refuse, &$signedUploads, &$storedAttachments): array {
+$uploads = static function (
+    string $body
+) use (
+    $selfAddress,
+    $uploadFileFields,
+    $refuse,
+    &$signedUploads,
+    &$storedAttachments
+): array {
     $payload = json_decode($body, true);
-    if (!is_array($payload) || !isset($payload['files']) || !is_array($payload['files']) || $payload['files'] === []) {
+    if (
+        !is_array($payload)
+        || array_diff(array_keys($payload), ['files']) !== []
+        || !isset($payload['files'])
+        || !is_array($payload['files'])
+        || $payload['files'] === []
+        || count($payload['files']) > 10
+    ) {
         return $refuse(400, 'invalid_request', 'Send 1 to 10 files.', 'files');
     }
     $answers = [];
     foreach ($payload['files'] as $file) {
-        $sha256 = $file['sha256'] ?? null;
-        $size = $file['size'] ?? null;
+        $sha256 = is_array($file) ? ($file['sha256'] ?? null) : null;
+        $size = is_array($file) ? ($file['size'] ?? null) : null;
         if (
             !is_array($file)
+            || array_diff(array_keys($file), $uploadFileFields) !== []
             || !is_string($sha256)
             || preg_match('/^[0-9a-f]{64}$/', $sha256) !== 1
             || !is_int($size)
             || $size < 1
         ) {
-            return $refuse(400, 'invalid_request', 'Each file takes sha256 and size.', 'files');
+            return $refuse(400, 'invalid_request', 'Each file takes only sha256 and size.', 'files');
         }
         if (array_key_exists($sha256, $storedAttachments)) {
             $answers[] = ['sha256' => $sha256, 'status' => 'present', 'expires_at' => '2026-12-16T12:00:00Z'];
@@ -214,7 +107,8 @@ $uploads = static function (string $body) use ($selfAddress, $refuse, &$signedUp
 $storeUpload = static function (
     string $requestLine,
     array $headers,
-    string $body
+    string $body,
+    array &$state
 ) use (
     &$signedUploads,
     &$storedAttachments
@@ -241,6 +135,7 @@ $storeUpload = static function (
         return [400, ['error' => 'BadDigest']];
     }
     $storedAttachments[$sha256] = $body;
+    $state['stored'][$sha256] = base64_encode($body);
 
     return [200, null];
 };
@@ -259,16 +154,14 @@ $send = static function (
     $categoryTypes,
     $optedOut,
     $templates,
-    $placeholder,
     $refuse,
     $isText,
-    $hasClickableUnsubscribeLink,
     $uploads,
     $storeUpload,
     &$storedAttachments
 ): array {
     if (str_starts_with($requestLine, 'PUT /attachments/')) {
-        return $storeUpload($requestLine, $headers, $body);
+        return $storeUpload($requestLine, $headers, $body, $state);
     }
     if ($requestLine === $uploadsRoute) {
         return $uploads($body);
@@ -314,8 +207,8 @@ $send = static function (
             return $refuse(400, 'invalid_request', 'Send 1 to 10 attachments.', 'attachments');
         }
         foreach ($email['attachments'] as $index => $attachment) {
-            $sha256 = $attachment['sha256'] ?? null;
-            $filename = $attachment['filename'] ?? null;
+            $sha256 = is_array($attachment) ? ($attachment['sha256'] ?? null) : null;
+            $filename = is_array($attachment) ? ($attachment['filename'] ?? null) : null;
             if (
                 !is_array($attachment)
                 || array_diff(array_keys($attachment), $attachmentFields) !== []
@@ -334,9 +227,6 @@ $send = static function (
             $attachments[] = $attachment;
         }
     }
-    $html = $email['html'] ?? '';
-    $content = $html !== '' ? $html : ($email['text'] ?? '');
-    $unsubscribeLinkRequired = 'A marketing email needs a {{ unsubscribe_url }} link.';
     $hasCopies = !empty($email['cc']) || !empty($email['bcc']);
     if (array_key_exists($email['template_key'], $templates)) {
         $template = $templates[$email['template_key']];
@@ -359,13 +249,8 @@ $send = static function (
     } elseif (is_array($category)) {
         $key = trim($category['key']);
         $type = $category['type'];
-        if ($type === 'marketing') {
-            if (preg_match("/$placeholder/u", $content) !== 1) {
-                return $refuse(400, 'unsubscribe_link_required', $unsubscribeLinkRequired, 'html');
-            }
-            if ($hasCopies) {
-                return $refuse(400, 'copies_not_allowed', 'A marketing email cannot have cc or bcc recipients.');
-            }
+        if ($type === 'marketing' && $hasCopies) {
+            return $refuse(400, 'copies_not_allowed', 'A marketing email cannot have cc or bcc recipients.');
         }
         $stored = $state['categories'][$key] ?? null;
         if ($stored !== null && $stored['type'] !== $type) {
@@ -383,9 +268,6 @@ $send = static function (
     if ($type === 'marketing') {
         if ($attachments !== []) {
             return $refuse(400, 'workflow_can_wait', 'A marketing email cannot carry attachments.', 'attachments');
-        }
-        if ($html !== '' && !$hasClickableUnsubscribeLink($html)) {
-            return $refuse(400, 'unsubscribe_link_required', $unsubscribeLinkRequired, 'html');
         }
         $optOuts = $key === null ? [] : array_merge($optedOut[$key] ?? [], $optedOut['$all'] ?? []);
         if (in_array($email['to'], $optOuts, true)) {
@@ -433,12 +315,17 @@ while ($connection = stream_socket_accept($server, 30)) {
         $body .= $chunk;
     }
     [$status, $reply] = $send($requestLine, $headers, $body, $state);
-    file_put_contents($argv[1], json_encode([
+    $entry = [
         'requestLine' => $requestLine,
         'headers' => $headers,
-        'body' => $body,
         'status' => $status,
-    ], JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
+    ];
+    if (str_starts_with($requestLine, 'PUT ')) {
+        $entry['body_base64'] = base64_encode($body);
+    } else {
+        $entry['body'] = $body;
+    }
+    file_put_contents($argv[1], json_encode($entry, JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
     file_put_contents($stateFile, json_encode($state, JSON_THROW_ON_ERROR));
     $replyBody = $reply === null ? '' : json_encode($reply, JSON_THROW_ON_ERROR);
     fwrite($connection, "HTTP/1.1 $status Response\r\nContent-Type: application/json\r\nContent-Length: "
