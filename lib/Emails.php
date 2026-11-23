@@ -56,6 +56,8 @@ final class Emails
     private const MAX_RETRY_DELAY_MS = 30000;
     private const MAX_RESPONSE_BYTES = 1_048_576;
     private const MAX_RETRY_AFTER_SECONDS = 31_536_000;
+    // DATE_RFC7231 is deprecated as of PHP 8.5.
+    private const HTTP_DATE_FORMAT = 'D, d M Y H:i:s \G\M\T';
     private const NO_EXPECT_100_CONTINUE = 'Expect:';
     private const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iD';
     private const IDEMPOTENCY_KEY_PATTERN = '/^[\x21-\x7e]{1,255}$/D';
@@ -1216,7 +1218,7 @@ final class Emails
 
     private static function httpDateInUtc(string $value): ?DateTimeImmutable
     {
-        return DateTimeImmutable::createFromFormat(DATE_RFC7231, $value, new DateTimeZone('UTC')) ?: null;
+        return DateTimeImmutable::createFromFormat(self::HTTP_DATE_FORMAT, $value, new DateTimeZone('UTC')) ?: null;
     }
 
     private static function longestRetryAfterSecondsAnIntHoldsInMs(): int
