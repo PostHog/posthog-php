@@ -92,6 +92,14 @@ class EmailsClientTest extends TestCase
         ]]);
     }
 
+    private function assertSameJsonObject(array $expected, mixed $actual): void
+    {
+        $this->assertIsArray($actual);
+        ksort($expected);
+        ksort($actual);
+        $this->assertSame($expected, $actual);
+    }
+
     public static function categoriesThatOmitCategory(): array
     {
         return ['left out' => [[]], 'null' => [['category' => null]]];
@@ -130,7 +138,7 @@ class EmailsClientTest extends TestCase
         $this->assertSame(self::MONTHLY_NEWS['to'], $sent['to']);
         $this->assertSame(self::MONTHLY_NEWS['subject'], $sent['subject']);
         $this->assertSame(self::MONTHLY_NEWS['html'], $sent['html']);
-        $this->assertSame($category, $sent['category']);
+        $this->assertSameJsonObject($category, $sent['category'] ?? null);
     }
 
     public function testUnsubscribeLinkRequiredRefusalIsSurfacedWithoutRetrying(): void
@@ -167,7 +175,7 @@ class EmailsClientTest extends TestCase
         $this->assertSame('user@example.com', $sent['to']);
         $this->assertSame('This month', $sent['subject']);
         $this->assertSame('<p>News.</p>', $sent['html']);
-        $this->assertSame(self::NEWSLETTER, $sent['category']);
+        $this->assertSameJsonObject(self::NEWSLETTER, $sent['category'] ?? null);
     }
 
     public static function omittedDescriptions(): array
@@ -186,7 +194,7 @@ class EmailsClientTest extends TestCase
         $this->assertCount(1, $requests);
         $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertArrayNotHasKey('description', $sent['category']);
-        $this->assertSame(self::NEWSLETTER, $sent['category']);
+        $this->assertSameJsonObject(self::NEWSLETTER, $sent['category'] ?? null);
     }
 
     public function testAnEmptyDescriptionStaysOnTheWire(): void
@@ -284,7 +292,11 @@ class EmailsClientTest extends TestCase
         $requests = $this->server->requests();
         $this->assertCount(1, $requests);
         $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
-        $this->assertSame($category, $sent['category']);
+        if (is_array($category)) {
+            $this->assertSameJsonObject($category, $sent['category'] ?? null);
+        } else {
+            $this->assertSame($category, $sent['category'] ?? null);
+        }
         foreach ($extra as $key => $expectedValue) {
             $this->assertSame($expectedValue, $sent[$key] ?? null);
         }
@@ -377,8 +389,9 @@ class EmailsClientTest extends TestCase
         $this->assertSame($file, base64_decode($requests[1]['body_base64'], true));
         $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
         $sent = json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR);
-        $this->assertSame(self::RECEIPTS, $sent['category']);
-        $this->assertSame([['sha256' => $sha256, 'filename' => 'receipt.pdf']], $sent['attachments']);
+        $this->assertSameJsonObject(self::RECEIPTS, $sent['category'] ?? null);
+        $this->assertCount(1, $sent['attachments']);
+        $this->assertSameJsonObject(['sha256' => $sha256, 'filename' => 'receipt.pdf'], $sent['attachments'][0]);
         $state = $this->server->state();
         $this->assertSame($file, base64_decode($state['stored'][$sha256], true));
     }
@@ -420,8 +433,9 @@ class EmailsClientTest extends TestCase
         $this->assertSame($file, base64_decode($requests[1]['body_base64'], true));
         $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
         $sent = json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR);
-        $this->assertSame(self::NEWSLETTER, $sent['category']);
-        $this->assertSame([['sha256' => $sha256, 'filename' => 'brochure.pdf']], $sent['attachments']);
+        $this->assertSameJsonObject(self::NEWSLETTER, $sent['category'] ?? null);
+        $this->assertCount(1, $sent['attachments']);
+        $this->assertSameJsonObject(['sha256' => $sha256, 'filename' => 'brochure.pdf'], $sent['attachments'][0]);
         $state = $this->server->state();
         $this->assertSame($file, base64_decode($state['stored'][$sha256], true));
     }

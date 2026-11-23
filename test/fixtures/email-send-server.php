@@ -27,6 +27,8 @@ $codeSendFields = [
 ];
 $uploadFileFields = ['sha256', 'size'];
 $attachmentFields = ['sha256', 'filename', 'content_type', 'content_id'];
+$categoryFields = ['key', 'type', 'name', 'description'];
+$categoryTypes = ['marketing', 'transactional'];
 
 $state = ['stored' => []];
 $signedUploads = [];
@@ -157,6 +159,8 @@ $handle = static function (
     $sendRoute,
     $codeSendFields,
     $attachmentFields,
+    $categoryFields,
+    $categoryTypes,
     $refuse,
     $decodeObject,
     $uploads,
@@ -181,6 +185,32 @@ $handle = static function (
     foreach (array_keys(get_object_vars($email)) as $field) {
         if (!in_array($field, $codeSendFields, true)) {
             return $refuse(400, 'invalid_input', "PostHog doesn't take this field.", $field);
+        }
+    }
+    if (property_exists($email, 'category') && $email->category !== 'transactional') {
+        $category = $email->category;
+        if (!$category instanceof stdClass) {
+            return $refuse(400, 'invalid_input', 'Invalid category.', 'category');
+        }
+        $categoryKeys = array_keys(get_object_vars($category));
+        $key = $category->key ?? null;
+        $type = $category->type ?? null;
+        $name = $category->name ?? null;
+        $hasDescription = property_exists($category, 'description');
+        $description = $hasDescription ? $category->description : '';
+        if (
+            array_diff($categoryKeys, $categoryFields) !== []
+            || !is_string($key)
+            || trim($key) === ''
+            || mb_strlen($key, 'UTF-8') > 64
+            || !in_array($type, $categoryTypes, true)
+            || !is_string($name)
+            || trim($name) === ''
+            || mb_strlen($name, 'UTF-8') > 128
+            || !is_string($description)
+            || mb_strlen($description, 'UTF-8') > 1000
+        ) {
+            return $refuse(400, 'invalid_input', 'Invalid category.', 'category');
         }
     }
     if (property_exists($email, 'attachments')) {
