@@ -389,6 +389,10 @@ class EmailsClientTest extends TestCase
         $this->assertSame($file, base64_decode($requests[1]['body_base64'], true));
         $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
         $sent = json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(self::MONTHLY_NEWS['to'], $sent['to'] ?? null);
+        $this->assertSame(self::MONTHLY_NEWS['template_key'], $sent['template_key'] ?? null);
+        $this->assertSame(self::MONTHLY_NEWS['subject'], $sent['subject'] ?? null);
+        $this->assertSame(self::MONTHLY_NEWS['html'], $sent['html'] ?? null);
         $this->assertSameJsonObject(self::RECEIPTS, $sent['category'] ?? null);
         $this->assertCount(1, $sent['attachments']);
         $this->assertSameJsonObject(['sha256' => $sha256, 'filename' => 'receipt.pdf'], $sent['attachments'][0]);
@@ -433,6 +437,10 @@ class EmailsClientTest extends TestCase
         $this->assertSame($file, base64_decode($requests[1]['body_base64'], true));
         $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
         $sent = json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(self::MONTHLY_NEWS['to'], $sent['to'] ?? null);
+        $this->assertSame(self::MONTHLY_NEWS['template_key'], $sent['template_key'] ?? null);
+        $this->assertSame(self::MONTHLY_NEWS['subject'], $sent['subject'] ?? null);
+        $this->assertSame(self::MONTHLY_NEWS['html'], $sent['html'] ?? null);
         $this->assertSameJsonObject(self::NEWSLETTER, $sent['category'] ?? null);
         $this->assertCount(1, $sent['attachments']);
         $this->assertSameJsonObject(['sha256' => $sha256, 'filename' => 'brochure.pdf'], $sent['attachments'][0]);

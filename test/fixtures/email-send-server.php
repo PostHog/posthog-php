@@ -187,6 +187,26 @@ $handle = static function (
             return $refuse(400, 'invalid_input', "PostHog doesn't take this field.", $field);
         }
     }
+    $to = $email->to ?? null;
+    if (!is_string($to) || trim($to) === '') {
+        return $refuse(400, 'invalid_input', 'to is required.', 'to');
+    }
+    $templateKey = $email->template_key ?? null;
+    if (!is_string($templateKey) || trim($templateKey) === '') {
+        return $refuse(400, 'invalid_input', 'template_key is required.', 'template_key');
+    }
+    $subject = $email->subject ?? null;
+    if (!is_string($subject) || $subject === '') {
+        return $refuse(400, 'invalid_input', 'subject is required.', 'subject');
+    }
+    $html = property_exists($email, 'html') ? $email->html : null;
+    $text = property_exists($email, 'text') ? $email->text : null;
+    if (($html !== null && !is_string($html)) || ($text !== null && !is_string($text))) {
+        return $refuse(400, 'invalid_input', 'html and text must be strings.');
+    }
+    if (($html ?? '') === '' && ($text ?? '') === '') {
+        return $refuse(400, 'invalid_input', 'html or text is required.', 'html');
+    }
     if (property_exists($email, 'category') && $email->category !== 'transactional') {
         $category = $email->category;
         if (!$category instanceof stdClass) {
