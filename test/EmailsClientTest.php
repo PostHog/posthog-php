@@ -121,12 +121,23 @@ class EmailsClientTest extends TestCase
         return json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
     }
 
+    private static function canonicalizeJson(mixed $value): mixed
+    {
+        if (!is_array($value)) {
+            return $value;
+        }
+        $normalized = array_map(self::canonicalizeJson(...), $value);
+        if (!array_is_list($normalized)) {
+            ksort($normalized);
+        }
+
+        return $normalized;
+    }
+
     private function assertSameJsonObject(array $expected, mixed $actual): void
     {
         $this->assertIsArray($actual);
-        ksort($expected);
-        ksort($actual);
-        $this->assertSame($expected, $actual);
+        $this->assertSame(self::canonicalizeJson($expected), self::canonicalizeJson($actual));
     }
 
     public static function categoriesThatOmitCategory(): array
@@ -143,11 +154,7 @@ class EmailsClientTest extends TestCase
 
         $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
         $sent = $this->assertSingleSendRequest($this->server->requests());
-        $this->assertArrayNotHasKey('category', $sent);
-        $this->assertSame(self::MONTHLY_NEWS['template_key'], $sent['template_key']);
-        $this->assertSame(self::MONTHLY_NEWS['to'], $sent['to']);
-        $this->assertSame(self::MONTHLY_NEWS['subject'], $sent['subject']);
-        $this->assertSame(self::MONTHLY_NEWS['html'], $sent['html']);
+        $this->assertSameJsonObject(self::MONTHLY_NEWS, $sent);
     }
 
     public function testACodeSendSerializesItsCategory(): void
@@ -159,11 +166,7 @@ class EmailsClientTest extends TestCase
 
         $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
         $sent = $this->assertSingleSendRequest($this->server->requests());
-        $this->assertSame(self::MONTHLY_NEWS['template_key'], $sent['template_key']);
-        $this->assertSame(self::MONTHLY_NEWS['to'], $sent['to']);
-        $this->assertSame(self::MONTHLY_NEWS['subject'], $sent['subject']);
-        $this->assertSame(self::MONTHLY_NEWS['html'], $sent['html']);
-        $this->assertSameJsonObject($category, $sent['category'] ?? null);
+        $this->assertSameJsonObject(self::MONTHLY_NEWS + ['category' => $category], $sent);
     }
 
     public function testUnsubscribeLinkRequiredRefusalIsSurfacedWithoutRetrying(): void
@@ -174,14 +177,15 @@ class EmailsClientTest extends TestCase
             'detail' => 'A marketing email needs a clickable `{{ unsubscribe_url }}` link.',
         ], JSON_THROW_ON_ERROR));
 
+        $email = [
+            'to' => 'user@example.com',
+            'template_key' => 'monthly-news',
+            'subject' => 'This month',
+            'html' => '<p>News.</p>',
+            'category' => self::NEWSLETTER,
+        ];
         try {
-            $this->client()->emails()->send([
-                'to' => 'user@example.com',
-                'template_key' => 'monthly-news',
-                'subject' => 'This month',
-                'html' => '<p>News.</p>',
-                'category' => self::NEWSLETTER,
-            ]);
+            $this->client()->emails()->send($email);
             $this->fail('send() did not throw');
         } catch (EmailError $error) {
             $this->assertSame('unsubscribe_link_required', $error->getErrorCode());
@@ -191,11 +195,7 @@ class EmailsClientTest extends TestCase
         }
 
         $sent = $this->assertSingleSendRequest($this->server->requests());
-        $this->assertSame('monthly-news', $sent['template_key']);
-        $this->assertSame('user@example.com', $sent['to']);
-        $this->assertSame('This month', $sent['subject']);
-        $this->assertSame('<p>News.</p>', $sent['html']);
-        $this->assertSameJsonObject(self::NEWSLETTER, $sent['category'] ?? null);
+        $this->assertSameJsonObject($email, $sent);
     }
 
     public static function omittedDescriptions(): array
@@ -211,19 +211,18 @@ class EmailsClientTest extends TestCase
         $this->client()->emails()->send(['category' => self::NEWSLETTER + $description] + self::MONTHLY_NEWS);
 
         $sent = $this->assertSingleSendRequest($this->server->requests());
-        $this->assertArrayNotHasKey('description', $sent['category']);
-        $this->assertSameJsonObject(self::NEWSLETTER, $sent['category'] ?? null);
+        $this->assertSameJsonObject(self::MONTHLY_NEWS + ['category' => self::NEWSLETTER], $sent);
     }
 
     public function testAnEmptyDescriptionStaysOnTheWire(): void
     {
         $this->acceptOneSend();
+        $category = self::NEWSLETTER + ['description' => ''];
 
-        $this->client()->emails()->send(['category' => self::NEWSLETTER + ['description' => '']] + self::MONTHLY_NEWS);
+        $this->client()->emails()->send(['category' => $category] + self::MONTHLY_NEWS);
 
         $sent = $this->assertSingleSendRequest($this->server->requests());
-        $this->assertArrayHasKey('description', $sent['category']);
-        $this->assertSame('', $sent['category']['description']);
+        $this->assertSameJsonObject(self::MONTHLY_NEWS + ['category' => $category], $sent);
     }
 
     public function testTheBuiltInTransactionalCategorySendsTransactionalOnTheWire(): void
@@ -236,7 +235,7 @@ class EmailsClientTest extends TestCase
 
         $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
         $sent = $this->assertSingleSendRequest($this->server->requests());
-        $this->assertSame('transactional', $sent['category'] ?? null);
+        $this->assertSameJsonObject(self::MONTHLY_NEWS + ['category' => 'transactional'], $sent);
     }
 
     public static function serverCategoryRefusals(): array
@@ -301,14 +300,7 @@ class EmailsClientTest extends TestCase
         }
 
         $sent = $this->assertSingleSendRequest($this->server->requests());
-        if (is_array($category)) {
-            $this->assertSameJsonObject($category, $sent['category'] ?? null);
-        } else {
-            $this->assertSame($category, $sent['category'] ?? null);
-        }
-        foreach ($extra as $key => $expectedValue) {
-            $this->assertSame($expectedValue, $sent[$key] ?? null);
-        }
+        $this->assertSameJsonObject(self::MONTHLY_NEWS + $extra + ['category' => $category], $sent);
     }
 
     public static function refusedCategories(): array
@@ -457,19 +449,19 @@ class EmailsClientTest extends TestCase
         );
         $this->assertSame('Bearer phs_secret', $requests[0]['headers']['authorization'] ?? null);
         $this->assertSame('application/json', $requests[0]['headers']['content-type'] ?? null);
+        $this->assertSame(
+            ['files' => [['sha256' => $sha256, 'size' => strlen($file)]]],
+            json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR)
+        );
         $this->assertSame("PUT $signedPath", self::requestRoute($requests[1]));
         $this->assertSame($file, base64_decode($requests[1]['body_base64'], true));
         $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
         $this->assertSame('Bearer phs_secret', $requests[2]['headers']['authorization'] ?? null);
         $this->assertSame('application/json', $requests[2]['headers']['content-type'] ?? null);
-        $sent = json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR);
-        $this->assertSame(self::MONTHLY_NEWS['to'], $sent['to'] ?? null);
-        $this->assertSame(self::MONTHLY_NEWS['template_key'], $sent['template_key'] ?? null);
-        $this->assertSame(self::MONTHLY_NEWS['subject'], $sent['subject'] ?? null);
-        $this->assertSame(self::MONTHLY_NEWS['html'], $sent['html'] ?? null);
-        $this->assertSameJsonObject(self::RECEIPTS, $sent['category'] ?? null);
-        $this->assertCount(1, $sent['attachments']);
-        $this->assertSameJsonObject(['sha256' => $sha256, 'filename' => 'receipt.pdf'], $sent['attachments'][0]);
+        $this->assertSameJsonObject(self::MONTHLY_NEWS + [
+            'category' => self::RECEIPTS,
+            'attachments' => [['sha256' => $sha256, 'filename' => 'receipt.pdf']],
+        ], json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR));
     }
 
     public function testAMarketingSendWithAnAttachmentUploadsBeforeWorkflowCanWaitRefusal(): void
@@ -531,19 +523,19 @@ class EmailsClientTest extends TestCase
         );
         $this->assertSame('Bearer phs_secret', $requests[0]['headers']['authorization'] ?? null);
         $this->assertSame('application/json', $requests[0]['headers']['content-type'] ?? null);
+        $this->assertSame(
+            ['files' => [['sha256' => $sha256, 'size' => strlen($file)]]],
+            json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR)
+        );
         $this->assertSame("PUT $signedPath", self::requestRoute($requests[1]));
         $this->assertSame($file, base64_decode($requests[1]['body_base64'], true));
         $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
         $this->assertSame('Bearer phs_secret', $requests[2]['headers']['authorization'] ?? null);
         $this->assertSame('application/json', $requests[2]['headers']['content-type'] ?? null);
-        $sent = json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR);
-        $this->assertSame(self::MONTHLY_NEWS['to'], $sent['to'] ?? null);
-        $this->assertSame(self::MONTHLY_NEWS['template_key'], $sent['template_key'] ?? null);
-        $this->assertSame(self::MONTHLY_NEWS['subject'], $sent['subject'] ?? null);
-        $this->assertSame(self::MONTHLY_NEWS['html'], $sent['html'] ?? null);
-        $this->assertSameJsonObject(self::NEWSLETTER, $sent['category'] ?? null);
-        $this->assertCount(1, $sent['attachments']);
-        $this->assertSameJsonObject(['sha256' => $sha256, 'filename' => 'brochure.pdf'], $sent['attachments'][0]);
+        $this->assertSameJsonObject(self::MONTHLY_NEWS + [
+            'category' => self::NEWSLETTER,
+            'attachments' => [['sha256' => $sha256, 'filename' => 'brochure.pdf']],
+        ], json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR));
     }
 
     public function testAFileIsUploadedWithAPlainPutBeforeTheSendOverHttp(): void

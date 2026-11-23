@@ -9,6 +9,18 @@ $selfAddress = stream_socket_get_name($server, false);
 echo $selfAddress . "\n";
 flush();
 
+$canonicalizeJson = static function (mixed $value) use (&$canonicalizeJson): mixed {
+    if (!is_array($value)) {
+        return $value;
+    }
+    $normalized = array_map($canonicalizeJson, $value);
+    if (!array_is_list($normalized)) {
+        ksort($normalized);
+    }
+
+    return $normalized;
+};
+
 while ($connection = stream_socket_accept($server, 30)) {
     stream_set_timeout($connection, 5);
     $requestLine = trim(fgets($connection));
@@ -35,13 +47,21 @@ while ($connection = stream_socket_accept($server, 30)) {
     $next = $responses[0] ?? [];
     $refusal = null;
     foreach ($next['accepts'] ?? [] as $name => $expected) {
+        if ($name === 'json_body') {
+            $decoded = json_decode($body, true);
+            $matches = json_last_error() === JSON_ERROR_NONE
+                && $canonicalizeJson($decoded) === $canonicalizeJson($expected);
+            if (!$matches) {
+                $refusal = $next['refusal'];
+            }
+            continue;
+        }
         $actual = match ($name) {
             'request_line' => $requestLine,
             'route' => implode(' ', array_slice(explode(' ', $requestLine, 3), 0, 2)),
-            'json_body' => json_decode($body, true),
             default => $headers[$name] ?? null,
         };
-        if ($name === 'json_body' ? $actual != $expected : $actual !== $expected) {
+        if ($actual !== $expected) {
             $refusal = $next['refusal'];
         }
     }

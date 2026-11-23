@@ -227,9 +227,11 @@ final class Emails
      * `transactional`), `name` and an optional `description`. When code-send categories are not yet enabled for
      * the project, PostHog refuses an explicit category array with `categories_not_enabled`. When `template_key`
      * doesn't match a saved template, PostHog creates the category the first time a send names its key, or restores
-     * it if it was deleted, and otherwise leaves it unchanged. When `template_key` matches a saved template, the send
-     * uses that template's own category without restoring an archived category. Its `name` and `description` apply
-     * only when the send creates the category; change them later in PostHog. A marketing send honors the recipient's
+     * it if it was deleted, and otherwise leaves it unchanged. When `template_key` matches a saved template and
+     * code-send categories are enabled for the project, the send uses that template's own category without
+     * restoring an archived category (with code-send categories disabled, omitting `category` uses the legacy
+     * path and queues without the saved template's category). Its `name` and `description` apply only when the
+     * send creates the category; change them later in PostHog. A marketing send honors the recipient's
      * opt-outs, adds unsubscribe headers, and needs a clickable `<a href="{{ unsubscribe_url }}">` link in `html`
      * (or `{{ unsubscribe_url }}` in `text` when there is no `html`). A marketing code send takes no `cc` or `bcc`
      * (`copies_not_allowed`) and cannot carry `attachments` (`workflow_can_wait` on a verified sender because
