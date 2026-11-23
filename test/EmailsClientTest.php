@@ -190,6 +190,10 @@ class EmailsClientTest extends TestCase
     {
         $messageId = $this->sendInCategory(Emails::CATEGORY_TRANSACTIONAL);
 
+        $requests = $this->server->requests();
+        $this->assertCount(1, $requests);
+        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('transactional', $sent['category'] ?? null);
         $state = $this->server->state();
         $this->assertSame([], $state['categories']);
         $this->assertSame(
@@ -284,6 +288,68 @@ class EmailsClientTest extends TestCase
         $state = $this->server->state();
         $this->assertSame('marketing', $state['categories']['newsletter']['type']);
         $this->assertCount(1, $state['sends']);
+    }
+
+    public function testACategorizedTransactionalSendUploadsAndQueuesAnAttachment(): void
+    {
+        $file = "%PDF-1.7\nreceipt bytes\n";
+        $sha256 = hash('sha256', $file);
+        $this->bucket = new LocalHttpServer([['status' => 200, 'body' => '']]);
+        $this->server = new LocalHttpServer(['storage' => $this->bucket->address()], 'email-send-server.php');
+
+        $result = $this->client()->emails()->send(self::MONTHLY_NEWS + [
+            'category' => self::RECEIPTS,
+            'attachments' => [['filename' => 'receipt.pdf', 'content' => $file]],
+        ]);
+
+        $this->assertSame([$file], $this->storedFiles());
+        $requests = $this->server->requests();
+        $this->assertCount(2, $requests);
+        $this->assertSame('POST /api/messaging/attachments/uploads/ HTTP/1.1', $requests[0]['requestLine']);
+        $this->assertSame('POST /api/messaging/send/email/ HTTP/1.1', $requests[1]['requestLine']);
+        $sent = json_decode($requests[1]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(self::RECEIPTS, $sent['category']);
+        $this->assertSame([['sha256' => $sha256, 'filename' => 'receipt.pdf']], $sent['attachments']);
+        $this->assertSame(
+            [[
+                'message_id' => $result->getId(),
+                'category' => 'receipts',
+                'type' => 'transactional',
+                'attachments' => [['sha256' => $sha256, 'filename' => 'receipt.pdf']],
+            ]],
+            $this->server->state()['sends']
+        );
+    }
+
+    public function testAMarketingSendWithAnAttachmentUploadsBeforeWorkflowCanWaitRefusal(): void
+    {
+        $file = "%PDF-1.7\nbrochure bytes\n";
+        $sha256 = hash('sha256', $file);
+        $this->bucket = new LocalHttpServer([['status' => 200, 'body' => '']]);
+        $this->server = new LocalHttpServer(['storage' => $this->bucket->address()], 'email-send-server.php');
+
+        try {
+            $this->client()->emails()->send(self::MONTHLY_NEWS + [
+                'category' => self::NEWSLETTER,
+                'attachments' => [['filename' => 'brochure.pdf', 'content' => $file]],
+            ]);
+            $this->fail('send() did not throw');
+        } catch (EmailError $error) {
+            $this->assertSame('workflow_can_wait', $error->getErrorCode());
+            $this->assertSame('validation_error', $error->getErrorName());
+            $this->assertSame(400, $error->getStatusCode());
+            $this->assertSame('attachments', $error->getField());
+        }
+
+        $this->assertSame([$file], $this->storedFiles());
+        $requests = $this->server->requests();
+        $this->assertCount(2, $requests);
+        $this->assertSame('POST /api/messaging/attachments/uploads/ HTTP/1.1', $requests[0]['requestLine']);
+        $this->assertSame('POST /api/messaging/send/email/ HTTP/1.1', $requests[1]['requestLine']);
+        $sent = json_decode($requests[1]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(self::NEWSLETTER, $sent['category']);
+        $this->assertSame([['sha256' => $sha256, 'filename' => 'brochure.pdf']], $sent['attachments']);
+        $this->assertSame([], $this->server->state()['sends']);
     }
 
     public function testAFileIsUploadedWithAPlainPutBeforeTheSendOverHttp(): void
