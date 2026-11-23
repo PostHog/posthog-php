@@ -140,27 +140,45 @@ class FeatureFlag
         }
 
         if ($operator == "icontains") {
-            return strpos(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value))) !== false;
+            return strpos(
+                strtolower(FeatureFlag::valueToString($overrideValue)),
+                strtolower(FeatureFlag::valueToString($value))
+            ) !== false;
         }
 
         if ($operator == "not_icontains") {
-            return strpos(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value))) === false;
+            return strpos(
+                strtolower(FeatureFlag::valueToString($overrideValue)),
+                strtolower(FeatureFlag::valueToString($value))
+            ) === false;
         }
 
         if ($operator == "starts_with") {
-            return str_starts_with(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value)));
+            return str_starts_with(
+                strtolower(FeatureFlag::valueToString($overrideValue)),
+                strtolower(FeatureFlag::valueToString($value))
+            );
         }
 
         if ($operator == "not_starts_with") {
-            return !str_starts_with(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value)));
+            return !str_starts_with(
+                strtolower(FeatureFlag::valueToString($overrideValue)),
+                strtolower(FeatureFlag::valueToString($value))
+            );
         }
 
         if ($operator == "ends_with") {
-            return str_ends_with(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value)));
+            return str_ends_with(
+                strtolower(FeatureFlag::valueToString($overrideValue)),
+                strtolower(FeatureFlag::valueToString($value))
+            );
         }
 
         if ($operator == "not_ends_with") {
-            return !str_ends_with(strtolower(FeatureFlag::valueToString($overrideValue)), strtolower(FeatureFlag::valueToString($value)));
+            return !str_ends_with(
+                strtolower(FeatureFlag::valueToString($overrideValue)),
+                strtolower(FeatureFlag::valueToString($value))
+            );
         }
 
         if (in_array($operator, ["regex", "not_regex"])) {
@@ -529,9 +547,9 @@ class FeatureFlag
             } elseif ($interval == "w") {
                 $parsedDt->sub(new \DateInterval("P{$number}W"));
             } elseif ($interval == "m") {
-                $parsedDt->sub(new \DateInterval("P{$number}M"));
+                FeatureFlag::subtractMonths($parsedDt, $number);
             } elseif ($interval == "y") {
-                $parsedDt->sub(new \DateInterval("P{$number}Y"));
+                FeatureFlag::subtractYears($parsedDt, $number);
             } else {
                 return null;
             }
@@ -540,6 +558,39 @@ class FeatureFlag
         } else {
             return null;
         }
+    }
+
+    /**
+     * Step back one month at a time and clamp the day after every step, as the SDK
+     * spec requires: March 31 minus two months is January 28. DateInterval would
+     * normalize February 31 forward into March.
+     */
+    private static function subtractMonths(\DateTime $date, int $months): void
+    {
+        $year = (int) $date->format('Y');
+        $month = (int) $date->format('n');
+        $day = (int) $date->format('j');
+        // Every month has at least 28 days, so nothing can clamp further after that.
+        for ($step = 1; $step <= $months && $day > 28; $step++) {
+            // Day 0 of a month is the last day of the month before it.
+            $lastDay = (int) (new \DateTime('@0'))->setDate($year, $month - $step + 1, 0)->format('j');
+            $day = min($day, $lastDay);
+        }
+        $date->setDate($year, $month - $months, $day);
+    }
+
+    /**
+     * Step back whole years the same way. Only February 29 can clamp, and once it
+     * becomes February 28 in the year before, no earlier step changes it again.
+     */
+    private static function subtractYears(\DateTime $date, int $years): void
+    {
+        $month = (int) $date->format('n');
+        $day = (int) $date->format('j');
+        if ($years > 0 && $month === 2 && $day === 29) {
+            $day = 28;
+        }
+        $date->setDate((int) $date->format('Y') - $years, $month, $day);
     }
 
     /**
@@ -738,7 +789,10 @@ class FeatureFlag
         $parts = explode(".", $text);
 
         // Remove trailing wildcard parts and empty parts
-        while (count($parts) > 0 && (end($parts) === "*" || end($parts) === "x" || end($parts) === "X" || end($parts) === "")) {
+        while (
+            count($parts) > 0
+            && (end($parts) === "*" || end($parts) === "x" || end($parts) === "X" || end($parts) === "")
+        ) {
             array_pop($parts);
         }
 
@@ -1378,7 +1432,8 @@ class FeatureFlag
         $propertyMatchingVersion,
         $identityAggregation
     ): ConditionMatch {
-        $rolloutPercentage = array_key_exists("rollout_percentage", $condition) ? $condition["rollout_percentage"] : null;
+        $rolloutPercentage = array_key_exists("rollout_percentage", $condition)
+            ? $condition["rollout_percentage"] : null;
 
         if (count($condition['properties'] ?? []) > 0) {
             // Filters in a condition have no defined order, so an inconclusive filter does not stop

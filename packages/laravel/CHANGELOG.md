@@ -1,5 +1,69 @@
 # posthog-laravel
 
+## 0.5.2
+
+### Patch Changes
+
+- Updated dependencies:
+  - posthog-php@4.27.0
+
+## 0.5.1
+
+### Patch Changes
+
+- Updated dependencies:
+  - posthog-php@4.26.1
+
+## 0.5.0
+
+### Minor Changes
+
+- The new `getRemoteConfigPayload()` reads the payload of a remote config feature flag by its key, with no distinct ID. It needs the `secretKey` the client was created with. It returns `null` and logs a warning on a failure. Laravel exposes it through the `PostHog` facade.
+
+### Patch Changes
+
+- Updated dependencies:
+  - posthog-php@4.26.0
+
+## 0.4.4
+
+### Patch Changes
+
+- Updated dependencies:
+  - posthog-php@4.25.1
+
+## 0.4.3
+
+### Patch Changes
+
+- Updated dependencies:
+  - posthog-php@4.25.0
+
+## 0.4.2
+
+### Patch Changes
+
+- Updated dependencies:
+  - posthog-php@4.24.0
+
+## 0.4.1
+
+### Patch Changes
+
+- Updated dependencies:
+  - posthog-php@4.23.1
+
+## 0.4.0
+
+### Minor Changes
+
+- Read the project token from `POSTHOG_PROJECT_TOKEN`. `POSTHOG_API_KEY` still works as a fallback, and the Laravel config gains a `project_token` key. The `api_key` key is deprecated and still read when `project_token` is blank.
+
+### Patch Changes
+
+- Updated dependencies:
+  - posthog-php@4.23.0
+
 ## 0.3.1
 
 ### Patch Changes

@@ -152,11 +152,25 @@ class ApiSurfaceTest extends TestCase
         $this->assertNull($client->getContext());
     }
 
+    public function testRemoteConfigPayloadForwardsToTheClient(): void
+    {
+        $client = $this->createMock(Client::class);
+        $client->expects($this->once())->method('getRemoteConfigPayload')->with('banner')
+            ->willReturn(['color' => 'blue']);
+        $manager = $this->getMockBuilder(PostHog::class)
+            ->setConstructorArgs([$this->app])
+            ->onlyMethods(['client'])
+            ->getMock();
+        $manager->expects($this->once())->method('client')->willReturn($client);
+        $this->assertSame(['color' => 'blue'], $manager->getRemoteConfigPayload('banner'));
+    }
+
     public function testSupportedForwardersKeepTheCoreParameterSignatures(): void
     {
         $methods = [
             'isFeatureEnabled', 'getFeatureFlag', 'getFeatureFlagResult', 'getFeatureFlagPayload',
-            'getAllFlags', 'loadFlags', 'contextFromHeaders', 'captureException', 'evaluateFlags',
+            'getRemoteConfigPayload', 'getAllFlags', 'loadFlags', 'contextFromHeaders', 'captureException',
+            'evaluateFlags',
         ];
         foreach ($methods as $method) {
             $signature = static fn ($parameter) => [

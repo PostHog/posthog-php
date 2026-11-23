@@ -16,7 +16,7 @@ final class InstallCommand extends Command
         if ($result !== self::SUCCESS) {
             return $result;
         }
-        $this->info('Set POSTHOG_API_KEY and POSTHOG_HOST in your server environment.');
+        $this->info('Set POSTHOG_PROJECT_TOKEN and POSTHOG_HOST in your server environment.');
         $this->info('Never expose POSTHOG_SECRET_KEY to a browser.');
         return self::SUCCESS;
     }

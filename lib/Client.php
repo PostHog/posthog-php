@@ -253,7 +253,7 @@ class Client implements FeatureFlagEvaluationsHost
     /**
      * Create a new PostHog client with your project's API key.
      *
-     * @param string|null $apiKey Your project API key. When omitted or empty, the client is disabled
+     * @param string|null $apiKey Your project token. When omitted or empty, the client is disabled
      *     and uses the noop consumer.
      * When POSTHOG_RELEASE_ID is set at construction, its value is sent as $release_id on every
      * event unless the event already carries one.
@@ -1092,7 +1092,9 @@ class Client implements FeatureFlagEvaluationsHost
                 if (array_key_exists($key, $featureFlags)) {
                     $result = $featureFlags[$key];
                 } else {
-                    $errors[] = FeatureFlagError::FLAG_MISSING;
+                    $errors[] = ($rawFlag['failed'] ?? false)
+                        ? 'evaluation_failed'
+                        : FeatureFlagError::FLAG_MISSING;
                     $result = null;
                 }
 
@@ -1189,6 +1191,9 @@ class Client implements FeatureFlagEvaluationsHost
      * `$flags->getFlagPayload($key)` instead. This consolidates flag evaluation into a single
      * `/flags` request per incoming request.
      *
+     * A remote config flag with an encrypted payload is not available here; use
+     * `getRemoteConfigPayload()` for it.
+     *
      * @param string $key Feature flag key.
      * @param string|null $distinctId Defaults to the current request context distinctId, when set.
      * @param array<string, mixed> $groups Group identifiers for group-based flags.
@@ -1223,6 +1228,91 @@ class Client implements FeatureFlagEvaluationsHost
         );
 
         return $result?->getPayload();
+    }
+
+    /**
+     * Fetch the payload of a remote config feature flag by key, with no distinct ID. Use this
+     * instead of `evaluateFlags()->getFlagPayload()` (or the deprecated `getFeatureFlagPayload()`)
+     * for a remote config flag, and always when its payload is encrypted: flag evaluation leaves a
+     * remote config flag with an encrypted payload out of its response. Needs the `secretKey` the
+     * client was created with. A Personal API Key returns an encrypted payload decrypted, and a
+     * Project Secret API Key returns it redacted.
+     *
+     * The call sends one request, with no retry, and captures no
+     * `$feature_flag_called` event. It logs a warning and returns null when the client is disabled,
+     * when no secret key is set, when the key is empty, `.` or `..`, when the request fails, or when
+     * PostHog answers with a non-2xx status. An empty response means the flag has no payload: the
+     * call returns null without a warning.
+     *
+     * @param string $key Feature flag key.
+     * @return mixed The decoded payload, or null when no payload could be read.
+     */
+    public function getRemoteConfigPayload(string $key): mixed
+    {
+        if (!$this->enabled) {
+            $this->logWarning('The client is disabled');
+            return null;
+        }
+
+        if ($this->secretKey === null) {
+            $this->logWarning('A secret key is required to fetch a remote config payload from PostHog');
+            return null;
+        }
+
+        if (in_array($key, ['', '.', '..'], true)) {
+            $this->logWarning('A feature flag key is required to fetch a remote config payload from PostHog');
+            return null;
+        }
+
+        $response = $this->httpClient->sendRequest(
+            '/api/projects/@current/feature_flags/' . rawurlencode($key)
+                . '/remote_config?token=' . rawurlencode($this->apiKey),
+            null,
+            [
+                "User-Agent: " . $this->options['library_name'] . "/" . $this->options['library_version'],
+                "Authorization: Bearer " . $this->secretKey
+            ],
+            [
+                'shouldRetry' => false,
+                'timeout' => $this->featureFlagsRequestTimeout
+            ]
+        );
+
+        $code = $response->getResponseCode();
+        // cURL keeps the 2xx status when the transfer fails after the headers arrive.
+        $curlErrno = $response->getCurlErrno();
+        if ($curlErrno !== 0 || $code < 200 || $code >= 300) {
+            error_log(
+                '[PostHog][Client] Unable to fetch remote config payload: '
+                . ($curlErrno !== 0 || $code === 0
+                    ? 'connection error (curl errno ' . $curlErrno . ')'
+                    : 'HTTP ' . $code)
+            );
+            return null;
+        }
+
+        // PostHog answers a flag that has no payload with an empty 2xx body.
+        $body = (string) $response->getResponse();
+        if (trim($body) === '') {
+            return null;
+        }
+
+        try {
+            $result = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            error_log('[PostHog][Client] Unable to read remote config payload: invalid JSON response');
+            return null;
+        }
+
+        if (is_string($result)) {
+            try {
+                return json_decode($result, true, 512, JSON_THROW_ON_ERROR);
+            } catch (\JsonException) {
+                return $result;
+            }
+        }
+
+        return $result;
     }
 
     /**

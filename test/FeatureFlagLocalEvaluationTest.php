@@ -1629,6 +1629,32 @@ class FeatureFlagLocalEvaluationTest extends TestCase
         });
     }
 
+    public static function relativeDateClampProvider(): array
+    {
+        return [
+            'one month from March 31' => ['2025-03-31T12:00:00Z', '1m', '2025-02-28T12:00:00Z'],
+            'one month from May 31' => ['2025-05-31T12:00:00Z', '1m', '2025-04-30T12:00:00Z'],
+            'one month into a leap February' => ['2024-03-31T12:00:00Z', '1m', '2024-02-29T12:00:00Z'],
+            'two months keep the February clamp' => ['2025-03-31T12:00:00Z', '2m', '2025-01-28T12:00:00Z'],
+            'thirteen months' => ['2025-03-31T12:00:00Z', '13m', '2024-02-28T12:00:00Z'],
+            'ten months from December 31' => ['2025-12-31T12:00:00Z', '10m', '2025-02-28T12:00:00Z'],
+            'twelve months pass through February' => ['2019-01-29T12:00:00Z', '12m', '2018-01-28T12:00:00Z'],
+            'one year does not' => ['2019-01-29T12:00:00Z', '1y', '2018-01-29T12:00:00Z'],
+            'zero months' => ['2025-03-31T12:00:00Z', '0m', '2025-03-31T12:00:00Z'],
+            'one year from February 29' => ['2024-02-29T12:00:00Z', '1y', '2023-02-28T12:00:00Z'],
+            'four years from February 29' => ['2024-02-29T12:00:00Z', '4y', '2020-02-28T12:00:00Z'],
+            'zero years from February 29' => ['2024-02-29T12:00:00Z', '0y', '2024-02-29T12:00:00Z'],
+        ];
+    }
+
+    #[DataProvider('relativeDateClampProvider')]
+    public function testRelativeDateParsingClampsAfterEveryStep(string $now, string $value, string $expected)
+    {
+        $this->executeAtFrozenDateTime(new \DateTime($now), function () use ($value, $expected) {
+            self::assertEquals(new \DateTime($expected), FeatureFlag::relativeDateParseForFeatureFlagMatching($value));
+        });
+    }
+
     public function testRelativeDateParsingYears()
     {
         $this->executeAtFrozenDateTime(new \DateTime('2020-01-01T12:01:20Z'), function () {

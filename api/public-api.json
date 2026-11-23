@@ -824,6 +824,24 @@
                     "returnType": "?string",
                     "parameters": []
                 },
+                "getRemoteConfigPayload": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "mixed",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        }
+                    ]
+                },
                 "groupIdentify": {
                     "static": false,
                     "abstract": false,
@@ -3462,6 +3480,16 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": false
+                        },
+                        {
+                            "name": "defaultValue",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -4289,6 +4317,10 @@
                     "type": "string",
                     "value": "POSTHOG_HOST"
                 },
+                "ENV_PROJECT_TOKEN": {
+                    "type": "string",
+                    "value": "POSTHOG_PROJECT_TOKEN"
+                },
                 "LIBRARY": {
                     "type": "string",
                     "value": "posthog-php"
@@ -4833,6 +4865,24 @@
                             "default": true,
                             "defaultConstant": null,
                             "hasDefault": true
+                        }
+                    ]
+                },
+                "getRemoteConfigPayload": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "mixed",
+                    "parameters": [
+                        {
+                            "name": "key",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
                         }
                     ]
                 },

@@ -350,7 +350,7 @@ class QueuedDeliveryTest extends TestCase
         $this->app['config']->set('posthog.api_key', '');
         $this->app->forgetInstance(BatchDelivery::class);
         $this->expectException(DeliveryFailed::class);
-        $this->expectExceptionMessage('requires a project API key');
+        $this->expectExceptionMessage('requires a project token');
         $job->handle($this->app);
     }
 

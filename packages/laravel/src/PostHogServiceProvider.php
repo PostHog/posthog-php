@@ -32,7 +32,7 @@ class PostHogServiceProvider extends ServiceProvider
         $this->app->scoped(\PostHog\Client::class, fn ($app) => $app->make(PostHog::class)->client());
         $this->app->scoped(FlagDefinitionCacheProvider::class, function ($app) {
             $config = $app['config']->get('posthog');
-            $key = 'posthog:definitions:' . hash('sha256', ($config['host'] ?? '') . ':' . ($config['api_key'] ?? ''));
+            $key = 'posthog:definitions:' . hash('sha256', ($config['host'] ?? '') . ':' . (ProjectToken::fromConfig($config) ?? ''));
             return new FlagDefinitionCacheProvider(
                 $app['cache']->store($config['flag_cache']['store']),
                 $key,

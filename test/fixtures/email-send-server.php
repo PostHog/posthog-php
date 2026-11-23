@@ -17,10 +17,10 @@ $templates = $setup['templates'] ?? [];
 echo stream_socket_get_name($server, false) . "\n";
 flush();
 
-$sendRoute = 'POST /api/projects/@current/messaging/send/email/ HTTP/1.1';
+$sendRoute = 'POST /api/messaging/send/email/ HTTP/1.1';
 $codeSendFields = [
     'to', 'distinct_id', 'template_key', 'subject', 'html', 'text', 'from', 'reply_to', 'capture_engagement',
-    'category', 'cc', 'bcc', 'attachments',
+    'sensitive', 'tracking', 'category', 'cc', 'bcc', 'attachments',
 ];
 $categoryFields = ['key', 'type', 'name', 'description'];
 $categoryTypes = ['marketing', 'transactional'];
@@ -150,13 +150,13 @@ while ($connection = stream_socket_accept($server, 30)) {
         }
         $body .= $chunk;
     }
+    [$status, $reply] = $send($requestLine, $body, $state);
     file_put_contents($argv[1], json_encode([
         'requestLine' => $requestLine,
         'headers' => $headers,
         'body' => $body,
+        'status' => $status,
     ], JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
-
-    [$status, $reply] = $send($requestLine, $body, $state);
     file_put_contents($stateFile, json_encode($state, JSON_THROW_ON_ERROR));
     $reply = json_encode($reply, JSON_THROW_ON_ERROR);
     fwrite($connection, "HTTP/1.1 $status Response\r\nContent-Type: application/json\r\nContent-Length: "

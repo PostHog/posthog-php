@@ -14,7 +14,7 @@ use Throwable;
 
 class PostHog
 {
-    public const VERSION = '0.3.1';
+    public const VERSION = '0.5.2';
 
     private ?Client $client = null;
     private ?int $definitionsLoadedAt = null;
@@ -26,7 +26,7 @@ class PostHog
     public function enabled(): bool
     {
         return (bool) $this->app['config']->get('posthog.enabled', true)
-            && trim((string) $this->app['config']->get('posthog.api_key')) !== '';
+            && ProjectToken::fromConfig($this->app['config']->get('posthog', [])) !== null;
     }
 
     public function client(): Client
@@ -38,6 +38,7 @@ class PostHog
             return $this->client = new Client(null, ['consumer' => 'noop'], loadFeatureFlags: false);
         }
         $config = $this->app['config']->get('posthog', []);
+        $token = ProjectToken::fromConfig($config);
         $options = $config['sdk'] ?? [];
         $options += ['disableGeoip' => true];
         $options['host'] = $config['host'] ?? 'https://us.i.posthog.com';
@@ -59,7 +60,7 @@ class PostHog
         $laravelQueue = $config['laravel_queue'] ?? [];
         $queuedConsumer = ($laravelQueue['enabled'] ?? false) && ($options['consumer'] ?? null) !== 'noop'
             ? new QueuedConsumer(
-                $config['api_key'],
+                $token,
                 $options,
                 $this->app->make(Dispatcher::class),
                 $laravelQueue,
@@ -67,7 +68,7 @@ class PostHog
             )
             : null;
         return $this->client = new LaravelClient(
-            $config['api_key'],
+            $token,
             $options,
             $config['release_id'] ?? null,
             $config['secret_key'] ?? null,
@@ -300,7 +301,12 @@ class PostHog
         ], $distinctId);
     }
 
-    /** @deprecated Use evaluateFlags()->getFlagPayload() instead. */
+    /**
+     * @deprecated Use evaluateFlags()->getFlagPayload() instead.
+     *
+     * A remote config flag with an encrypted payload is not available here; use
+     * getRemoteConfigPayload() for it.
+     */
     public function getFeatureFlagPayload(
         string $key,
         ?string $distinctId = null,
@@ -311,6 +317,20 @@ class PostHog
         return $this->callFlagMethod(__FUNCTION__, [
             $key, $distinctId, $groups, $personProperties, $groupProperties,
         ], $distinctId);
+    }
+
+    /**
+     * Fetch the payload of a remote config feature flag by key, with no distinct ID. Use this
+     * instead of `evaluateFlags()->getFlagPayload()` (or the deprecated `getFeatureFlagPayload()`)
+     * for a remote config flag, and always when its payload is encrypted: flag evaluation leaves a
+     * remote config flag with an encrypted payload out of its response. Needs `posthog.secret_key`
+     * (`POSTHOG_SECRET_KEY`).
+     *
+     * See \PostHog\Client::getRemoteConfigPayload() for the key types and failure behavior.
+     */
+    public function getRemoteConfigPayload(string $key): mixed
+    {
+        return $this->client()->getRemoteConfigPayload($key);
     }
 
     public function getAllFlags(

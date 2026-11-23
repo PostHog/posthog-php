@@ -14,6 +14,8 @@ use Throwable;
  */
 class EmailError extends RuntimeException
 {
+    private const REFUSED_ATTACHMENT_CODES = ['too_many_attachments', 'message_too_large'];
+
     private string $errorName;
     private string $errorCode;
     private ?int $statusCode;
@@ -68,8 +70,8 @@ class EmailError extends RuntimeException
 
     /**
      * PostHog's error code, such as `quota_limited`, or an SDK code such as `missing_secret_key`,
-     * `missing_app_host`, `client_disabled`, `client_closed`, `network_error`, `api_error` or an
-     * `invalid_*` argument code.
+     * `missing_app_host`, `client_disabled`, `client_closed`, `network_error`, `api_error`, `attachment_upload_failed`
+     * or an `invalid_*` argument code.
      */
     public function getErrorCode(): string
     {
@@ -126,8 +128,18 @@ class EmailError extends RuntimeException
 
     private static function nameFor(?int $status, string $code): string
     {
+        if ($code === 'attachment_upload_failed') {
+            return match (true) {
+                $status === 429 => 'rate_limit_exceeded',
+                $status !== null && $status >= 500 => 'service_unavailable',
+                default => 'application_error',
+            };
+        }
         if ($code === 'missing_secret_key' || $status === 401) {
             return 'missing_api_key';
+        }
+        if (in_array($code, self::REFUSED_ATTACHMENT_CODES, true)) {
+            return 'validation_error';
         }
         if ($status === null) {
             if ($code === 'network_error') {

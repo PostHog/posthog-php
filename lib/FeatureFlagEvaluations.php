@@ -72,17 +72,21 @@ class FeatureFlagEvaluations
     }
 
     /**
-     * Whether the flag is enabled for the snapshot's distinct id. Returns false for unknown keys.
+     * Whether the flag is enabled for the snapshot's distinct id. Returns $defaultValue for keys
+     * the snapshot holds no value for.
      *
      * @param string $key Feature flag key.
+     * @param bool $defaultValue Returned when the snapshot has no value for $key: the flag is
+     *     unknown, the flags request failed, or local evaluation stayed unresolved. A flag that
+     *     has a value — including false — always wins over this default.
      * @return bool
      */
-    public function isEnabled(string $key): bool
+    public function isEnabled(string $key, bool $defaultValue = false): bool
     {
         $record = $this->flags[$key] ?? null;
         $this->recordAccess($key, $record);
 
-        return $record?->enabled ?? false;
+        return $record?->enabled ?? $defaultValue;
     }
 
     /**
@@ -106,6 +110,8 @@ class FeatureFlagEvaluations
     /**
      * Returns the decoded payload for a flag without recording access or firing a $feature_flag_called event.
      * Returns null for unknown keys or flags without a payload.
+     * A remote config flag with an encrypted payload is not in the snapshot; use
+     * `Client::getRemoteConfigPayload()` for it.
      *
      * @param string $key Feature flag key.
      * @return mixed

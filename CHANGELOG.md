@@ -1,3 +1,51 @@
+## 4.27.0
+
+### Minor Changes
+
+- FeatureFlagEvaluations::isEnabled() takes an optional defaultValue, returned when the snapshot holds no value for the flag; a flag that has a value, including false, still wins.
+
+## 4.26.1
+
+### Patch Changes
+
+- Transactional email: send, attachment upload and status requests now use the key-scoped `/api/messaging/` routes instead of `/api/projects/@current/messaging/`. Needs PostHog Cloud, or a self-hosted PostHog from 2026-11-18 or later. Older self-hosted versions answer these calls with a 404.
+
+## 4.26.0
+
+### Minor Changes
+
+- The new `getRemoteConfigPayload()` reads the payload of a remote config feature flag by its key, with no distinct ID. It needs the `secretKey` the client was created with. It returns `null` and logs a warning on a failure. Laravel exposes it through the `PostHog` facade.
+
+## 4.25.1
+
+### Patch Changes
+
+- Report evaluation_failed instead of flag_missing for failed direct flag reads, including inconclusive local fallback, while retaining response-wide errors.
+
+## 4.25.0
+
+### Minor Changes
+
+- Transactional email: a send with `template_key` also takes `cc`, `bcc` and `attachments`. An attachment's `content` is the file's bytes: the SDK hashes each file, uploads the ones PostHog doesn't have yet, then sends the email with references to them. An email takes at most 10 files and 40 MB after Base64 encoding, about 29 MB of files. Files upload only over https, unless the `app_host` is plain `http://` for local development, and an upload never follows a redirect. A failed upload throws `attachment_upload_failed`.
+
+## 4.24.0
+
+### Minor Changes
+
+- A send with your own content (`template_key`) takes `sensitive` and `tracking`. Set `sensitive` to true when the email carries login links, reset tokens or codes: PostHog then keeps its links unchanged unless `tracking` turns clicks on, leaves its subject off engagement events, and keeps its content out of logs. Left out, the email takes the setting of the template made in PostHog whose key matches `template_key`, and is sensitive when no template matches. `tracking` chooses what PostHog tracks for the email. Left out, PostHog counts opens and captures engagement events, and tracks clicks only when the email isn't sensitive. `true` turns on opens, clicks and engagement events, and `false` turns them all off. An array such as `['clicks' => true]` sets `opens`, `clicks` and `engagement` one by one. `capture_engagement` is deprecated in favor of `tracking` with `engagement`; it still works, but a send can't set both. The client now sends it only when you set it; PostHog already reads a missing value as on. The client sends `sensitive` and `tracking` only when you set them. They need PostHog's API support for the fields, which is rolling out.
+
+## 4.23.1
+
+### Patch Changes
+
+- Relative date filters in local flag evaluation no longer roll past the end of a shorter month. `1m` on March 31 now resolves to February 28 instead of March 3.
+
+## 4.23.0
+
+### Minor Changes
+
+- Read the project token from `POSTHOG_PROJECT_TOKEN`. `POSTHOG_API_KEY` still works as a fallback, and the Laravel config gains a `project_token` key. The `api_key` key is deprecated and still read when `project_token` is blank.
+
 ## 4.22.1
 
 ### Patch Changes
