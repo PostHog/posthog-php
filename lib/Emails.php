@@ -176,9 +176,9 @@ final class Emails
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
      *   `reply_to`, `cc` and `bcc` (one address or a list; at most 10 for `cc` and `bcc`), `attachments`,
      *   `sensitive`, `tracking` and `category`. An empty `reply_to`, `cc`, `bcc` or `attachments` list is left out.
-     *   Marketing categories cannot be combined with `cc`, `bcc` (`copies_not_allowed`) or `attachments` on
-     *   workflows that can defer delivery (`workflow_can_wait`; the client uploads attachments before PostHog
-     *   refuses the send).
+     *   Marketing categories cannot be combined with `cc`, `bcc` (`copies_not_allowed`) or `attachments`
+     *   (`workflow_can_wait`, because marketing sending limits can hold delivery; the client uploads attachments
+     *   before PostHog refuses the send).
      * - `attachments` is a list of at most 10 files, and the email can be at most 40 MB after Base64 encoding, which
      *   leaves about 29 MB for the files. The 40 MB counts the subject and the bodies, and the `html` twice without
      *   `text`, since PostHog derives the text from it. Each file is an array with `filename`, `content` (the file's
@@ -230,9 +230,9 @@ final class Emails
      * in PostHog. A marketing send honors the recipient's opt-outs, adds unsubscribe headers, and needs a
      * clickable `<a href="{{ unsubscribe_url }}">` link in `html` (or `{{ unsubscribe_url }}` in `text` when
      * there is no `html`). A marketing code send takes no `cc` or `bcc` (`copies_not_allowed`) and cannot carry
-     * `attachments` on workflows that can defer delivery (`workflow_can_wait`; the client uploads attachments
-     * before PostHog refuses the send). A template made in PostHog must be enabled for transactional sends
-     * (`template_not_transactional` otherwise); when an otherwise sendable template is in a marketing category,
+     * `attachments` (`workflow_can_wait`, because marketing sending limits can hold delivery; the client uploads
+     * attachments before PostHog refuses the send). A template made in PostHog must be enabled for transactional
+     * sends (`template_not_transactional` otherwise); when an otherwise sendable template is in a marketing category,
      * PostHog refuses a send whose `template_key` names it with `marketing_template`. PostHog refuses a send
      * with `category_mismatch` when the project's category with that key has another type, or when
      * `template_key` names a template in another category, and with `too_many_categories`,

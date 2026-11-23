@@ -65,9 +65,6 @@ $send = static function (
             return $refuse(400, 'invalid_input', "PostHog doesn't take this field.", $field);
         }
     }
-    if (array_key_exists('category', $email) && $email['category'] === null) {
-        return $refuse(400, 'invalid_input', 'Omit category instead of sending null.', 'category');
-    }
     $category = $email['category'] ?? null;
     if ($category !== null && $category !== 'transactional') {
         $valid = is_array($category)
@@ -108,10 +105,6 @@ $send = static function (
         $key = null;
         $type = 'transactional';
     }
-    $hasCopies = !empty($email['cc']) || !empty($email['bcc']);
-    if ($type === 'marketing' && $hasCopies) {
-        return $refuse(400, 'copies_not_allowed', 'A marketing email cannot have cc or bcc recipients.');
-    }
     $html = $email['html'] ?? '';
     $visibleHtml = preg_replace('/<!--.*?(-->|$)/s', '', $html) ?? $html;
     $content = $html !== '' ? $html : ($email['text'] ?? '');
@@ -120,6 +113,10 @@ $send = static function (
     if ($type === 'marketing' && preg_match("/$placeholder/", $content) !== 1) {
         return $refuse(400, 'unsubscribe_link_required', $unsubscribeLinkRequired, 'html');
     }
+    $hasCopies = !empty($email['cc']) || !empty($email['bcc']);
+    if ($type === 'marketing' && $hasCopies) {
+        return $refuse(400, 'copies_not_allowed', 'A marketing email cannot have cc or bcc recipients.');
+    }
     if (is_array($category) && !array_key_exists($email['template_key'], $templates)) {
         $state['categories'][$key] ??= [
             'type' => $type,
@@ -127,7 +124,7 @@ $send = static function (
             'description' => $category['description'] ?? '',
         ];
     }
-    $anchorPattern = "/<a\\b[^>]*\\shref\\s*=\\s*([\"'])\\s*$placeholder\\s*\\1/i";
+    $anchorPattern = "/<a\\b[^>]*\\shref\\s*=\\s*([\"'])\\s*$placeholder(?:#[^\"']*)?\\s*\\1/i";
     $linked = $html === '' || preg_match($anchorPattern, $visibleHtml) === 1;
     if ($type === 'marketing' && !$linked) {
         return $refuse(400, 'unsubscribe_link_required', $unsubscribeLinkRequired, 'html');
