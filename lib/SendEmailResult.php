@@ -13,7 +13,7 @@ class SendEmailResult
     private bool $replayed;
     /** @var list<EmailWarning> */
     private array $warnings;
-    private ?DateTimeImmutable $scheduledAt;
+    private ?DateTimeImmutable $scheduledAt = null;
 
     /**
      * @internal Created by Emails::send().

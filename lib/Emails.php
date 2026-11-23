@@ -27,7 +27,8 @@ use Symfony\Component\Clock\NativeClock;
  * limits, an in-flight idempotency key and an unavailable service are retried up to
  * `email_request_max_retries` times (2 by default) with the same idempotency key, waiting about 1 and
  * then 2 seconds, or the server's `Retry-After` when it is longer. A `Retry-After` over 30 seconds fails
- * at once. A send that is not queued throws EmailError.
+ * at once. A send that is not queued or scheduled throws EmailError, and so does a scheduled send whose time
+ * PostHog didn't confirm.
  *
  * A send with attachments first uploads each file PostHog doesn't have yet to the storage URL PostHog
  * answers, which is on another host than the app host. It uploads only to an `https` URL, unless the app
@@ -65,7 +66,6 @@ final class Emails
     private const TIMESTAMP_PATTERN = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/D';
     private const SCHEDULED_AT_PATTERN =
         '/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(?:Z|([+-]\d{2}):(\d{2}))$/D';
-    private const CLOUD_SCHEDULING_HOSTS = [self::US_APP_HOST, self::EU_APP_HOST];
 
     private const SHARED_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'max_retries', 'scheduled_at'];
     private const TEMPLATE_FIELDS = ['template_id', 'template_data'];
@@ -426,9 +426,10 @@ final class Emails
 
     private static function scheduledAt(mixed $value): DateTimeImmutable
     {
-        $instant = $value instanceof DateTimeInterface
-            ? self::roundedUpToTheMillisecond(DateTimeImmutable::createFromInterface($value))
-            : self::timeWithOffsetRoundedUp($value);
+        if ($value instanceof DateTimeInterface) {
+            return self::roundedUpToTheMillisecond(DateTimeImmutable::createFromInterface($value));
+        }
+        [$instant, $finerThanAMillisecond] = self::timeWithOffset($value) ?? [null, false];
         if ($instant === null) {
             throw new EmailError(
                 'invalid_scheduled_at',
@@ -438,21 +439,7 @@ final class Emails
             );
         }
 
-        return $instant;
-    }
-
-    private static function timeWithOffsetRoundedUp(mixed $value): ?DateTimeImmutable
-    {
-        [$toTheMillisecond, $finerThanAMillisecond] = self::timeWithOffset($value) ?? [null, false];
-
-        return $finerThanAMillisecond ? $toTheMillisecond->modify('+1 millisecond') : $toTheMillisecond;
-    }
-
-    private static function timeWithOffsetToTheMillisecond(mixed $value): ?DateTimeImmutable
-    {
-        [$toTheMillisecond, $finerThanAMillisecond] = self::timeWithOffset($value) ?? [null, false];
-
-        return $finerThanAMillisecond ? null : $toTheMillisecond;
+        return $finerThanAMillisecond ? $instant->modify('+1 millisecond') : $instant;
     }
 
     /**
@@ -471,13 +458,7 @@ final class Emails
         $second ??= '00';
         $fraction ??= '';
         $offset = $offsetHours === null ? '+00:00' : "$offsetHours:$offsetMinutes";
-        if (
-            (int) $hour > 23
-            || (int) $minute > 59
-            || (int) $second > 59
-            || abs((int) $offsetHours) > 23
-            || (int) $offsetMinutes > 59
-        ) {
+        if (abs((int) $offsetHours) > 23 || (int) $offsetMinutes > 59) {
             return null;
         }
         $milliseconds = str_pad(substr($fraction, 0, 3), 3, '0');
@@ -1020,20 +1001,32 @@ final class Emails
 
     private static function refuseSchedulingOutsideCloud(string $appHost): void
     {
-        if (in_array($appHost, self::CLOUD_SCHEDULING_HOSTS, true)) {
+        if (in_array($appHost, self::CLOUD_APP_HOSTS, true)) {
             return;
         }
+        $where = self::hostAndPort($appHost) ?? 'a host that is not PostHog Cloud';
         throw new EmailError(
             'scheduling_requires_cloud',
             self::onOneLogLine(
                 'Scheduled sends work only on PostHog Cloud (us.posthog.com or eu.posthog.com), and this client '
-                . "sends email to $appHost, so no email was sent."
+                . "sends email to $where, so no email was sent."
             ),
             why: "A PostHog that doesn't schedule emails would send this one at once.",
             fix: 'Send without scheduled_at, or set app_host to PostHog Cloud. A reverse proxy or custom domain '
                 . "can't schedule emails yet.",
             field: 'scheduled_at'
         );
+    }
+
+    private static function hostAndPort(string $url): ?string
+    {
+        $host = parse_url($url, PHP_URL_HOST);
+        if (!is_string($host) || $host === '') {
+            return null;
+        }
+        $port = parse_url($url, PHP_URL_PORT);
+
+        return is_int($port) ? "$host:$port" : $host;
     }
 
     private function refuseWhenClosed(string $notDone): void
@@ -1285,9 +1278,12 @@ final class Emails
      */
     private static function confirmsSchedule(array $fields, DateTimeImmutable $requested): bool
     {
-        $confirmed = self::timeWithOffsetToTheMillisecond($fields['scheduled_at'] ?? null);
+        [$confirmed, $finerThanAMillisecond] = self::timeWithOffset($fields['scheduled_at'] ?? null) ?? [null, false];
 
-        return ($fields['status'] ?? null) === 'scheduled' && $confirmed !== null && $confirmed == $requested;
+        return ($fields['status'] ?? null) === 'scheduled'
+            && $confirmed !== null
+            && !$finerThanAMillisecond
+            && $confirmed == $requested;
     }
 
     private static function scheduleNotConfirmed(string $messageId, int $status): EmailError

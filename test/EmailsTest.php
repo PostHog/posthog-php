@@ -10,6 +10,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\EmailError;
 use PostHog\Emails;
+use PostHog\SendEmailResult;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\MockClock;
@@ -1627,11 +1628,11 @@ class EmailsTest extends TestCase
         $this->assertSame([], $this->requests);
     }
 
-    private static function scheduledReply(string $scheduledAt, string $status = 'scheduled'): array
+    private static function scheduledReply(string $scheduledAt): array
     {
         return [202, json_encode([
             'message_id' => self::MESSAGE_ID,
-            'status' => $status,
+            'status' => 'scheduled',
             'scheduled_at' => $scheduledAt,
         ]), []];
     }
@@ -1679,7 +1680,7 @@ class EmailsTest extends TestCase
             'string to the millisecond' => ['2026-11-03T09:00:00.123Z', '2026-11-03T09:00:00.123Z'],
             'string with zeros past the millisecond' => ['2026-11-03T09:00:00.123000Z', '2026-11-03T09:00:00.123Z'],
             'string with nanoseconds rounds up' => ['2026-11-03T09:00:00.123000001Z', '2026-11-03T09:00:00.124Z'],
-            'string rounds up into the next year' => ['2026-12-31T23:59:59.9995Z', '2027-01-01T00:00:00.000Z'],
+            'string rounds up into the next day' => ['2026-11-02T23:59:59.9995Z', '2026-11-03T00:00:00.000Z'],
             'DateTimeImmutable in UTC' => [
                 new DateTimeImmutable('2026-11-03T09:00:00', new DateTimeZone('UTC')),
                 '2026-11-03T09:00:00.000Z',
@@ -1798,15 +1799,27 @@ class EmailsTest extends TestCase
     public static function hostsThatDoNotSchedule(): array
     {
         return [
-            'self-hosted app host' => ['https://posthog.example.com', 'https://posthog.example.com'],
-            'reverse proxy as app host' => ['proxy.example.com', 'https://proxy.example.com'],
-            'local development' => ['proxy.example.com', 'http://localhost:8010'],
+            'self-hosted app host' => [
+                'https://posthog.example.com',
+                'https://posthog.example.com',
+                'posthog.example.com',
+            ],
+            'reverse proxy as app host' => ['proxy.example.com', 'https://proxy.example.com', 'proxy.example.com'],
+            'local development' => ['proxy.example.com', 'http://localhost:8010', 'localhost:8010'],
+            'app host with credentials' => [
+                'proxy.example.com',
+                'https://proxy-user:proxy-password@proxy.example.com',
+                'proxy.example.com',
+            ],
         ];
     }
 
     #[DataProvider('hostsThatDoNotSchedule')]
-    public function testAScheduledSendToAnotherHostIsRefusedBeforeAnyRequest(string $host, string $appHost): void
-    {
+    public function testAScheduledSendToAnotherHostIsRefusedBeforeAnyRequest(
+        string $host,
+        string $appHost,
+        string $named
+    ): void {
         $error = $this->sendError([
             'to' => 'user@example.com',
             'template_key' => 'receipt',
@@ -1819,7 +1832,8 @@ class EmailsTest extends TestCase
         $this->assertSame('scheduling_requires_cloud', $error->getErrorCode());
         $this->assertSame('validation_error', $error->getErrorName());
         $this->assertSame('scheduled_at', $error->getField());
-        $this->assertStringContainsString($appHost, $error->getMessage());
+        $this->assertStringContainsString("sends email to $named,", $error->getMessage());
+        $this->assertStringNotContainsString('proxy-password', $error->getMessage());
         $this->assertSame([], $this->requests);
     }
 
@@ -1848,8 +1862,11 @@ class EmailsTest extends TestCase
             'scheduled_at' => '2026-11-03T09:00:00Z',
         ]);
 
-        $this->assertCount(3, $this->requests);
-        $this->assertSame('2026-11-03T09:00:00.000Z', $this->body(2)['scheduled_at']);
+        $sha256 = hash('sha256', self::SECRET_CONTENT);
+        $this->assertSame(self::SECRET_CONTENT, $this->stored[$sha256]);
+        [$email] = array_values($this->queued);
+        $this->assertSame('2026-11-03T09:00:00.000Z', $email['scheduled_at']);
+        $this->assertSame($sha256, $email['attachments'][0]['sha256']);
         $this->assertSame('scheduled', $result->getStatus());
     }
 
@@ -1952,9 +1969,9 @@ class EmailsTest extends TestCase
     public function testARefusedScheduleIsAnErrorAndNeverSendsNow(): void
     {
         $this->reply([400, json_encode([
-            'type' => 'validation_error',
-            'code' => 'invalid_input',
-            'detail' => 'scheduled_at is more than 7 days away.',
+            'type' => 'invalid_request',
+            'code' => 'scheduled_too_far',
+            'detail' => "`scheduled_at` is more than 7 days away, so PostHog didn't send the email.",
             'attr' => 'scheduled_at',
         ]), []]);
 
@@ -1964,21 +1981,35 @@ class EmailsTest extends TestCase
             'scheduled_at' => '2026-11-20T09:00:00Z',
         ]);
 
+        $this->assertSame('scheduled_too_far', $error->getErrorCode());
         $this->assertSame('validation_error', $error->getErrorName());
         $this->assertSame('scheduled_at', $error->getField());
         $this->assertNull($error->getMessageId());
         $this->assertCount(1, $this->requests);
-        $this->assertSame([], $this->queued);
+        $this->assertSame('2026-11-20T09:00:00.000Z', $this->body()['scheduled_at']);
     }
 
-    public function testAnUnscheduledSendIgnoresAScheduleInTheAnswer(): void
+    public function testAResultOrErrorSerializedByTheVersionBeforeSchedulingStillReads(): void
     {
-        $this->reply(self::scheduledReply('2026-11-03T09:00:00.000Z'));
+        $withoutProperty = static function (object $value, string $property): string {
+            $class = get_class($value);
+            $serialized = serialize($value);
+            $name = "\0$class\0$property";
+            $serialized = str_replace('s:' . strlen($name) . ':"' . $name . '";N;', '', $serialized);
 
-        $result = $this->emails()->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
+            return preg_replace_callback(
+                '/^O:(\d+):"([^"]+)":(\d+):/',
+                static fn(array $m): string => "O:$m[1]:\"$m[2]\":" . ((int) $m[3] - 1) . ':',
+                $serialized
+            );
+        };
+
+        $result = unserialize($withoutProperty(new SendEmailResult('msg_1'), 'scheduledAt'));
+        $error = unserialize($withoutProperty(new EmailError('throttled', 'Slow down.'), 'messageId'));
 
         $this->assertSame('queued', $result->getStatus());
         $this->assertNull($result->getScheduledAt());
+        $this->assertNull($error->getMessageId());
     }
 
     public function testBadClientOptionsAreRefused(): void

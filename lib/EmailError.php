@@ -28,7 +28,7 @@ class EmailError extends RuntimeException
     private ?string $docsUrl;
     private ?string $field;
     private ?int $retryAfterMs;
-    private ?string $messageId;
+    private ?string $messageId = null;
 
     /**
      * @param string $errorCode PostHog's error code, or an SDK code such as `network_error`.
