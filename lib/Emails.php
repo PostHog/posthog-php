@@ -225,21 +225,23 @@ final class Emails
      * sends transactional email with no category, so PostHog refuses it on a template in a category. To file
      * the email under a message category, pass the category itself: its `key`, `type` (`marketing` or
      * `transactional`), `name` and an optional `description`. When code-send categories are not yet enabled for
-     * the project, PostHog refuses an explicit category array with `categories_not_enabled`. PostHog creates the
-     * category the first time a send names its key, or restores it if it was deleted, and otherwise leaves it
-     * unchanged. Its `name` and `description` apply only when the send creates the category; change them later
-     * in PostHog. A marketing send honors the recipient's opt-outs, adds unsubscribe headers, and needs a
-     * clickable `<a href="{{ unsubscribe_url }}">` link in `html` (or `{{ unsubscribe_url }}` in `text` when
-     * there is no `html`). A marketing code send takes no `cc` or `bcc` (`copies_not_allowed`) and cannot carry
-     * `attachments` (`workflow_can_wait` on a verified sender because marketing sending limits can hold delivery,
-     * or `sandbox_fields_unsupported` when using the PostHog test sender; a refused send can still upload
-     * attachments PostHog doesn't already have, skipping uploads for files PostHog reports as `present`). A template
-     * made in PostHog must be enabled for transactional sends (`template_not_transactional` otherwise); when an
-     * otherwise sendable template is in a marketing category, PostHog refuses a send whose `template_key` names it
-     * with `marketing_template`. PostHog refuses a send with `category_mismatch` when the project's category with
-     * that key has another type, or when `template_key` names a template in another category, and with
-     * `too_many_categories`, `unsubscribe_link_required`, `copies_not_allowed`, `workflow_can_wait`,
-     * `sandbox_fields_unsupported`, `categories_not_enabled` or `recipient_opted_out`.
+     * the project, PostHog refuses an explicit category array with `categories_not_enabled`. When `template_key`
+     * doesn't match a saved template, PostHog creates the category the first time a send names its key, or restores
+     * it if it was deleted, and otherwise leaves it unchanged. When `template_key` matches a saved template, the send
+     * uses that template's own category without restoring an archived category. Its `name` and `description` apply
+     * only when the send creates the category; change them later in PostHog. A marketing send honors the recipient's
+     * opt-outs, adds unsubscribe headers, and needs a clickable `<a href="{{ unsubscribe_url }}">` link in `html`
+     * (or `{{ unsubscribe_url }}` in `text` when there is no `html`). A marketing code send takes no `cc` or `bcc`
+     * (`copies_not_allowed`) and cannot carry `attachments` (`workflow_can_wait` on a verified sender because
+     * marketing sending limits can hold delivery, or `sandbox_fields_unsupported` when using the PostHog test sender;
+     * a refused send can still upload attachments PostHog doesn't already have, skipping uploads for files PostHog
+     * reports as `present`). A template made in PostHog must be enabled for transactional sends
+     * (`template_not_transactional` otherwise); when an otherwise sendable template is in a marketing category,
+     * PostHog refuses a send whose `template_key` names it with `marketing_template`. PostHog refuses a send with
+     * `category_mismatch` when the project's category with that key has another type, or when `template_key` names
+     * a template in another category, and with `too_many_categories`, `unsubscribe_link_required`,
+     * `copies_not_allowed`, `workflow_can_wait`, `sandbox_fields_unsupported`, `categories_not_enabled`
+     * or `recipient_opted_out`.
      *
      * A send with an idempotency key PostHog already accepted queues nothing and returns the first send's
      * result. Without a key, the client makes a UUID that covers its own retries. Pass a key derived from

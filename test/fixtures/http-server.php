@@ -5,7 +5,8 @@ if ($server === false) {
     throw new RuntimeException($error, $errno);
 }
 $responses = json_decode($argv[2], true, 512, JSON_THROW_ON_ERROR);
-echo stream_socket_get_name($server, false) . "\n";
+$selfAddress = stream_socket_get_name($server, false);
+echo $selfAddress . "\n";
 flush();
 
 while ($connection = stream_socket_accept($server, 30)) {
@@ -36,6 +37,7 @@ while ($connection = stream_socket_accept($server, 30)) {
     foreach ($next['accepts'] ?? [] as $name => $expected) {
         $actual = match ($name) {
             'request_line' => $requestLine,
+            'route' => implode(' ', array_slice(explode(' ', $requestLine, 3), 0, 2)),
             'json_body' => json_decode($body, true),
             default => $headers[$name] ?? null,
         };
@@ -53,19 +55,25 @@ while ($connection = stream_socket_accept($server, 30)) {
             . '<Error><Code>InvalidArgument</Code><Message>Only one auth mechanism allowed</Message></Error>'];
     }
     $response = $refusal ?? array_shift($responses) ?? [];
-    file_put_contents($argv[1], json_encode([
+    $entry = [
         'requestLine' => $requestLine,
         'headers' => $headers,
-        'body' => $body,
         'status' => $response['status'] ?? 200,
-    ], JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
+    ];
+    if (mb_check_encoding($body, 'UTF-8')) {
+        $entry['body'] = $body;
+    } else {
+        $entry['body_base64'] = base64_encode($body);
+    }
+    file_put_contents($argv[1], json_encode($entry, JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
     usleep(($response['delay_ms'] ?? 0) * 1000);
     $closeServer = $response['close_server'] ?? false;
     if ($closeServer) {
         fclose($server);
     }
     $status = $response['status'] ?? 200;
-    $body = ($response['body'] ?? '{"status":1}') . str_repeat(' ', $response['pad_body_bytes'] ?? 0);
+    $body = str_replace('__SELF__', (string) $selfAddress, $response['body'] ?? '{"status":1}')
+        . str_repeat(' ', $response['pad_body_bytes'] ?? 0);
     $headers = '';
     foreach ($response['headers'] ?? [] as $name => $value) {
         $headers .= "$name: $value\r\n";
