@@ -294,20 +294,21 @@ class EmailsClientTest extends TestCase
     {
         $file = "%PDF-1.7\nreceipt bytes\n";
         $sha256 = hash('sha256', $file);
-        $this->bucket = new LocalHttpServer([['status' => 200, 'body' => '']]);
-        $this->server = new LocalHttpServer(['storage' => $this->bucket->address()], 'email-send-server.php');
+        $this->server = new LocalHttpServer([], 'email-send-server.php');
 
         $result = $this->client()->emails()->send(self::MONTHLY_NEWS + [
             'category' => self::RECEIPTS,
             'attachments' => [['filename' => 'receipt.pdf', 'content' => $file]],
         ]);
 
-        $this->assertSame([$file], $this->storedFiles());
         $requests = $this->server->requests();
-        $this->assertCount(2, $requests);
+        $this->assertCount(3, $requests);
         $this->assertSame('POST /api/messaging/attachments/uploads/ HTTP/1.1', $requests[0]['requestLine']);
-        $this->assertSame('POST /api/messaging/send/email/ HTTP/1.1', $requests[1]['requestLine']);
-        $sent = json_decode($requests[1]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame("PUT /attachments/team/2/$sha256?X-Amz-Signature=abc HTTP/1.1", $requests[1]['requestLine']);
+        $this->assertSame($file, $requests[1]['body']);
+        $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
+        $this->assertSame('POST /api/messaging/send/email/ HTTP/1.1', $requests[2]['requestLine']);
+        $sent = json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame(self::RECEIPTS, $sent['category']);
         $this->assertSame([['sha256' => $sha256, 'filename' => 'receipt.pdf']], $sent['attachments']);
         $this->assertSame(
@@ -325,8 +326,7 @@ class EmailsClientTest extends TestCase
     {
         $file = "%PDF-1.7\nbrochure bytes\n";
         $sha256 = hash('sha256', $file);
-        $this->bucket = new LocalHttpServer([['status' => 200, 'body' => '']]);
-        $this->server = new LocalHttpServer(['storage' => $this->bucket->address()], 'email-send-server.php');
+        $this->server = new LocalHttpServer([], 'email-send-server.php');
 
         try {
             $this->client()->emails()->send(self::MONTHLY_NEWS + [
@@ -341,12 +341,14 @@ class EmailsClientTest extends TestCase
             $this->assertSame('attachments', $error->getField());
         }
 
-        $this->assertSame([$file], $this->storedFiles());
         $requests = $this->server->requests();
-        $this->assertCount(2, $requests);
+        $this->assertCount(3, $requests);
         $this->assertSame('POST /api/messaging/attachments/uploads/ HTTP/1.1', $requests[0]['requestLine']);
-        $this->assertSame('POST /api/messaging/send/email/ HTTP/1.1', $requests[1]['requestLine']);
-        $sent = json_decode($requests[1]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame("PUT /attachments/team/2/$sha256?X-Amz-Signature=abc HTTP/1.1", $requests[1]['requestLine']);
+        $this->assertSame($file, $requests[1]['body']);
+        $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
+        $this->assertSame('POST /api/messaging/send/email/ HTTP/1.1', $requests[2]['requestLine']);
+        $sent = json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame(self::NEWSLETTER, $sent['category']);
         $this->assertSame([['sha256' => $sha256, 'filename' => 'brochure.pdf']], $sent['attachments']);
         $this->assertSame([], $this->server->state()['sends']);
