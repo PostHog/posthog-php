@@ -5,21 +5,32 @@ if ($server === false) {
     throw new RuntimeException($error, $errno);
 }
 $responses = json_decode($argv[2], true, 512, JSON_THROW_ON_ERROR);
+$rawResponses = json_decode($argv[2], false, 512, JSON_THROW_ON_ERROR);
 $selfAddress = stream_socket_get_name($server, false);
 echo $selfAddress . "\n";
 flush();
 
 $canonicalizeJson = static function (mixed $value) use (&$canonicalizeJson): mixed {
-    if (!is_array($value)) {
-        return $value;
+    if ($value instanceof stdClass) {
+        $properties = get_object_vars($value);
+        ksort($properties, SORT_STRING);
+        $sorted = new stdClass();
+        foreach ($properties as $key => $item) {
+            $sorted->{(string) $key} = $canonicalizeJson($item);
+        }
+
+        return $sorted;
     }
-    $normalized = array_map($canonicalizeJson, $value);
-    if (!array_is_list($normalized)) {
-        ksort($normalized);
+    if (is_array($value)) {
+        return array_map($canonicalizeJson, $value);
     }
 
-    return $normalized;
+    return $value;
 };
+$canonicalJson = static fn (mixed $value): string => json_encode(
+    $canonicalizeJson($value),
+    JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR
+);
 
 while ($connection = stream_socket_accept($server, 30)) {
     stream_set_timeout($connection, 5);
@@ -45,12 +56,14 @@ while ($connection = stream_socket_accept($server, 30)) {
         $body = gzdecode($body);
     }
     $next = $responses[0] ?? [];
+    $rawNext = $rawResponses[0] ?? null;
     $refusal = null;
     foreach ($next['accepts'] ?? [] as $name => $expected) {
         if ($name === 'json_body') {
-            $decoded = json_decode($body, true);
+            $decoded = json_decode($body, false);
+            $rawExpected = $rawNext?->accepts?->json_body ?? null;
             $matches = json_last_error() === JSON_ERROR_NONE
-                && $canonicalizeJson($decoded) === $canonicalizeJson($expected);
+                && $canonicalJson($decoded) === $canonicalJson($rawExpected);
             if (!$matches) {
                 $refusal = $next['refusal'];
             }
@@ -74,7 +87,12 @@ while ($connection = stream_socket_accept($server, 30)) {
         $refusal = ['status' => 400, 'body' => '<?xml version="1.0" encoding="UTF-8"?>'
             . '<Error><Code>InvalidArgument</Code><Message>Only one auth mechanism allowed</Message></Error>'];
     }
-    $response = $refusal ?? array_shift($responses) ?? [];
+    if ($refusal === null) {
+        $response = array_shift($responses) ?? [];
+        array_shift($rawResponses);
+    } else {
+        $response = $refusal;
+    }
     $entry = [
         'requestLine' => $requestLine,
         'headers' => $headers,

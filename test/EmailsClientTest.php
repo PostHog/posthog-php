@@ -84,19 +84,23 @@ class EmailsClientTest extends TestCase
         'html' => '<p>News.</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
     ];
 
-    private function respondToOneSend(int $status, string $body): void
+    private function respondToOneSend(int $status, string $body, ?array $expectedBody = null): void
     {
+        $accepts = [
+            'route' => 'POST /api/messaging/send/email/',
+            'authorization' => 'Bearer phs_secret',
+            'content-type' => 'application/json',
+        ];
+        if ($expectedBody !== null) {
+            $accepts['json_body'] = $expectedBody;
+        }
         $this->server = new LocalHttpServer([[
             'status' => $status,
             'body' => $body,
-            'accepts' => [
-                'route' => 'POST /api/messaging/send/email/',
-                'authorization' => 'Bearer phs_secret',
-                'content-type' => 'application/json',
-            ],
+            'accepts' => $accepts,
             'refusal' => [
-                'status' => 404,
-                'body' => '{"type":"invalid_request","code":"not_found","detail":"Unexpected route or headers."}',
+                'status' => 400,
+                'body' => '{"type":"invalid_request","code":"invalid_input","detail":"Unexpected send request."}',
             ],
         ]]);
     }
@@ -111,33 +115,51 @@ class EmailsClientTest extends TestCase
         return implode(' ', array_slice(explode(' ', $request['requestLine'], 3), 0, 2));
     }
 
-    private function assertSingleSendRequest(array $requests): array
+    private function assertSingleSendRequest(array $requests): string
     {
         $this->assertCount(1, $requests);
         $this->assertSame('POST /api/messaging/send/email/', self::requestRoute($requests[0]));
         $this->assertSame('Bearer phs_secret', $requests[0]['headers']['authorization'] ?? null);
         $this->assertSame('application/json', $requests[0]['headers']['content-type'] ?? null);
 
-        return json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        return $requests[0]['body'];
     }
 
     private static function canonicalizeJson(mixed $value): mixed
     {
-        if (!is_array($value)) {
-            return $value;
+        if ($value instanceof \stdClass) {
+            $properties = get_object_vars($value);
+            ksort($properties, SORT_STRING);
+            $sorted = new \stdClass();
+            foreach ($properties as $key => $item) {
+                $sorted->{(string) $key} = self::canonicalizeJson($item);
+            }
+
+            return $sorted;
         }
-        $normalized = array_map(self::canonicalizeJson(...), $value);
-        if (!array_is_list($normalized)) {
-            ksort($normalized);
+        if (is_array($value)) {
+            return array_map(self::canonicalizeJson(...), $value);
         }
 
-        return $normalized;
+        return $value;
     }
 
-    private function assertSameJsonObject(array $expected, mixed $actual): void
+    private static function canonicalJson(mixed $value): string
     {
-        $this->assertIsArray($actual);
-        $this->assertSame(self::canonicalizeJson($expected), self::canonicalizeJson($actual));
+        return json_encode(self::canonicalizeJson($value), JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR);
+    }
+
+    private function assertSameJsonObject(array $expected, string $actualJson): void
+    {
+        $actual = json_decode($actualJson, false, 512, JSON_THROW_ON_ERROR);
+        $this->assertInstanceOf(\stdClass::class, $actual);
+        $expectedValue = json_decode(
+            json_encode($expected, JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR),
+            false,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+        $this->assertSame(self::canonicalJson($expectedValue), self::canonicalJson($actual));
     }
 
     public static function categoriesThatOmitCategory(): array
@@ -287,7 +309,8 @@ class EmailsClientTest extends TestCase
         if ($field !== null) {
             $reply['attr'] = $field;
         }
-        $this->respondToOneSend($status, json_encode($reply, JSON_THROW_ON_ERROR));
+        $expectedBody = self::MONTHLY_NEWS + $extra + ['category' => $category];
+        $this->respondToOneSend($status, json_encode($reply, JSON_THROW_ON_ERROR), $expectedBody);
 
         try {
             $this->client()->emails()->send(['category' => $category] + $extra + self::MONTHLY_NEWS);
@@ -300,7 +323,7 @@ class EmailsClientTest extends TestCase
         }
 
         $sent = $this->assertSingleSendRequest($this->server->requests());
-        $this->assertSameJsonObject(self::MONTHLY_NEWS + $extra + ['category' => $category], $sent);
+        $this->assertSameJsonObject($expectedBody, $sent);
     }
 
     public static function refusedCategories(): array
@@ -419,6 +442,10 @@ class EmailsClientTest extends TestCase
         $file = "%PDF-1.7\n%\xE2\xE3\xCF\xD3\n\xFF\x00\xFEreceipt bytes\n";
         $sha256 = hash('sha256', $file);
         $signedPath = "/attachments/team/2/$sha256?X-Amz-Signature=abc";
+        $expectedSend = self::MONTHLY_NEWS + [
+            'category' => self::RECEIPTS,
+            'attachments' => [['sha256' => $sha256, 'filename' => 'receipt.pdf']],
+        ];
         $this->server = new LocalHttpServer([
             ...self::uploadAndPutResponses($file, $sha256, $signedPath),
             [
@@ -428,6 +455,7 @@ class EmailsClientTest extends TestCase
                     'route' => 'POST /api/messaging/send/email/',
                     'authorization' => 'Bearer phs_secret',
                     'content-type' => 'application/json',
+                    'json_body' => $expectedSend,
                 ],
                 'refusal' => [
                     'status' => 400,
@@ -449,19 +477,16 @@ class EmailsClientTest extends TestCase
         );
         $this->assertSame('Bearer phs_secret', $requests[0]['headers']['authorization'] ?? null);
         $this->assertSame('application/json', $requests[0]['headers']['content-type'] ?? null);
-        $this->assertSame(
+        $this->assertSameJsonObject(
             ['files' => [['sha256' => $sha256, 'size' => strlen($file)]]],
-            json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR)
+            $requests[0]['body']
         );
         $this->assertSame("PUT $signedPath", self::requestRoute($requests[1]));
         $this->assertSame($file, base64_decode($requests[1]['body_base64'], true));
         $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
         $this->assertSame('Bearer phs_secret', $requests[2]['headers']['authorization'] ?? null);
         $this->assertSame('application/json', $requests[2]['headers']['content-type'] ?? null);
-        $this->assertSameJsonObject(self::MONTHLY_NEWS + [
-            'category' => self::RECEIPTS,
-            'attachments' => [['sha256' => $sha256, 'filename' => 'receipt.pdf']],
-        ], json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR));
+        $this->assertSameJsonObject($expectedSend, $requests[2]['body']);
     }
 
     public function testAMarketingSendWithAnAttachmentUploadsBeforeWorkflowCanWaitRefusal(): void
@@ -473,6 +498,10 @@ class EmailsClientTest extends TestCase
             . 'so its files could expire first.';
         $fix = 'Send files through a workflow whose transactional email step follows the trigger directly, '
             . 'or send this email without files.';
+        $expectedSend = self::MONTHLY_NEWS + [
+            'category' => self::NEWSLETTER,
+            'attachments' => [['sha256' => $sha256, 'filename' => 'brochure.pdf']],
+        ];
         $this->server = new LocalHttpServer([
             ...self::uploadAndPutResponses($file, $sha256, $signedPath),
             [
@@ -489,10 +518,11 @@ class EmailsClientTest extends TestCase
                     'route' => 'POST /api/messaging/send/email/',
                     'authorization' => 'Bearer phs_secret',
                     'content-type' => 'application/json',
+                    'json_body' => $expectedSend,
                 ],
                 'refusal' => [
-                    'status' => 415,
-                    'body' => '{"type":"invalid_request","code":"unsupported_media_type","detail":"JSON required."}',
+                    'status' => 400,
+                    'body' => '{"type":"invalid_request","code":"invalid_input","detail":"Invalid send request."}',
                 ],
             ],
             [
@@ -523,19 +553,16 @@ class EmailsClientTest extends TestCase
         );
         $this->assertSame('Bearer phs_secret', $requests[0]['headers']['authorization'] ?? null);
         $this->assertSame('application/json', $requests[0]['headers']['content-type'] ?? null);
-        $this->assertSame(
+        $this->assertSameJsonObject(
             ['files' => [['sha256' => $sha256, 'size' => strlen($file)]]],
-            json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR)
+            $requests[0]['body']
         );
         $this->assertSame("PUT $signedPath", self::requestRoute($requests[1]));
         $this->assertSame($file, base64_decode($requests[1]['body_base64'], true));
         $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
         $this->assertSame('Bearer phs_secret', $requests[2]['headers']['authorization'] ?? null);
         $this->assertSame('application/json', $requests[2]['headers']['content-type'] ?? null);
-        $this->assertSameJsonObject(self::MONTHLY_NEWS + [
-            'category' => self::NEWSLETTER,
-            'attachments' => [['sha256' => $sha256, 'filename' => 'brochure.pdf']],
-        ], json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR));
+        $this->assertSameJsonObject($expectedSend, $requests[2]['body']);
     }
 
     public function testAFileIsUploadedWithAPlainPutBeforeTheSendOverHttp(): void
