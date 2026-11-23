@@ -202,6 +202,7 @@ $handle = static function (
             array_diff($categoryKeys, $categoryFields) !== []
             || !is_string($key)
             || trim($key) === ''
+            || trim($key) === '$all'
             || mb_strlen($key, 'UTF-8') > 64
             || !in_array($type, $categoryTypes, true)
             || !is_string($name)
