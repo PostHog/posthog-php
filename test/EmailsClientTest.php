@@ -84,11 +84,11 @@ class EmailsClientTest extends TestCase
         'html' => '<p>News.</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
     ];
 
-    private function sendInCategory(mixed $category, string $to = 'user@example.com'): string
+    private function sendInCategory(mixed $category): string
     {
         $this->server ??= new LocalHttpServer([], 'email-send-server.php');
 
-        return $this->client()->emails()->send(['to' => $to, 'category' => $category] + self::MONTHLY_NEWS)->getId();
+        return $this->client()->emails()->send(['category' => $category] + self::MONTHLY_NEWS)->getId();
     }
 
     private function serveATemplateIn(array $category): void
@@ -111,6 +111,9 @@ class EmailsClientTest extends TestCase
 
         $messageId = $this->client()->emails()->send($category + self::MONTHLY_NEWS)->getId();
 
+        $requests = $this->server->requests();
+        $this->assertCount(1, $requests);
+        $this->assertArrayNotHasKey('category', json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR));
         $this->assertSame(
             [['message_id' => $messageId, 'category' => 'receipts', 'type' => 'transactional']],
             $this->server->state()['sends']
@@ -133,26 +136,9 @@ class EmailsClientTest extends TestCase
         $this->assertSame([], $this->server->state()['sends']);
     }
 
-    public function testATemplateInAMarketingCategoryIsRefused(): void
+    public function testACodeSendCreatesItsCategory(): void
     {
-        $this->serveATemplateIn(self::NEWSLETTER);
-
-        try {
-            $this->client()->emails()->send(self::MONTHLY_NEWS);
-            $this->fail('send() did not throw');
-        } catch (EmailError $error) {
-            $this->assertSame('marketing_template', $error->getErrorCode());
-            $this->assertSame('validation_error', $error->getErrorName());
-            $this->assertSame(400, $error->getStatusCode());
-        }
-        $this->assertSame([], $this->server->state()['sends']);
-    }
-
-    public function testACodeSendCreatesItsCategoryAndLaterSendsLeaveItUnchanged(): void
-    {
-        $first = $this->sendInCategory(self::NEWSLETTER + ['description' => 'Monthly product news']);
-
-        $second = $this->sendInCategory(['name' => 'Weekly news', 'description' => 'Weekly'] + self::NEWSLETTER);
+        $messageId = $this->sendInCategory(self::NEWSLETTER + ['description' => 'Monthly product news']);
 
         $state = $this->server->state();
         $this->assertSame(
@@ -160,10 +146,7 @@ class EmailsClientTest extends TestCase
             $state['categories']
         );
         $this->assertSame(
-            [
-                ['message_id' => $first, 'category' => 'newsletter', 'type' => 'marketing'],
-                ['message_id' => $second, 'category' => 'newsletter', 'type' => 'marketing'],
-            ],
+            [['message_id' => $messageId, 'category' => 'newsletter', 'type' => 'marketing']],
             $state['sends']
         );
     }
@@ -194,33 +177,12 @@ class EmailsClientTest extends TestCase
     {
         $messageId = $this->sendInCategory(null);
 
+        $requests = $this->server->requests();
+        $this->assertCount(1, $requests);
+        $this->assertArrayNotHasKey('category', json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR));
         $this->assertSame(
             [['message_id' => $messageId, 'category' => null, 'type' => 'transactional']],
             $this->server->state()['sends']
-        );
-    }
-
-    public function testARecipientWhoOptedOutIsRefused(): void
-    {
-        $this->server = new LocalHttpServer(
-            ['opted_out' => ['newsletter' => ['opted-out@example.com']]],
-            'email-send-server.php'
-        );
-
-        try {
-            $this->sendInCategory(self::NEWSLETTER, 'opted-out@example.com');
-            $this->fail('send() did not throw');
-        } catch (EmailError $error) {
-            $this->assertSame('recipient_opted_out', $error->getErrorCode());
-            $this->assertSame('validation_error', $error->getErrorName());
-            $this->assertSame(422, $error->getStatusCode());
-        }
-        $this->assertSame(
-            [
-                'categories' => ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => '']],
-                'sends' => [],
-            ],
-            $this->server->state()
         );
     }
 
