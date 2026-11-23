@@ -178,8 +178,8 @@ final class Emails
      *   `sensitive`, `tracking` and `category`. An empty `reply_to`, `cc`, `bcc` or `attachments` list is left out.
      *   Marketing categories cannot be combined with `cc`, `bcc` (`copies_not_allowed`) or `attachments`
      *   (`workflow_can_wait` on a verified sender because marketing sending limits can hold delivery, or
-     *   `sandbox_fields_unsupported` when using the PostHog test sender; the client uploads attachments before
-     *   PostHog refuses the send).
+     *   `sandbox_fields_unsupported` when using the PostHog test sender; a refused send can still upload
+     *   attachments PostHog doesn't already have, skipping uploads for files PostHog reports as `present`).
      * - `attachments` is a list of at most 10 files, and the email can be at most 40 MB after Base64 encoding, which
      *   leaves about 29 MB for the files. The 40 MB counts the subject and the bodies, and the `html` twice without
      *   `text`, since PostHog derives the text from it. Each file is an array with `filename`, `content` (the file's
@@ -232,14 +232,14 @@ final class Emails
      * clickable `<a href="{{ unsubscribe_url }}">` link in `html` (or `{{ unsubscribe_url }}` in `text` when
      * there is no `html`). A marketing code send takes no `cc` or `bcc` (`copies_not_allowed`) and cannot carry
      * `attachments` (`workflow_can_wait` on a verified sender because marketing sending limits can hold delivery,
-     * or `sandbox_fields_unsupported` when using the PostHog test sender; the client uploads attachments before
-     * PostHog refuses the send). A template made in PostHog must be enabled for transactional sends
-     * (`template_not_transactional` otherwise); when an otherwise sendable template is in a marketing category,
-     * PostHog refuses a send whose `template_key` names it with `marketing_template`. PostHog refuses a send
-     * with `category_mismatch` when the project's category with that key has another type, or when
-     * `template_key` names a template in another category, and with `too_many_categories`,
-     * `unsubscribe_link_required`, `copies_not_allowed`, `workflow_can_wait`, `sandbox_fields_unsupported`,
-     * `categories_not_enabled` or `recipient_opted_out`.
+     * or `sandbox_fields_unsupported` when using the PostHog test sender; a refused send can still upload
+     * attachments PostHog doesn't already have, skipping uploads for files PostHog reports as `present`). A template
+     * made in PostHog must be enabled for transactional sends (`template_not_transactional` otherwise); when an
+     * otherwise sendable template is in a marketing category, PostHog refuses a send whose `template_key` names it
+     * with `marketing_template`. PostHog refuses a send with `category_mismatch` when the project's category with
+     * that key has another type, or when `template_key` names a template in another category, and with
+     * `too_many_categories`, `unsubscribe_link_required`, `copies_not_allowed`, `workflow_can_wait`,
+     * `sandbox_fields_unsupported`, `categories_not_enabled` or `recipient_opted_out`.
      *
      * A send with an idempotency key PostHog already accepted queues nothing and returns the first send's
      * result. Without a key, the client makes a UUID that covers its own retries. Pass a key derived from

@@ -34,7 +34,7 @@ $storedAttachments = [];
 $sendCount = 0;
 
 $refuse = static fn(int $status, string $code, string $detail, ?string $attr = null): array
-    => [$status, ['type' => 'validation_error', 'code' => $code, 'detail' => $detail, 'attr' => $attr]];
+    => [$status, ['type' => 'invalid_request', 'code' => $code, 'detail' => $detail, 'attr' => $attr]];
 
 $decodeObject = static function (string $body): ?stdClass {
     try {
@@ -88,7 +88,11 @@ $uploads = static function (
             return $refuse(400, 'invalid_request', 'Each file takes only sha256 and size.', 'files');
         }
         if (array_key_exists($sha256, $storedAttachments)) {
-            $answers[] = ['sha256' => $sha256, 'status' => 'present', 'expires_at' => '2026-12-16T12:00:00Z'];
+            $answers[] = [
+                'sha256' => $sha256,
+                'status' => 'present',
+                'expires_at' => gmdate('Y-m-d\TH:i:s\Z', time() + 86400),
+            ];
             continue;
         }
         $checksum = base64_encode((string) hex2bin($sha256));
@@ -100,7 +104,7 @@ $uploads = static function (
             'url' => "http://$selfAddress$path",
             'method' => 'PUT',
             'headers' => ['Content-Length' => (string) $size, 'x-amz-checksum-sha256' => $checksum],
-            'url_expires_at' => '2026-11-02T12:15:00Z',
+            'url_expires_at' => gmdate('Y-m-d\TH:i:s\Z', time() + 900),
         ];
     }
 

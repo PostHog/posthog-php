@@ -138,7 +138,7 @@ class EmailsClientTest extends TestCase
         $this->server = new LocalHttpServer([[
             'status' => 400,
             'body' => json_encode([
-                'type' => 'validation_error',
+                'type' => 'invalid_request',
                 'code' => 'unsubscribe_link_required',
                 'detail' => 'A marketing email needs a clickable `{{ unsubscribe_url }}` link.',
             ], JSON_THROW_ON_ERROR),
@@ -237,6 +237,7 @@ class EmailsClientTest extends TestCase
                 400,
                 'copies_not_allowed',
                 null,
+                ['cc' => ['copy@example.com']],
             ],
             'marketing template' => [
                 self::NEWSLETTER,
@@ -258,9 +259,10 @@ class EmailsClientTest extends TestCase
         string|array $category,
         int $status,
         string $code,
-        ?string $field
+        ?string $field,
+        array $extra = []
     ): void {
-        $reply = ['type' => 'validation_error', 'code' => $code, 'detail' => 'Refused.'];
+        $reply = ['type' => 'invalid_request', 'code' => $code, 'detail' => 'Refused.'];
         if ($field !== null) {
             $reply['attr'] = $field;
         }
@@ -270,7 +272,7 @@ class EmailsClientTest extends TestCase
         ]]);
 
         try {
-            $this->client()->emails()->send(['category' => $category] + self::MONTHLY_NEWS);
+            $this->client()->emails()->send(['category' => $category] + $extra + self::MONTHLY_NEWS);
             $this->fail('send() did not throw');
         } catch (EmailError $error) {
             $this->assertSame($code, $error->getErrorCode());
@@ -283,6 +285,9 @@ class EmailsClientTest extends TestCase
         $this->assertCount(1, $requests);
         $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame($category, $sent['category']);
+        foreach ($extra as $key => $expectedValue) {
+            $this->assertSame($expectedValue, $sent[$key] ?? null);
+        }
     }
 
     public static function refusedCategories(): array
@@ -386,7 +391,7 @@ class EmailsClientTest extends TestCase
             'send_responses' => [[
                 'status' => 400,
                 'body' => [
-                    'type' => 'validation_error',
+                    'type' => 'invalid_request',
                     'code' => 'workflow_can_wait',
                     'detail' => 'A marketing email cannot carry attachments.',
                     'attr' => 'attachments',
