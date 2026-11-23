@@ -84,12 +84,34 @@ class EmailsClientTest extends TestCase
         'html' => '<p>News.</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
     ];
 
-    private function acceptOneSend(): void
+    private function respondToOneSend(int $status, string $body): void
     {
         $this->server = new LocalHttpServer([[
-            'status' => 202,
-            'body' => '{"message_id":"01a18356-c56c-0001-e494-7666bc915188","replayed":false}',
+            'status' => $status,
+            'body' => $body,
+            'accepts' => [
+                'request_line' => 'POST /api/messaging/send/email/ HTTP/1.1',
+                'authorization' => 'Bearer phs_secret',
+            ],
+            'refusal' => [
+                'status' => 404,
+                'body' => '{"type":"invalid_request","code":"not_found","detail":"Unexpected route or auth."}',
+            ],
         ]]);
+    }
+
+    private function acceptOneSend(): void
+    {
+        $this->respondToOneSend(202, '{"message_id":"01a18356-c56c-0001-e494-7666bc915188","replayed":false}');
+    }
+
+    private function assertSingleSendRequest(array $requests): array
+    {
+        $this->assertCount(1, $requests);
+        $this->assertSame('POST /api/messaging/send/email/ HTTP/1.1', $requests[0]['requestLine']);
+        $this->assertSame('Bearer phs_secret', $requests[0]['headers']['authorization'] ?? null);
+
+        return json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
     }
 
     private function assertSameJsonObject(array $expected, mixed $actual): void
@@ -113,9 +135,7 @@ class EmailsClientTest extends TestCase
         $result = $this->client()->emails()->send($category + self::MONTHLY_NEWS);
 
         $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
-        $requests = $this->server->requests();
-        $this->assertCount(1, $requests);
-        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $sent = $this->assertSingleSendRequest($this->server->requests());
         $this->assertArrayNotHasKey('category', $sent);
         $this->assertSame(self::MONTHLY_NEWS['template_key'], $sent['template_key']);
         $this->assertSame(self::MONTHLY_NEWS['to'], $sent['to']);
@@ -131,9 +151,7 @@ class EmailsClientTest extends TestCase
         $result = $this->client()->emails()->send(['category' => $category] + self::MONTHLY_NEWS);
 
         $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
-        $requests = $this->server->requests();
-        $this->assertCount(1, $requests);
-        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $sent = $this->assertSingleSendRequest($this->server->requests());
         $this->assertSame(self::MONTHLY_NEWS['template_key'], $sent['template_key']);
         $this->assertSame(self::MONTHLY_NEWS['to'], $sent['to']);
         $this->assertSame(self::MONTHLY_NEWS['subject'], $sent['subject']);
@@ -143,14 +161,11 @@ class EmailsClientTest extends TestCase
 
     public function testUnsubscribeLinkRequiredRefusalIsSurfacedWithoutRetrying(): void
     {
-        $this->server = new LocalHttpServer([[
-            'status' => 400,
-            'body' => json_encode([
-                'type' => 'invalid_request',
-                'code' => 'unsubscribe_link_required',
-                'detail' => 'A marketing email needs a clickable `{{ unsubscribe_url }}` link.',
-            ], JSON_THROW_ON_ERROR),
-        ]]);
+        $this->respondToOneSend(400, json_encode([
+            'type' => 'invalid_request',
+            'code' => 'unsubscribe_link_required',
+            'detail' => 'A marketing email needs a clickable `{{ unsubscribe_url }}` link.',
+        ], JSON_THROW_ON_ERROR));
 
         try {
             $this->client()->emails()->send([
@@ -168,9 +183,7 @@ class EmailsClientTest extends TestCase
             $this->assertNull($error->getField());
         }
 
-        $requests = $this->server->requests();
-        $this->assertCount(1, $requests);
-        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $sent = $this->assertSingleSendRequest($this->server->requests());
         $this->assertSame('monthly-news', $sent['template_key']);
         $this->assertSame('user@example.com', $sent['to']);
         $this->assertSame('This month', $sent['subject']);
@@ -190,9 +203,7 @@ class EmailsClientTest extends TestCase
 
         $this->client()->emails()->send(['category' => self::NEWSLETTER + $description] + self::MONTHLY_NEWS);
 
-        $requests = $this->server->requests();
-        $this->assertCount(1, $requests);
-        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $sent = $this->assertSingleSendRequest($this->server->requests());
         $this->assertArrayNotHasKey('description', $sent['category']);
         $this->assertSameJsonObject(self::NEWSLETTER, $sent['category'] ?? null);
     }
@@ -203,9 +214,7 @@ class EmailsClientTest extends TestCase
 
         $this->client()->emails()->send(['category' => self::NEWSLETTER + ['description' => '']] + self::MONTHLY_NEWS);
 
-        $requests = $this->server->requests();
-        $this->assertCount(1, $requests);
-        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $sent = $this->assertSingleSendRequest($this->server->requests());
         $this->assertArrayHasKey('description', $sent['category']);
         $this->assertSame('', $sent['category']['description']);
     }
@@ -219,9 +228,7 @@ class EmailsClientTest extends TestCase
         );
 
         $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
-        $requests = $this->server->requests();
-        $this->assertCount(1, $requests);
-        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $sent = $this->assertSingleSendRequest($this->server->requests());
         $this->assertSame('transactional', $sent['category'] ?? null);
     }
 
@@ -274,10 +281,7 @@ class EmailsClientTest extends TestCase
         if ($field !== null) {
             $reply['attr'] = $field;
         }
-        $this->server = new LocalHttpServer([[
-            'status' => $status,
-            'body' => json_encode($reply, JSON_THROW_ON_ERROR),
-        ]]);
+        $this->respondToOneSend($status, json_encode($reply, JSON_THROW_ON_ERROR));
 
         try {
             $this->client()->emails()->send(['category' => $category] + $extra + self::MONTHLY_NEWS);
@@ -289,9 +293,7 @@ class EmailsClientTest extends TestCase
             $this->assertSame($field, $error->getField());
         }
 
-        $requests = $this->server->requests();
-        $this->assertCount(1, $requests);
-        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $sent = $this->assertSingleSendRequest($this->server->requests());
         if (is_array($category)) {
             $this->assertSameJsonObject($category, $sent['category'] ?? null);
         } else {
@@ -386,8 +388,10 @@ class EmailsClientTest extends TestCase
             ['POST /api/messaging/attachments/uploads/', 'PUT', 'POST /api/messaging/send/email/'],
             self::traceSteps($requests)
         );
+        $this->assertSame('Bearer phs_secret', $requests[0]['headers']['authorization'] ?? null);
         $this->assertSame($file, base64_decode($requests[1]['body_base64'], true));
         $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
+        $this->assertSame('Bearer phs_secret', $requests[2]['headers']['authorization'] ?? null);
         $sent = json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame(self::MONTHLY_NEWS['to'], $sent['to'] ?? null);
         $this->assertSame(self::MONTHLY_NEWS['template_key'], $sent['template_key'] ?? null);
@@ -434,8 +438,10 @@ class EmailsClientTest extends TestCase
             ['POST /api/messaging/attachments/uploads/', 'PUT', 'POST /api/messaging/send/email/'],
             self::traceSteps($requests)
         );
+        $this->assertSame('Bearer phs_secret', $requests[0]['headers']['authorization'] ?? null);
         $this->assertSame($file, base64_decode($requests[1]['body_base64'], true));
         $this->assertArrayNotHasKey('authorization', $requests[1]['headers']);
+        $this->assertSame('Bearer phs_secret', $requests[2]['headers']['authorization'] ?? null);
         $sent = json_decode($requests[2]['body'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame(self::MONTHLY_NEWS['to'], $sent['to'] ?? null);
         $this->assertSame(self::MONTHLY_NEWS['template_key'], $sent['template_key'] ?? null);
