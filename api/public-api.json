@@ -1803,6 +1803,16 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "messageId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
@@ -1835,6 +1845,13 @@
                     "parameters": []
                 },
                 "getFix": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": []
+                },
+                "getMessageId": {
                     "static": false,
                     "abstract": false,
                     "final": false,
@@ -5554,10 +5571,34 @@
                             "default": [],
                             "defaultConstant": null,
                             "hasDefault": true
+                        },
+                        {
+                            "name": "scheduledAt",
+                            "type": "?DateTimeImmutable",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
                         }
                     ]
                 },
                 "getId": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                },
+                "getScheduledAt": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?DateTimeImmutable",
+                    "parameters": []
+                },
+                "getStatus": {
                     "static": false,
                     "abstract": false,
                     "final": false,

@@ -4,6 +4,7 @@ namespace PostHog;
 
 use Closure;
 use DateTimeImmutable;
+use DateTimeInterface;
 use DateTimeZone;
 use InvalidArgumentException;
 use JsonException;
@@ -62,8 +63,11 @@ final class Emails
     private const TEMPLATE_KEY_PATTERN = '/^[a-zA-Z0-9_-]{1,400}$/D';
     private const HEADER_TOKEN_PATTERN = '/^[\x21-\x7e]+$/D';
     private const TIMESTAMP_PATTERN = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/D';
+    private const SCHEDULED_AT_PATTERN =
+        '/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(?:Z|([+-]\d{2}):(\d{2}))$/D';
+    private const CLOUD_SCHEDULING_HOSTS = [self::US_APP_HOST, self::EU_APP_HOST];
 
-    private const SHARED_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'max_retries'];
+    private const SHARED_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'max_retries', 'scheduled_at'];
     private const TEMPLATE_FIELDS = ['template_id', 'template_data'];
     private const CODE_FIELDS = [
         'template_key',
@@ -202,8 +206,23 @@ final class Emails
      * names the field. It never drops the field and sends the rest.
      *
      * Both forms take `to` (one address), `distinct_id` (the recipient's distinct ID in your product;
-     * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
-     * and `max_retries`. A null value counts as left out.
+     * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`,
+     * `max_retries` and `scheduled_at`. A null value counts as left out.
+     *
+     * `scheduled_at` sends the email later, at most 7 days ahead: a DateTimeInterface, or an ISO 8601 string
+     * with an offset, such as `2026-12-01T09:00:00Z` or `2026-12-01T10:00:00+01:00`. A string without an
+     * offset throws `invalid_scheduled_at` before any request. The client rounds a time finer than a
+     * millisecond up to the next millisecond, so the email never goes out early, and sends that time in UTC
+     * on every retry. A time that has passed sends the email now. Only PostHog Cloud schedules emails: on
+     * any other app host, such as a self-hosted PostHog, a reverse proxy or a custom domain, a send with
+     * `scheduled_at` throws `scheduling_requires_cloud` before any request. The result's getStatus() is
+     * `scheduled` and getScheduledAt() the confirmed time, or `queued` and null when the time had passed.
+     * When PostHog accepts the email without confirming the time, the send throws `schedule_not_confirmed`
+     * with the email's getMessageId(): read its status before you send it again. Work out a relative time,
+     * such as an hour from now, once, and pass the same time when you send again with the same
+     * `idempotency_key`: the key covers the time, so another time throws `idempotency_key_reused`. To stop
+     * scheduled emails before they go out, disable the email's workflow in PostHog until they have reached
+     * a final status. That refuses every new send of it meanwhile.
      *
      * A send with an idempotency key PostHog already accepted queues nothing and returns the first send's
      * result. Without a key, the client makes a UUID that covers its own retries. Pass a key derived from
@@ -218,6 +237,14 @@ final class Emails
      *     'distinct_id' => 'user_123',
      *     'idempotency_key' => 'welcome:user_123',
      * ]);
+     *
+     * $result = $client->emails()->send([
+     *     'to' => 'user@example.com',
+     *     'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
+     *     'idempotency_key' => 'trial-ending:user_123',
+     *     'scheduled_at' => new DateTimeImmutable('+1 day'),
+     * ]);
+     * $result->getStatus(); // scheduled
      *
      * $client->emails()->send([
      *     'to' => 'user@example.com',
@@ -244,6 +271,7 @@ final class Emails
      *     distinct_id?: string|null,
      *     idempotency_key?: string|null,
      *     max_retries?: int|null,
+     *     scheduled_at?: \DateTimeInterface|string|null,
      *     template_id?: string,
      *     template_data?: array<string, mixed>|null,
      *     template_key?: string,
@@ -264,8 +292,10 @@ final class Emails
      *     tracking?: bool|array{opens?: bool|null, clicks?: bool|null, engagement?: bool|null}|null,
      *     capture_engagement?: bool|null
      * } $email
-     * @return SendEmailResult The queued email. It means PostHog queued the email, not that it was delivered.
-     * @throws EmailError PostHog did not queue the email, or the client could not tell whether it did. A
+     * @return SendEmailResult The accepted email. It means PostHog queued or scheduled the email, not that it
+     *     was delivered.
+     * @throws EmailError PostHog did not queue the email, the client could not tell whether it did, or, with
+     *     `schedule_not_confirmed`, PostHog accepted it without confirming its `scheduled_at`. A
      *     failed argument check has the name `validation_error` and an `invalid_*` code, and sends nothing.
      *     An attachment the client can't send has the code `invalid_attachment` and a field such as
      *     `attachments__0__content`, and its message never repeats the file's content. More than 10 files
@@ -274,8 +304,11 @@ final class Emails
      */
     public function send(array $email): SendEmailResult
     {
-        [$body, $idempotencyKey, $maxRetries, $files] = $this->prepareSend($email);
+        [$body, $idempotencyKey, $maxRetries, $files, $scheduledAt] = $this->prepareSend($email);
         [$appHost, $secretKey] = $this->connect(self::SEND_NOT_DONE, self::SEND_KEY_NEEDED);
+        if ($scheduledAt !== null) {
+            self::refuseSchedulingOutsideCloud($appHost);
+        }
         if ($files !== []) {
             $this->upload($appHost, $secretKey, $files, $maxRetries);
             $this->refuseWhenClosed(self::SEND_NOT_DONE);
@@ -284,9 +317,14 @@ final class Emails
             'Content-Type: application/json',
             'Idempotency-Key: ' . $idempotencyKey,
         ]);
-        $result = $this->withRetries($maxRetries, function () use ($appHost, $headers, $body): SendEmailResult {
-            return self::parseSendReply(...$this->request('POST', $appHost . self::SEND_PATH, $headers, $body));
-        });
+        $result = $this->withRetries(
+            $maxRetries,
+            function () use ($appHost, $headers, $body, $scheduledAt): SendEmailResult {
+                $reply = $this->request('POST', $appHost . self::SEND_PATH, $headers, $body);
+
+                return self::parseSendReply($scheduledAt, ...$reply);
+            }
+        );
         foreach ($result->getWarnings() as $warning) {
             $line = $warning->getCode() . ': ' . $warning->getMessage();
             error_log('[PostHog][Emails] Email warning ' . self::onOneLogLine($line));
@@ -328,8 +366,8 @@ final class Emails
     }
 
     /**
-     * @return array{string, string, int, array<string, Upload>} The body, the idempotency key, the retries
-     *     and the files to upload, by SHA-256.
+     * @return array{string, string, int, array<string, Upload>, DateTimeImmutable|null} The body, the
+     *     idempotency key, the retries, the files to upload by SHA-256, and the time the email waits for.
      */
     private function prepareSend(array $email): array
     {
@@ -365,9 +403,13 @@ final class Emails
         if (!is_int($maxRetries) || $maxRetries < 0) {
             throw self::invalid('invalid_max_retries', 'max_retries must be a nonnegative integer.', 'max_retries');
         }
+        $scheduledAt = array_key_exists('scheduled_at', $email) ? self::scheduledAt($email['scheduled_at']) : null;
         $payload['to'] = $to;
         if ($distinctId !== null) {
             $payload['distinct_id'] = $distinctId;
+        }
+        if ($scheduledAt !== null) {
+            $payload['scheduled_at'] = $scheduledAt->format('Y-m-d\TH:i:s.v\Z');
         }
         try {
             $body = json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -379,7 +421,83 @@ final class Emails
             );
         }
 
-        return [$body, $idempotencyKey ?? Uuid::v4(), $maxRetries, $files];
+        return [$body, $idempotencyKey ?? Uuid::v4(), $maxRetries, $files, $scheduledAt];
+    }
+
+    private static function scheduledAt(mixed $value): DateTimeImmutable
+    {
+        $instant = $value instanceof DateTimeInterface
+            ? self::roundedUpToTheMillisecond(DateTimeImmutable::createFromInterface($value))
+            : self::timeWithOffsetRoundedUp($value);
+        if ($instant === null) {
+            throw new EmailError(
+                'invalid_scheduled_at',
+                'scheduled_at must be a DateTimeInterface, or an ISO 8601 time with an offset, so no email was sent.',
+                fix: 'Pass a time such as 2026-12-01T09:00:00Z or 2026-12-01T10:00:00+01:00, or a DateTimeImmutable.',
+                field: 'scheduled_at'
+            );
+        }
+
+        return $instant;
+    }
+
+    private static function timeWithOffsetRoundedUp(mixed $value): ?DateTimeImmutable
+    {
+        [$toTheMillisecond, $finerThanAMillisecond] = self::timeWithOffset($value) ?? [null, false];
+
+        return $finerThanAMillisecond ? $toTheMillisecond->modify('+1 millisecond') : $toTheMillisecond;
+    }
+
+    private static function timeWithOffsetToTheMillisecond(mixed $value): ?DateTimeImmutable
+    {
+        [$toTheMillisecond, $finerThanAMillisecond] = self::timeWithOffset($value) ?? [null, false];
+
+        return $finerThanAMillisecond ? null : $toTheMillisecond;
+    }
+
+    /**
+     * @return array{DateTimeImmutable, bool}|null The time in UTC cut to the millisecond, and whether the
+     *     value was finer than that.
+     */
+    private static function timeWithOffset(mixed $value): ?array
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+        if (preg_match(self::SCHEDULED_AT_PATTERN, $value, $parts, PREG_UNMATCHED_AS_NULL) !== 1) {
+            return null;
+        }
+        [, $date, $hour, $minute, $second, $fraction, $offsetHours, $offsetMinutes] = $parts;
+        $second ??= '00';
+        $fraction ??= '';
+        $offset = $offsetHours === null ? '+00:00' : "$offsetHours:$offsetMinutes";
+        if (
+            (int) $hour > 23
+            || (int) $minute > 59
+            || (int) $second > 59
+            || abs((int) $offsetHours) > 23
+            || (int) $offsetMinutes > 59
+        ) {
+            return null;
+        }
+        $milliseconds = str_pad(substr($fraction, 0, 3), 3, '0');
+        $instant = DateTimeImmutable::createFromFormat(
+            '!Y-m-d\TH:i:s.vP',
+            "{$date}T$hour:$minute:$second.$milliseconds$offset"
+        );
+        if ($instant === false || DateTimeImmutable::getLastErrors() !== false) {
+            return null;
+        }
+
+        return [$instant->setTimezone(new DateTimeZone('UTC')), trim(substr($fraction, 3), '0') !== ''];
+    }
+
+    private static function roundedUpToTheMillisecond(DateTimeImmutable $time): DateTimeImmutable
+    {
+        $time = $time->setTimezone(new DateTimeZone('UTC'));
+        $belowAMillisecond = (int) $time->format('u') % 1000;
+
+        return $belowAMillisecond === 0 ? $time : $time->modify('+' . (1000 - $belowAMillisecond) . ' usec');
     }
 
     /**
@@ -900,6 +1018,24 @@ final class Emails
         return [$this->appHost, $this->secretKey];
     }
 
+    private static function refuseSchedulingOutsideCloud(string $appHost): void
+    {
+        if (in_array($appHost, self::CLOUD_SCHEDULING_HOSTS, true)) {
+            return;
+        }
+        throw new EmailError(
+            'scheduling_requires_cloud',
+            self::onOneLogLine(
+                'Scheduled sends work only on PostHog Cloud (us.posthog.com or eu.posthog.com), and this client '
+                . "sends email to $appHost, so no email was sent."
+            ),
+            why: "A PostHog that doesn't schedule emails would send this one at once.",
+            fix: 'Send without scheduled_at, or set app_host to PostHog Cloud. A reverse proxy or custom domain '
+                . "can't schedule emails yet.",
+            field: 'scheduled_at'
+        );
+    }
+
     private function refuseWhenClosed(string $notDone): void
     {
         if (($this->isClosed)()) {
@@ -1098,8 +1234,12 @@ final class Emails
     /**
      * @param list<string> $headers
      */
-    private static function parseSendReply(int $status, string $body, array $headers): SendEmailResult
-    {
+    private static function parseSendReply(
+        ?DateTimeImmutable $scheduledAt,
+        int $status,
+        string $body,
+        array $headers
+    ): SendEmailResult {
         $fields = self::replyFields($body);
         if ($status < 200 || $status >= 300) {
             throw self::replyError($fields, $status, $headers);
@@ -1119,7 +1259,53 @@ final class Emails
             }
         }
 
-        return new SendEmailResult($id, ($fields['replayed'] ?? false) === true, $warnings);
+        $replayed = ($fields['replayed'] ?? false) === true;
+        if ($scheduledAt === null || self::sendsNow($fields)) {
+            return new SendEmailResult($id, $replayed, $warnings);
+        }
+        if (!self::confirmsSchedule($fields, $scheduledAt)) {
+            throw self::scheduleNotConfirmed($id, $status);
+        }
+
+        return new SendEmailResult($id, $replayed, $warnings, $scheduledAt);
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     */
+    private static function sendsNow(array $fields): bool
+    {
+        return ($fields['status'] ?? null) === 'queued'
+            && array_key_exists('scheduled_at', $fields)
+            && $fields['scheduled_at'] === null;
+    }
+
+    /**
+     * @param array<string, mixed> $fields
+     */
+    private static function confirmsSchedule(array $fields, DateTimeImmutable $requested): bool
+    {
+        $confirmed = self::timeWithOffsetToTheMillisecond($fields['scheduled_at'] ?? null);
+
+        return ($fields['status'] ?? null) === 'scheduled' && $confirmed !== null && $confirmed == $requested;
+    }
+
+    private static function scheduleNotConfirmed(string $messageId, int $status): EmailError
+    {
+        return new EmailError(
+            'schedule_not_confirmed',
+            self::onOneLogLine(
+                "PostHog accepted email $messageId without confirming its scheduled_at, so it may go out at "
+                . 'another time.'
+            ),
+            $status,
+            fix: self::onOneLogLine(
+                "Read the email's status with emails()->get('$messageId') before you send it again: a send with "
+                . 'another idempotency_key, or without one, sends a second email.'
+            ),
+            field: 'scheduled_at',
+            messageId: $messageId
+        );
     }
 
     /**

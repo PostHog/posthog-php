@@ -3,7 +3,9 @@
 namespace PostHog\Test;
 
 use Closure;
+use DateTime;
 use DateTimeImmutable;
+use DateTimeZone;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\EmailError;
@@ -1541,18 +1543,27 @@ class EmailsTest extends TestCase
         $this->assertSame('2026-10-28T16:30:02.100+00:00', $status->getStatusAt()->format('Y-m-d\TH:i:s.vP'));
     }
 
-    public function testGetPassesAnUnknownStatusThrough(): void
+    public static function statusesPassedThrough(): array
+    {
+        return [
+            'a scheduled email' => ['scheduled'],
+            'a status this SDK does not know yet' => ['archived'],
+        ];
+    }
+
+    #[DataProvider('statusesPassedThrough')]
+    public function testGetPassesTheStatusThrough(string $deliveryStatus): void
     {
         $this->reply([200, json_encode([
             'id' => self::MESSAGE_ID,
-            'status' => 'archived',
+            'status' => $deliveryStatus,
             'created_at' => '2026-10-28T16:27:44Z',
             'status_at' => '2026-10-28T16:27:44+00:00',
         ]), []]);
 
         $status = $this->emails()->get(self::MESSAGE_ID);
 
-        $this->assertSame('archived', $status->getStatus());
+        $this->assertSame($deliveryStatus, $status->getStatus());
         $this->assertNull($status->getReason());
     }
 
@@ -1614,6 +1625,360 @@ class EmailsTest extends TestCase
         $this->assertSame('invalid_message_id', $error->getErrorCode());
         $this->assertSame('validation_error', $error->getErrorName());
         $this->assertSame([], $this->requests);
+    }
+
+    private static function scheduledReply(string $scheduledAt, string $status = 'scheduled'): array
+    {
+        return [202, json_encode([
+            'message_id' => self::MESSAGE_ID,
+            'status' => $status,
+            'scheduled_at' => $scheduledAt,
+        ]), []];
+    }
+
+    public static function scheduledForms(): array
+    {
+        return [
+            'template form' => [['template_id' => self::TEMPLATE_ID]],
+            'code form' => [['template_key' => 'reminder', 'subject' => 'Soon', 'html' => '<p>Soon</p>']],
+        ];
+    }
+
+    #[DataProvider('scheduledForms')]
+    public function testAScheduledSendSendsTheTimeAndReturnsTheConfirmedSchedule(array $form): void
+    {
+        $this->reply(self::scheduledReply('2026-11-03T09:00:00.000Z'));
+
+        $result = $this->emails()->send(['to' => 'user@example.com', 'scheduled_at' => '2026-11-03T09:00:00Z'] + $form);
+
+        $this->assertSame('2026-11-03T09:00:00.000Z', $this->body()['scheduled_at']);
+        $this->assertSame(self::MESSAGE_ID, $result->getId());
+        $this->assertSame('scheduled', $result->getStatus());
+        $this->assertSame('2026-11-03T09:00:00.000+00:00', $result->getScheduledAt()?->format('Y-m-d\TH:i:s.vP'));
+    }
+
+    public function testASendWithoutScheduledAtIsQueuedAndSendsNoTime(): void
+    {
+        $result = $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => null,
+        ]);
+
+        $this->assertArrayNotHasKey('scheduled_at', $this->body());
+        $this->assertSame('queued', $result->getStatus());
+        $this->assertNull($result->getScheduledAt());
+    }
+
+    public static function scheduledTimes(): array
+    {
+        return [
+            'UTC string' => ['2026-11-03T09:00:00Z', '2026-11-03T09:00:00.000Z'],
+            'string with another offset' => ['2026-11-03T10:30:00+01:30', '2026-11-03T09:00:00.000Z'],
+            'string without seconds' => ['2026-11-03T09:00Z', '2026-11-03T09:00:00.000Z'],
+            'string to the millisecond' => ['2026-11-03T09:00:00.123Z', '2026-11-03T09:00:00.123Z'],
+            'string with zeros past the millisecond' => ['2026-11-03T09:00:00.123000Z', '2026-11-03T09:00:00.123Z'],
+            'string with nanoseconds rounds up' => ['2026-11-03T09:00:00.123000001Z', '2026-11-03T09:00:00.124Z'],
+            'string rounds up into the next year' => ['2026-12-31T23:59:59.9995Z', '2027-01-01T00:00:00.000Z'],
+            'DateTimeImmutable in UTC' => [
+                new DateTimeImmutable('2026-11-03T09:00:00', new DateTimeZone('UTC')),
+                '2026-11-03T09:00:00.000Z',
+            ],
+            'DateTime in another zone' => [
+                new DateTime('2026-11-03T10:00:00', new DateTimeZone('Europe/Berlin')),
+                '2026-11-03T09:00:00.000Z',
+            ],
+            'DateTimeImmutable with microseconds rounds up' => [
+                new DateTimeImmutable('2026-11-03T09:00:00.123456+00:00'),
+                '2026-11-03T09:00:00.124Z',
+            ],
+            'DateTimeImmutable with whole milliseconds' => [
+                new DateTimeImmutable('2026-11-03T09:00:00.123000+00:00'),
+                '2026-11-03T09:00:00.123Z',
+            ],
+        ];
+    }
+
+    #[DataProvider('scheduledTimes')]
+    public function testScheduledAtIsSentInUtcRoundedUpToTheMillisecond($scheduledAt, string $sent): void
+    {
+        $this->reply(self::scheduledReply($sent));
+
+        $result = $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => $scheduledAt,
+        ]);
+
+        $this->assertSame($sent, $this->body()['scheduled_at']);
+        $this->assertSame('scheduled', $result->getStatus());
+    }
+
+    public function testARetriedScheduledSendSendsTheSameTime(): void
+    {
+        $this->reply([503, '{"code":"unavailable"}', []], self::scheduledReply('2026-11-03T09:00:00.124Z'));
+
+        $result = $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => new DateTimeImmutable('2026-11-03T09:00:00.123456Z'),
+        ]);
+
+        $this->assertCount(2, $this->requests);
+        $this->assertSame($this->requests[0]['body'], $this->requests[1]['body']);
+        $this->assertSame('2026-11-03T09:00:00.124Z', $this->body(1)['scheduled_at']);
+        $this->assertSame('scheduled', $result->getStatus());
+    }
+
+    public static function unscheduledTimes(): array
+    {
+        return [
+            'no offset' => ['2026-11-03T09:00:00'],
+            'no offset with milliseconds' => ['2026-11-03T09:00:00.123'],
+            'a date without a time' => ['2026-11-03'],
+            'a space instead of T' => ['2026-11-03 09:00:00Z'],
+            'a relative time' => ['+1 hour'],
+            'a day the month does not have' => ['2026-02-30T09:00:00Z'],
+            'hour 24' => ['2026-11-03T24:00:00Z'],
+            'second 60' => ['2026-11-03T09:00:60Z'],
+            'an offset past 59 minutes' => ['2026-11-03T09:00:00+01:60'],
+            'an empty string' => [''],
+            'a Unix timestamp' => [1793696400],
+            'a list' => [['2026-11-03T09:00:00Z']],
+        ];
+    }
+
+    #[DataProvider('unscheduledTimes')]
+    public function testAScheduledAtWithoutAnOffsetIsRefusedBeforeAnyRequest($scheduledAt): void
+    {
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => $scheduledAt,
+        ]);
+
+        $this->assertSame('invalid_scheduled_at', $error->getErrorCode());
+        $this->assertSame('validation_error', $error->getErrorName());
+        $this->assertSame('scheduled_at', $error->getField());
+        $this->assertSame([], $this->requests);
+    }
+
+    public static function hostsThatSchedule(): array
+    {
+        return [
+            'US ingestion host' => ['us.i.posthog.com', null, 'https://us.posthog.com'],
+            'EU app host' => ['https://eu.posthog.com', null, 'https://eu.posthog.com'],
+            'proxy with the EU ingestion host as app host' => [
+                'proxy.example.com',
+                'https://eu.i.posthog.com',
+                'https://eu.posthog.com',
+            ],
+            'proxy with the US app host over http as app host' => [
+                'proxy.example.com',
+                'http://us.posthog.com',
+                'https://us.posthog.com',
+            ],
+        ];
+    }
+
+    #[DataProvider('hostsThatSchedule')]
+    public function testPostHogCloudSchedules(string $host, ?string $appHost, string $expected): void
+    {
+        $this->reply(self::scheduledReply('2026-11-03T09:00:00.000Z'));
+
+        $this->emails(['host' => $host, 'appHost' => $appHost])->send([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => '2026-11-03T09:00:00Z',
+        ]);
+
+        $this->assertSame($expected . '/api/messaging/send/email/', $this->requests[0]['url']);
+    }
+
+    public static function hostsThatDoNotSchedule(): array
+    {
+        return [
+            'self-hosted app host' => ['https://posthog.example.com', 'https://posthog.example.com'],
+            'reverse proxy as app host' => ['proxy.example.com', 'https://proxy.example.com'],
+            'local development' => ['proxy.example.com', 'http://localhost:8010'],
+        ];
+    }
+
+    #[DataProvider('hostsThatDoNotSchedule')]
+    public function testAScheduledSendToAnotherHostIsRefusedBeforeAnyRequest(string $host, string $appHost): void
+    {
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_key' => 'receipt',
+            'subject' => 'Your receipt',
+            'html' => '<p>Thanks</p>',
+            'attachments' => [['filename' => 'receipt.pdf', 'content' => self::SECRET_CONTENT]],
+            'scheduled_at' => '2026-11-03T09:00:00Z',
+        ], $this->emails(['host' => $host, 'appHost' => $appHost]));
+
+        $this->assertSame('scheduling_requires_cloud', $error->getErrorCode());
+        $this->assertSame('validation_error', $error->getErrorName());
+        $this->assertSame('scheduled_at', $error->getField());
+        $this->assertStringContainsString($appHost, $error->getMessage());
+        $this->assertSame([], $this->requests);
+    }
+
+    public function testAnUnresolvedHostRefusesAScheduledSendBeforeAnyRequest(): void
+    {
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => '2026-11-03T09:00:00Z',
+        ], $this->emails(['host' => 'https://proxy.example.com']));
+
+        $this->assertSame('missing_app_host', $error->getErrorCode());
+        $this->assertSame([], $this->requests);
+    }
+
+    public function testAScheduledSendWithFilesUploadsThemOnPostHogCloud(): void
+    {
+        $this->reply(self::NEGOTIATE, [200, '', []], self::scheduledReply('2026-11-03T09:00:00.000Z'));
+
+        $result = $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_key' => 'receipt',
+            'subject' => 'Your receipt',
+            'html' => '<p>Thanks</p>',
+            'attachments' => [['filename' => 'receipt.pdf', 'content' => self::SECRET_CONTENT]],
+            'scheduled_at' => '2026-11-03T09:00:00Z',
+        ]);
+
+        $this->assertCount(3, $this->requests);
+        $this->assertSame('2026-11-03T09:00:00.000Z', $this->body(2)['scheduled_at']);
+        $this->assertSame('scheduled', $result->getStatus());
+    }
+
+    public function testAConfirmationOfTheSameInstantInAnotherOffsetIsAccepted(): void
+    {
+        $this->reply(self::scheduledReply('2026-11-03T10:00:00.123+01:00'));
+
+        $result = $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => '2026-11-03T09:00:00.123Z',
+        ]);
+
+        $this->assertSame('2026-11-03T09:00:00.123+00:00', $result->getScheduledAt()?->format('Y-m-d\TH:i:s.vP'));
+    }
+
+    public function testAPastTimeQueuedNowIsAnAcceptance(): void
+    {
+        $this->reply([202, json_encode([
+            'message_id' => self::MESSAGE_ID,
+            'status' => 'queued',
+            'scheduled_at' => null,
+        ]), []]);
+
+        $result = $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => '2026-11-01T09:00:00Z',
+        ]);
+
+        $this->assertSame('2026-11-01T09:00:00.000Z', $this->body()['scheduled_at']);
+        $this->assertSame(self::MESSAGE_ID, $result->getId());
+        $this->assertSame('queued', $result->getStatus());
+        $this->assertNull($result->getScheduledAt());
+    }
+
+    public static function unconfirmedSchedules(): array
+    {
+        $id = ['message_id' => self::MESSAGE_ID];
+
+        return [
+            'no scheduled_at key, as from a PostHog that drops it' => [$id],
+            'scheduled at another instant' => [
+                $id + ['status' => 'scheduled', 'scheduled_at' => '2026-11-03T09:00:00.001Z'],
+            ],
+            'scheduled finer than the instant asked for' => [
+                $id + ['status' => 'scheduled', 'scheduled_at' => '2026-11-03T08:59:59.999500Z'],
+            ],
+            'scheduled without a time' => [$id + ['status' => 'scheduled', 'scheduled_at' => null]],
+            'scheduled at a time without an offset' => [
+                $id + ['status' => 'scheduled', 'scheduled_at' => '2026-11-03T09:00:00.000'],
+            ],
+            'queued without the scheduled_at key' => [$id + ['status' => 'queued']],
+            'queued with a time' => [$id + ['status' => 'queued', 'scheduled_at' => '2026-11-03T09:00:00.000Z']],
+            'a null time without a status' => [$id + ['scheduled_at' => null]],
+            'the time without a status' => [$id + ['scheduled_at' => '2026-11-03T09:00:00.000Z']],
+        ];
+    }
+
+    #[DataProvider('unconfirmedSchedules')]
+    public function testAnAcceptanceThatDoesNotConfirmTheTimeIsAnErrorWithTheMessageId(array $answer): void
+    {
+        $this->reply([202, json_encode($answer), []], self::scheduledReply('2026-11-03T09:00:00.000Z'));
+
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => '2026-11-03T09:00:00Z',
+        ]);
+
+        $this->assertSame('schedule_not_confirmed', $error->getErrorCode());
+        $this->assertSame('application_error', $error->getErrorName());
+        $this->assertSame(202, $error->getStatusCode());
+        $this->assertSame('scheduled_at', $error->getField());
+        $this->assertSame(self::MESSAGE_ID, $error->getMessageId());
+        $this->assertStringContainsString(self::MESSAGE_ID, $error->getMessage());
+        $this->assertCount(1, $this->requests, 'an accepted send is never sent again');
+    }
+
+    public function testAReplayReturnsTheOriginalSchedule(): void
+    {
+        $this->reply([202, json_encode([
+            'message_id' => self::MESSAGE_ID,
+            'replayed' => true,
+            'status' => 'scheduled',
+            'scheduled_at' => '2026-11-03T09:00:00.000Z',
+        ]), []]);
+
+        $result = $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'idempotency_key' => 'reminder:user_123',
+            'scheduled_at' => '2026-11-03T09:00:00Z',
+        ]);
+
+        $this->assertTrue($result->isReplayed());
+        $this->assertSame('scheduled', $result->getStatus());
+    }
+
+    public function testARefusedScheduleIsAnErrorAndNeverSendsNow(): void
+    {
+        $this->reply([400, json_encode([
+            'type' => 'validation_error',
+            'code' => 'invalid_input',
+            'detail' => 'scheduled_at is more than 7 days away.',
+            'attr' => 'scheduled_at',
+        ]), []]);
+
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => '2026-11-20T09:00:00Z',
+        ]);
+
+        $this->assertSame('validation_error', $error->getErrorName());
+        $this->assertSame('scheduled_at', $error->getField());
+        $this->assertNull($error->getMessageId());
+        $this->assertCount(1, $this->requests);
+        $this->assertSame([], $this->queued);
+    }
+
+    public function testAnUnscheduledSendIgnoresAScheduleInTheAnswer(): void
+    {
+        $this->reply(self::scheduledReply('2026-11-03T09:00:00.000Z'));
+
+        $result = $this->emails()->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
+
+        $this->assertSame('queued', $result->getStatus());
+        $this->assertNull($result->getScheduledAt());
     }
 
     public function testBadClientOptionsAreRefused(): void

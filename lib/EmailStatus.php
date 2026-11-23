@@ -9,6 +9,7 @@ use DateTimeImmutable;
  *
  * The status is one of:
  *
+ * - `scheduled`: the email waits for the `scheduled_at` it was sent with.
  * - `queued`: the email waits to go out.
  * - `sent`: PostHog handed the email to the email provider.
  * - `failed`: the email was not sent, and the reason says why.

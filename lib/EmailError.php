@@ -14,7 +14,11 @@ use Throwable;
  */
 class EmailError extends RuntimeException
 {
-    private const REFUSED_ATTACHMENT_CODES = ['too_many_attachments', 'message_too_large'];
+    private const REFUSED_BEFORE_ANY_REQUEST_CODES = [
+        'too_many_attachments',
+        'message_too_large',
+        'scheduling_requires_cloud',
+    ];
 
     private string $errorName;
     private string $errorCode;
@@ -24,6 +28,7 @@ class EmailError extends RuntimeException
     private ?string $docsUrl;
     private ?string $field;
     private ?int $retryAfterMs;
+    private ?string $messageId;
 
     /**
      * @param string $errorCode PostHog's error code, or an SDK code such as `network_error`.
@@ -35,6 +40,7 @@ class EmailError extends RuntimeException
      * @param string|null $field The request field the error is about.
      * @param int|null $retryAfterMs How long PostHog asked the client to wait before it sends again.
      * @param Throwable|null $previous The failure that caused this error.
+     * @param string|null $messageId The message ID of an email PostHog accepted although the call failed.
      */
     public function __construct(
         string $errorCode,
@@ -45,7 +51,8 @@ class EmailError extends RuntimeException
         ?string $docsUrl = null,
         ?string $field = null,
         ?int $retryAfterMs = null,
-        ?Throwable $previous = null
+        ?Throwable $previous = null,
+        ?string $messageId = null
     ) {
         parent::__construct($message, 0, $previous);
         $this->errorName = self::nameFor($statusCode, $errorCode);
@@ -56,6 +63,7 @@ class EmailError extends RuntimeException
         $this->docsUrl = $docsUrl;
         $this->field = $field;
         $this->retryAfterMs = $retryAfterMs;
+        $this->messageId = $messageId;
     }
 
     /**
@@ -70,8 +78,8 @@ class EmailError extends RuntimeException
 
     /**
      * PostHog's error code, such as `quota_limited`, or an SDK code such as `missing_secret_key`,
-     * `missing_app_host`, `client_disabled`, `client_closed`, `network_error`, `api_error`, `attachment_upload_failed`
-     * or an `invalid_*` argument code.
+     * `missing_app_host`, `client_disabled`, `client_closed`, `network_error`, `api_error`, `attachment_upload_failed`,
+     * `scheduling_requires_cloud`, `schedule_not_confirmed` or an `invalid_*` argument code.
      */
     public function getErrorCode(): string
     {
@@ -126,6 +134,16 @@ class EmailError extends RuntimeException
         return $this->retryAfterMs;
     }
 
+    /**
+     * The message ID of an email PostHog accepted although the call failed, such as a scheduled send whose
+     * time PostHog didn't confirm (`schedule_not_confirmed`). Pass it to Emails::get() to read what happened
+     * to the email. Null otherwise.
+     */
+    public function getMessageId(): ?string
+    {
+        return $this->messageId;
+    }
+
     private static function nameFor(?int $status, string $code): string
     {
         if ($code === 'attachment_upload_failed') {
@@ -138,7 +156,7 @@ class EmailError extends RuntimeException
         if ($code === 'missing_secret_key' || $status === 401) {
             return 'missing_api_key';
         }
-        if (in_array($code, self::REFUSED_ATTACHMENT_CODES, true)) {
+        if (in_array($code, self::REFUSED_BEFORE_ANY_REQUEST_CODES, true)) {
             return 'validation_error';
         }
         if ($status === null) {
