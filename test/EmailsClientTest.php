@@ -84,75 +84,53 @@ class EmailsClientTest extends TestCase
         'html' => '<p>News.</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
     ];
 
-    private function sendInCategory(mixed $category): string
+    private function acceptOneSend(): void
     {
-        $this->server ??= new LocalHttpServer([], 'email-send-server.php');
-
-        return $this->client()->emails()->send(['category' => $category] + self::MONTHLY_NEWS)->getId();
+        $this->server = new LocalHttpServer([[
+            'status' => 202,
+            'body' => '{"message_id":"01a18356-c56c-0001-e494-7666bc915188","replayed":false}',
+        ]]);
     }
 
-    private function serveATemplateIn(array $category): void
-    {
-        $this->server = new LocalHttpServer(
-            ['templates' => [self::MONTHLY_NEWS['template_key'] => $category]],
-            'email-send-server.php'
-        );
-    }
-
-    public static function categoriesThatFollowTheTemplate(): array
+    public static function categoriesThatOmitCategory(): array
     {
         return ['left out' => [[]], 'null' => [['category' => null]]];
     }
 
-    #[DataProvider('categoriesThatFollowTheTemplate')]
-    public function testASendForATemplateInACategoryFollowsItsCategory(array $category): void
+    #[DataProvider('categoriesThatOmitCategory')]
+    public function testASendWithoutCategoryOmitsCategoryOnTheWire(array $category): void
     {
-        $this->serveATemplateIn(self::RECEIPTS);
+        $this->acceptOneSend();
 
-        $messageId = $this->client()->emails()->send($category + self::MONTHLY_NEWS)->getId();
+        $result = $this->client()->emails()->send($category + self::MONTHLY_NEWS);
 
-        $requests = $this->server->requests();
-        $this->assertCount(1, $requests);
-        $this->assertArrayNotHasKey('category', json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR));
-        $this->assertSame(
-            [['message_id' => $messageId, 'category' => 'receipts', 'type' => 'transactional']],
-            $this->server->state()['sends']
-        );
-    }
-
-    public function testTransactionalOnATemplateInACategoryIsRefused(): void
-    {
-        $this->serveATemplateIn(self::RECEIPTS);
-
-        try {
-            $this->sendInCategory(Emails::CATEGORY_TRANSACTIONAL);
-            $this->fail('send() did not throw');
-        } catch (EmailError $error) {
-            $this->assertSame('category_mismatch', $error->getErrorCode());
-            $this->assertSame('validation_error', $error->getErrorName());
-            $this->assertSame(400, $error->getStatusCode());
-            $this->assertSame('category', $error->getField());
-        }
-        $this->assertSame([], $this->server->state()['sends']);
-    }
-
-    public function testACodeSendCreatesItsCategory(): void
-    {
-        $messageId = $this->sendInCategory(self::NEWSLETTER + ['description' => 'Monthly product news']);
-
+        $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
         $requests = $this->server->requests();
         $this->assertCount(1, $requests);
         $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertArrayNotHasKey('category', $sent);
+        $this->assertSame(self::MONTHLY_NEWS['template_key'], $sent['template_key']);
+        $this->assertSame(self::MONTHLY_NEWS['to'], $sent['to']);
+        $this->assertSame(self::MONTHLY_NEWS['subject'], $sent['subject']);
         $this->assertSame(self::MONTHLY_NEWS['html'], $sent['html']);
-        $state = $this->server->state();
-        $this->assertSame(
-            ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => 'Monthly product news']],
-            $state['categories']
-        );
-        $this->assertSame(
-            [['message_id' => $messageId, 'category' => 'newsletter', 'type' => 'marketing']],
-            $state['sends']
-        );
+    }
+
+    public function testACodeSendSerializesItsCategory(): void
+    {
+        $this->acceptOneSend();
+        $category = self::NEWSLETTER + ['description' => 'Monthly product news'];
+
+        $result = $this->client()->emails()->send(['category' => $category] + self::MONTHLY_NEWS);
+
+        $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
+        $requests = $this->server->requests();
+        $this->assertCount(1, $requests);
+        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(self::MONTHLY_NEWS['template_key'], $sent['template_key']);
+        $this->assertSame(self::MONTHLY_NEWS['to'], $sent['to']);
+        $this->assertSame(self::MONTHLY_NEWS['subject'], $sent['subject']);
+        $this->assertSame(self::MONTHLY_NEWS['html'], $sent['html']);
+        $this->assertSame($category, $sent['category']);
     }
 
     public function testUnsubscribeLinkRequiredRefusalIsSurfacedWithoutRetrying(): void
@@ -163,7 +141,6 @@ class EmailsClientTest extends TestCase
                 'type' => 'validation_error',
                 'code' => 'unsubscribe_link_required',
                 'detail' => 'A marketing email needs a clickable `{{ unsubscribe_url }}` link.',
-                'attr' => 'html',
             ], JSON_THROW_ON_ERROR),
         ]]);
 
@@ -180,21 +157,17 @@ class EmailsClientTest extends TestCase
             $this->assertSame('unsubscribe_link_required', $error->getErrorCode());
             $this->assertSame('validation_error', $error->getErrorName());
             $this->assertSame(400, $error->getStatusCode());
-            $this->assertSame('html', $error->getField());
+            $this->assertNull($error->getField());
         }
 
         $requests = $this->server->requests();
         $this->assertCount(1, $requests);
-        $this->assertSame(
-            [
-                'template_key' => 'monthly-news',
-                'subject' => 'This month',
-                'html' => '<p>News.</p>',
-                'category' => self::NEWSLETTER,
-                'to' => 'user@example.com',
-            ],
-            json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR)
-        );
+        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame('monthly-news', $sent['template_key']);
+        $this->assertSame('user@example.com', $sent['to']);
+        $this->assertSame('This month', $sent['subject']);
+        $this->assertSame('<p>News.</p>', $sent['html']);
+        $this->assertSame(self::NEWSLETTER, $sent['category']);
     }
 
     public static function omittedDescriptions(): array
@@ -203,62 +176,113 @@ class EmailsClientTest extends TestCase
     }
 
     #[DataProvider('omittedDescriptions')]
-    public function testANullDescriptionCreatesTheCategoryWithoutOne(array $description): void
+    public function testANullOrOmittedDescriptionOmitsDescriptionOnTheWire(array $description): void
     {
-        $this->sendInCategory(self::NEWSLETTER + $description);
+        $this->acceptOneSend();
+
+        $this->client()->emails()->send(['category' => self::NEWSLETTER + $description] + self::MONTHLY_NEWS);
 
         $requests = $this->server->requests();
         $this->assertCount(1, $requests);
         $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertArrayNotHasKey('description', $sent['category']);
-        $this->assertSame(
-            ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => '']],
-            $this->server->state()['categories']
-        );
+        $this->assertSame(self::NEWSLETTER, $sent['category']);
     }
 
     public function testAnEmptyDescriptionStaysOnTheWire(): void
     {
-        $this->sendInCategory(self::NEWSLETTER + ['description' => '']);
+        $this->acceptOneSend();
+
+        $this->client()->emails()->send(['category' => self::NEWSLETTER + ['description' => '']] + self::MONTHLY_NEWS);
 
         $requests = $this->server->requests();
         $this->assertCount(1, $requests);
         $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertArrayHasKey('description', $sent['category']);
         $this->assertSame('', $sent['category']['description']);
-        $this->assertSame(
-            ['newsletter' => ['type' => 'marketing', 'name' => 'Newsletter', 'description' => '']],
-            $this->server->state()['categories']
-        );
     }
 
-    public function testTheBuiltInTransactionalCategorySendsWithoutACategory(): void
+    public function testTheBuiltInTransactionalCategorySendsTransactionalOnTheWire(): void
     {
-        $messageId = $this->sendInCategory(Emails::CATEGORY_TRANSACTIONAL);
+        $this->acceptOneSend();
 
+        $result = $this->client()->emails()->send(
+            ['category' => Emails::CATEGORY_TRANSACTIONAL] + self::MONTHLY_NEWS
+        );
+
+        $this->assertSame('01a18356-c56c-0001-e494-7666bc915188', $result->getId());
         $requests = $this->server->requests();
         $this->assertCount(1, $requests);
         $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame('transactional', $sent['category'] ?? null);
-        $state = $this->server->state();
-        $this->assertSame([], $state['categories']);
-        $this->assertSame(
-            [['message_id' => $messageId, 'category' => null, 'type' => 'transactional']],
-            $state['sends']
-        );
     }
 
-    public function testANullCategorySendsWithoutACategory(): void
+    public static function serverCategoryRefusals(): array
     {
-        $messageId = $this->sendInCategory(null);
+        return [
+            'named category mismatch' => [
+                ['type' => Emails::CATEGORY_TRANSACTIONAL] + self::NEWSLETTER,
+                400,
+                'category_mismatch',
+                'category',
+            ],
+            'built-in transactional mismatch' => [
+                Emails::CATEGORY_TRANSACTIONAL,
+                400,
+                'category_mismatch',
+                'category',
+            ],
+            'copies not allowed' => [
+                self::NEWSLETTER,
+                400,
+                'copies_not_allowed',
+                null,
+            ],
+            'marketing template' => [
+                self::NEWSLETTER,
+                400,
+                'marketing_template',
+                null,
+            ],
+            'recipient opted out' => [
+                self::NEWSLETTER,
+                422,
+                'recipient_opted_out',
+                null,
+            ],
+        ];
+    }
+
+    #[DataProvider('serverCategoryRefusals')]
+    public function testServerCategoryRefusalsAreSurfacedWithoutRetrying(
+        string|array $category,
+        int $status,
+        string $code,
+        ?string $field
+    ): void {
+        $reply = ['type' => 'validation_error', 'code' => $code, 'detail' => 'Refused.'];
+        if ($field !== null) {
+            $reply['attr'] = $field;
+        }
+        $this->server = new LocalHttpServer([[
+            'status' => $status,
+            'body' => json_encode($reply, JSON_THROW_ON_ERROR),
+        ]]);
+
+        try {
+            $this->client()->emails()->send(['category' => $category] + self::MONTHLY_NEWS);
+            $this->fail('send() did not throw');
+        } catch (EmailError $error) {
+            $this->assertSame($code, $error->getErrorCode());
+            $this->assertSame('validation_error', $error->getErrorName());
+            $this->assertSame($status, $error->getStatusCode());
+            $this->assertSame($field, $error->getField());
+        }
 
         $requests = $this->server->requests();
         $this->assertCount(1, $requests);
-        $this->assertArrayNotHasKey('category', json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR));
-        $this->assertSame(
-            [['message_id' => $messageId, 'category' => null, 'type' => 'transactional']],
-            $this->server->state()['sends']
-        );
+        $sent = json_decode($requests[0]['body'], true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame($category, $sent['category']);
     }
 
     public static function refusedCategories(): array
@@ -305,7 +329,7 @@ class EmailsClientTest extends TestCase
     #[DataProvider('refusedCategories')]
     public function testARefusedCategoryNeverReachesTheServer(array $email, string $code, string $field): void
     {
-        $this->server = new LocalHttpServer([], 'email-send-server.php');
+        $this->server = new LocalHttpServer([]);
 
         try {
             $this->client()->emails()->send($email);
@@ -316,24 +340,6 @@ class EmailsClientTest extends TestCase
             $this->assertSame($field, $error->getField());
         }
         $this->assertSame([], $this->server->requests());
-    }
-
-    public function testACategoryCannotChangeItsType(): void
-    {
-        $this->sendInCategory(self::NEWSLETTER);
-
-        try {
-            $this->sendInCategory(['type' => Emails::CATEGORY_TRANSACTIONAL] + self::NEWSLETTER);
-            $this->fail('send() did not throw');
-        } catch (EmailError $error) {
-            $this->assertSame('category_mismatch', $error->getErrorCode());
-            $this->assertSame('validation_error', $error->getErrorName());
-            $this->assertSame(400, $error->getStatusCode());
-            $this->assertSame('category', $error->getField());
-        }
-        $state = $this->server->state();
-        $this->assertSame('marketing', $state['categories']['newsletter']['type']);
-        $this->assertCount(1, $state['sends']);
     }
 
     private static function traceSteps(array $requests): array
@@ -357,6 +363,7 @@ class EmailsClientTest extends TestCase
             'attachments' => [['filename' => 'receipt.pdf', 'content' => $file]],
         ]);
 
+        $this->assertSame('01a18356-c56c-0001-e494-000000000001', $result->getId());
         $requests = $this->server->requests();
         $this->assertSame(
             ['POST /api/messaging/attachments/uploads/', 'PUT', 'POST /api/messaging/send/email/'],
@@ -369,22 +376,23 @@ class EmailsClientTest extends TestCase
         $this->assertSame([['sha256' => $sha256, 'filename' => 'receipt.pdf']], $sent['attachments']);
         $state = $this->server->state();
         $this->assertSame($file, base64_decode($state['stored'][$sha256], true));
-        $this->assertSame(
-            [[
-                'message_id' => $result->getId(),
-                'category' => 'receipts',
-                'type' => 'transactional',
-                'attachments' => [['sha256' => $sha256, 'filename' => 'receipt.pdf']],
-            ]],
-            $state['sends']
-        );
     }
 
     public function testAMarketingSendWithAnAttachmentUploadsBeforeWorkflowCanWaitRefusal(): void
     {
         $file = "%PDF-1.7\n%\xE2\xE3\xCF\xD3\n\xFF\x00\xFEbrochure bytes\n";
         $sha256 = hash('sha256', $file);
-        $this->server = new LocalHttpServer([], 'email-send-server.php');
+        $this->server = new LocalHttpServer([
+            'send_responses' => [[
+                'status' => 400,
+                'body' => [
+                    'type' => 'validation_error',
+                    'code' => 'workflow_can_wait',
+                    'detail' => 'A marketing email cannot carry attachments.',
+                    'attr' => 'attachments',
+                ],
+            ]],
+        ], 'email-send-server.php');
 
         try {
             $this->client()->emails()->send(self::MONTHLY_NEWS + [
@@ -411,7 +419,6 @@ class EmailsClientTest extends TestCase
         $this->assertSame([['sha256' => $sha256, 'filename' => 'brochure.pdf']], $sent['attachments']);
         $state = $this->server->state();
         $this->assertSame($file, base64_decode($state['stored'][$sha256], true));
-        $this->assertSame([], $state['sends']);
     }
 
     public function testAFileIsUploadedWithAPlainPutBeforeTheSendOverHttp(): void

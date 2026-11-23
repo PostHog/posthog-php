@@ -1,12 +1,9 @@
 <?php
 
-// A fake of PostHog's email upload, storage and code-send routes that follows the server's schema and category rules.
-// It writes what it stored to the state file after each request. Its setup, in place of the canned responses,
-// takes `opted_out`, which maps a category key, or `$all`, to the recipients who opted out of it, and
-// `templates`, which maps a template_key that names a template made in PostHog to that template's category,
-// or null for a template with no category.
-
-require_once dirname(__DIR__, 2) . '/vendor/autoload.php';
+// A recording HTTP stub for PostHog's email upload, storage and code-send routes.
+// It validates JSON container shapes (preserving JSON arrays vs objects) and signed attachment uploads,
+// stores uploaded binary bytes in `$state['stored']` (base64-encoded), and returns scripted responses for
+// `POST /api/messaging/send/email/` (defaulting to 202 Accepted) without simulating server policy rules.
 
 $server = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
 if ($server === false) {
@@ -18,8 +15,7 @@ if ($selfAddress === false) {
 }
 $stateFile = $argv[1] . '.state';
 $setup = json_decode($argv[2], true, 512, JSON_THROW_ON_ERROR);
-$optedOut = $setup['opted_out'] ?? [];
-$templates = $setup['templates'] ?? [];
+$sendResponses = $setup['send_responses'] ?? [];
 echo $selfAddress . "\n";
 flush();
 
@@ -31,24 +27,24 @@ $codeSendFields = [
 ];
 $uploadFileFields = ['sha256', 'size'];
 $attachmentFields = ['sha256', 'filename', 'content_type', 'content_id'];
-$categoryFields = ['key', 'type', 'name', 'description'];
-$categoryTypes = ['marketing', 'transactional'];
 
-$state = ['categories' => [], 'sends' => [], 'stored' => []];
+$state = ['stored' => []];
 $signedUploads = [];
 $storedAttachments = [];
-foreach (array_filter($templates) as $template) {
-    $state['categories'][$template['key']] = [
-        'type' => $template['type'],
-        'name' => $template['name'],
-        'description' => '',
-    ];
-}
+$sendCount = 0;
 
 $refuse = static fn(int $status, string $code, string $detail, ?string $attr = null): array
     => [$status, ['type' => 'validation_error', 'code' => $code, 'detail' => $detail, 'attr' => $attr]];
-$isText = static fn(mixed $value, int $maxLength): bool
-    => is_string($value) && trim($value) !== '' && mb_strlen(trim($value), 'UTF-8') <= $maxLength;
+
+$decodeObject = static function (string $body): ?stdClass {
+    try {
+        $decoded = json_decode($body, false, 512, JSON_THROW_ON_ERROR);
+    } catch (JsonException) {
+        return null;
+    }
+
+    return $decoded instanceof stdClass ? $decoded : null;
+};
 
 $uploads = static function (
     string $body
@@ -56,27 +52,34 @@ $uploads = static function (
     $selfAddress,
     $uploadFileFields,
     $refuse,
+    $decodeObject,
     &$signedUploads,
     &$storedAttachments
 ): array {
-    $payload = json_decode($body, true);
+    $payload = $decodeObject($body);
+    if ($payload === null) {
+        return $refuse(400, 'invalid_request', 'Expected a JSON object.', 'files');
+    }
+    $keys = array_keys(get_object_vars($payload));
     if (
-        !is_array($payload)
-        || array_diff(array_keys($payload), ['files']) !== []
-        || !isset($payload['files'])
-        || !is_array($payload['files'])
-        || $payload['files'] === []
-        || count($payload['files']) > 10
+        array_diff($keys, ['files']) !== []
+        || !property_exists($payload, 'files')
+        || !is_array($payload->files)
+        || $payload->files === []
+        || count($payload->files) > 10
     ) {
         return $refuse(400, 'invalid_request', 'Send 1 to 10 files.', 'files');
     }
     $answers = [];
-    foreach ($payload['files'] as $file) {
-        $sha256 = is_array($file) ? ($file['sha256'] ?? null) : null;
-        $size = is_array($file) ? ($file['size'] ?? null) : null;
+    foreach ($payload->files as $file) {
+        if (!$file instanceof stdClass) {
+            return $refuse(400, 'invalid_request', 'Each file takes only sha256 and size.', 'files');
+        }
+        $fileKeys = array_keys(get_object_vars($file));
+        $sha256 = $file->sha256 ?? null;
+        $size = $file->size ?? null;
         if (
-            !is_array($file)
-            || array_diff(array_keys($file), $uploadFileFields) !== []
+            array_diff($fileKeys, $uploadFileFields) !== []
             || !is_string($sha256)
             || preg_match('/^[0-9a-f]{64}$/', $sha256) !== 1
             || !is_int($size)
@@ -140,7 +143,7 @@ $storeUpload = static function (
     return [200, null];
 };
 
-$send = static function (
+$handle = static function (
     string $requestLine,
     array $headers,
     string $body,
@@ -150,15 +153,13 @@ $send = static function (
     $sendRoute,
     $codeSendFields,
     $attachmentFields,
-    $categoryFields,
-    $categoryTypes,
-    $optedOut,
-    $templates,
     $refuse,
-    $isText,
+    $decodeObject,
     $uploads,
     $storeUpload,
-    &$storedAttachments
+    &$storedAttachments,
+    &$sendResponses,
+    &$sendCount
 ): array {
     if (str_starts_with($requestLine, 'PUT /attachments/')) {
         return $storeUpload($requestLine, $headers, $body, $state);
@@ -169,49 +170,33 @@ $send = static function (
     if ($requestLine !== $sendRoute) {
         return $refuse(404, 'not_found', 'Not found.');
     }
-    $email = json_decode($body, true);
-    if (!is_array($email) || !isset($email['template_key'])) {
-        return $refuse(400, 'invalid_input', 'This fake takes only a send with template_key.');
+    $email = $decodeObject($body);
+    if ($email === null || !property_exists($email, 'template_key')) {
+        return $refuse(400, 'invalid_input', 'This stub takes only a send with template_key.');
     }
-    foreach (array_keys($email) as $field) {
+    foreach (array_keys(get_object_vars($email)) as $field) {
         if (!in_array($field, $codeSendFields, true)) {
             return $refuse(400, 'invalid_input', "PostHog doesn't take this field.", $field);
         }
     }
-    $category = $email['category'] ?? null;
-    if ($category !== null && $category !== 'transactional') {
-        if (!is_array($category)) {
-            $shape = 'Send transactional, or a category with a key, type and name.';
-            return $refuse(400, 'invalid_input', $shape, 'category');
-        }
-        $trimmedKey = is_string($category['key'] ?? null) ? trim($category['key']) : null;
-        $trimmedDescription = array_key_exists('description', $category) && is_string($category['description'])
-            ? trim($category['description'])
-            : null;
-        $valid = array_diff(array_keys($category), $categoryFields) === []
-            && $isText($category['key'] ?? null, 64) && $trimmedKey !== '$all'
-            && in_array($category['type'] ?? null, $categoryTypes, true)
-            && $isText($category['name'] ?? null, 128)
-            && (
-                !array_key_exists('description', $category)
-                || ($trimmedDescription !== null && mb_strlen($trimmedDescription, 'UTF-8') <= 1000)
-            );
-        if (!$valid) {
-            $shape = 'Send transactional, or a category with a key, type and name.';
-            return $refuse(400, 'invalid_input', $shape, 'category');
-        }
-    }
-    $attachments = [];
-    if (array_key_exists('attachments', $email)) {
-        if (!is_array($email['attachments']) || $email['attachments'] === [] || count($email['attachments']) > 10) {
+    if (property_exists($email, 'attachments')) {
+        if (!is_array($email->attachments) || $email->attachments === [] || count($email->attachments) > 10) {
             return $refuse(400, 'invalid_request', 'Send 1 to 10 attachments.', 'attachments');
         }
-        foreach ($email['attachments'] as $index => $attachment) {
-            $sha256 = is_array($attachment) ? ($attachment['sha256'] ?? null) : null;
-            $filename = is_array($attachment) ? ($attachment['filename'] ?? null) : null;
+        foreach ($email->attachments as $index => $attachment) {
+            if (!$attachment instanceof stdClass) {
+                return $refuse(
+                    400,
+                    'invalid_request',
+                    'An attachment takes sha256, filename, content_type and content_id.',
+                    "attachments__{$index}"
+                );
+            }
+            $attachmentKeys = array_keys(get_object_vars($attachment));
+            $sha256 = $attachment->sha256 ?? null;
+            $filename = $attachment->filename ?? null;
             if (
-                !is_array($attachment)
-                || array_diff(array_keys($attachment), $attachmentFields) !== []
+                array_diff($attachmentKeys, $attachmentFields) !== []
                 || !is_string($sha256)
                 || preg_match('/^[0-9a-f]{64}$/', $sha256) !== 1
                 || !is_string($filename)
@@ -224,72 +209,22 @@ $send = static function (
                     "attachments__{$index}"
                 );
             }
-            $attachments[] = $attachment;
+            if (!array_key_exists($sha256, $storedAttachments)) {
+                return $refuse(
+                    400,
+                    'attachment_not_uploaded',
+                    "A file this email names isn't uploaded, so PostHog didn't send the email.",
+                    "attachments__{$index}__sha256"
+                );
+            }
         }
     }
-    $hasCopies = !empty($email['cc']) || !empty($email['bcc']);
-    if (array_key_exists($email['template_key'], $templates)) {
-        $template = $templates[$email['template_key']];
-        if (($template['type'] ?? null) === 'marketing') {
-            $onlyTransactional = 'The template is in a marketing category. Only transactional templates can be sent.';
-            return $refuse(400, 'marketing_template', $onlyTransactional);
-        }
-        $matches = $template === null
-            ? in_array($category, [null, 'transactional'], true)
-            : $category === null || (
-                is_array($category)
-                && trim($category['key']) === $template['key']
-                && $category['type'] === $template['type']
-            );
-        if (!$matches) {
-            return $refuse(400, 'category_mismatch', 'The template sends in another category.', 'category');
-        }
-        $key = $template['key'] ?? null;
-        $type = $template['type'] ?? 'transactional';
-    } elseif (is_array($category)) {
-        $key = trim($category['key']);
-        $type = $category['type'];
-        if ($type === 'marketing' && $hasCopies) {
-            return $refuse(400, 'copies_not_allowed', 'A marketing email cannot have cc or bcc recipients.');
-        }
-        $stored = $state['categories'][$key] ?? null;
-        if ($stored !== null && $stored['type'] !== $type) {
-            return $refuse(400, 'category_mismatch', "The category is {$stored['type']}.", 'category');
-        }
-        $state['categories'][$key] ??= [
-            'type' => $type,
-            'name' => trim($category['name']),
-            'description' => array_key_exists('description', $category) ? trim($category['description']) : '',
-        ];
-    } else {
-        $key = null;
-        $type = 'transactional';
+    $scripted = array_shift($sendResponses);
+    if (is_array($scripted)) {
+        return [$scripted['status'], $scripted['body'] ?? null];
     }
-    if ($type === 'marketing') {
-        if ($attachments !== []) {
-            return $refuse(400, 'workflow_can_wait', 'A marketing email cannot carry attachments.', 'attachments');
-        }
-        $optOuts = $key === null ? [] : array_merge($optedOut[$key] ?? [], $optedOut['$all'] ?? []);
-        if (in_array($email['to'], $optOuts, true)) {
-            return $refuse(422, 'recipient_opted_out', 'The recipient opted out of this category.');
-        }
-    }
-    foreach ($attachments as $index => $attachment) {
-        if (!array_key_exists($attachment['sha256'], $storedAttachments)) {
-            return $refuse(
-                400,
-                'attachment_not_uploaded',
-                "A file this email names isn't uploaded, so PostHog didn't send the email.",
-                "attachments__{$index}__sha256"
-            );
-        }
-    }
-    $messageId = sprintf('01a18356-c56c-0001-e494-%012d', count($state['sends']) + 1);
-    $sendRecord = ['message_id' => $messageId, 'category' => $key, 'type' => $type];
-    if ($attachments !== []) {
-        $sendRecord['attachments'] = $attachments;
-    }
-    $state['sends'][] = $sendRecord;
+    $sendCount++;
+    $messageId = sprintf('01a18356-c56c-0001-e494-%012d', $sendCount);
 
     return [202, ['message_id' => $messageId, 'replayed' => false]];
 };
@@ -314,7 +249,7 @@ while ($connection = stream_socket_accept($server, 30)) {
         }
         $body .= $chunk;
     }
-    [$status, $reply] = $send($requestLine, $headers, $body, $state);
+    [$status, $reply] = $handle($requestLine, $headers, $body, $state);
     $entry = [
         'requestLine' => $requestLine,
         'headers' => $headers,
