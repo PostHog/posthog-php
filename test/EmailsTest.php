@@ -10,7 +10,6 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\EmailError;
 use PostHog\Emails;
-use PostHog\SendEmailResult;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\MockClock;
@@ -1870,9 +1869,18 @@ class EmailsTest extends TestCase
         $this->assertSame('scheduled', $result->getStatus());
     }
 
-    public function testAConfirmationOfTheSameInstantInAnotherOffsetIsAccepted(): void
+    public static function confirmationsOfTheRequestedMillisecond(): array
     {
-        $this->reply(self::scheduledReply('2026-11-03T10:00:00.123+01:00'));
+        return [
+            'in another offset' => ['2026-11-03T10:00:00.123+01:00'],
+            'finer than a millisecond within it' => ['2026-11-03T10:00:00.123456+01:00'],
+        ];
+    }
+
+    #[DataProvider('confirmationsOfTheRequestedMillisecond')]
+    public function testAConfirmationOfTheRequestedMillisecondIsAccepted(string $confirmed): void
+    {
+        $this->reply(self::scheduledReply($confirmed));
 
         $result = $this->emails()->send([
             'to' => 'user@example.com',
@@ -1989,26 +1997,38 @@ class EmailsTest extends TestCase
         $this->assertSame('2026-11-20T09:00:00.000Z', $this->body()['scheduled_at']);
     }
 
+    private static function resultSerializedBeforeScheduling(): string
+    {
+        return base64_decode(
+            'TzoyMzoiUG9zdEhvZ1xTZW5kRW1haWxSZXN1bHQiOjM6e3M6Mjc6IgBQb3N0SG9nXFNlbmRFbWFpbFJlc3VsdABpZCI7czo1'
+            . 'OiJtc2dfMSI7czozMzoiAFBvc3RIb2dcU2VuZEVtYWlsUmVzdWx0AHJlcGxheWVkIjtiOjA7czozMzoiAFBvc3RIb2dcU2Vu'
+            . 'ZEVtYWlsUmVzdWx0AHdhcm5pbmdzIjthOjA6e319'
+        );
+    }
+
+    private static function errorSerializedBeforeScheduling(): string
+    {
+        return base64_decode(
+            'TzoxODoiUG9zdEhvZ1xFbWFpbEVycm9yIjoxNTp7czoxMDoiACoAbWVzc2FnZSI7czoxMDoiU2xvdyBkb3duLiI7czoxNzoi'
+            . 'AEV4Y2VwdGlvbgBzdHJpbmciO3M6MDoiIjtzOjc6IgAqAGNvZGUiO2k6MDtzOjc6IgAqAGZpbGUiO3M6MTA6Ii9zZXI2NC5w'
+            . 'aHAiO3M6NzoiACoAbGluZSI7aTozO3M6MTY6IgBFeGNlcHRpb24AdHJhY2UiO2E6MDp7fXM6MTk6IgBFeGNlcHRpb24AcHJl'
+            . 'dmlvdXMiO047czoyOToiAFBvc3RIb2dcRW1haWxFcnJvcgBlcnJvck5hbWUiO3M6MTc6ImFwcGxpY2F0aW9uX2Vycm9yIjtz'
+            . 'OjI5OiIAUG9zdEhvZ1xFbWFpbEVycm9yAGVycm9yQ29kZSI7czo5OiJ0aHJvdHRsZWQiO3M6MzA6IgBQb3N0SG9nXEVtYWls'
+            . 'RXJyb3IAc3RhdHVzQ29kZSI7TjtzOjIzOiIAUG9zdEhvZ1xFbWFpbEVycm9yAHdoeSI7TjtzOjIzOiIAUG9zdEhvZ1xFbWFp'
+            . 'bEVycm9yAGZpeCI7TjtzOjI3OiIAUG9zdEhvZ1xFbWFpbEVycm9yAGRvY3NVcmwiO047czoyNToiAFBvc3RIb2dcRW1haWxF'
+            . 'cnJvcgBmaWVsZCI7TjtzOjMyOiIAUG9zdEhvZ1xFbWFpbEVycm9yAHJldHJ5QWZ0ZXJNcyI7Tjt9'
+        );
+    }
+
     public function testAResultOrErrorSerializedByTheVersionBeforeSchedulingStillReads(): void
     {
-        $withoutProperty = static function (object $value, string $property): string {
-            $class = get_class($value);
-            $serialized = serialize($value);
-            $name = "\0$class\0$property";
-            $serialized = str_replace('s:' . strlen($name) . ':"' . $name . '";N;', '', $serialized);
+        $result = unserialize(self::resultSerializedBeforeScheduling());
+        $error = unserialize(self::errorSerializedBeforeScheduling());
 
-            return preg_replace_callback(
-                '/^O:(\d+):"([^"]+)":(\d+):/',
-                static fn(array $m): string => "O:$m[1]:\"$m[2]\":" . ((int) $m[3] - 1) . ':',
-                $serialized
-            );
-        };
-
-        $result = unserialize($withoutProperty(new SendEmailResult('msg_1'), 'scheduledAt'));
-        $error = unserialize($withoutProperty(new EmailError('throttled', 'Slow down.'), 'messageId'));
-
+        $this->assertSame('msg_1', $result->getId());
         $this->assertSame('queued', $result->getStatus());
         $this->assertNull($result->getScheduledAt());
+        $this->assertSame('throttled', $error->getErrorCode());
         $this->assertNull($error->getMessageId());
     }
 
