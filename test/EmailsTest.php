@@ -1912,7 +1912,7 @@ class EmailsTest extends TestCase
             'scheduled at another instant' => [
                 $id + ['status' => 'scheduled', 'scheduled_at' => '2026-11-03T09:00:00.001Z'],
             ],
-            'scheduled finer than the instant asked for' => [
+            'scheduled a fraction of a millisecond early' => [
                 $id + ['status' => 'scheduled', 'scheduled_at' => '2026-11-03T08:59:59.999500Z'],
             ],
             'scheduled without a time' => [$id + ['status' => 'scheduled', 'scheduled_at' => null]],

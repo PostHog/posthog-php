@@ -1278,12 +1278,9 @@ final class Emails
      */
     private static function confirmsSchedule(array $fields, DateTimeImmutable $requested): bool
     {
-        [$confirmed, $finerThanAMillisecond] = self::timeWithOffset($fields['scheduled_at'] ?? null) ?? [null, false];
+        [$confirmed] = self::timeWithOffset($fields['scheduled_at'] ?? null) ?? [null];
 
-        return ($fields['status'] ?? null) === 'scheduled'
-            && $confirmed !== null
-            && !$finerThanAMillisecond
-            && $confirmed == $requested;
+        return ($fields['status'] ?? null) === 'scheduled' && $confirmed !== null && $confirmed == $requested;
     }
 
     private static function scheduleNotConfirmed(string $messageId, int $status): EmailError
