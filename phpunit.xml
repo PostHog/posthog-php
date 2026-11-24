@@ -10,6 +10,8 @@
          stopOnIncomplete="false"
          stopOnSkipped="false"
          stopOnRisky="false"
+         displayDetailsOnTestsThatTriggerDeprecations="true"
+         failOnDeprecation="true"
          cacheDirectory=".phpunit.cache"
          bootstrap="test/error_log_mock.php"
 >

@@ -1466,7 +1466,7 @@ class EmailsTest extends TestCase
         $previousTimezone = date_default_timezone_get();
         date_default_timezone_set($timezone);
         try {
-            $at = gmdate(DATE_RFC7231, $this->clock->now()->getTimestamp() + 10);
+            $at = gmdate('D, d M Y H:i:s \G\M\T', $this->clock->now()->getTimestamp() + 10);
             $this->reply([503, '{"code":"unavailable"}', ['retry-after: ' . $at]], [202, '{"message_id":"msg_1"}', []]);
             $start = $this->clock->now();
 
