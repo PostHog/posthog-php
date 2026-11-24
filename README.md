@@ -25,7 +25,7 @@ Existing span attributes take precedence. The processor preserves the applicatio
 
 ## Transactional email
 
-`emails()` sends one email to one recipient, from an email template made transactional in PostHog or from content your code rendered, and reads what happened to it.
+`emails()` sends one email to one recipient, or the same email to many recipients, one email each, from an email template made transactional in PostHog or from content your code rendered, and reads what happened to it.
 
 The client needs a project secret API key (`phs_...`) as `secretKey`. Create it with the "Send transactional email" preset (`transactional_email:write`) in your project settings, and add `transactional_email:read` if you read statuses with a key that can't send. Keys made with `hog_flow:write` still work. A client whose `host` is PostHog Cloud sends to its region's app host. For any other `host`, such as a reverse proxy, set the `app_host` option to your PostHog app host: email requests never go to a custom `host`. Loading flag definitions still sends the secret key to `host`, so when your proxy must not see the key, build the client with `loadFeatureFlags: false` and don't call `loadFlags()`:
 
@@ -83,6 +83,32 @@ $status = PostHog::emails()->get($result->getId()); // queued, sent, delivered, 
 - **Errors.** A send that is not queued or scheduled throws `PostHog\EmailError`, and so does a scheduled send whose time PostHog didn't confirm (`schedule_not_confirmed`, with `getMessageId()`). Branch on `getErrorCode()`, such as `recipient_suppressed` or `missing_app_host`, or on `getErrorName()`, such as `validation_error`. An invalid argument throws before any request, with an `invalid_*` code.
 - **Retries.** Network errors, rate limits and an unavailable service are retried up to `email_request_max_retries` times (default 2) with the same idempotency key, so a retry never sends twice. Each request times out after `email_request_timeout_ms` (default 15000). When a job runner already retries the send, pass `'max_retries' => 0` and an `idempotency_key` derived from what the email is for, such as `welcome:user_123`. A generated key does not survive a job retry.
 - **Moving from another provider.** Set the `migrated_from` option, such as `'resend'`, so PostHog knows where your sends came from.
+
+### Batches
+
+`batch()` sends the same email to many recipients, one email each, and returns a result per recipient in the order of `recipients`:
+
+```php
+$result = PostHog::emails()->batch([
+    'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
+    'template_data' => ['team' => 'Analytics'], // shared by every recipient
+    'recipients' => [
+        ['to' => 'ada@example.com', 'template_data' => ['name' => 'Ada'], 'idempotency_key' => 'digest:ada'],
+        ['to' => 'alan@example.com', 'template_data' => ['name' => 'Alan'], 'idempotency_key' => 'digest:alan'],
+    ],
+]);
+foreach ($result->getResults() as $email) {
+    if ($email->getStatus() !== 'queued') {
+        echo $email->getTo(), ': ', $email->getStatus(), PHP_EOL;
+    }
+}
+```
+
+- **Recipients.** Each recipient has `to` and optional `distinct_id`, `idempotency_key` and `template_data`. A recipient's `template_data` is merged over the shared `template_data`, and its keys replace the shared ones. With `template_key`, the content is the same for every recipient, so a recipient can't carry `template_data`. A batch takes no `cc`, `bcc`, `attachments` or `scheduled_at`: send those emails with `send()`.
+- **Requests.** The client sends at most 100 recipients and 4 MiB of JSON per request, one request after another, and waits at least 45 seconds for each answer.
+- **Idempotency keys.** Every retry reuses each recipient's key, so a retry never queues an email twice. Without a key, the client makes one that covers its own retries but not a second call. When a batch may be cut off and run again, pass keys you store: send it again with the same key within 24 hours, so it goes out once. Each recipient of a call needs a different key.
+- **Statuses.** `getStatus()` is `queued` when PostHog accepted the email, `failed` when it refused it (`getError()` says why, such as a suppressed address), `unconfirmed` when the client can't tell, such as after a lost answer, and `not_attempted` when an earlier request of the batch failed. Send an `unconfirmed` email again with the same key within 24 hours, so it goes out once. `getWarnings()` holds PostHog's warnings, each once.
+- **Errors.** A request that fails as a whole, such as a rate limit past its retries, stops the batch and throws `PostHog\EmailBatchError`, whose `getResults()` holds every recipient. After a lost answer, the client reads each email it may have queued by its key, and reports the ones PostHog has as `queued`. `batch_unavailable` (409) means the project can't send batches yet, and `not_found` (404) that the template doesn't exist or batch sends are off: send each email the batch didn't queue with `send()` and its recipient's `idempotency_key`.
 
 ## Questions?
 
