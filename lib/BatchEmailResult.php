@@ -12,8 +12,6 @@ namespace PostHog;
  * - `unconfirmed`: the client can't tell whether PostHog queued the email, such as after a lost answer. It may
  *   still go out. Send it again with the same idempotency key within 24 hours, so it goes out once.
  *   getMessageId() is the email's ID when PostHog's answer named one.
- *   getLaterError() holds what a later attempt in the same call answered, which describes only that attempt.
- * - `not_attempted`: an earlier request of the batch failed, so the client sent nothing for this recipient.
  */
 class BatchEmailResult
 {
@@ -27,8 +25,7 @@ class BatchEmailResult
         private string $status,
         private ?string $messageId = null,
         private bool $replayed = false,
-        private ?EmailError $error = null,
-        private ?EmailError $laterError = null
+        private ?EmailError $error = null
     ) {
     }
 
@@ -58,7 +55,7 @@ class BatchEmailResult
     }
 
     /**
-     * `queued`, `failed`, `unconfirmed` or `not_attempted`.
+     * `queued`, `failed` or `unconfirmed`.
      */
     public function getStatus(): string
     {
@@ -90,14 +87,5 @@ class BatchEmailResult
     public function getError(): ?EmailError
     {
         return $this->error;
-    }
-
-    /**
-     * For an `unconfirmed` email, what a later attempt in the same call answered, such as `idempotency_key_reused`.
-     * It describes only that attempt: the first may still have queued the email.
-     */
-    public function getLaterError(): ?EmailError
-    {
-        return $this->laterError;
     }
 }

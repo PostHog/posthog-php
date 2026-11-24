@@ -412,11 +412,10 @@ final class Emails
      * A batch takes no `cc`, `bcc`, `attachments` or `scheduled_at`, and no `to`, `distinct_id` or
      * `idempotency_key` of its own: each throws `invalid_form` before any request.
      *
-     * `recipients` is a list of 1 or more recipients, each an array with `to` and optional `distinct_id`,
-     * `idempotency_key` and `template_data`. A null value counts as left out. The client sends the recipients in
-     * requests of at most 100 recipients and 4 MiB of JSON, one request after another, and waits 45 seconds for
-     * each answer, or `email_request_timeout_ms` when that is longer. `max_retries` overrides the client's
-     * retries for each request.
+     * `recipients` is a list of 1 to 100 recipients, each an array with `to` and optional `distinct_id`,
+     * `idempotency_key` and `template_data`. A null value counts as left out. The client sends the batch in one
+     * request and waits 45 seconds for the answer, or `email_request_timeout_ms` when that is longer.
+     * `max_retries` overrides the client's retries for the request.
      *
      * Each recipient's `idempotency_key` is 1 to 255 visible ASCII characters, a different one for each recipient
      * of the call, and every retry reuses it, so a retry never queues an email twice. Without it, the client makes
@@ -434,14 +433,13 @@ final class Emails
      * - `failed`: PostHog refused it, and getError() says why, such as a suppressed address.
      * - `unconfirmed`: the client can't tell whether PostHog accepted it, such as after a lost answer, or when
      *   another request still holds its key. Send it again with the same key within 24 hours, so it goes out once.
-     * - `not_attempted`: an earlier request of the batch failed, so the client sent nothing for it.
      *
-     * A request that fails as a whole, such as a rate limit past its retries, stops the batch and throws
-     * EmailBatchError, whose getResults() holds every recipient. The code `batch_unavailable` (409) means the project
-     * can't send batches yet, and is never retried. `not_found` (404) means the template doesn't exist or batch
-     * sends are off for the project. For both, send each email the batch didn't queue with send() and its
-     * recipient's `idempotency_key`. Shared content over 4 MiB of JSON throws `content_too_large` before any
-     * request, and a recipient whose email alone is that large is `failed` with `content_too_large`.
+     * When PostHog refuses the batch as a whole, such as a rate limit past its retries, batch() throws
+     * EmailBatchError, whose getResults() holds every recipient: `failed`, or `unconfirmed` when an attempt may have
+     * queued it. The code `too_large` (413) means the batch is larger than PostHog takes: split the recipients into
+     * smaller batches. `batch_unavailable` (409) means the project can't send batches yet, and is never retried.
+     * `not_found` (404) means the template doesn't exist or batch sends are off for the project. For both, send each
+     * email the batch didn't queue with send() and its recipient's `idempotency_key`.
      *
      * ```php
      * $result = $client->emails()->batch([
@@ -483,9 +481,8 @@ final class Emails
      *     capture_engagement?: bool|null
      * } $batch
      * @return SendBatchResult A result per recipient, in the order of `recipients`.
-     * @throws EmailBatchError A request failed as a whole, so the batch stopped. getResults() holds every
-     *     recipient, those not sent as `not_attempted`. The code `client_closed` means the client shut down during
-     *     the batch.
+     * @throws EmailBatchError PostHog refused the batch as a whole, its answer was lost past the retries, or the
+     *     client shut down before a retry (`client_closed`). getResults() holds every recipient.
      * @throws EmailError The client sent nothing: an argument check failed, with the name `validation_error` and
      *     an `invalid_*` code, such as two recipients with the same `idempotency_key`, or the client can't send,
      *     such as when it is disabled.
@@ -1142,32 +1139,21 @@ final class Emails
         $timeoutMs = max($this->requestTimeoutMs, self::BATCH_REQUEST_TIMEOUT_MS);
         $closedBeforeARetry = new EmailError(
             'client_closed',
-            "The PostHog client is shut down, so it didn't retry this request of the batch."
+            "The PostHog client is shut down, so it didn't retry the batch."
         );
         $url = $appHost . self::BATCH_PATH;
-        for ($position = 0; $position < $run->requestCount(); $position++) {
-            if ($position > 0 && ($this->isClosed)()) {
-                throw $run->failure($run->closedAt($position));
-            }
-            $body = $run->requestBody($position);
-            $attemptOnce = function () use ($run, $position, $url, $headers, $body, $timeoutMs): void {
+        $body = $run->requestBody();
+        try {
+            $this->withRetries($maxRetries, function () use ($run, $url, $headers, $body, $timeoutMs): void {
                 try {
                     $reply = $this->request('POST', $url, $headers, $body, $timeoutMs);
                 } catch (EmailError $error) {
-                    if (in_array($error->getErrorCode(), self::LOST_ANSWER_CODES, true)) {
-                        $run->lost($position, $error);
-                    }
-                    throw $error;
+                    throw in_array($error->getErrorCode(), self::LOST_ANSWER_CODES, true) ? $run->lost($error) : $error;
                 }
-                $run->answer($position, ...$reply);
-            };
-            try {
-                $this->withRetries($maxRetries, $attemptOnce, $closedBeforeARetry);
-            } catch (EmailError $error) {
-                $run->stop($position, $error);
-                throw $run->failure($error);
-            }
-            unset($body, $attemptOnce);
+                $run->answer(...$reply);
+            }, $closedBeforeARetry);
+        } catch (EmailError $error) {
+            throw $run->failure($error);
         }
     }
 

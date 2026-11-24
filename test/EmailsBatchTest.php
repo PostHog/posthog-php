@@ -13,8 +13,6 @@ use PostHog\EmailError;
 use PostHog\Emails;
 use PostHog\SendBatchResult;
 use stdClass;
-use JsonSerializable;
-use RuntimeException;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\MockClock;
@@ -25,7 +23,6 @@ class EmailsBatchTest extends TestCase
 
     private const TEMPLATE_ID = '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b';
     private const BATCH_URL = 'https://us.posthog.com/api/messaging/send/email_batch/';
-    private const FOUR_MIB = 4 * 1024 * 1024;
     private const UUID_V4 = '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D';
     private const WARNING_LOGGED = '[PostHog][Emails] Email warning sandbox_sender: Sent from the test sender.';
     private const SEND_SINGLY = "send each email the batch didn't queue with emails()->send() and its recipient's "
@@ -277,7 +274,6 @@ class EmailsBatchTest extends TestCase
                 $error->getErrorName(),
             ]
         );
-        $this->assertNull($results[2]->getLaterError());
         $this->assertSame([], $result->getWarnings());
     }
 
@@ -435,313 +431,43 @@ class EmailsBatchTest extends TestCase
         $this->assertStringStartsWith('recipients[1]: ', $error->getMessage());
     }
 
-    public function testSplitsBy100RecipientsAndSendsTheRequestsInOrder(): void
+    public function testMoreThan100RecipientsAreRefusedBeforeAnyRequest(): void
     {
-        $this->reply(self::allQueued(), self::allQueued(), self::allQueued());
-
-        $result = $this->batch(self::recipients(250));
-
-        $this->assertSame([100, 100, 50], $this->recipientsPerRequest());
-        $results = $result->getResults();
-        $this->assertSame(range(0, 249), array_map(static fn($r): int => $r->getIndex(), $results));
-        $this->assertSame(
-            array_map(static fn(int $i): string => "msg_key-$i", range(0, 249)),
-            array_map(static fn($r): ?string => $r->getMessageId(), $results)
-        );
-        $this->assertSame(self::times(250, 'queued'), self::statuses($results));
-    }
-
-    public function testSplitsByThe4MibBodyAndFailsOnlyARecipientTooLargeAlone(): void
-    {
-        $recipients = self::recipients(5, ['template_data' => ['note' => str_repeat('x', intdiv(self::FOUR_MIB, 3))]]);
-        $recipients[3]['template_data'] = ['note' => str_repeat('y', self::FOUR_MIB)];
-        $this->reply(self::allQueued(), self::allQueued());
-
-        $result = $this->batch($recipients);
-
-        foreach ($this->requests as $request) {
-            $this->assertLessThanOrEqual(self::FOUR_MIB, strlen($request['body']));
-        }
-        $this->assertSame(
-            [['key-0', 'key-1'], ['key-2', 'key-4']],
-            array_map(
-                static fn(array $body): array => array_column($body['recipients'], 'idempotency_key'),
-                $this->batchBodies()
-            )
-        );
-        $results = $result->getResults();
-        $this->assertSame(['queued', 'queued', 'queued', 'failed', 'queued'], self::statuses($results));
-        $tooLarge = $results[3];
-        $this->assertSame(['content_too_large', 'recipients__3__template_data', 'validation_error'], [
-            $tooLarge->getError()->getErrorCode(),
-            $tooLarge->getError()->getField(),
-            $tooLarge->getError()->getErrorName(),
-        ]);
-        $this->assertSame([null, 'key-3'], [$tooLarge->getMessageId(), $tooLarge->getIdempotencyKey()]);
-    }
-
-    public static function sharedContentOver4Mib(): array
-    {
-        $over = str_repeat('x', self::FOUR_MIB);
-
-        return [
-            'html' => [['template_key' => 'news', 'subject' => 'News', 'html' => $over, 'text' => 'Hi'], 'html'],
-            'text' => [['template_key' => 'news', 'subject' => 'News', 'html' => '<p>Hi</p>', 'text' => $over], 'text'],
-            'from' => [['template_key' => 'news', 'subject' => 'News', 'html' => '<p>Hi</p>', 'from' => $over], 'from'],
-            'reply_to' => [
-                ['template_key' => 'news', 'subject' => 'News', 'html' => '<p>Hi</p>', 'reply_to' => $over],
-                'reply_to',
-            ],
-            'template_data' => [
-                ['template_id' => self::TEMPLATE_ID, 'template_data' => ['note' => $over]],
-                'template_data',
-            ],
-        ];
-    }
-
-    #[DataProvider('sharedContentOver4Mib')]
-    public function testSharedContentOver4MibIsRefusedBeforeAnyRequest(array $content, string $field): void
-    {
-        $error = $this->refusal(['recipients' => self::recipients(2), ...$content]);
+        $error = $this->refusal(['recipients' => self::recipients(101), 'template_id' => self::TEMPLATE_ID]);
 
         $this->assertNotInstanceOf(EmailBatchError::class, $error);
-        $this->assertSame(['content_too_large', $field, 'validation_error'], [
+        $this->assertSame(
+            ['invalid_recipients', 'recipients', 'validation_error'],
+            [$error->getErrorCode(), $error->getField(), $error->getErrorName()]
+        );
+        $this->assertSame('recipients takes at most 100 recipients, so no email was sent.', $error->getMessage());
+        $this->assertSame([], $this->requests);
+    }
+
+    public function testABatchTooLargeForPostHogIsTheErrorAndSaysToSplitIt(): void
+    {
+        $this->reply(self::wholeCall(413, 'too_large'));
+
+        $error = $this->batchError(self::recipients(100), ['max_retries' => 2]);
+
+        $this->assertSame(['too_large', 413, 'Nope.'], [
             $error->getErrorCode(),
-            $error->getField(),
-            $error->getErrorName(),
+            $error->getStatusCode(),
+            $error->getMessage(),
         ]);
-        $this->assertSame([], $this->requests);
+        $this->assertSame('Split the recipients into smaller batches.', $error->getFix());
+        $this->assertSame(self::times(100, 'failed'), self::statuses($error->getResults()));
+        $this->assertCount(1, $this->requests);
     }
 
-    public function testSharedContentOver4MibOnlyTogetherNamesItsLargestPart(): void
+    public function testAHundredRecipientsGoOutInOneRequest(): void
     {
-        $half = intdiv(self::FOUR_MIB, 2) + 1024;
+        $this->reply(self::allQueued());
 
-        $error = $this->refusal([
-            'recipients' => self::recipients(1),
-            'template_key' => 'news',
-            'subject' => 'News',
-            'html' => str_repeat('h', $half + 1),
-            'text' => str_repeat('t', $half),
-        ]);
+        $result = $this->batch(self::recipients(100));
 
-        $this->assertSame([
-            'content_too_large',
-            'html',
-            'The email every recipient of the batch gets is larger than one batch request takes (4 MiB of JSON), so '
-                . 'no email was sent. Its largest part is html.',
-        ], [$error->getErrorCode(), $error->getField(), $error->getMessage()]);
-        $this->assertSame([], $this->requests);
-    }
-
-    public static function recipientsTooLargeAlone(): array
-    {
-        return [
-            'a large distinct_id' => [self::FOUR_MIB, 2, 'recipients__0__distinct_id'],
-            'large template_data' => [6, self::FOUR_MIB, 'recipients__0__template_data'],
-            'a distinct_id a little larger than template_data' => [2097130, 2097115, 'recipients__0__distinct_id'],
-            'template_data a little larger than distinct_id' => [2097115, 2097130, 'recipients__0__template_data'],
-        ];
-    }
-
-    #[DataProvider('recipientsTooLargeAlone')]
-    public function testARecipientTooLargeAloneNamesItsLargestField(
-        int $distinctIdBytes,
-        int $noteBytes,
-        string $field
-    ): void {
-        $result = $this->batch([[
-            'to' => 'a@example.com',
-            'idempotency_key' => 'k1',
-            'distinct_id' => str_repeat('d', $distinctIdBytes),
-            'template_data' => ['x' => str_repeat('x', $noteBytes)],
-        ]]);
-
-        $recipient = $result->getResults()[0];
-        $this->assertSame(
-            ['failed', 'content_too_large', $field],
-            [$recipient->getStatus(), $recipient->getError()->getErrorCode(), $recipient->getError()->getField()]
-        );
-        $this->assertSame([], $this->requests);
-    }
-
-    public static function sharedContentAtTheLimit(): array
-    {
-        return [
-            'exactly 4 MiB' => [0, 'recipient failed with content_too_large'],
-            'one byte more' => [1, 'batch throws content_too_large for template_data'],
-        ];
-    }
-
-    #[DataProvider('sharedContentAtTheLimit')]
-    public function testSharedContentTakesUpToExactly4MibOfRequest(int $bytesOver, string $outcome): void
-    {
-        $empty = ['template_id' => self::TEMPLATE_ID, 'message_data' => ['n' => ''], 'recipients' => []];
-        $note = str_repeat('a', self::FOUR_MIB - strlen(json_encode($empty)) + $bytesOver);
-
-        try {
-            $result = $this->batch(self::recipients(1), ['template_data' => ['n' => $note]]);
-            $recipient = $result->getResults()[0];
-            $actual = "recipient {$recipient->getStatus()} with {$recipient->getError()->getErrorCode()}";
-        } catch (EmailError $error) {
-            $actual = "batch throws {$error->getErrorCode()} for {$error->getField()}";
-        }
-
-        $this->assertSame([$outcome, []], [$actual, $this->requests]);
-    }
-
-    public static function valuesThatChangeOnASecondEncoding(): array
-    {
-        return [
-            'INF the second time' => [static fn(): float => INF],
-            'an exception the second time' => [static function (): never {
-                throw new RuntimeException('Serialized twice.');
-            }],
-        ];
-    }
-
-    #[DataProvider('valuesThatChangeOnASecondEncoding')]
-    public function testSharedContentOver4MibIsDiagnosedFromItsOnlyEncoding(Closure $secondTime): void
-    {
-        $note = new class (str_repeat('x', self::FOUR_MIB), $secondTime) implements JsonSerializable {
-            private int $encodings = 0;
-
-            public function __construct(private string $first, private Closure $secondTime)
-            {
-            }
-
-            public function jsonSerialize(): mixed
-            {
-                return $this->encodings++ === 0 ? $this->first : ($this->secondTime)();
-            }
-        };
-
-        $error = $this->refusal([
-            'recipients' => self::recipients(1),
-            'template_id' => self::TEMPLATE_ID,
-            'template_data' => ['note' => $note],
-        ]);
-
-        $this->assertSame(['content_too_large', 'template_data'], [$error->getErrorCode(), $error->getField()]);
-        $this->assertSame([], $this->requests);
-    }
-
-    public function testABatchOf10000RecipientsFitsIn24MibOfMemory(): void
-    {
-        $script = <<<'PHP'
-<?php
-require $argv[1];
-$requests = 0;
-$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static function (
-    string $method,
-    string $url,
-    array $headers,
-    ?string $body
-) use (&$requests): array {
-    $requests++;
-    $slots = [];
-    foreach (json_decode($body, true)['recipients'] as $recipient) {
-        $slots[] = ['message_id' => 'msg_' . $recipient['idempotency_key'], 'status' => 'queued'];
-    }
-
-    return [200, json_encode(['results' => $slots]), []];
-});
-$recipients = [];
-for ($index = 0; $index < 10000; $index++) {
-    $recipients[] = ['to' => "user$index@example.com", 'idempotency_key' => "key-$index"];
-}
-$result = $emails->batch([
-    'recipients' => $recipients,
-    'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
-    'template_data' => ['note' => str_repeat('x', 150000)],
-]);
-$queued = count(array_filter($result->getResults(), static fn($email): bool => $email->getStatus() === 'queued'));
-echo json_encode([$requests, $queued]);
-PHP;
-        $this->assertSame([0, '[100,10000]'], self::runWithMemoryLimit($script, '24M'));
-    }
-
-    public function testARecipientWithA10MibDistinctIdOfNulBytesFailsWithin128MibOfMemory(): void
-    {
-        $script = <<<'PHP'
-<?php
-require $argv[1];
-$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [500, '', []]);
-$recipient = $emails->batch([
-    'recipients' => [['to' => 'user@example.com', 'distinct_id' => str_repeat("\0", 10 * 1024 * 1024)]],
-    'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
-])->getResults()[0];
-echo json_encode([$recipient->getStatus(), $recipient->getError()->getErrorCode(), $recipient->getError()->getField()]);
-PHP;
-        $this->assertSame(
-            [0, '["failed","content_too_large","recipients__0__distinct_id"]'],
-            self::runWithMemoryLimit($script, '128M')
-        );
-    }
-
-    public function testA32MibHtmlIsRefusedWithin128MibOfMemory(): void
-    {
-        $script = <<<'PHP'
-<?php
-require $argv[1];
-$requests = 0;
-$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static function () use (&$requests): array {
-    $requests++;
-
-    return [500, '', []];
-});
-try {
-    $emails->batch([
-        'recipients' => [['to' => 'user@example.com']],
-        'template_key' => 'news',
-        'subject' => 'News',
-        'html' => str_repeat('x', 32 * 1024 * 1024),
-    ]);
-} catch (PostHog\EmailError $error) {
-    echo json_encode([$requests, $error->getErrorCode(), $error->getField()]);
-}
-PHP;
-        $this->assertSame([0, '[0,"content_too_large","html"]'], self::runWithMemoryLimit($script, '128M'));
-    }
-
-    public function testEachRequestOfABatchIsBuiltAfterThePreviousOneIsFreed(): void
-    {
-        $script = <<<'PHP'
-<?php
-require $argv[1];
-$requests = 0;
-$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static function (
-    string $method,
-    string $url,
-    array $headers,
-    ?string $body
-) use (&$requests): array {
-    $requests++;
-    if (function_exists('json_validate') && !json_validate($body)) {
-        return [400, '{"type":"validation_error","code":"invalid_json","detail":"Bad JSON."}', []];
-    }
-    preg_match_all('/"idempotency_key"\\s*:\\s*"(key-\\d)"/', $body, $keys);
-    $slots = [];
-    foreach ($keys[1] as $key) {
-        $slots[] = ['message_id' => "msg_$key", 'status' => 'queued'];
-    }
-
-    return [200, json_encode(['results' => $slots]), []];
-});
-$recipients = [];
-for ($index = 0; $index < 8; $index++) {
-    $recipients[] = [
-        'to' => "user$index@example.com",
-        'idempotency_key' => "key-$index",
-        'template_data' => ['note' => str_repeat(chr(97 + $index), 1010000)],
-    ];
-}
-$result = $emails->batch(['recipients' => $recipients, 'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b']);
-$queued = count(array_filter($result->getResults(), static fn($email): bool => $email->getStatus() === 'queued'));
-echo json_encode([$requests, $queued]);
-PHP;
-
-        $this->assertSame([0, '[2,8]'], self::runWithMemoryLimit($script, '29M'));
+        $this->assertSame([100], $this->recipientsPerRequest());
+        $this->assertSame(self::times(100, 'queued'), self::statuses($result->getResults()));
     }
 
     public function testARecipientIsEncodedWithoutExtraCopiesOfItsData(): void
@@ -823,34 +549,6 @@ PHP;
         }
     }
 
-    public static function requestsAtTheLimit(): array
-    {
-        return [
-            'exactly 4 MiB' => [0, [3]],
-            'one byte more' => [1, [2, 1]],
-        ];
-    }
-
-    #[DataProvider('requestsAtTheLimit')]
-    public function testARequestTakesRecipientsUpToExactly4Mib(int $bytesOver, array $recipientsPerRequest): void
-    {
-        $empty = ['template_id' => self::TEMPLATE_ID, 'message_data' => new stdClass(), 'recipients' => []];
-        $base = strlen(json_encode($empty));
-        $recipient = ['to' => 'a@example.com', 'idempotency_key' => 'k1', 'message_data' => ['n' => '']];
-        $item = strlen(json_encode($recipient));
-        $recipient = ['to' => 'a@example.com', 'idempotency_key' => 'k1', 'template_data' => ['n' => '']];
-        $note = str_repeat('a', self::FOUR_MIB - $base - 3 * $item - 2 + $bytesOver);
-        $this->reply(...array_fill(0, count($recipientsPerRequest), self::allQueued()));
-
-        $this->batch([
-            [...$recipient, 'template_data' => ['n' => $note]],
-            [...$recipient, 'idempotency_key' => 'k2'],
-            [...$recipient, 'idempotency_key' => 'k3'],
-        ]);
-
-        $this->assertSame($recipientsPerRequest, $this->recipientsPerRequest());
-    }
-
     public function testABatchWaitsForASlowAnswerWhateverTheClientTimeout(): void
     {
         $this->reply(self::slow(40, self::allQueued()));
@@ -869,7 +567,7 @@ PHP;
         $this->assertSame(['queued'], self::statuses($result->getResults()));
     }
 
-    public function testARetryAfterALostAnswerKeepsARefusedRecipientUnconfirmed(): void
+    public function testARetryAfterALostAnswerReportsWhatTheRetryAnswered(): void
     {
         $this->reply(
             self::networkError(),
@@ -887,10 +585,8 @@ PHP;
         [$first, $second] = $result->getResults();
         $this->assertSame($derived, $second->getIdempotencyKey());
         $this->assertSame(['queued', 'm0', true], [$first->getStatus(), $first->getMessageId(), $first->isReplayed()]);
-        $this->assertSame(['unconfirmed', 'm1'], [$second->getStatus(), $second->getMessageId()]);
-        $this->assertSame('delivery_unavailable', $second->getError()->getErrorCode());
-        $this->assertSame('service_unavailable', $second->getError()->getErrorName());
-        $this->assertSame('idempotency_key_reused', $second->getLaterError()->getErrorCode());
+        $this->assertSame(['failed', 'm1'], [$second->getStatus(), $second->getMessageId()]);
+        $this->assertSame('idempotency_key_reused', $second->getError()->getErrorCode());
     }
 
     public function testAnAnswerTooLargeToReadLeavesTheRequestUnconfirmed(): void
@@ -916,7 +612,6 @@ PHP;
         [$result] = $error->getResults();
         $this->assertSame('unconfirmed', $result->getStatus());
         $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
-        $this->assertSame('sending_paused', $result->getLaterError()->getErrorCode());
     }
 
     public function testARecipientThePipelineDidNotConfirmIsUnconfirmed(): void
@@ -930,7 +625,6 @@ PHP;
             $result->getError()->getErrorCode(),
             $result->getError()->getStatusCode(),
         ]);
-        $this->assertNull($result->getLaterError());
         $this->assertSame('key-0', $result->getIdempotencyKey());
     }
 
@@ -958,11 +652,8 @@ PHP;
 
         $this->assertSame('idempotency_key_in_flight', $error->getErrorCode());
         $this->assertSame(
-            [['unconfirmed', null, null], ['unconfirmed', null, null]],
-            array_map(
-                static fn($r): array => [$r->getStatus(), $r->getMessageId(), $r->getLaterError()],
-                $error->getResults()
-            )
+            [['unconfirmed', null], ['unconfirmed', null]],
+            array_map(static fn($r): array => [$r->getStatus(), $r->getMessageId()], $error->getResults())
         );
         $recipientError = $error->getResults()[0]->getError();
         $this->assertSame(
@@ -981,51 +672,27 @@ PHP;
         return [
             'a refusal after an in-flight answer' => [
                 [self::wholeCall(409, 'idempotency_key_in_flight'), self::wholeCall(429, 'quota_limited')],
-                'idempotency_key_in_flight',
                 'quota_limited',
             ],
             'an in-flight answer after a 503' => [
                 [self::wholeCall(503, 'delivery_unavailable'), self::wholeCall(409, 'idempotency_key_in_flight')],
-                'delivery_unavailable',
                 'idempotency_key_in_flight',
             ],
         ];
     }
 
     #[DataProvider('attemptsAfterAnInFlightAnswer')]
-    public function testTheAttemptAfterTheOneThatLeftARecipientUnconfirmedIsItsLaterError(
+    public function testAnAttemptThatMayHaveQueuedKeepsItsRecipientsUnconfirmedWhateverTheNextAnswers(
         array $answers,
-        string $code,
-        string $laterCode
+        string $code
     ): void {
         $this->reply(...$answers);
 
         $error = $this->batchError(self::recipients(1), ['max_retries' => 1]);
 
-        [$result] = $error->getResults();
-        $this->assertSame('unconfirmed', $result->getStatus());
-        $this->assertSame($code, $result->getError()->getErrorCode());
-        $this->assertSame($laterCode, $result->getLaterError()->getErrorCode());
+        $this->assertSame($code, $error->getErrorCode());
+        $this->assertSame(['unconfirmed'], self::statuses($error->getResults()));
         $this->assertSame([self::BATCH_URL, self::BATCH_URL], $this->requestUrls());
-    }
-
-    public function testAShutdownDuringABatchStopsItBeforeTheNextRequest(): void
-    {
-        $this->reply(function (string $url, string $body): array {
-            $this->closed = true;
-
-            return self::allQueued()($url, $body);
-        }, self::allQueued());
-
-        $error = $this->batchError(self::recipients(150), emails: $this->closedEmails());
-
-        $this->assertSame('client_closed', $error->getErrorCode());
-        $this->assertCount(1, $this->requests);
-        $this->assertSame(
-            [...self::times(100, 'queued'), ...self::times(50, 'not_attempted')],
-            self::statuses($error->getResults())
-        );
-        $this->assertSame('client_closed', $error->getResults()[100]->getError()->getErrorCode());
     }
 
     public function testAShutdownDuringARetryWaitSendsNoRetry(): void
@@ -1035,14 +702,11 @@ PHP;
         }));
         $this->reply(self::wholeCall(429), self::allQueued());
 
-        $error = $this->batchError(self::recipients(150), emails: $this->closedEmails());
+        $error = $this->batchError(self::recipients(2), emails: $this->closedEmails());
 
         $this->assertSame('client_closed', $error->getErrorCode());
         $this->assertCount(1, $this->requests);
-        $this->assertSame(
-            [...self::times(100, 'failed'), ...self::times(50, 'not_attempted')],
-            self::statuses($error->getResults())
-        );
+        $this->assertSame(['failed', 'failed'], self::statuses($error->getResults()));
         $this->assertSame('client_closed', $error->getResults()[0]->getError()->getErrorCode());
     }
 
@@ -1071,29 +735,21 @@ PHP;
         };
     }
 
-    public function testARequestRefusedAsAWholeThrowsWithTheResultsSoFar(): void
+    public function testARequestRefusedAsAWholeThrowsWithEveryRecipient(): void
     {
-        $this->reply(self::allQueued(), self::wholeCall(429, 'quota_limited'));
+        $this->reply(self::wholeCall(429, 'quota_limited'));
 
-        $error = $this->batchError(self::recipients(250));
+        $error = $this->batchError(self::recipients(3));
 
-        $this->assertInstanceOf(EmailError::class, $error);
         $this->assertSame(
             ['quota_limited', 429, 'Nope.'],
             [$error->getErrorCode(), $error->getStatusCode(), $error->getMessage()]
         );
-        $this->assertCount(2, $this->requests);
+        $this->assertCount(1, $this->requests);
         $results = $error->getResults();
-        $this->assertSame(
-            [...self::times(100, 'queued'), ...self::times(100, 'failed'), ...self::times(50, 'not_attempted')],
-            self::statuses($results)
-        );
-        $this->assertSame(['quota_limited', 'Nope.'], [
-            $results[150]->getError()->getErrorCode(),
-            $results[150]->getError()->getMessage(),
-        ]);
-        $this->assertSame('not_attempted', $results[200]->getError()->getErrorCode());
-        $this->assertSame('key-249', $results[249]->getIdempotencyKey());
+        $this->assertSame(self::times(3, 'failed'), self::statuses($results));
+        $this->assertSame('quota_limited', $results[1]->getError()->getErrorCode());
+        $this->assertSame('key-2', $results[2]->getIdempotencyKey());
     }
 
     public function testARefusalOfTheWholeRequestAfterALostAnswerKeepsItsRecipientsUnconfirmed(): void
@@ -1105,7 +761,6 @@ PHP;
         [$result] = $error->getResults();
         $this->assertSame(['unconfirmed', null], [$result->getStatus(), $result->getMessageId()]);
         $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
-        $this->assertSame('quota_limited', $result->getLaterError()->getErrorCode());
         $this->assertSame([self::BATCH_URL, self::BATCH_URL], $this->requestUrls());
     }
 
@@ -1188,33 +843,20 @@ PHP;
         ];
     }
 
-    public function testARetryThatLosesItsAnswerAgainIsTheLaterError(): void
-    {
-        $this->reply(self::networkError(), self::networkError());
-
-        $error = $this->batchError(self::recipients(1), ['max_retries' => 1]);
-
-        $this->assertSame('network_error', $error->getErrorCode());
-        [$result] = $error->getResults();
-        $this->assertSame([2, 'unconfirmed'], [count($this->batchBodies()), $result->getStatus()]);
-        $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
-        $this->assertSame('network_error', $result->getLaterError()?->getErrorCode());
-    }
-
     #[DataProvider('retriesAfterAnUnconfirmingAttempt')]
-    public function testARetryThatCannotConfirmEitherIsTheLaterError(
+    public function testARetryThatCannotConfirmEitherLeavesTheRecipientUnconfirmed(
         mixed $first,
         mixed $retry,
-        string $laterCode
+        string $code
     ): void {
         $this->reply($first, $retry);
 
         $error = $this->batchError(self::recipients(1), ['max_retries' => 1]);
 
+        $this->assertSame($code, $error->getErrorCode());
         [$result] = $error->getResults();
         $this->assertSame('unconfirmed', $result->getStatus());
         $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
-        $this->assertSame($laterCode, $result->getLaterError()?->getErrorCode());
     }
 
     public function testAnAnswerWithoutAResultPerRecipientLeavesTheRequestUnconfirmed(): void
@@ -1225,10 +867,6 @@ PHP;
 
         $this->assertSame('api_error', $error->getErrorCode());
         $this->assertSame(['unconfirmed', 'unconfirmed'], self::statuses($error->getResults()));
-        $this->assertSame(
-            [null, null],
-            array_map(static fn($r): ?EmailError => $r->getLaterError(), $error->getResults())
-        );
         $this->assertSame([self::BATCH_URL], $this->requestUrls());
     }
 
@@ -1236,24 +874,12 @@ PHP;
     {
         global $errorMessages;
         $warning = ['code' => 'sandbox_sender', 'detail' => 'Sent from the test sender.'];
-        $this->reply(self::allQueued(['warnings' => [$warning]]), self::allQueued(['warnings' => [$warning]]));
+        $this->reply(self::allQueued(['warnings' => [$warning]]));
 
-        $result = $this->batch(self::recipients(150));
+        $result = $this->batch(self::recipients(2));
 
         $codes = array_map(static fn($warning): string => $warning->getCode(), $result->getWarnings());
         $this->assertSame(['sandbox_sender'], $codes);
-        $this->assertSame([self::WARNING_LOGGED], $errorMessages);
-    }
-
-    public function testWarningsReachTheCallerWhenALaterRequestFails(): void
-    {
-        global $errorMessages;
-        $warning = ['code' => 'sandbox_sender', 'detail' => 'Sent from the test sender.'];
-        $this->reply(self::allQueued(['warnings' => [$warning]]), self::wholeCall(429, 'quota_limited'));
-
-        $error = $this->batchError(self::recipients(150));
-
-        $this->assertSame(['sandbox_sender'], array_map(static fn($w): string => $w->getCode(), $error->getWarnings()));
         $this->assertSame([self::WARNING_LOGGED], $errorMessages);
     }
 
@@ -1278,36 +904,5 @@ PHP;
         $this->assertNotInstanceOf(EmailBatchError::class, $error);
         $this->assertSame($code, $error->getErrorCode());
         $this->assertSame([], $this->requests);
-    }
-
-    public static function refusedRecipientFields(): array
-    {
-        return [
-            'a position in the request' => ['recipients__37__idempotency_key', 'recipients__137__idempotency_key'],
-            'a position alone' => ['recipients__37', 'recipients__137'],
-            'not an ASCII number' => ["recipients__\u{00b2}__idempotency_key", "recipients__\u{00b2}__idempotency_key"],
-            'past the request' => ['recipients__50__to', 'recipients'],
-            'a huge number' => ['recipients__' . str_repeat('9', 5000) . '__idempotency_key', 'recipients'],
-            'another field' => ['template_id', 'template_id'],
-        ];
-    }
-
-    #[DataProvider('refusedRecipientFields')]
-    public function testARefusedRecipientFieldNamesItsPositionInRecipients(string $attr, string $field): void
-    {
-        $this->reply(self::allQueued(), [400, json_encode([
-            'type' => 'validation_error',
-            'code' => 'max_length',
-            'detail' => 'Ensure this field has no more than 255 characters.',
-            'attr' => $attr,
-        ]), []]);
-
-        $error = $this->batchError(self::recipients(150));
-
-        $this->assertSame($field, $error->getField());
-        $this->assertSame(
-            [...self::times(100, 'queued'), ...self::times(50, 'failed')],
-            self::statuses($error->getResults())
-        );
     }
 }

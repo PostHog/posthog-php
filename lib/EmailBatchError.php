@@ -3,11 +3,10 @@
 namespace PostHog;
 
 /**
- * A request of Emails::batch() failed as a whole, so the batch stopped.
+ * PostHog refused a call of Emails::batch() as a whole, or its answer was lost.
  *
- * The code, message and other fields are that request's error. getResults() holds every recipient: those of
- * earlier requests as PostHog answered them, those of the failed request as `failed`, or `unconfirmed` where an
- * attempt may have queued them, and the rest as `not_attempted`.
+ * The code, message and other fields are the request's error. getResults() holds every recipient: `failed`, or
+ * `unconfirmed` where an attempt may have queued it.
  */
 class EmailBatchError extends EmailError
 {
@@ -43,7 +42,7 @@ class EmailBatchError extends EmailError
     }
 
     /**
-     * The warnings PostHog returned about the requests that went out, each once.
+     * The warnings PostHog returned about the batch.
      *
      * @return list<EmailWarning>
      */

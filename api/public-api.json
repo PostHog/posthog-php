@@ -87,16 +87,6 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
-                        },
-                        {
-                            "name": "laterError",
-                            "type": "?PostHog\\EmailError",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": true,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": true
                         }
                     ]
                 },
@@ -119,13 +109,6 @@
                     "abstract": false,
                     "final": false,
                     "returnType": "int",
-                    "parameters": []
-                },
-                "getLaterError": {
-                    "static": false,
-                    "abstract": false,
-                    "final": false,
-                    "returnType": "?PostHog\\EmailError",
                     "parameters": []
                 },
                 "getMessageId": {

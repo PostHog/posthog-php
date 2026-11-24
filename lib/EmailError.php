@@ -92,7 +92,7 @@ class EmailError extends RuntimeException
     /**
      * PostHog's error code, such as `quota_limited`, or an SDK code such as `missing_secret_key`,
      * `missing_app_host`, `client_disabled`, `client_closed`, `network_error`, `api_error`, `attachment_upload_failed`,
-     * `scheduling_requires_cloud`, `schedule_not_confirmed`, `not_attempted` or an `invalid_*` argument code.
+     * `scheduling_requires_cloud`, `schedule_not_confirmed` or an `invalid_*` argument code.
      */
     public function getErrorCode(): string
     {
@@ -175,7 +175,7 @@ class EmailError extends RuntimeException
         if ($status === null) {
             return match (true) {
                 in_array($code, ['network_error', 'delivery_unavailable'], true) => 'service_unavailable',
-                $code === 'content_too_large', str_starts_with($code, 'invalid_') => 'validation_error',
+                str_starts_with($code, 'invalid_') => 'validation_error',
                 default => 'application_error',
             };
         }

@@ -27,7 +27,7 @@ class SendBatchResult
     }
 
     /**
-     * The warnings PostHog returned about the batch, each once.
+     * The warnings PostHog returned about the batch.
      *
      * @return list<EmailWarning>
      */
