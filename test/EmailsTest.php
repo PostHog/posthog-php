@@ -7,9 +7,11 @@ use DateTime;
 use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\RequiresPhp;
 use PHPUnit\Framework\TestCase;
 use PostHog\EmailError;
 use PostHog\Emails;
+use PostHog\SendEmailResult;
 use RuntimeException;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
@@ -2475,6 +2477,16 @@ PHP);
         );
 
         $this->assertSame($serialized, $output);
+    }
+
+    #[RequiresPhp('>= 8.4')]
+    public function testALazyResultSerializesWithoutBeingInitialized(): void
+    {
+        $lazy = (new \ReflectionClass(SendEmailResult::class))->newLazyGhost(static function (): never {
+            throw new RuntimeException('The result was initialized.');
+        }, \ReflectionClass::SKIP_INITIALIZATION_ON_SERIALIZE);
+
+        $this->assertSame('O:23:"PostHog\SendEmailResult":0:{}', serialize($lazy));
     }
 
     public function testAnUnconfirmedScheduleKeepsItsMessageIdThroughSerialization(): void
