@@ -942,6 +942,15 @@ PHP;
                 $error->getResults()
             )
         );
+        $recipientError = $error->getResults()[0]->getError();
+        $this->assertSame(
+            [
+                'idempotency_key_in_flight',
+                'Nope.',
+                'Send it again with the same idempotency_key within 24 hours, so it goes out once.',
+            ],
+            [$recipientError->getErrorCode(), $recipientError->getMessage(), $recipientError->getFix()]
+        );
         $this->assertSame([self::BATCH_URL], $this->requestUrls());
     }
 

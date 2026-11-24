@@ -19,6 +19,7 @@ final class EmailBatch
     private const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
     private const RECIPIENT_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'template_data'];
     private const UNCONFIRMED_CODES = ['idempotency_key_in_flight', 'delivery_unavailable', 'api_error'];
+    private const SEND_AGAIN = 'Send it again with the same idempotency_key within 24 hours, so it goes out once.';
     private const IN_FLIGHT = 'idempotency_key_in_flight';
     private const JSON_FLAGS = JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
     private const SEND_SINGLY = "send each email the batch didn't queue with emails()->send() and its recipient's "
@@ -239,7 +240,7 @@ final class EmailBatch
         $this->recordLaterError($position, $error);
         foreach ($this->requests[$position] as $index) {
             if (!$this->isUnconfirmed($index)) {
-                $cause = $error->getErrorCode() === self::IN_FLIGHT ? $error : self::unconfirmed(null);
+                $cause = $error->getErrorCode() === self::IN_FLIGHT ? self::inFlight($error) : self::unconfirmed(null);
                 $this->set($index, 'unconfirmed', error: $cause);
             }
         }
@@ -468,9 +469,23 @@ final class EmailBatch
     {
         return new EmailError(
             'delivery_unavailable',
-            "PostHog didn't confirm this email, so it may still go out. Send it again with the same idempotency_key "
-            . 'within 24 hours, so it goes out once.',
+            "PostHog didn't confirm this email, so it may still go out. " . self::SEND_AGAIN,
             messageId: $messageId
+        );
+    }
+
+    private static function inFlight(EmailError $error): EmailError
+    {
+        return new EmailError(
+            $error->getErrorCode(),
+            $error->getMessage(),
+            $error->getStatusCode(),
+            $error->getWhy(),
+            $error->getFix() ?? self::SEND_AGAIN,
+            $error->getDocsUrl(),
+            $error->getField(),
+            $error->getRetryAfterMs(),
+            $error
         );
     }
 
