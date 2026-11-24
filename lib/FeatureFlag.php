@@ -48,7 +48,15 @@ class FeatureFlag
         if ((is_string($key) || is_int($key)) && isset($knownAbsentKeys[$key])) {
             // An unsupported operator or malformed filter stays inconclusive even for a known-absent key.
             FeatureFlag::assertFilterSupported($property);
-            return in_array($property["operator"] ?? "exact", self::KNOWN_ABSENT_MATCHING_OPERATORS, true);
+            $operator = $property["operator"] ?? "exact";
+            // A value-requiring operator with an omitted or null condition value also stays inconclusive.
+            if (!in_array($operator, ["is_set", "is_not_set"], true) && ($property["value"] ?? null) === null) {
+                throw new InconclusiveMatchException(
+                    "Can't match a known-absent property without a condition value",
+                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                );
+            }
+            return in_array($operator, self::KNOWN_ABSENT_MATCHING_OPERATORS, true);
         }
 
         try {

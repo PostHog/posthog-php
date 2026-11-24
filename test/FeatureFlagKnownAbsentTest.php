@@ -152,6 +152,53 @@ class FeatureFlagKnownAbsentTest extends TestCase
         yield 'non-portable regex' => ['not_regex', '(?<=a+)b'];
     }
 
+    #[DataProvider('omittedConditionValueProvider')]
+    public function testOmittedConditionValueOnKnownAbsentKeyStaysInconclusive(array $filter): void
+    {
+        $this->makeClient([self::flag('flag', [$filter])]);
+
+        $local = $this->client->evaluateFlags(
+            'user-1',
+            onlyEvaluateLocally: true,
+            personPropertyKeysKnownAbsent: ['plan']
+        );
+        $this->assertSame(
+            ['flag' => UnresolvedFlagReason::UNSUPPORTED_DEFINITION],
+            $local->getUnresolvedFlags()
+        );
+
+        $snapshot = $this->client->evaluateFlags('user-1', personPropertyKeysKnownAbsent: ['plan']);
+        $this->assertSame(self::REMOTE_VALUE, $snapshot->getFlag('flag'));
+        $this->assertCount(1, $this->flagsRequestBodies());
+    }
+
+    public static function omittedConditionValueProvider(): iterable
+    {
+        yield 'is_not with value omitted' => [['key' => 'plan', 'type' => 'person', 'operator' => 'is_not']];
+        yield 'is_not with null value' => [self::personFilter('is_not', null)];
+        yield 'exact with null value' => [self::personFilter('exact', null)];
+        yield 'gt with null value' => [self::personFilter('gt', null)];
+    }
+
+    #[DataProvider('nullValueSetOperatorProvider')]
+    public function testSetOperatorWithNullValueOnKnownAbsentKeyResolvesLocally(
+        string $operator,
+        bool $expected
+    ): void {
+        $this->makeClient([self::flag('flag', [self::personFilter($operator, null)])]);
+
+        $snapshot = $this->client->evaluateFlags('user-1', personPropertyKeysKnownAbsent: ['plan']);
+
+        $this->assertSame($expected, $snapshot->getFlag('flag'));
+        $this->assertSame([], $this->flagsRequestBodies());
+    }
+
+    public static function nullValueSetOperatorProvider(): iterable
+    {
+        yield 'is_not_set' => ['is_not_set', true];
+        yield 'is_set' => ['is_set', false];
+    }
+
     public function testKnownAbsentKeyOverridesSuppliedValue(): void
     {
         $this->makeClient([self::flag('flag', [self::personFilter('is_not_set', null)])]);
