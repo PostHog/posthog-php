@@ -43,7 +43,8 @@ class FeatureFlag
      * @param array<string, mixed> $propertyValues Available property values keyed by property name.
      * @param mixed $propertyMatchingVersion Definition snapshot selector; only 2 enables explicit matching.
      * @param array<string, true> $knownAbsentKeys Property keys known to be absent, as array keys. A listed
-     *     key is absent even when $propertyValues holds a value for it.
+     *     key is absent even when $propertyValues holds a value for it. Applies only to `person` and `group`
+     *     filters, never to `person_metadata` or other filter types.
      * @return bool Whether the property matches.
      * @throws InconclusiveMatchException When the property cannot be evaluated locally.
      */
@@ -54,7 +55,11 @@ class FeatureFlag
         $knownAbsentKeys = []
     ) {
         $key = $property["key"] ?? null;
-        if ((is_string($key) || is_int($key)) && isset($knownAbsentKeys[$key])) {
+        if (
+            in_array($property["type"] ?? null, ["person", "group"], true) &&
+            (is_string($key) || is_int($key)) &&
+            isset($knownAbsentKeys[$key])
+        ) {
             // An operator the SDK doesn't implement stays inconclusive even for a known-absent key. Like the
             // flags service, resolve without parsing, compiling or validating a present condition value.
             $operator = $property["operator"] ?? "exact";
@@ -1244,17 +1249,15 @@ class FeatureFlag
      * persons-table field, so it, like any other filter type, never resolves from a listing.
      *
      * @param array<string, mixed> $property Feature flag property filter.
-     * @param int|string|null|false $keysAggregation Aggregation the keys belong to: null for person keys, a
-     *     group type index for group keys, false when unknown (keys then apply to person and group filters).
+     * @param int|string|null|false $keysAggregation See knownAbsentKeysAggregation().
      * @param array<string, true> $knownAbsentKeys Keys known to be absent, as array keys.
      * @return array<string, true>
      */
     private static function knownAbsentKeysForFilter(array $property, $keysAggregation, array $knownAbsentKeys): array
     {
         $filterType = $property["type"] ?? null;
-        if ($keysAggregation === false) {
-            $applies = $filterType === "person" || $filterType === "group";
-        } elseif (is_null($keysAggregation)) {
+        $keysAggregation = FeatureFlag::knownAbsentKeysAggregation($keysAggregation);
+        if (is_null($keysAggregation)) {
             $applies = $filterType === "person";
         } else {
             $applies = $filterType === "group" &&
@@ -1262,6 +1265,19 @@ class FeatureFlag
                     FeatureFlag::aggregationKey($keysAggregation);
         }
         return $applies ? $knownAbsentKeys : [];
+    }
+
+    /**
+     * The aggregation known-absent keys belong to: null for person keys, a group type index for group keys.
+     * The public matchCohort(), matchPropertyGroup() and evaluateFlagDependency() don't know the identity's
+     * aggregation (false), so their keys are person keys.
+     *
+     * @param int|string|null|false $identityAggregation See evaluateFlagDependencyForIdentity().
+     * @return int|string|null
+     */
+    private static function knownAbsentKeysAggregation($identityAggregation)
+    {
+        return $identityAggregation === false ? null : $identityAggregation;
     }
 
     /**
@@ -1914,10 +1930,10 @@ class FeatureFlag
                 }
 
                 // The parent's keys belong to the parent's aggregation, so a dependency aggregated
-                // differently, or one whose relation to the parent is unknown, gets none of them.
-                $depKnownAbsentKeys = $identityAggregation !== false &&
+                // differently gets none of them.
+                $depKnownAbsentKeys =
                     FeatureFlag::aggregationKey($depFilters["aggregation_group_type_index"] ?? null) ===
-                        FeatureFlag::aggregationKey($identityAggregation)
+                        FeatureFlag::aggregationKey(FeatureFlag::knownAbsentKeysAggregation($identityAggregation))
                     ? $knownAbsentKeys
                     : [];
 

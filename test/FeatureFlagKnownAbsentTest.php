@@ -790,4 +790,52 @@ class FeatureFlagKnownAbsentTest extends TestCase
         $this->expectException(InconclusiveMatchException::class);
         FeatureFlag::matchProperty(self::personFilter('is_not_set', null), [], 1, ['region' => true]);
     }
+
+    public function testMatchPropertyIgnoresListedKeyOnPersonMetadataFilter(): void
+    {
+        $this->assertTrue(FeatureFlag::matchProperty(
+            ['key' => 'created_at', 'type' => 'person_metadata', 'operator' => 'is_set', 'value' => null],
+            ['created_at' => '2024-01-01T00:00:00Z'],
+            1,
+            ['created_at' => true]
+        ));
+    }
+
+    public function testDirectMatchPropertyGroupAppliesKeysOnlyToPersonFilters(): void
+    {
+        $propertyGroup = ['type' => 'AND', 'values' => [[
+            'key' => 'tier', 'type' => 'group', 'group_type_index' => 0, 'operator' => 'is_not_set', 'value' => null,
+        ]]];
+
+        $this->assertTrue(FeatureFlag::matchPropertyGroup(
+            ['type' => 'AND', 'values' => [self::personFilter('is_not_set', null, 'tier')]],
+            ['tier' => 'gold'],
+            [],
+            knownAbsentKeys: ['tier' => true]
+        ));
+
+        $this->expectException(InconclusiveMatchException::class);
+        FeatureFlag::matchPropertyGroup($propertyGroup, [], [], knownAbsentKeys: ['tier' => true]);
+    }
+
+    public function testDirectEvaluateFlagDependencyUsesKeysForPersonDependency(): void
+    {
+        $dependency = self::flag('profile-incomplete', [self::personFilter('is_not_set', null)]);
+
+        $this->assertTrue(FeatureFlag::evaluateFlagDependency(
+            [
+                'key' => 'profile-incomplete',
+                'type' => 'flag',
+                'value' => true,
+                'operator' => 'flag_evaluates_to',
+                'dependency_chain' => ['profile-incomplete'],
+            ],
+            ['profile-incomplete' => $dependency],
+            [],
+            'user-1',
+            ['plan' => 'pro'],
+            [],
+            knownAbsentKeys: ['plan' => true]
+        ));
+    }
 }
