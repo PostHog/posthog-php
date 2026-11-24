@@ -1891,7 +1891,16 @@ class EmailsTest extends TestCase
         $this->assertSame('2026-11-03T09:00:00.123+00:00', $result->getScheduledAt()?->format('Y-m-d\TH:i:s.vP'));
     }
 
-    public function testAPastTimeQueuedNowIsAnAcceptance(): void
+    public static function timesPostHogMaySendNow(): array
+    {
+        return [
+            'a past time' => ['2026-11-01T09:00:00Z', '2026-11-01T09:00:00.000Z'],
+            'a minute ahead of the clock' => ['2026-11-02T12:01:00Z', '2026-11-02T12:01:00.000Z'],
+        ];
+    }
+
+    #[DataProvider('timesPostHogMaySendNow')]
+    public function testATimeNoMoreThanAMinuteAheadQueuedNowIsAnAcceptance(string $requested, string $sent): void
     {
         $this->reply([202, json_encode([
             'message_id' => self::MESSAGE_ID,
@@ -1902,13 +1911,42 @@ class EmailsTest extends TestCase
         $result = $this->emails()->send([
             'to' => 'user@example.com',
             'template_id' => self::TEMPLATE_ID,
-            'scheduled_at' => '2026-11-01T09:00:00Z',
+            'scheduled_at' => $requested,
         ]);
 
-        $this->assertSame('2026-11-01T09:00:00.000Z', $this->body()['scheduled_at']);
+        $this->assertSame($sent, $this->body()['scheduled_at']);
         $this->assertSame(self::MESSAGE_ID, $result->getId());
         $this->assertSame('queued', $result->getStatus());
         $this->assertNull($result->getScheduledAt());
+    }
+
+    public static function timesTooFarAheadToSendNow(): array
+    {
+        return [
+            'a millisecond more than a minute ahead' => ['2026-11-02T12:01:00.001Z'],
+            'a day ahead' => ['2026-11-03T09:00:00Z'],
+        ];
+    }
+
+    #[DataProvider('timesTooFarAheadToSendNow')]
+    public function testATimeMoreThanAMinuteAheadQueuedNowIsAnErrorWithTheMessageId(string $requested): void
+    {
+        $this->reply([202, json_encode([
+            'message_id' => self::MESSAGE_ID,
+            'status' => 'queued',
+            'scheduled_at' => null,
+        ]), []]);
+
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => $requested,
+        ]);
+
+        $this->assertSame('schedule_not_confirmed', $error->getErrorCode());
+        $this->assertSame(202, $error->getStatusCode());
+        $this->assertSame(self::MESSAGE_ID, $error->getMessageId());
+        $this->assertCount(1, $this->requests, 'an accepted send is never sent again');
     }
 
     public static function unconfirmedSchedules(): array

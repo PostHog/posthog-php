@@ -56,6 +56,7 @@ final class Emails
         'eu.posthog.com' => self::EU_APP_HOST,
     ];
     private const MAX_RETRY_DELAY_MS = 30000;
+    private const SEND_NOW_LEEWAY_SECONDS = 60;
     private const MAX_RESPONSE_BYTES = 1_048_576;
     private const MAX_RETRY_AFTER_SECONDS = 31_536_000;
     private const NO_EXPECT_100_CONTINUE = 'Expect:';
@@ -216,8 +217,9 @@ final class Emails
      * on every retry. A time that has passed sends the email now. Only PostHog Cloud schedules emails: on
      * any other app host, such as a self-hosted PostHog, a reverse proxy or a custom domain, a send with
      * `scheduled_at` throws `scheduling_requires_cloud` before any request. The result's getStatus() is
-     * `scheduled` and getScheduledAt() the confirmed time, or `queued` and null when the time had passed.
-     * When PostHog accepts the email without confirming the time, the send throws `schedule_not_confirmed`
+     * `scheduled` and getScheduledAt() the confirmed time, or `queued` and null when the time had passed or
+     * was at most a minute ahead of this machine's clock. When PostHog accepts the email without confirming
+     * the time, or queues it now for a time more than a minute ahead, the send throws `schedule_not_confirmed`
      * with the email's getMessageId(): read its status before you send it again. Work out a relative time,
      * such as an hour from now, once, and pass the same time when you send again with the same
      * `idempotency_key`: the key covers the time, so another time throws `idempotency_key_reused`. To stop
@@ -1253,7 +1255,7 @@ final class Emails
         }
 
         $replayed = ($fields['replayed'] ?? false) === true;
-        if ($scheduledAt === null || self::sendsNow($fields)) {
+        if ($scheduledAt === null || self::sendsNow($fields, $scheduledAt)) {
             return new SendEmailResult($id, $replayed, $warnings);
         }
         if (!self::confirmsSchedule($fields, $scheduledAt)) {
@@ -1266,11 +1268,12 @@ final class Emails
     /**
      * @param array<string, mixed> $fields
      */
-    private static function sendsNow(array $fields): bool
+    private static function sendsNow(array $fields, DateTimeImmutable $requested): bool
     {
         return ($fields['status'] ?? null) === 'queued'
             && array_key_exists('scheduled_at', $fields)
-            && $fields['scheduled_at'] === null;
+            && $fields['scheduled_at'] === null
+            && $requested <= Clock::get()->now()->modify('+' . self::SEND_NOW_LEEWAY_SECONDS . ' seconds');
     }
 
     /**
