@@ -573,7 +573,7 @@ class EmailsBatchTest extends TestCase
         $this->assertSame([], $this->requests);
     }
 
-    public function testABatchOf10000RecipientsFitsIn26MibOfMemory(): void
+    public function testABatchOf10000RecipientsFitsIn24MibOfMemory(): void
     {
         $script = tempnam(sys_get_temp_dir(), 'posthog-emails-batch-');
         file_put_contents($script, <<<'PHP'
@@ -601,13 +601,13 @@ for ($index = 0; $index < 10000; $index++) {
 $result = $emails->batch([
     'recipients' => $recipients,
     'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
-    'template_data' => ['note' => str_repeat('x', 200000)],
+    'template_data' => ['note' => str_repeat('x', 150000)],
 ]);
 $queued = count(array_filter($result->getResults(), static fn($email): bool => $email->getStatus() === 'queued'));
 echo json_encode([$requests, $queued]);
 PHP);
         try {
-            $command = escapeshellarg(PHP_BINARY) . ' -d memory_limit=26M ' . escapeshellarg($script) . ' '
+            $command = escapeshellarg(PHP_BINARY) . ' -d memory_limit=24M ' . escapeshellarg($script) . ' '
                 . escapeshellarg(__DIR__ . '/../vendor/autoload.php') . ' 2>&1';
             exec($command, $output, $exitCode);
 
@@ -1026,6 +1026,19 @@ PHP);
             ],
             'a 503, then a 503' => [$unavailable, $unavailable, 'delivery_unavailable'],
         ];
+    }
+
+    public function testARetryThatLosesItsAnswerAgainIsTheLaterError(): void
+    {
+        $this->reply(self::networkError(), self::networkError(), self::wholeCall(404, 'not_found'));
+
+        $error = $this->batchError(self::recipients(1), ['max_retries' => 1]);
+
+        $this->assertSame('network_error', $error->getErrorCode());
+        [$result] = $error->getResults();
+        $this->assertSame([2, 'unconfirmed'], [count($this->batchBodies()), $result->getStatus()]);
+        $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
+        $this->assertSame('network_error', $result->getLaterError()?->getErrorCode());
     }
 
     #[DataProvider('retriesAfterAnUnconfirmingAttempt')]
