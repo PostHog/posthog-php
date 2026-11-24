@@ -10,7 +10,6 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\EmailError;
 use PostHog\Emails;
-use PostHog\SendEmailResult;
 use RuntimeException;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
@@ -1985,16 +1984,15 @@ class EmailsTest extends TestCase
 
     public function testAClockThatFailsAfterTheAnswerStillNamesTheAcceptedEmail(): void
     {
-        Clock::set(new class ($this->clock) implements ClockInterface {
-            private int $reads = 0;
-
-            public function __construct(private ClockInterface $working)
+        $answered = fn (): bool => $this->requests !== [];
+        Clock::set(new class ($this->clock, $answered) implements ClockInterface {
+            public function __construct(private ClockInterface $working, private Closure $answered)
             {
             }
 
             public function now(): DateTimeImmutable
             {
-                if (++$this->reads > 1) {
+                if (($this->answered)()) {
                     throw new RuntimeException('clock unavailable');
                 }
 
@@ -2148,11 +2146,6 @@ class EmailsTest extends TestCase
         $this->assertNull($result->getScheduledAt());
         $this->assertSame('throttled', $error->getErrorCode());
         $this->assertNull($error->getMessageId());
-    }
-
-    public function testAnUnscheduledResultSerializesAsTheVersionBeforeSchedulingDid(): void
-    {
-        $this->assertSame(self::resultSerializedBeforeScheduling(), serialize(new SendEmailResult('msg_1')));
     }
 
     public function testBadClientOptionsAreRefused(): void

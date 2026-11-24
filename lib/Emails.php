@@ -1281,14 +1281,12 @@ final class Emails
     private static function isAtMostAMinuteAhead(DateTimeImmutable $requested): bool
     {
         try {
-            $now = Clock::get()->now();
+            return $requested <= Clock::get()->now()
+                ->setTimezone(new DateTimeZone('UTC'))
+                ->modify('+' . self::SEND_NOW_LEEWAY_SECONDS . ' seconds');
         } catch (Throwable) {
             return false;
         }
-
-        return $requested <= $now
-            ->setTimezone(new DateTimeZone('UTC'))
-            ->modify('+' . self::SEND_NOW_LEEWAY_SECONDS . ' seconds');
     }
 
     /**

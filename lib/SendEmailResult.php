@@ -32,16 +32,6 @@ class SendEmailResult
     }
 
     /**
-     * @return list<string>
-     */
-    public function __sleep(): array
-    {
-        $properties = ['id', 'replayed', 'warnings'];
-
-        return $this->scheduledAt === null ? $properties : [...$properties, 'scheduledAt'];
-    }
-
-    /**
      * The queued email's message ID. Pass it to Emails::get() to read the email's status.
      */
     public function getId(): string
