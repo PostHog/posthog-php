@@ -146,10 +146,48 @@ class FeatureFlagKnownAbsentTest extends TestCase
         yield 'not_between' => ['not_between', [1, 2]];
         yield 'between' => ['between', [1, 2]];
         yield 'unknown operator' => ['future_operator', 'pro'];
-        yield 'malformed numeric filter' => ['gt', 'not-a-number'];
-        yield 'malformed semver filter' => ['semver_neq', 'not-a-version'];
-        yield 'malformed date filter' => ['is_date_before', 'not-a-date'];
-        yield 'non-portable regex' => ['not_regex', '(?<=a+)b'];
+    }
+
+    #[DataProvider('unreadConditionValueProvider')]
+    public function testKnownAbsentKeyResolvesWithoutReadingConditionValue(
+        string $operator,
+        mixed $value,
+        bool $expected
+    ): void {
+        $this->makeClient([self::flag('flag', [self::personFilter($operator, $value)])]);
+
+        $local = $this->client->evaluateFlags(
+            'user-1',
+            onlyEvaluateLocally: true,
+            personPropertyKeysKnownAbsent: ['plan']
+        );
+        $this->assertSame($expected, $local->getFlag('flag'));
+        $this->assertSame([], $local->getUnresolvedFlags());
+
+        $snapshot = $this->client->evaluateFlags('user-1', personPropertyKeysKnownAbsent: ['plan']);
+        $this->assertSame($expected, $snapshot->getFlag('flag'));
+        $this->assertSame([], $this->flagsRequestBodies());
+    }
+
+    public static function unreadConditionValueProvider(): iterable
+    {
+        yield 'not_regex with invalid pattern' => ['not_regex', '[', true];
+        yield 'regex with invalid pattern' => ['regex', '[', false];
+        yield 'not_regex with non-portable pattern' => ['not_regex', '(?<=a+)b', true];
+        yield 'regex with non-portable pattern' => ['regex', '(?<=a+)b', false];
+        yield 'not_regex with unicode class' => ['not_regex', '\p{L}', true];
+        yield 'regex with unicode class' => ['regex', '\p{L}', false];
+        yield 'gt with malformed number' => ['gt', 'not-a-number', false];
+        yield 'gte with malformed number' => ['gte', 'not-a-number', false];
+        yield 'lt with malformed number' => ['lt', 'not-a-number', false];
+        yield 'lte with malformed number' => ['lte', 'not-a-number', false];
+        yield 'semver_eq with malformed version' => ['semver_eq', 'not-a-version', false];
+        yield 'semver_neq with malformed version' => ['semver_neq', 'not-a-version', false];
+        yield 'semver_tilde with malformed version' => ['semver_tilde', 'not-a-version', false];
+        yield 'semver_caret with malformed version' => ['semver_caret', 'not-a-version', false];
+        yield 'semver_wildcard with malformed version' => ['semver_wildcard', 'not-a-version', false];
+        yield 'is_date_before with malformed date' => ['is_date_before', 'not-a-date', false];
+        yield 'is_date_after with malformed date' => ['is_date_after', 'not-a-date', false];
     }
 
     #[DataProvider('omittedConditionValueProvider')]
@@ -178,6 +216,8 @@ class FeatureFlagKnownAbsentTest extends TestCase
         yield 'is_not with null value' => [self::personFilter('is_not', null)];
         yield 'exact with null value' => [self::personFilter('exact', null)];
         yield 'gt with null value' => [self::personFilter('gt', null)];
+        yield 'not_regex with value omitted' => [['key' => 'plan', 'type' => 'person', 'operator' => 'not_regex']];
+        yield 'not_regex with null value' => [self::personFilter('not_regex', null)];
     }
 
     #[DataProvider('nullValueSetOperatorProvider')]

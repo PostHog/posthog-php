@@ -27,6 +27,15 @@ class FeatureFlag
         "is_not_set", "is_not", "not_icontains", "not_starts_with", "not_ends_with", "not_regex",
     ];
 
+    // Operators that matchPropertyValue() implements; every other operator needs server evaluation.
+    private const LOCALLY_SUPPORTED_OPERATORS = [
+        "exact", "is_not", "is_set", "is_not_set", "icontains", "not_icontains",
+        "starts_with", "not_starts_with", "ends_with", "not_ends_with", "regex", "not_regex",
+        "gt", "gte", "lt", "lte", "is_date_before", "is_date_after",
+        "semver_eq", "semver_neq", "semver_gt", "semver_gte", "semver_lt", "semver_lte",
+        "semver_tilde", "semver_caret", "semver_wildcard",
+    ];
+
     /**
      * Match a single property filter against provided property values.
      *
@@ -46,9 +55,15 @@ class FeatureFlag
     ) {
         $key = $property["key"] ?? null;
         if ((is_string($key) || is_int($key)) && isset($knownAbsentKeys[$key])) {
-            // An unsupported operator or malformed filter stays inconclusive even for a known-absent key.
-            FeatureFlag::assertFilterSupported($property);
+            // An operator the SDK doesn't implement stays inconclusive even for a known-absent key. Like the
+            // flags service, resolve without parsing, compiling or validating a present condition value.
             $operator = $property["operator"] ?? "exact";
+            if (!in_array($operator, self::LOCALLY_SUPPORTED_OPERATORS, true)) {
+                throw new InconclusiveMatchException(
+                    "Unknown operator: " . $operator,
+                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                );
+            }
             // A value-requiring operator with an omitted or null condition value also stays inconclusive.
             if (!in_array($operator, ["is_set", "is_not_set"], true) && ($property["value"] ?? null) === null) {
                 throw new InconclusiveMatchException(
