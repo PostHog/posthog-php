@@ -459,6 +459,180 @@ class FeatureFlagKnownAbsentTest extends TestCase
         $this->assertSame([], $this->flagsRequestBodies());
     }
 
+    #[DataProvider('personMetadataFilterProvider')]
+    public function testPersonMetadataFilterIgnoresListedKey(array $filter): void
+    {
+        $this->makeClient([self::flag('meta-flag', [$filter])]);
+
+        $local = $this->client->evaluateFlags(
+            'user-1',
+            onlyEvaluateLocally: true,
+            personPropertyKeysKnownAbsent: ['created_at']
+        );
+        $this->assertSame(['meta-flag' => UnresolvedFlagReason::MISSING_CONTEXT], $local->getUnresolvedFlags());
+
+        $snapshot = $this->client->evaluateFlags('user-1', personPropertyKeysKnownAbsent: ['created_at']);
+        $this->assertSame(self::REMOTE_VALUE, $snapshot->getFlag('meta-flag'));
+        $this->assertCount(1, $this->flagsRequestBodies());
+    }
+
+    #[DataProvider('personMetadataFilterProvider')]
+    public function testPersonMetadataCohortLeafIgnoresListedKey(array $filter): void
+    {
+        $this->makeClient(
+            [self::flag('cohort-flag', [['key' => 'id', 'type' => 'cohort', 'value' => 1]])],
+            cohorts: ['1' => ['type' => 'AND', 'values' => [$filter]]]
+        );
+
+        $snapshot = $this->client->evaluateFlags('user-1', personPropertyKeysKnownAbsent: ['created_at']);
+
+        $this->assertSame(self::REMOTE_VALUE, $snapshot->getFlag('cohort-flag'));
+        $this->assertCount(1, $this->flagsRequestBodies());
+    }
+
+    public static function personMetadataFilterProvider(): iterable
+    {
+        $createdAt = ['key' => 'created_at', 'type' => 'person_metadata'];
+        yield 'is_not_set' => [$createdAt + ['operator' => 'is_not_set', 'value' => null]];
+        yield 'is_date_after' => [$createdAt + ['operator' => 'is_date_after', 'value' => '2024-01-01T00:00:00Z']];
+        yield 'is_date_before' => [$createdAt + ['operator' => 'is_date_before', 'value' => '2024-01-01T00:00:00Z']];
+    }
+
+    public function testPersonMetadataFilterOnListedKeyUsesSuppliedValue(): void
+    {
+        $filter = [
+            'key' => 'created_at', 'type' => 'person_metadata',
+            'operator' => 'is_date_after', 'value' => '2024-01-01T00:00:00Z',
+        ];
+        $this->makeClient([self::flag('meta-flag', [$filter])]);
+
+        $snapshot = $this->client->evaluateFlags(
+            'user-1',
+            personProperties: ['created_at' => '2025-06-01T00:00:00Z'],
+            personPropertyKeysKnownAbsent: ['created_at']
+        );
+
+        $this->assertTrue($snapshot->getFlag('meta-flag'));
+        $this->assertSame([], $this->flagsRequestBodies());
+    }
+
+    public function testPersonKnownAbsentKeyIgnoresGroupFilterInPersonFlag(): void
+    {
+        $groupFilter = [
+            'key' => 'tier', 'type' => 'group', 'group_type_index' => 0, 'operator' => 'is_not_set', 'value' => null,
+        ];
+        $this->makeClient([self::flag('group-in-person', [$groupFilter])], groupTypeMapping: ['0' => 'organization']);
+
+        $snapshot = $this->client->evaluateFlags(
+            'user-1',
+            groups: ['organization' => 'org-1'],
+            personPropertyKeysKnownAbsent: ['tier']
+        );
+
+        $this->assertSame(self::REMOTE_VALUE, $snapshot->getFlag('group-in-person'));
+        $this->assertCount(1, $this->flagsRequestBodies());
+    }
+
+    public function testGroupKnownAbsentKeyIgnoresPersonFilterAndCohortLeafInGroupFlag(): void
+    {
+        $personFilter = self::personFilter('is_not_set', null, 'tier');
+        $this->makeClient(
+            [
+                self::flag('person-in-group', [$personFilter], 0),
+                self::flag('cohort-in-group', [['key' => 'id', 'type' => 'cohort', 'value' => 1]], 0),
+            ],
+            cohorts: ['1' => ['type' => 'AND', 'values' => [$personFilter]]],
+            groupTypeMapping: ['0' => 'organization']
+        );
+
+        $local = $this->client->evaluateFlags(
+            'user-1',
+            groups: ['organization' => 'org-1'],
+            groupProperties: ['organization' => []],
+            onlyEvaluateLocally: true,
+            groupPropertyKeysKnownAbsent: ['organization' => ['tier']]
+        );
+
+        $this->assertSame(
+            [
+                'person-in-group' => UnresolvedFlagReason::MISSING_CONTEXT,
+                'cohort-in-group' => UnresolvedFlagReason::MISSING_CONTEXT,
+            ],
+            $local->getUnresolvedFlags()
+        );
+    }
+
+    public function testGroupKnownAbsentKeyIgnoresFilterOfAnotherGroupType(): void
+    {
+        $projectFilter = [
+            'key' => 'tier', 'type' => 'group', 'group_type_index' => 1, 'operator' => 'is_not_set', 'value' => null,
+        ];
+        $this->makeClient(
+            [self::flag('project-in-org', [$projectFilter], 0)],
+            groupTypeMapping: ['0' => 'organization', '1' => 'project']
+        );
+
+        $local = $this->client->evaluateFlags(
+            'user-1',
+            groups: ['organization' => 'org-1', 'project' => 'project-1'],
+            groupProperties: ['organization' => []],
+            onlyEvaluateLocally: true,
+            groupPropertyKeysKnownAbsent: ['organization' => ['tier']]
+        );
+
+        $this->assertSame(['project-in-org' => UnresolvedFlagReason::MISSING_CONTEXT], $local->getUnresolvedFlags());
+    }
+
+    public function testFlagDependencyWithOtherAggregationIgnoresParentKeys(): void
+    {
+        $groupDependency = self::flag('org-untiered', [[
+            'key' => 'tier', 'type' => 'group', 'group_type_index' => 0, 'operator' => 'is_not_set', 'value' => null,
+        ]], 0);
+        $personDependency = self::flag('person-untiered', [self::personFilter('is_not_set', null, 'tier')]);
+        $dependsOn = static fn (string $key): array => [[
+            'key' => $key,
+            'type' => 'flag',
+            'value' => true,
+            'operator' => 'flag_evaluates_to',
+            'dependency_chain' => [$key],
+        ]];
+        $this->makeClient(
+            [
+                $groupDependency,
+                $personDependency,
+                self::flag('person-parent', $dependsOn('org-untiered')),
+                self::flag('group-parent', $dependsOn('person-untiered'), 0),
+            ],
+            groupTypeMapping: ['0' => 'organization']
+        );
+
+        $personListed = $this->client->evaluateFlags(
+            'user-1',
+            groups: ['organization' => 'org-1'],
+            groupProperties: ['organization' => []],
+            onlyEvaluateLocally: true,
+            flagKeys: ['person-parent'],
+            personPropertyKeysKnownAbsent: ['tier']
+        );
+        $this->assertSame(
+            ['person-parent' => UnresolvedFlagReason::UNRESOLVED_DEPENDENCY],
+            $personListed->getUnresolvedFlags()
+        );
+
+        $groupListed = $this->client->evaluateFlags(
+            'user-1',
+            groups: ['organization' => 'org-1'],
+            groupProperties: ['organization' => []],
+            onlyEvaluateLocally: true,
+            flagKeys: ['group-parent'],
+            groupPropertyKeysKnownAbsent: ['organization' => ['tier']]
+        );
+        $this->assertSame(
+            ['group-parent' => UnresolvedFlagReason::UNRESOLVED_DEPENDENCY],
+            $groupListed->getUnresolvedFlags()
+        );
+    }
+
     public function testRemoteFallbackSendsKnownAbsentKeys(): void
     {
         $this->makeClient([self::flag('flag', [self::personFilter('exact', 'pro', 'region')])]);

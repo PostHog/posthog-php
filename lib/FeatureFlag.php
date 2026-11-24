@@ -534,7 +534,7 @@ class FeatureFlag
                             $prop,
                             $propertyValues,
                             $propertyMatchingVersion,
-                            $knownAbsentKeys
+                            FeatureFlag::knownAbsentKeysForFilter($prop, $identityAggregation, $knownAbsentKeys)
                         );
                     }
 
@@ -1239,6 +1239,32 @@ class FeatureFlag
     }
 
     /**
+     * The known-absent keys that apply to a property filter. Person keys apply only to `person` filters and
+     * group keys only to `group` filters on their own group type. A `person_metadata` filter reads a
+     * persons-table field, so it, like any other filter type, never resolves from a listing.
+     *
+     * @param array<string, mixed> $property Feature flag property filter.
+     * @param int|string|null|false $keysAggregation Aggregation the keys belong to: null for person keys, a
+     *     group type index for group keys, false when unknown (keys then apply to person and group filters).
+     * @param array<string, true> $knownAbsentKeys Keys known to be absent, as array keys.
+     * @return array<string, true>
+     */
+    private static function knownAbsentKeysForFilter(array $property, $keysAggregation, array $knownAbsentKeys): array
+    {
+        $filterType = $property["type"] ?? null;
+        if ($keysAggregation === false) {
+            $applies = $filterType === "person" || $filterType === "group";
+        } elseif (is_null($keysAggregation)) {
+            $applies = $filterType === "person";
+        } else {
+            $applies = $filterType === "group" &&
+                FeatureFlag::aggregationKey($property["group_type_index"] ?? null) ===
+                    FeatureFlag::aggregationKey($keysAggregation);
+        }
+        return $applies ? $knownAbsentKeys : [];
+    }
+
+    /**
      * Hash a bucketing identity for holdout membership, matching the backend.
      *
      * Unlike the ordinary flag hash, neither the flag key nor the holdout id participates:
@@ -1541,7 +1567,7 @@ class FeatureFlag
                             $property,
                             $properties,
                             $propertyMatchingVersion,
-                            $knownAbsentKeys
+                            FeatureFlag::knownAbsentKeysForFilter($property, $identityAggregation, $knownAbsentKeys)
                         );
                     }
                 } catch (RequiresServerEvaluationException $e) {
@@ -1887,6 +1913,14 @@ class FeatureFlag
                     );
                 }
 
+                // The parent's keys belong to the parent's aggregation, so a dependency aggregated
+                // differently, or one whose relation to the parent is unknown, gets none of them.
+                $depKnownAbsentKeys = $identityAggregation !== false &&
+                    FeatureFlag::aggregationKey($depFilters["aggregation_group_type_index"] ?? null) ===
+                        FeatureFlag::aggregationKey($identityAggregation)
+                    ? $knownAbsentKeys
+                    : [];
+
                 // Recursively evaluate the dependency
                 try {
                     $depResult = FeatureFlag::matchFeatureFlagPropertiesForIdentity(
@@ -1901,7 +1935,7 @@ class FeatureFlag
                         [],
                         $propertyMatchingVersion,
                         $identityAggregation,
-                        $knownAbsentKeys,
+                        $depKnownAbsentKeys,
                         []
                     );
                     $evaluationCache[$depFlagKey] = $depResult;

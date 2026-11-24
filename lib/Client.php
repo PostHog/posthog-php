@@ -1479,11 +1479,12 @@ class Client implements FeatureFlagEvaluationsHost
      *     person doesn't have. A listed key is absent even when $personProperties holds a value for it,
      *     so local evaluation resolves it instead of falling back to /flags: `is_not_set`, `is_not` and
      *     the `not_*` string operators match, and every other operator doesn't. An operator the SDK
-     *     can't evaluate locally still falls back. Keys starting with `__posthog_person_metadata__`
-     *     are ignored. The keys are also sent with any /flags request. At most 1000 keys.
+     *     can't evaluate locally still falls back. Keys apply only to `person` filters, never to
+     *     `person_metadata` or group filters, and keys starting with `__posthog_person_metadata__` are
+     *     ignored. The keys are also sent with any /flags request. At most 1000 keys.
      * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to
-     *     be absent, by group type name. Keys apply only to their own group type. At most 1000 keys per
-     *     group type.
+     *     be absent, by group type name. Keys apply only to `group` filters on their own group type. At
+     *     most 1000 keys per group type.
      * @return FeatureFlagEvaluations
      * @throws InvalidArgumentException When a known-absent list holds more than 1000 keys or a non-string key.
      */
