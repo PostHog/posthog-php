@@ -3,6 +3,7 @@
 namespace PostHog\Test;
 
 use ErrorException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
@@ -10,24 +11,32 @@ use PostHog\Emails;
 
 #[RunTestsInSeparateProcesses]
 #[PreserveGlobalState(false)]
-final class EmailsWithoutTheSymfonyClockClassTest extends TestCase
+final class EmailsOnOlderSymfonyClocksTest extends TestCase
 {
-    public function testAPastTimeQueuedNowOnSymfonyClock62IsAnAcceptance(): void
+    public static function olderClocks(): array
     {
-        // symfony/clock 6.2 has no Clock class, and on PHP 8.4+ loading its NativeClock raises a deprecation, which
-        // an app that turns deprecations into exceptions throws. The wrapped loader does both.
+        // symfony/clock 6.2 has no Clock class. Up to 6.3.0, loading NativeClock on PHP 8.4+ raises a deprecation,
+        // which an app that turns deprecations into exceptions throws.
+        return [
+            'symfony/clock 6.2' => [true],
+            'symfony/clock 6.3.0' => [false],
+        ];
+    }
+
+    #[DataProvider('olderClocks')]
+    public function testAPastTimeQueuedNowIsAnAcceptance(bool $withoutTheClockClass): void
+    {
         foreach (spl_autoload_functions() as $loader) {
             spl_autoload_unregister($loader);
-            spl_autoload_register(static function (string $class) use ($loader): void {
+            spl_autoload_register(static function (string $class) use ($loader, $withoutTheClockClass): void {
                 if ($class === 'Symfony\Component\Clock\NativeClock') {
                     throw new ErrorException('Implicitly marking parameter $timezone as nullable is deprecated');
                 }
-                if ($class !== 'Symfony\Component\Clock\Clock') {
+                if (!$withoutTheClockClass || $class !== 'Symfony\Component\Clock\Clock') {
                     $loader($class);
                 }
             });
         }
-        $this->assertFalse(class_exists('Symfony\Component\Clock\Clock'));
         $messageId = '01a18356-c56c-0001-e494-7666bc915188';
         $emails = new Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [
             202,
