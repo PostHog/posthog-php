@@ -1902,7 +1902,7 @@ class EmailsTest extends TestCase
 
     public function testAnUnconfirmedScheduleWithWarningsStillNamesTheEmailWhenErrorLogIsDisabled(): void
     {
-        $script = tempnam(sys_get_temp_dir(), 'posthog-emails-') . '.php';
+        $script = tempnam(sys_get_temp_dir(), 'posthog-emails-');
         file_put_contents($script, <<<'PHP'
 <?php
 require $argv[1];
@@ -1951,7 +1951,16 @@ PHP);
         $this->assertSame('schedule_not_confirmed', $error->getErrorCode());
     }
 
-    public function testAClockThatFailsAfterTheAnswerFallsBackToTheSystemClock(): void
+    public static function timesAgainstTheSystemClock(): array
+    {
+        return [
+            'a day before the system clock' => ['-1 day', 'queued'],
+            'a day after the system clock' => ['+1 day', 'schedule_not_confirmed'],
+        ];
+    }
+
+    #[DataProvider('timesAgainstTheSystemClock')]
+    public function testAClockThatFailsAfterTheAnswerFallsBackToTheSystemClock(string $offset, string $outcome): void
     {
         $answered = fn (): bool => $this->requests !== [];
         Clock::set(new class ($this->clock, $answered) implements ClockInterface {
@@ -1983,14 +1992,18 @@ PHP);
             'scheduled_at' => null,
         ]), []]);
 
-        $result = $this->emails()->send([
-            'to' => 'user@example.com',
-            'template_id' => self::TEMPLATE_ID,
-            'scheduled_at' => '2026-11-01T09:00:00Z',
-        ]);
+        try {
+            $sent = $this->emails()->send([
+                'to' => 'user@example.com',
+                'template_id' => self::TEMPLATE_ID,
+                'scheduled_at' => new DateTimeImmutable($offset),
+            ]);
+            [$status, $messageId] = [$sent->getStatus(), $sent->getId()];
+        } catch (EmailError $error) {
+            [$status, $messageId] = [$error->getErrorCode(), $error->getMessageId()];
+        }
 
-        $this->assertSame(self::MESSAGE_ID, $result->getId());
-        $this->assertSame('queued', $result->getStatus());
+        $this->assertSame([$outcome, self::MESSAGE_ID], [$status, $messageId]);
         $this->assertCount(1, $this->requests, 'an accepted send is never sent again');
     }
 
