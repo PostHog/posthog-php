@@ -3,8 +3,6 @@
 namespace PostHog\Test;
 
 use Closure;
-use Error;
-use ErrorException;
 use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -15,7 +13,6 @@ use PostHog\EmailError;
 use PostHog\Emails;
 use PostHog\SendBatchResult;
 use stdClass;
-use Throwable;
 use JsonSerializable;
 use RuntimeException;
 use Symfony\Component\Clock\Clock;
@@ -28,7 +25,6 @@ class EmailsBatchTest extends TestCase
 
     private const TEMPLATE_ID = '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b';
     private const BATCH_URL = 'https://us.posthog.com/api/messaging/send/email_batch/';
-    private const STATUS_BY_KEY_URL = 'https://us.posthog.com/api/messaging/emails/status/';
     private const FOUR_MIB = 4 * 1024 * 1024;
     private const UUID_V4 = '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D';
     private const WARNING_LOGGED = '[PostHog][Emails] Email warning sandbox_sender: Sent from the test sender.';
@@ -113,18 +109,6 @@ class EmailsBatchTest extends TestCase
         $body = $code === null ? '' : json_encode(['type' => 'invalid_request', 'code' => $code, 'detail' => 'Nope.']);
 
         return [$status, $body, []];
-    }
-
-    /** @return array{int, string, list<string>} */
-    private static function statusFound(string $messageId, string $status = 'sent', ?string $reason = null): array
-    {
-        return [200, json_encode([
-            'id' => $messageId,
-            'status' => $status,
-            'created_at' => '2026-11-02T10:00:00Z',
-            'status_at' => '2026-11-02T10:00:01Z',
-            'reason' => $reason,
-        ]), []];
     }
 
     /** @return array<string, mixed> */
@@ -215,18 +199,10 @@ class EmailsBatchTest extends TestCase
         return array_map(static fn(array $body): int => count($body['recipients']), $this->batchBodies());
     }
 
-    /** @return list<string> the idempotency keys of the emails read by key, in order */
-    private function readsByKey(): array
+    /** @return list<string> */
+    private function requestUrls(): array
     {
-        $keys = [];
-        foreach ($this->requests as $request) {
-            if (str_starts_with($request['url'], self::STATUS_BY_KEY_URL)) {
-                parse_str((string) parse_url($request['url'], PHP_URL_QUERY), $query);
-                $keys[] = $query['idempotency_key'];
-            }
-        }
-
-        return $keys;
+        return array_column($this->requests, 'url');
     }
 
     /** @return list<string> */
@@ -828,21 +804,19 @@ PHP);
     public function testAnAnswerTooLargeToReadLeavesTheRequestUnconfirmed(): void
     {
         $this->reply(
-            new EmailError('response_too_large', 'PostHog answered with more than 1048576 bytes.'),
-            self::wholeCall(404, 'not_found')
+            new EmailError('response_too_large', 'PostHog answered with more than 1048576 bytes.')
         );
 
         $error = $this->batchError(self::recipients(1));
 
         $this->assertSame('response_too_large', $error->getErrorCode());
         $this->assertSame(['unconfirmed'], self::statuses($error->getResults()));
-        $this->assertSame(['key-0'], $this->readsByKey());
+        $this->assertSame([self::BATCH_URL], $this->requestUrls());
     }
 
     public function testA503ThenARefusalOfTheWholeRequestKeepsTheRecipientUnconfirmed(): void
     {
-        $notFound = self::wholeCall(404, 'not_found');
-        $this->reply(self::wholeCall(503, 'delivery_unavailable'), self::wholeCall(422, 'sending_paused'), $notFound);
+        $this->reply(self::wholeCall(503, 'delivery_unavailable'), self::wholeCall(422, 'sending_paused'));
 
         $error = $this->batchError(self::recipients(1));
 
@@ -865,39 +839,40 @@ PHP);
             $result->getError()->getStatusCode(),
         ]);
         $this->assertNull($result->getLaterError());
+        $this->assertSame('key-0', $result->getIdempotencyKey());
     }
 
-    public function testABatchThatSucceedsReadsEachUnconfirmedEmailWithoutAMessageId(): void
+    public function testABatchThatSucceedsReadsNothingBackForAnUnconfirmedEmail(): void
     {
-        $this->reply(
-            self::ok(self::queued('m0'), self::notConfirmed(null), self::notConfirmed('m2')),
-            self::statusFound('m1')
-        );
+        $this->reply(self::ok(self::queued('m0'), self::notConfirmed(null), self::notConfirmed('m2')));
 
         $result = $this->batch(self::recipients(3), ['max_retries' => 0]);
 
-        $this->assertSame(['key-1'], $this->readsByKey());
+        $this->assertSame([self::BATCH_URL], $this->requestUrls());
         $this->assertSame(
-            [['queued', 'm0'], ['unconfirmed', 'm1'], ['unconfirmed', 'm2']],
-            array_map(static fn($r): array => [$r->getStatus(), $r->getMessageId()], $result->getResults())
+            [['queued', 'm0', 'key-0'], ['unconfirmed', null, 'key-1'], ['unconfirmed', 'm2', 'key-2']],
+            array_map(
+                static fn($r): array => [$r->getStatus(), $r->getMessageId(), $r->getIdempotencyKey()],
+                $result->getResults()
+            )
         );
     }
 
     public function testAWholeRequestInFlightAnswerLeavesItsRecipientsUnconfirmed(): void
     {
-        $this->reply(self::wholeCall(409, 'idempotency_key_in_flight'), self::statusFound('m0'), self::wholeCall(404));
+        $this->reply(self::wholeCall(409, 'idempotency_key_in_flight'));
 
         $error = $this->batchError(self::recipients(2), ['max_retries' => 0]);
 
         $this->assertSame('idempotency_key_in_flight', $error->getErrorCode());
         $this->assertSame(
-            [['unconfirmed', 'm0', null], ['unconfirmed', null, null]],
+            [['unconfirmed', null, null], ['unconfirmed', null, null]],
             array_map(
                 static fn($r): array => [$r->getStatus(), $r->getMessageId(), $r->getLaterError()],
                 $error->getResults()
             )
         );
-        $this->assertSame(['key-0', 'key-1'], $this->readsByKey());
+        $this->assertSame([self::BATCH_URL], $this->requestUrls());
     }
 
     public static function attemptsAfterAnInFlightAnswer(): array
@@ -919,7 +894,7 @@ PHP);
         array $answers,
         string $laterCode
     ): void {
-        $this->reply(...$answers, ...[self::wholeCall(404)]);
+        $this->reply(...$answers);
 
         $error = $this->batchError(self::recipients(1), ['max_retries' => 1]);
 
@@ -927,7 +902,7 @@ PHP);
         $this->assertSame('unconfirmed', $result->getStatus());
         $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
         $this->assertSame($laterCode, $result->getLaterError()->getErrorCode());
-        $this->assertCount(3, $this->requests);
+        $this->assertSame([self::BATCH_URL, self::BATCH_URL], $this->requestUrls());
     }
 
     public function testAShutdownDuringABatchStopsItBeforeTheNextRequest(): void
@@ -992,21 +967,6 @@ PHP);
         };
     }
 
-    public function testAShutdownBeforeALostAnswerReadsNoEmailByItsKey(): void
-    {
-        $this->reply(function (): array {
-            $this->closed = true;
-
-            return self::wholeCall(503, 'delivery_unavailable');
-        }, self::statusFound('m0'));
-
-        $error = $this->batchError(self::recipients(2), ['max_retries' => 0], $this->closedEmails());
-
-        $this->assertSame('delivery_unavailable', $error->getErrorCode());
-        $this->assertCount(1, $this->requests);
-        $this->assertSame(['unconfirmed', 'unconfirmed'], self::statuses($error->getResults()));
-    }
-
     public function testARequestRefusedAsAWholeThrowsWithTheResultsSoFar(): void
     {
         $this->reply(self::allQueued(), self::wholeCall(429, 'quota_limited'));
@@ -1034,89 +994,37 @@ PHP);
 
     public function testARefusalOfTheWholeRequestAfterALostAnswerKeepsItsRecipientsUnconfirmed(): void
     {
-        $this->reply(self::networkError(), self::wholeCall(429, 'quota_limited'), self::statusFound('m0'));
+        $this->reply(self::networkError(), self::wholeCall(429, 'quota_limited'));
 
         $error = $this->batchError(self::recipients(1));
 
         [$result] = $error->getResults();
-        $this->assertSame(['unconfirmed', 'm0'], [$result->getStatus(), $result->getMessageId()]);
+        $this->assertSame(['unconfirmed', null], [$result->getStatus(), $result->getMessageId()]);
         $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
         $this->assertSame('quota_limited', $result->getLaterError()->getErrorCode());
-        $this->assertSame(['key-0'], $this->readsByKey());
+        $this->assertSame([self::BATCH_URL, self::BATCH_URL], $this->requestUrls());
     }
 
-    public function testALostAnswerAfterTheRetriesReadsEachEmailByItsKey(): void
+    public function testALostAnswerAfterTheRetriesTellsEachRecipientToSendAgainWithItsKey(): void
     {
-        $statusByKey = static function (string $url): array {
-            return str_ends_with($url, '=key-0') ? self::statusFound('m0') : self::wholeCall(404, 'not_found');
-        };
-        $this->reply(self::networkError(), self::networkError(), self::networkError(), $statusByKey, $statusByKey);
+        $this->reply(self::networkError(), self::networkError(), self::networkError());
 
         $error = $this->batchError(self::recipients(2));
 
         $this->assertSame('network_error', $error->getErrorCode());
-        $this->assertSame(['key-0', 'key-1'], $this->readsByKey());
+        $this->assertSame([self::BATCH_URL, self::BATCH_URL, self::BATCH_URL], $this->requestUrls());
         $this->assertSame(
-            [['unconfirmed', 'm0'], ['unconfirmed', null]],
-            array_map(static fn($r): array => [$r->getStatus(), $r->getMessageId()], $error->getResults())
+            [['unconfirmed', null, 'key-0'], ['unconfirmed', null, 'key-1']],
+            array_map(
+                static fn($r): array => [$r->getStatus(), $r->getMessageId(), $r->getIdempotencyKey()],
+                $error->getResults()
+            )
         );
-        $this->assertSame('delivery_unavailable', $error->getResults()[1]->getError()->getErrorCode());
-    }
-
-    public static function statusesReadByKey(): array
-    {
-        return [
-            'sent' => [self::statusFound('m0')],
-            'refused' => [self::statusFound('m0', 'failed', 'recipient_suppressed')],
-        ];
-    }
-
-    #[DataProvider('statusesReadByKey')]
-    public function testAStatusReadByKeyFillsInOnlyTheMessageId(array $read): void
-    {
-        $this->reply(self::networkError(), $read);
-
-        $error = $this->batchError(self::recipients(1), ['max_retries' => 0]);
-
-        [$result] = $error->getResults();
-        $this->assertSame(['unconfirmed', 'm0'], [$result->getStatus(), $result->getMessageId()]);
-        $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
-        $this->assertNull($result->getLaterError());
-    }
-
-    public function testAnEmailWithAMessageIdIsNotReadByItsKey(): void
-    {
-        $this->reply(
-            self::ok(self::refused('m0', 'delivery_unavailable', 503, true), ...array_fill(0, 99, self::queued('m'))),
-            self::networkError(),
-            ...array_fill(0, 50, self::wholeCall(404, 'not_found'))
+        $this->assertSame(
+            "PostHog didn't confirm this email, so it may still go out. Send it again with the same idempotency_key "
+                . 'within 24 hours, so it goes out once.',
+            $error->getResults()[1]->getError()->getMessage()
         );
-
-        $error = $this->batchError(self::recipients(150), ['max_retries' => 0]);
-
-        $this->assertSame(array_map(static fn(int $i): string => "key-$i", range(100, 149)), $this->readsByKey());
-        $first = $error->getResults()[0];
-        $this->assertSame(['unconfirmed', 'm0'], [$first->getStatus(), $first->getMessageId()]);
-    }
-
-    public function testReadingByKeyStopsWhenPostHogStaysUnreachable(): void
-    {
-        $unavailable = self::wholeCall(503, 'delivery_unavailable');
-        $this->reply($unavailable, $unavailable, $unavailable, self::networkError());
-
-        $error = $this->batchError(self::recipients(3), ['max_retries' => 2]);
-
-        $this->assertCount(4, $this->requests);
-        $this->assertSame(['unconfirmed', 'unconfirmed', 'unconfirmed'], self::statuses($error->getResults()));
-    }
-
-    public function testAKeyWithReservedCharactersIsEncodedInTheStatusRead(): void
-    {
-        $this->reply(self::networkError(), self::wholeCall(404, 'not_found'));
-
-        $this->batchError([['to' => 'a@example.com', 'idempotency_key' => 'order#1&x=2']], ['max_retries' => 0]);
-
-        $this->assertSame(['order#1&x=2'], $this->readsByKey());
     }
 
     public function testBatchUnavailableIsNotRetriedAndSaysToSendEachEmailOnItsOwn(): void
@@ -1168,7 +1076,7 @@ PHP);
 
     public function testARetryThatLosesItsAnswerAgainIsTheLaterError(): void
     {
-        $this->reply(self::networkError(), self::networkError(), self::wholeCall(404, 'not_found'));
+        $this->reply(self::networkError(), self::networkError());
 
         $error = $this->batchError(self::recipients(1), ['max_retries' => 1]);
 
@@ -1185,7 +1093,7 @@ PHP);
         mixed $retry,
         string $laterCode
     ): void {
-        $this->reply($first, $retry, self::wholeCall(404, 'not_found'));
+        $this->reply($first, $retry);
 
         $error = $this->batchError(self::recipients(1), ['max_retries' => 1]);
 
@@ -1195,51 +1103,9 @@ PHP);
         $this->assertSame($laterCode, $result->getLaterError()?->getErrorCode());
     }
 
-    public static function lookupFailures(): array
-    {
-        return [
-            'a promoted deprecation' => [new ErrorException('Constant DATE_RFC7231 is deprecated', 0, E_DEPRECATED)],
-            'a missing class' => [new Error('Class "Symfony\\Component\\Clock\\Clock" not found')],
-        ];
-    }
-
-    #[DataProvider('lookupFailures')]
-    public function testALookupThatThrowsStopsTheReadsAndKeepsEveryResult(Throwable $failure): void
-    {
-        $this->reply(
-            self::ok(self::queued('m0'), self::notConfirmed(null), self::notConfirmed(null)),
-            static function () use ($failure): never {
-                throw $failure;
-            }
-        );
-
-        $result = $this->batch(self::recipients(3), ['max_retries' => 0]);
-
-        $this->assertSame(['key-1'], $this->readsByKey());
-        $this->assertSame(
-            [['queued', 'm0'], ['unconfirmed', null], ['unconfirmed', null]],
-            array_map(static fn($r): array => [$r->getStatus(), $r->getMessageId()], $result->getResults())
-        );
-    }
-
-    #[DataProvider('lookupFailures')]
-    public function testALookupThatThrowsAfterAFailedRequestStillThrowsTheBatchError(Throwable $failure): void
-    {
-        $this->reply(self::networkError(), static function () use ($failure): never {
-            throw $failure;
-        });
-
-        $error = $this->batchError(self::recipients(2), ['max_retries' => 0]);
-
-        $this->assertSame('network_error', $error->getErrorCode());
-        $this->assertSame(['key-0'], $this->readsByKey());
-        $this->assertSame(['unconfirmed', 'unconfirmed'], self::statuses($error->getResults()));
-    }
-
     public function testAnAnswerWithoutAResultPerRecipientLeavesTheRequestUnconfirmed(): void
     {
-        $notFound = self::wholeCall(404, 'not_found');
-        $this->reply(self::ok(self::queued('m0')), $notFound, $notFound);
+        $this->reply(self::ok(self::queued('m0')));
 
         $error = $this->batchError(self::recipients(2), ['max_retries' => 0]);
 
@@ -1249,7 +1115,7 @@ PHP);
             [null, null],
             array_map(static fn($r): ?EmailError => $r->getLaterError(), $error->getResults())
         );
-        $this->assertSame(['key-0', 'key-1'], $this->readsByKey());
+        $this->assertSame([self::BATCH_URL], $this->requestUrls());
     }
 
     public function testWarningsReachTheCallerOnce(): void

@@ -51,7 +51,6 @@ final class Emails
     private const UPLOADS_PATH = '/api/messaging/attachments/uploads/';
     private const STATUS_PATH = '/api/messaging/emails/%s/';
     private const BATCH_PATH = '/api/messaging/send/email_batch/';
-    private const STATUS_BY_KEY_PATH = '/api/messaging/emails/status/';
     private const US_APP_HOST = 'https://us.posthog.com';
     private const EU_APP_HOST = 'https://eu.posthog.com';
     private const CLOUD_APP_HOSTS = [
@@ -439,10 +438,7 @@ final class Emails
      * - `not_attempted`: an earlier request of the batch failed, so the client sent nothing for it.
      *
      * A request that fails as a whole, such as a rate limit past its retries, stops the batch and throws
-     * EmailBatchError, whose getResults() holds every recipient. At the end of every batch, the client tries to read
-     * each `unconfirmed` email without a message ID by its key. It stops at the first read that fails other than
-     * with a 404, so the rest keep no message ID. When PostHog has the email, the recipient comes back still
-     * `unconfirmed`, with the email's getMessageId(). The code `batch_unavailable` (409) means the project
+     * EmailBatchError, whose getResults() holds every recipient. The code `batch_unavailable` (409) means the project
      * can't send batches yet, and is never retried. `not_found` (404) means the template doesn't exist or batch
      * sends are off for the project. For both, send each email the batch didn't queue with send() and its
      * recipient's `idempotency_key`. Shared content over 4 MiB of JSON throws `content_too_large` before any
@@ -1170,34 +1166,8 @@ final class Emails
                 $this->withRetries($maxRetries, $attemptOnce, $closedBeforeARetry);
             } catch (EmailError $error) {
                 $run->stop($position, $error);
-                $this->readUnconfirmed($run, $appHost, $secretKey);
                 throw $run->failure($error);
             }
-        }
-        $this->readUnconfirmed($run, $appHost, $secretKey);
-    }
-
-    private function readUnconfirmed(EmailBatch $run, string $appHost, string $secretKey): void
-    {
-        $headers = $this->headers($secretKey, []);
-        foreach ($run->unconfirmedWithoutMessageId() as $index => $idempotencyKey) {
-            if (($this->isClosed)()) {
-                return;
-            }
-            $query = http_build_query(['idempotency_key' => $idempotencyKey], '', '&', PHP_QUERY_RFC3986);
-            try {
-                $status = self::parseStatusReply(
-                    ...$this->request('GET', $appHost . self::STATUS_BY_KEY_PATH . '?' . $query, $headers, null)
-                );
-            } catch (EmailError $error) {
-                if ($error->getStatusCode() === 404) {
-                    continue;
-                }
-                return;
-            } catch (Throwable) {
-                return;
-            }
-            $run->found($index, $status->getId());
         }
     }
 

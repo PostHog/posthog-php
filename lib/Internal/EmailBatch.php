@@ -346,35 +346,6 @@ final class EmailBatch
         }
     }
 
-    /**
-     * @return array<int, string> The idempotency key of each `unconfirmed` recipient without a message ID, by its
-     *     position in `recipients`.
-     */
-    public function unconfirmedWithoutMessageId(): array
-    {
-        $keys = [];
-        foreach ($this->results as $index => $result) {
-            if ($result->getStatus() === 'unconfirmed' && $result->getMessageId() === null) {
-                $keys[$index] = $result->getIdempotencyKey();
-            }
-        }
-        ksort($keys);
-
-        return $keys;
-    }
-
-    public function found(int $index, string $messageId): void
-    {
-        $result = $this->results[$index];
-        $this->set(
-            $index,
-            'unconfirmed',
-            $messageId,
-            error: $result->getError(),
-            laterError: $result->getLaterError()
-        );
-    }
-
     public function result(): SendBatchResult
     {
         return new SendBatchResult($this->outcome(), $this->warnings);
