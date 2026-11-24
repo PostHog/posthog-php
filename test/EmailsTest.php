@@ -10,6 +10,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\EmailError;
 use PostHog\Emails;
+use PostHog\SendEmailResult;
+use RuntimeException;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\MockClock;
@@ -1981,6 +1983,50 @@ class EmailsTest extends TestCase
         $this->assertSame('schedule_not_confirmed', $error->getErrorCode());
     }
 
+    public function testAClockThatFailsAfterTheAnswerStillNamesTheAcceptedEmail(): void
+    {
+        Clock::set(new class ($this->clock) implements ClockInterface {
+            private int $reads = 0;
+
+            public function __construct(private ClockInterface $working)
+            {
+            }
+
+            public function now(): DateTimeImmutable
+            {
+                if (++$this->reads > 1) {
+                    throw new RuntimeException('clock unavailable');
+                }
+
+                return $this->working->now();
+            }
+
+            public function sleep(float|int $seconds): void
+            {
+            }
+
+            public function withTimeZone(\DateTimeZone|string $timezone): static
+            {
+                return $this;
+            }
+        });
+        $this->reply([202, json_encode([
+            'message_id' => self::MESSAGE_ID,
+            'status' => 'queued',
+            'scheduled_at' => null,
+        ]), []]);
+
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => '2026-11-01T09:00:00Z',
+        ]);
+
+        $this->assertSame('schedule_not_confirmed', $error->getErrorCode());
+        $this->assertSame(self::MESSAGE_ID, $error->getMessageId());
+        $this->assertCount(1, $this->requests, 'an accepted send is never sent again');
+    }
+
     public static function unconfirmedSchedules(): array
     {
         $id = ['message_id' => self::MESSAGE_ID];
@@ -2041,7 +2087,9 @@ class EmailsTest extends TestCase
         ]);
 
         $this->assertTrue($result->isReplayed());
+        $this->assertSame(self::MESSAGE_ID, $result->getId());
         $this->assertSame('scheduled', $result->getStatus());
+        $this->assertSame('2026-11-03T09:00:00.000+00:00', $result->getScheduledAt()?->format('Y-m-d\TH:i:s.vP'));
     }
 
     public function testARefusedScheduleIsAnErrorAndNeverSendsNow(): void
@@ -2100,6 +2148,11 @@ class EmailsTest extends TestCase
         $this->assertNull($result->getScheduledAt());
         $this->assertSame('throttled', $error->getErrorCode());
         $this->assertNull($error->getMessageId());
+    }
+
+    public function testAnUnscheduledResultSerializesAsTheVersionBeforeSchedulingDid(): void
+    {
+        $this->assertSame(self::resultSerializedBeforeScheduling(), serialize(new SendEmailResult('msg_1')));
     }
 
     public function testBadClientOptionsAreRefused(): void

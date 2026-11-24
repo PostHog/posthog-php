@@ -5584,6 +5584,13 @@
                         }
                     ]
                 },
+                "__sleep": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": []
+                },
                 "getId": {
                     "static": false,
                     "abstract": false,

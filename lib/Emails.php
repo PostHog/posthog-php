@@ -12,6 +12,7 @@ use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\MonotonicClock;
 use Symfony\Component\Clock\NativeClock;
+use Throwable;
 
 /**
  * Sends transactional email, from an email template made in PostHog or from content your code rendered,
@@ -1274,9 +1275,20 @@ final class Emails
         return ($fields['status'] ?? null) === 'queued'
             && array_key_exists('scheduled_at', $fields)
             && $fields['scheduled_at'] === null
-            && $requested <= Clock::get()->now()
-                ->setTimezone(new DateTimeZone('UTC'))
-                ->modify('+' . self::SEND_NOW_LEEWAY_SECONDS . ' seconds');
+            && self::isAtMostAMinuteAhead($requested);
+    }
+
+    private static function isAtMostAMinuteAhead(DateTimeImmutable $requested): bool
+    {
+        try {
+            $now = Clock::get()->now();
+        } catch (Throwable) {
+            return false;
+        }
+
+        return $requested <= $now
+            ->setTimezone(new DateTimeZone('UTC'))
+            ->modify('+' . self::SEND_NOW_LEEWAY_SECONDS . ' seconds');
     }
 
     /**
