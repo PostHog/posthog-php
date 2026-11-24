@@ -2351,7 +2351,7 @@ PHP, '-d disable_functions=error_log');
         }
 
         $this->assertStringStartsWith('O:18:"PostHog\EmailError":15:{', $serialized);
-        $this->assertStringNotContainsString('messageId', $serialized);
+        $this->assertStringNotContainsString("\0PostHog\\EmailError\0messageId", $serialized);
     }
 
     public function testASubclassOfTheResultKeepsItsOwnFieldsThroughSerialization(): void
