@@ -255,7 +255,7 @@ final class EmailBatch
         $fields = EmailReplies::fields($body);
         if ($status < 200 || $status >= 300) {
             $error = self::requestError($fields, $status, $headers, $indices);
-            if ($status >= 500 || $error->getErrorCode() === self::IN_FLIGHT) {
+            if ($status >= 500 || ($status === 409 && $error->getErrorCode() === self::IN_FLIGHT)) {
                 $this->lost($position, $error);
             } else {
                 $this->recordLaterError($position, $error);

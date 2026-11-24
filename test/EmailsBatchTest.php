@@ -1109,6 +1109,16 @@ PHP;
         );
     }
 
+    public function testAnInFlightCodeOnAnAnswerOtherThanA409RefusesTheRequest(): void
+    {
+        $this->reply(self::wholeCall(400, 'idempotency_key_in_flight'));
+
+        $error = $this->batchError(self::recipients(2), ['max_retries' => 2]);
+
+        $this->assertCount(1, $this->requests);
+        $this->assertSame(['failed', 'failed'], self::statuses($error->getResults()));
+    }
+
     public function testBatchUnavailableIsNotRetriedAndSaysToSendEachEmailOnItsOwn(): void
     {
         $this->reply(self::wholeCall(409, 'batch_unavailable'));
