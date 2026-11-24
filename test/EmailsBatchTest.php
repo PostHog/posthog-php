@@ -537,6 +537,31 @@ class EmailsBatchTest extends TestCase
         $this->assertSame([], $this->requests);
     }
 
+    public static function sharedContentAtTheLimit(): array
+    {
+        return [
+            'exactly 4 MiB' => [0, 'recipient fails with content_too_large'],
+            'one byte more' => [1, 'batch throws content_too_large for template_data'],
+        ];
+    }
+
+    #[DataProvider('sharedContentAtTheLimit')]
+    public function testSharedContentTakesUpToExactly4MibOfRequest(int $bytesOver, string $outcome): void
+    {
+        $empty = ['template_id' => self::TEMPLATE_ID, 'message_data' => ['n' => ''], 'recipients' => []];
+        $note = str_repeat('a', self::FOUR_MIB - strlen(json_encode($empty)) + $bytesOver);
+
+        try {
+            $result = $this->batch(self::recipients(1), ['template_data' => ['n' => $note]]);
+            $error = $result->getResults()[0]->getError();
+            $actual = "recipient fails with {$error->getErrorCode()}";
+        } catch (EmailError $error) {
+            $actual = "batch throws {$error->getErrorCode()} for {$error->getField()}";
+        }
+
+        $this->assertSame([$outcome, []], [$actual, $this->requests]);
+    }
+
     public static function valuesThatChangeOnASecondEncoding(): array
     {
         return [
