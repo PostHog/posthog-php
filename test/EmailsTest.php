@@ -1966,6 +1966,37 @@ PHP);
         }
     }
 
+    public function testAWarningIsStillLoggedAfterTheLoggerFailedOnAnEarlierOne(): void
+    {
+        $output = self::runPhp(<<<'PHP'
+namespace PostHog;
+function error_log(string $message): bool
+{
+    static $calls = 0;
+    if ($calls++ === 0) {
+        throw new \RuntimeException('The log is full.');
+    }
+    echo $message, "\n";
+    return true;
+}
+require $argv[1];
+$emails = new Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [202, json_encode([
+    'message_id' => 'msg_1',
+    'status' => 'queued',
+    'warnings' => [
+        ['code' => 'unverified_link', 'detail' => 'A link points to an unknown domain.'],
+        ['code' => 'missing_text', 'detail' => 'The email has no plain-text part.'],
+    ],
+]), []]);
+echo $emails->send(['to' => 'user@example.com', 'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b'])->getStatus();
+PHP, '-d disable_functions=error_log');
+
+        $this->assertSame(
+            "[PostHog][Emails] Email warning missing_text: The email has no plain-text part.\nqueued",
+            $output
+        );
+    }
+
     public function testAWarningReachesAnErrorLogInThePostHogNamespaceWhenTheGlobalOneIsDisabled(): void
     {
         $output = self::runPhp(<<<'PHP'
@@ -2345,6 +2376,34 @@ PHP, '-d disable_functions=error_log');
         ];
     }
 
+    public static function subclassesWithAPropertyNamedZero(): array
+    {
+        return [
+            'a result subclass' => ['PostHog\SendEmailResult', "'msg_1'"],
+            'an error subclass' => ['PostHog\EmailError', "'throttled', 'Slow down.', 429"],
+        ];
+    }
+
+    #[DataProvider('subclassesWithAPropertyNamedZero')]
+    public function testASubclassWithADynamicPropertyNamedZeroSerializesWithoutAWarning(
+        string $parent,
+        string $arguments
+    ): void {
+        $output = self::runPhp(<<<PHP
+set_error_handler(static function (int \$no, string \$message): never {
+    throw new ErrorException(\$message, 0, \$no);
+});
+require \$argv[1];
+#[AllowDynamicProperties]
+final class Kept extends $parent {}
+\$kept = new Kept($arguments);
+\$kept->{'0'} = 'zero';
+echo unserialize(serialize(\$kept))->{'0'};
+PHP);
+
+        $this->assertSame('zero', $output);
+    }
+
     #[DataProvider('subclassesWithTheirOwnSerialization')]
     public function testASubclassWithItsOwnSerializationKeepsIt(
         string $parent,
@@ -2367,7 +2426,7 @@ PHP, '-d disable_functions=error_log');
             $this->emails()->send([
                 'to' => 'user@example.com',
                 'template_id' => self::TEMPLATE_ID,
-                'scheduled_at' => '2099-01-01T09:00:00Z',
+                'scheduled_at' => '2026-11-03T12:00:00Z',
             ]);
             $this->fail('Expected schedule_not_confirmed');
         } catch (EmailError $error) {
