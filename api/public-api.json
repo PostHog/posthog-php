@@ -1816,6 +1816,13 @@
                         }
                     ]
                 },
+                "__serialize": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": []
+                },
                 "getDocsUrl": {
                     "static": false,
                     "abstract": false,
@@ -5583,6 +5590,13 @@
                             "hasDefault": true
                         }
                     ]
+                },
+                "__serialize": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": []
                 },
                 "getId": {
                     "static": false,

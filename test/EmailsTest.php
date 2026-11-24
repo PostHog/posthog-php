@@ -2011,6 +2011,31 @@ PHP);
         }
     }
 
+    #[DataProvider('errorLogsThatCannotLog')]
+    public function testASendWithWarningsStillReturnsItsResultWhenErrorLogCannotLog(string $errorLog): void
+    {
+        $script = tempnam(sys_get_temp_dir(), 'posthog-emails-');
+        file_put_contents($script, "<?php\n$errorLog\n" . <<<'PHP'
+require $argv[1];
+$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [202, json_encode([
+    'message_id' => 'msg_1',
+    'status' => 'queued',
+    'warnings' => [['code' => 'unverified_link', 'detail' => 'A link points to an unknown domain.']],
+]), []]);
+$result = $emails->send(['to' => 'user@example.com', 'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b']);
+echo json_encode([$result->getStatus(), $result->getId()]);
+PHP);
+        try {
+            $command = escapeshellarg(PHP_BINARY) . ' -d disable_functions=error_log ' . escapeshellarg($script) . ' '
+                . escapeshellarg(__DIR__ . '/../vendor/autoload.php') . ' 2>&1';
+            exec($command, $output);
+
+            $this->assertSame('["queued","msg_1"]', implode("\n", $output));
+        } finally {
+            unlink($script);
+        }
+    }
+
     public function testTheMinuteAheadCountsInUtcWhenTheLocalClockLeavesDaylightSaving(): void
     {
         Clock::set(new MockClock('2026-11-01T05:59:30Z', 'America/New_York'));
@@ -2081,6 +2106,25 @@ PHP);
         ]);
 
         $this->assertSame([self::MESSAGE_ID, 'queued'], [$result->getId(), $result->getStatus()]);
+        $this->assertCount(2, $this->requests);
+    }
+
+    public function testAReplayAfterALostAnswerCountsTheMinuteFromTheAttemptThatGotIt(): void
+    {
+        $this->reply(new EmailError('network_error', 'The request to PostHog failed.'), [202, json_encode([
+            'message_id' => self::MESSAGE_ID,
+            'status' => 'queued',
+            'scheduled_at' => null,
+            'replayed' => true,
+        ]), []]);
+
+        $result = $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => '2026-11-02T12:01:00.500Z',
+        ]);
+
+        $this->assertSame(['queued', true], [$result->getStatus(), $result->isReplayed()]);
         $this->assertCount(2, $this->requests);
     }
 
@@ -2273,16 +2317,65 @@ PHP);
         );
     }
 
-    public function testAResultOrErrorSerializedByTheVersionBeforeSchedulingStillReads(): void
+    public function testAResultSerializedByTheVersionBeforeSchedulingStillReads(): void
     {
         $result = unserialize(self::resultSerializedBeforeScheduling());
-        $error = unserialize(self::errorSerializedBeforeScheduling());
 
         $this->assertSame('msg_1', $result->getId());
         $this->assertSame('queued', $result->getStatus());
         $this->assertNull($result->getScheduledAt());
+    }
+
+    public function testAnErrorSerializedByTheVersionBeforeSchedulingStillReads(): void
+    {
+        $error = unserialize(self::errorSerializedBeforeScheduling());
+
         $this->assertSame('throttled', $error->getErrorCode());
         $this->assertNull($error->getMessageId());
+    }
+
+    public function testAQueuedResultSerializesAsTheVersionBeforeSchedulingDid(): void
+    {
+        $this->reply([202, '{"message_id":"msg_1"}', []]);
+
+        $result = $this->emails()->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
+
+        $this->assertSame(self::resultSerializedBeforeScheduling(), serialize($result));
+    }
+
+    public function testAnErrorWithoutAMessageIdSerializesWithTheFieldsOfTheVersionBeforeScheduling(): void
+    {
+        $ignoreArgs = ini_set('zend.exception_ignore_args', '1');
+        try {
+            $serialized = serialize(new EmailError('throttled', 'Slow down.', 429));
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $ignoreArgs);
+        }
+
+        $this->assertStringStartsWith('O:18:"PostHog\EmailError":15:{', $serialized);
+        $this->assertStringNotContainsString('messageId', $serialized);
+    }
+
+    public function testASubclassOfTheResultKeepsItsOwnFieldsThroughSerialization(): void
+    {
+        $result = unserialize(serialize(new NotedSendEmailResult('msg_1', 'kept')));
+
+        $this->assertSame(['msg_1', 'queued', 'kept'], [$result->getId(), $result->getStatus(), $result->getNote()]);
+    }
+
+    public function testAScheduledResultKeepsItsScheduleThroughSerialization(): void
+    {
+        $this->reply(self::scheduledReply('2026-11-03T09:00:00.000Z'));
+        $sent = $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => '2026-11-03T09:00:00Z',
+        ]);
+
+        $result = unserialize(serialize($sent));
+
+        $this->assertSame('scheduled', $result->getStatus());
+        $this->assertEquals($sent->getScheduledAt(), $result->getScheduledAt());
     }
 
     public function testBadClientOptionsAreRefused(): void

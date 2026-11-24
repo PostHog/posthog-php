@@ -67,6 +67,19 @@ class EmailError extends RuntimeException
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public function __serialize(): array
+    {
+        $properties = (array) $this;
+        if ($this->messageId === null) {
+            unset($properties["\0" . self::class . "\0messageId"]);
+        }
+
+        return $properties;
+    }
+
+    /**
      * A coarse category of the failure: `validation_error`, `missing_api_key`, `invalid_permission`,
      * `not_found`, `concurrent_idempotent_requests`, `invalid_idempotent_request`, `rate_limit_exceeded`,
      * `monthly_quota_exceeded`, `service_unavailable` or `application_error`.
