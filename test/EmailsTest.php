@@ -2031,44 +2031,51 @@ PHP);
 
     public static function clocksThatFailAgainstTheSystemClock(): array
     {
-        return [
-            'now() throws, a day before the system clock' => [false, '-1 day', 'queued'],
-            'now() throws, a day after the system clock' => [false, '+1 day', 'schedule_not_confirmed'],
-            'its time fails to convert, a day before the system clock' => [true, '-1 day', 'queued'],
-            'its time fails to convert, a day after the system clock' => [true, '+1 day', 'schedule_not_confirmed'],
-        ];
+        $cases = [];
+        foreach (['now() throws', 'its time fails to convert', 'its time fails to move'] as $failure) {
+            $cases["$failure, a day before the system clock"] = [$failure, '-1 day', 'queued'];
+            $cases["$failure, a day after the system clock"] = [$failure, '+1 day', 'schedule_not_confirmed'];
+        }
+
+        return $cases;
     }
 
     #[DataProvider('clocksThatFailAgainstTheSystemClock')]
     public function testAClockThatFailsAfterTheAnswerFallsBackToTheSystemClock(
-        bool $failsToConvert,
+        string $failure,
         string $offset,
         string $outcome
     ): void {
         $answered = fn (): bool => $this->requests !== [];
-        Clock::set(new class ($this->clock, $answered, $failsToConvert) implements ClockInterface {
+        Clock::set(new class ($this->clock, $answered, $failure) implements ClockInterface {
             public function __construct(
                 private ClockInterface $working,
                 private Closure $answered,
-                private bool $failsToConvert
+                private string $failure
             ) {
             }
 
             public function now(): DateTimeImmutable
             {
-                if (($this->answered)() && $this->failsToConvert) {
-                    return new class ('now') extends DateTimeImmutable {
+                if (!($this->answered)()) {
+                    return $this->working->now();
+                }
+
+                return match ($this->failure) {
+                    'its time fails to convert' => new class ('now') extends DateTimeImmutable {
                         public function setTimezone(DateTimeZone $timezone): static
                         {
                             throw new RuntimeException('timezone unavailable');
                         }
-                    };
-                }
-                if (($this->answered)()) {
-                    throw new RuntimeException('clock unavailable');
-                }
-
-                return $this->working->now();
+                    },
+                    'its time fails to move' => new class ('now') extends DateTimeImmutable {
+                        public function modify(string $modifier): static
+                        {
+                            throw new RuntimeException('modify unavailable');
+                        }
+                    },
+                    default => throw new RuntimeException('clock unavailable'),
+                };
             }
 
             public function sleep(float|int $seconds): void

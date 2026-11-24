@@ -1304,7 +1304,7 @@ final class Emails
         // symfony/clock 6.2 has no Clock class, and up to 6.3.0 its NativeClock raises a deprecation on PHP 8.4+
         // that an app may turn into an exception.
         try {
-            return Clock::get()->now()->setTimezone(new DateTimeZone('UTC'));
+            return DateTimeImmutable::createFromInterface(Clock::get()->now())->setTimezone(new DateTimeZone('UTC'));
         } catch (Throwable) {
             return new DateTimeImmutable('now', new DateTimeZone('UTC'));
         }
