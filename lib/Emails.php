@@ -419,8 +419,9 @@ final class Emails
      * Each recipient's `idempotency_key` is 1 to 255 visible ASCII characters, a different one for each recipient
      * of the call, and every retry reuses it, so a retry never queues an email twice. Without it, the client makes
      * one that covers its own retries but not a second call, so pass keys you store when a batch may be cut off
-     * and run again: a rerun within 24 hours replays the emails that went out instead of sending them twice. Make
-     * each key name one email of one run, such as `digest:2026-11-24:ada`. A single send and a batch recipient
+     * and run again: a rerun within 24 hours replays the emails that went out instead of sending them twice. Build
+     * each key from an ID you store with the job, such as the digest's own ID, never from the time of the run, so
+     * a retry after midnight makes the same keys. A single send and a batch recipient
      * with the same key and the same email replay each other. Never reuse a key for another email: PostHog would
      * replay the earlier email instead of sending this one.
      *
@@ -433,21 +434,25 @@ final class Emails
      * - `not_attempted`: an earlier request of the batch failed, so the client sent nothing for it.
      *
      * A request that fails as a whole, such as a rate limit past its retries, stops the batch and throws
-     * EmailBatchError, whose getResults() holds every recipient. At the end of every batch, the client reads each
-     * `unconfirmed` email without a message ID by its key. When PostHog has the email, the recipient comes back
-     * still `unconfirmed`, with the email's getMessageId(). The code `batch_unavailable` (409) means the project
+     * EmailBatchError, whose getResults() holds every recipient. At the end of every batch, the client tries to read
+     * each `unconfirmed` email without a message ID by its key. It stops at the first read that fails other than
+     * with a 404, so the rest keep no message ID. When PostHog has the email, the recipient comes back still
+     * `unconfirmed`, with the email's getMessageId(). The code `batch_unavailable` (409) means the project
      * can't send batches yet, and is never retried. `not_found` (404) means the template doesn't exist or batch
      * sends are off for the project. For both, send each email the batch didn't queue with send() and its
      * recipient's `idempotency_key`. Shared content over 4 MiB of JSON throws `content_too_large` before any
      * request, and a recipient whose email alone is that large is `failed` with `content_too_large`.
      *
      * ```php
-     * $run = 'digest:' . date('Y-m-d');
      * $result = $client->emails()->batch([
      *     'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
      *     'recipients' => [
-     *         ['to' => 'ada@example.com', 'template_data' => ['name' => 'Ada'], 'idempotency_key' => "$run:ada"],
-     *         ['to' => 'alan@example.com', 'template_data' => ['name' => 'Alan'], 'idempotency_key' => "$run:alan"],
+     *         ['to' => 'ada@example.com', 'template_data' => ['name' => 'Ada'], 'idempotency_key' => "$digestId:ada"],
+     *         [
+     *             'to' => 'alan@example.com',
+     *             'template_data' => ['name' => 'Alan'],
+     *             'idempotency_key' => "$digestId:alan",
+     *         ],
      *     ],
      * ]);
      * foreach ($result->getResults() as $email) {

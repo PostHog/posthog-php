@@ -89,13 +89,13 @@ $status = PostHog::emails()->get($result->getId()); // queued, sent, delivered, 
 `batch()` sends the same email to many recipients, one email each, and returns a result per recipient in the order of `recipients`:
 
 ```php
-$run = 'digest:' . date('Y-m-d'); // one key per email of this run
+// $digestId is stored with the job, so a retry of the job makes the same keys
 $result = PostHog::emails()->batch([
     'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
     'template_data' => ['team' => 'Analytics'], // shared by every recipient
     'recipients' => [
-        ['to' => 'ada@example.com', 'template_data' => ['name' => 'Ada'], 'idempotency_key' => "$run:ada"],
-        ['to' => 'alan@example.com', 'template_data' => ['name' => 'Alan'], 'idempotency_key' => "$run:alan"],
+        ['to' => 'ada@example.com', 'template_data' => ['name' => 'Ada'], 'idempotency_key' => "$digestId:ada"],
+        ['to' => 'alan@example.com', 'template_data' => ['name' => 'Alan'], 'idempotency_key' => "$digestId:alan"],
     ],
 ]);
 foreach ($result->getResults() as $email) {
@@ -107,8 +107,8 @@ foreach ($result->getResults() as $email) {
 
 - **Recipients.** Each recipient has `to` and optional `distinct_id`, `idempotency_key` and `template_data`. A recipient's `template_data` is merged over the shared `template_data`, and its keys replace the shared ones. With `template_key`, the content is the same for every recipient, so a recipient can't carry `template_data`. A batch takes no `cc`, `bcc`, `attachments` or `scheduled_at`: send those emails with `send()`.
 - **Requests.** The client sends at most 100 recipients and 4 MiB of JSON per request, one request after another, and waits at least 45 seconds for each answer. Shared content over 4 MiB throws `content_too_large` before any request. A recipient whose email alone is over 4 MiB is `failed` with `content_too_large`.
-- **Idempotency keys.** Every retry reuses each recipient's key, so a retry never queues an email twice. Without a key, the client makes one that covers its own retries but not a second call. When a batch may be cut off and run again, pass keys you store: send it again with the same key within 24 hours, so it goes out once. Each recipient of a call needs a different key. Make each key name one email of one run, such as `digest:2026-11-24:ada`. Never reuse a key for another email: PostHog would replay the earlier email instead of sending this one.
-- **Statuses.** `getStatus()` is `queued` when PostHog accepted the email, `failed` when it refused it (`getError()` says why, such as a suppressed address), `unconfirmed` when the client can't tell, such as after a lost answer, and `not_attempted` when an earlier request of the batch failed. At the end of every batch, the client reads each `unconfirmed` email without a message ID by its key. When PostHog has the email, the recipient comes back still `unconfirmed`, with its `getMessageId()`. Send each `unconfirmed` email again with the same key within 24 hours, so it goes out once. `getWarnings()` holds PostHog's warnings, each once.
+- **Idempotency keys.** Every retry reuses each recipient's key, so a retry never queues an email twice. Without a key, the client makes one that covers its own retries but not a second call. When a batch may be cut off and run again, pass keys you store: send it again with the same key within 24 hours, so it goes out once. Each recipient of a call needs a different key. Build each key from an ID you store with the job, such as the digest's own ID, never from the time of the run: a retry after midnight would make new keys and send the emails again. Never reuse a key for another email: PostHog would replay the earlier email instead of sending this one.
+- **Statuses.** `getStatus()` is `queued` when PostHog accepted the email, `failed` when it refused it (`getError()` says why, such as a suppressed address), `unconfirmed` when the client can't tell, such as after a lost answer, and `not_attempted` when an earlier request of the batch failed. At the end of every batch, the client tries to read each `unconfirmed` email without a message ID by its key. It stops at the first read that fails other than with a 404, so the rest keep no message ID. When PostHog has the email, the recipient comes back still `unconfirmed`, with its `getMessageId()`. Send each `unconfirmed` email again with the same key within 24 hours, so it goes out once. `getWarnings()` holds PostHog's warnings, each once.
 - **Errors.** A request that fails as a whole, such as a rate limit past its retries, stops the batch and throws `PostHog\EmailBatchError`, whose `getResults()` holds every recipient. `batch_unavailable` (409) means the project can't send batches yet, and is never retried. `not_found` (404) means the template doesn't exist or batch sends are off. For both, send each email the batch didn't queue with `send()` and its recipient's `idempotency_key`.
 
 ## Questions?
