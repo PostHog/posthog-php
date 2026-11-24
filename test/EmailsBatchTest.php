@@ -540,7 +540,7 @@ class EmailsBatchTest extends TestCase
     public static function sharedContentAtTheLimit(): array
     {
         return [
-            'exactly 4 MiB' => [0, 'recipient fails with content_too_large'],
+            'exactly 4 MiB' => [0, 'recipient failed with content_too_large'],
             'one byte more' => [1, 'batch throws content_too_large for template_data'],
         ];
     }
@@ -553,8 +553,8 @@ class EmailsBatchTest extends TestCase
 
         try {
             $result = $this->batch(self::recipients(1), ['template_data' => ['n' => $note]]);
-            $error = $result->getResults()[0]->getError();
-            $actual = "recipient fails with {$error->getErrorCode()}";
+            $recipient = $result->getResults()[0];
+            $actual = "recipient {$recipient->getStatus()} with {$recipient->getError()->getErrorCode()}";
         } catch (EmailError $error) {
             $actual = "batch throws {$error->getErrorCode()} for {$error->getField()}";
         }
