@@ -541,12 +541,11 @@ $emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static
     array $headers,
     string $body
 ) use (&$sent, $bodyFile): array {
-    preg_match_all('/"idempotency_key":"([^"]+)"/', $body, $keys);
     file_put_contents($bodyFile, $body);
     $sent = strlen($body);
     return [200, json_encode(['results' => array_map(
-        static fn(string $key): array => ['message_id' => "msg-$key", 'status' => 'queued'],
-        $keys[1]
+        static fn(int $index): array => ['message_id' => "msg-$index", 'status' => 'queued'],
+        range(0, 99)
     )]), []];
 });
 $recipients = [];
@@ -582,7 +581,7 @@ PHP;
     {
         return [
             'evenly sized' => [45000, 45000],
-            'one large recipient' => [2020, 4800000],
+            'one recipient near the per-email limit' => [32000, 1400000],
         ];
     }
 
@@ -642,6 +641,9 @@ PHP;
             'encodes later' => [static fn(): string => 'later'],
             'throws later' => [static function (): never {
                 throw new RuntimeException('Serialized once already.');
+            }],
+            'throws an email error later' => [static function (): never {
+                throw new EmailError('network_error', 'Not a network error.');
             }],
         ];
     }
@@ -748,19 +750,6 @@ PHP;
             ],
             [$second->getError()->getErrorCode(), $second->getError()->getFix()]
         );
-    }
-
-    public function testAnAnswerTooLargeToReadLeavesTheRequestUnconfirmed(): void
-    {
-        $this->reply(
-            new EmailError('response_too_large', 'PostHog answered with more than 1048576 bytes.')
-        );
-
-        $error = $this->batchError(self::recipients(1));
-
-        $this->assertSame('response_too_large', $error->getErrorCode());
-        $this->assertSame(['unconfirmed'], self::statuses($error->getResults()));
-        $this->assertSame([self::BATCH_URL], $this->requestUrls());
     }
 
     public function testA503ThenARefusalOfTheWholeRequestKeepsTheRecipientUnconfirmed(): void

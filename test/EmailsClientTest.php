@@ -5,6 +5,7 @@ namespace PostHog\Test;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
+use PostHog\EmailBatchError;
 use PostHog\EmailError;
 use PostHog\PostHog;
 
@@ -332,6 +333,26 @@ class EmailsClientTest extends TestCase
         $expected = ['response_too_large', 'application_error', null];
         $this->assertSame([$expected, $expected], $errors);
         $this->assertCount(2, $this->server->requests());
+    }
+
+    public function testABatchWhoseAnswerIsTooLargeToReadLeavesItsRecipientsUnconfirmedWithTheirKeys(): void
+    {
+        $this->server = new LocalHttpServer([
+            ['status' => 200, 'body' => '{"results":[]}', 'pad_body_bytes' => 2_000_000],
+        ]);
+
+        try {
+            $this->client()->emails()->batch([
+                'recipients' => [['to' => 'user@example.com', 'idempotency_key' => 'welcome:user']],
+                'template_id' => self::TEMPLATE_ID,
+            ]);
+            $this->fail('batch() did not throw');
+        } catch (EmailBatchError $error) {
+            $this->assertSame('response_too_large', $error->getErrorCode());
+            [$result] = $error->getResults();
+            $this->assertSame(['unconfirmed', 'welcome:user'], [$result->getStatus(), $result->getIdempotencyKey()]);
+        }
+        $this->assertCount(1, $this->server->requests());
     }
 
     public function testAClosedPortIsANetworkError(): void

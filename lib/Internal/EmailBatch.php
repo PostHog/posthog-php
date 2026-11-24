@@ -9,7 +9,6 @@ use PostHog\EmailError;
 use PostHog\EmailWarning;
 use PostHog\SendBatchResult;
 use PostHog\Uuid;
-use Throwable;
 
 /**
  * @internal
@@ -82,16 +81,11 @@ final class EmailBatch
         try {
             return new self($members, json_encode($request, self::JSON_FLAGS));
         } catch (JsonException $exception) {
-            try {
-                self::encode($shared, 'The email');
-                foreach ($wires as $index => $wire) {
-                    self::encode($wire, "recipients[$index]", 510);
-                }
-            } catch (EmailError $traced) {
-                throw $traced;
-            } catch (Throwable) {
-            }
-            throw self::unencodable('The email', $exception);
+            throw new EmailError(
+                'invalid_form',
+                'The email could not be encoded as JSON, so no email was sent: ' . $exception->getMessage() . '.',
+                previous: $exception
+            );
         }
     }
 
@@ -154,23 +148,6 @@ final class EmailBatch
         return $data === [] ? (object) [] : $data;
     }
 
-    private static function encode(mixed $payload, string $what, int $depth = 512): string
-    {
-        try {
-            return json_encode($payload, self::JSON_FLAGS, $depth);
-        } catch (JsonException $exception) {
-            throw self::unencodable($what, $exception);
-        }
-    }
-
-    private static function unencodable(string $what, JsonException $exception): EmailError
-    {
-        return new EmailError(
-            'invalid_form',
-            "$what could not be encoded as JSON, so no email was sent: " . $exception->getMessage() . '.',
-            previous: $exception
-        );
-    }
 
     public function requestBody(): string
     {
