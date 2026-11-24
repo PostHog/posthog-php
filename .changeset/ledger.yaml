@@ -198,3 +198,7 @@ posthog-php@4.27.0:
   dir: ""
   intents:
     - every-cases-sleep
+posthog-php@4.27.1:
+  dir: ""
+  intents:
+    - sour-roses-cheer
