@@ -2136,16 +2136,32 @@ class EmailsTest extends TestCase
         );
     }
 
-    public function testAResultOrErrorSerializedByTheVersionBeforeSchedulingStillReads(): void
+    public function testAResultSerializedByTheVersionBeforeSchedulingStillReads(): void
     {
         $result = unserialize(self::resultSerializedBeforeScheduling());
-        $error = unserialize(self::errorSerializedBeforeScheduling());
 
         $this->assertSame('msg_1', $result->getId());
         $this->assertSame('queued', $result->getStatus());
         $this->assertNull($result->getScheduledAt());
+    }
+
+    public function testAnErrorSerializedByTheVersionBeforeSchedulingStillReads(): void
+    {
+        $error = unserialize(self::errorSerializedBeforeScheduling());
+
         $this->assertSame('throttled', $error->getErrorCode());
         $this->assertNull($error->getMessageId());
+    }
+
+    public function testASendWithoutScheduledAtIgnoresAScheduleInTheAnswer(): void
+    {
+        $this->reply(self::scheduledReply('2026-11-03T09:00:00.000Z'));
+
+        $result = $this->emails()->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
+
+        $this->assertArrayNotHasKey('scheduled_at', $this->body());
+        $this->assertSame('queued', $result->getStatus());
+        $this->assertNull($result->getScheduledAt());
     }
 
     public function testBadClientOptionsAreRefused(): void
