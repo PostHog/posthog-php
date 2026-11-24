@@ -786,6 +786,19 @@ PHP;
         );
     }
 
+    public function testAnInFlightCodeOnA503LeavesItsRecipientsUnconfirmedWithoutClaimingTheKeyIsInFlight(): void
+    {
+        $this->reply(self::wholeCall(503, 'idempotency_key_in_flight'));
+
+        $error = $this->batchError(self::recipients(1), ['max_retries' => 0]);
+
+        [$result] = $error->getResults();
+        $this->assertSame(['unconfirmed', 'delivery_unavailable'], [
+            $result->getStatus(),
+            $result->getError()->getErrorCode(),
+        ]);
+    }
+
     public function testAnInFlightCodeOnAnAnswerOtherThanA409RefusesTheRequest(): void
     {
         $this->reply(self::wholeCall(400, 'idempotency_key_in_flight'));

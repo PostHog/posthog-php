@@ -184,7 +184,8 @@ final class EmailBatch
     public function lost(EmailError $error): EmailError
     {
         $this->mayHaveQueued = true;
-        $cause = $error->getErrorCode() === self::IN_FLIGHT ? self::inFlight($error) : self::unconfirmed(null);
+        $inFlight = $error->getStatusCode() === 409 && $error->getErrorCode() === self::IN_FLIGHT;
+        $cause = $inFlight ? self::inFlight($error) : self::unconfirmed(null);
         $this->setAll('unconfirmed', $cause);
 
         return $error;
