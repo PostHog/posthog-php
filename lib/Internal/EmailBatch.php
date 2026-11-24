@@ -32,7 +32,7 @@ final class EmailBatch
     private array $warnings = [];
 
     /**
-     * @param list<array{to: string, key: string, wire: string, field: string}> $members
+     * @param list<array{to: string, key: string, bytes: int, wire: ?string, field: string}> $members
      * @param string $opening The request body up to its first recipient.
      */
     private function __construct(private array $members, private string $opening)
@@ -89,7 +89,7 @@ final class EmailBatch
     }
 
     /**
-     * @return array{to: string, key: string, wire: string, field: string}
+     * @return array{to: string, key: string, bytes: int, wire: ?string, field: string}
      */
     private static function member(int $index, mixed $recipient, bool $isTemplateForm): array
     {
@@ -121,20 +121,38 @@ final class EmailBatch
         if (array_key_exists('template_data', $recipient)) {
             $wire['message_data'] = self::templateData($index, $recipient['template_data'], $isTemplateForm);
         }
-        $encoded = self::encode($wire, "recipients[$index]");
-        $field = "recipients__$index";
-        if ($distinctId !== null && 2 * strlen(self::encode($distinctId, "recipients[$index]")) > strlen($encoded)) {
-            $field .= '__distinct_id';
-        } elseif (array_key_exists('template_data', $recipient)) {
-            $field .= '__template_data';
+        $values = [];
+        $sizes = [];
+        $bytes = strlen('{}') + count($wire) - 1;
+        foreach ($wire as $name => $value) {
+            $values[$name] = self::encode($value, "recipients[$index]");
+            $sizes[$name === 'message_data' ? 'template_data' : $name] = strlen($values[$name]);
+            $bytes += strlen("\"$name\":") + strlen($values[$name]);
         }
+        $named = array_intersect_key($sizes, ['distinct_id' => true, 'template_data' => true]);
+        arsort($named);
+        $largest = array_key_first($named);
 
         return [
             'to' => $to,
             'key' => $wire['idempotency_key'],
-            'wire' => $encoded,
-            'field' => $field,
+            'bytes' => $bytes,
+            'wire' => $bytes > self::MAX_REQUEST_BYTES ? null : self::joined($values),
+            'field' => $largest === null ? "recipients__$index" : "recipients__{$index}__$largest",
         ];
+    }
+
+    /**
+     * @param array<string, string> $values
+     */
+    private static function joined(array $values): string
+    {
+        $pairs = [];
+        foreach ($values as $name => $json) {
+            $pairs[] = "\"$name\":$json";
+        }
+
+        return '{' . implode(',', $pairs) . '}';
     }
 
     private static function templateData(int $index, mixed $data, bool $isTemplateForm): array|object
@@ -179,7 +197,7 @@ final class EmailBatch
         $indices = [];
         $bytes = $emptyBytes;
         foreach ($this->members as $index => $member) {
-            $memberBytes = strlen($member['wire']);
+            $memberBytes = $member['bytes'];
             if ($emptyBytes + $memberBytes > self::MAX_REQUEST_BYTES) {
                 $this->set($index, 'failed', error: self::recipientTooLarge($member['field']));
                 continue;

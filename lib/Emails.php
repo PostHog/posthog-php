@@ -426,8 +426,9 @@ final class Emails
      * and run again: a rerun within 24 hours replays the emails that went out instead of sending them twice. Build
      * each key from an ID you store with the job, such as the digest's own ID, never from the time of the run, so
      * a retry after midnight makes the same keys. A single send and a batch recipient
-     * with the same key and the same email replay each other. Never reuse a key for another email: PostHog refuses
-     * it with `idempotency_key_reused`, and that email doesn't go out.
+     * with the same key and the same email replay each other. Never reuse a key for another email: PostHog sends one
+     * email per key, so the other doesn't go out. PostHog usually refuses it with `idempotency_key_reused`, but two
+     * sends that arrive at the same time can both answer `queued`.
      *
      * Check each result's getStatus():
      *

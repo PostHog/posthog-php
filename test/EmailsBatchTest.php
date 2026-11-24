@@ -561,21 +561,25 @@ class EmailsBatchTest extends TestCase
     public static function recipientsTooLargeAlone(): array
     {
         return [
-            'a large distinct_id' => [
-                ['distinct_id' => str_repeat('d', self::FOUR_MIB), 'template_data' => ['greeting' => 'Hi']],
-                'recipients__0__distinct_id',
-            ],
-            'large template_data' => [
-                ['distinct_id' => 'user-1', 'template_data' => ['note' => str_repeat('x', self::FOUR_MIB)]],
-                'recipients__0__template_data',
-            ],
+            'a large distinct_id' => [self::FOUR_MIB, 2, 'recipients__0__distinct_id'],
+            'large template_data' => [6, self::FOUR_MIB, 'recipients__0__template_data'],
+            'a distinct_id a little larger than template_data' => [2097130, 2097115, 'recipients__0__distinct_id'],
+            'template_data a little larger than distinct_id' => [2097115, 2097130, 'recipients__0__template_data'],
         ];
     }
 
     #[DataProvider('recipientsTooLargeAlone')]
-    public function testARecipientTooLargeAloneNamesItsLargestField(array $fields, string $field): void
-    {
-        $result = $this->batch([['to' => 'a@example.com', 'idempotency_key' => 'k1', ...$fields]]);
+    public function testARecipientTooLargeAloneNamesItsLargestField(
+        int $distinctIdBytes,
+        int $noteBytes,
+        string $field
+    ): void {
+        $result = $this->batch([[
+            'to' => 'a@example.com',
+            'idempotency_key' => 'k1',
+            'distinct_id' => str_repeat('d', $distinctIdBytes),
+            'template_data' => ['x' => str_repeat('x', $noteBytes)],
+        ]]);
 
         $recipient = $result->getResults()[0];
         $this->assertSame(
@@ -685,6 +689,33 @@ PHP);
             exec($command, $output, $exitCode);
 
             $this->assertSame([0, '[100,10000]'], [$exitCode, implode("\n", $output)]);
+        } finally {
+            unlink($script);
+        }
+    }
+
+    public function testARecipientWithA10MibDistinctIdOfNulBytesFailsWithin128MibOfMemory(): void
+    {
+        $script = tempnam(sys_get_temp_dir(), 'posthog-emails-batch-');
+        file_put_contents($script, <<<'PHP'
+<?php
+require $argv[1];
+$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [500, '', []]);
+$recipient = $emails->batch([
+    'recipients' => [['to' => 'user@example.com', 'distinct_id' => str_repeat("\0", 10 * 1024 * 1024)]],
+    'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
+])->getResults()[0];
+echo json_encode([$recipient->getStatus(), $recipient->getError()->getErrorCode(), $recipient->getError()->getField()]);
+PHP);
+        try {
+            $command = escapeshellarg(PHP_BINARY) . ' -d memory_limit=128M ' . escapeshellarg($script) . ' '
+                . escapeshellarg(__DIR__ . '/../vendor/autoload.php') . ' 2>&1';
+            exec($command, $output, $exitCode);
+
+            $this->assertSame(
+                [0, '["failed","content_too_large","recipients__0__distinct_id"]'],
+                [$exitCode, implode("\n", $output)]
+            );
         } finally {
             unlink($script);
         }
