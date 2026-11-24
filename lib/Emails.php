@@ -353,9 +353,6 @@ final class Emails
      */
     private static function logWarnings(array $warnings): void
     {
-        if (!function_exists('error_log')) {
-            return;
-        }
         foreach ($warnings as $warning) {
             $line = $warning->getCode() . ': ' . $warning->getMessage();
             try {
