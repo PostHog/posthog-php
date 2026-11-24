@@ -2029,46 +2029,88 @@ PHP);
         $this->assertSame('schedule_not_confirmed', $error->getErrorCode());
     }
 
-    public static function clocksThatFailAgainstTheSystemClock(): array
+    public function testTheMinuteAheadIsCountedFromBeforeTheRequest(): void
     {
-        $cases = [];
-        foreach (['now() throws', 'its time fails to convert', 'its time fails to move'] as $failure) {
-            $cases["$failure, a day before the system clock"] = [$failure, '-1 day', 'queued'];
-            $cases["$failure, a day after the system clock"] = [$failure, '+1 day', 'schedule_not_confirmed'];
+        Clock::set(new class ($this->clock, fn (): bool => $this->requests !== []) implements ClockInterface {
+            public function __construct(private ClockInterface $working, private Closure $answered)
+            {
+            }
+
+            public function now(): DateTimeImmutable
+            {
+                return ($this->answered)() ? $this->working->now()->modify('+2 seconds') : $this->working->now();
+            }
+
+            public function sleep(float|int $seconds): void
+            {
+            }
+
+            public function withTimeZone(\DateTimeZone|string $timezone): static
+            {
+                return $this;
+            }
+        });
+        $this->reply([202, json_encode([
+            'message_id' => self::MESSAGE_ID,
+            'status' => 'queued',
+            'scheduled_at' => null,
+        ]), []]);
+
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => '2026-11-02T12:01:01Z',
+        ]);
+
+        $this->assertSame('schedule_not_confirmed', $error->getErrorCode());
+        $this->assertSame(self::MESSAGE_ID, $error->getMessageId());
+    }
+
+    public static function clocksThatFail(): array
+    {
+        $cases = [
+            'now() throws, a day before the system clock' => ['now() throws', 'now', '-1 day', 'queued'],
+            'now() throws, a day after the system clock' => ['now() throws', 'now', '+1 day', 'schedule_not_confirmed'],
+        ];
+        foreach (['its time fails to convert', 'its time fails to move'] as $failure) {
+            $cases["$failure, a day before its time"] = [$failure, '+2 days', '+1 day', 'queued'];
+            $cases["$failure, a day after its time"] = [$failure, '-2 days', '-1 day', 'schedule_not_confirmed'];
         }
 
         return $cases;
     }
 
-    #[DataProvider('clocksThatFailAgainstTheSystemClock')]
-    public function testAClockThatFailsAfterTheAnswerFallsBackToTheSystemClock(
+    #[DataProvider('clocksThatFail')]
+    public function testAClockThatFailsStillDecidesWhetherPostHogMaySendNow(
         string $failure,
+        string $clockTime,
         string $offset,
         string $outcome
     ): void {
-        $answered = fn (): bool => $this->requests !== [];
-        Clock::set(new class ($this->clock, $answered, $failure) implements ClockInterface {
+        Clock::set(new class ($this->clock, $failure, $clockTime) implements ClockInterface {
+            private int $reads = 0;
+
             public function __construct(
                 private ClockInterface $working,
-                private Closure $answered,
-                private string $failure
+                private string $failure,
+                private string $time
             ) {
             }
 
             public function now(): DateTimeImmutable
             {
-                if (!($this->answered)()) {
+                if ($this->reads++ > 0) {
                     return $this->working->now();
                 }
 
                 return match ($this->failure) {
-                    'its time fails to convert' => new class ('now') extends DateTimeImmutable {
+                    'its time fails to convert' => new class ($this->time) extends DateTimeImmutable {
                         public function setTimezone(DateTimeZone $timezone): static
                         {
                             throw new RuntimeException('timezone unavailable');
                         }
                     },
-                    'its time fails to move' => new class ('now') extends DateTimeImmutable {
+                    'its time fails to move' => new class ($this->time) extends DateTimeImmutable {
                         public function modify(string $modifier): static
                         {
                             throw new RuntimeException('modify unavailable');
