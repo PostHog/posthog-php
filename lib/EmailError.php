@@ -67,13 +67,13 @@ class EmailError extends RuntimeException
     }
 
     /**
-     * @return array<string, mixed>
+     * @return list<string>
      */
-    public function __serialize(): array
+    public function __sleep()
     {
-        $properties = (array) $this;
+        $properties = array_keys((array) $this);
         if ($this->messageId === null) {
-            unset($properties["\0" . self::class . "\0messageId"]);
+            $properties = array_values(array_diff($properties, ["\0" . self::class . "\0messageId"]));
         }
 
         return $properties;

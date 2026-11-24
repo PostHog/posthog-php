@@ -2036,6 +2036,30 @@ PHP);
         }
     }
 
+    public function testAWarningReachesAnErrorLogInThePostHogNamespaceWhenTheGlobalOneIsDisabled(): void
+    {
+        $output = self::runPhp(<<<'PHP'
+namespace PostHog;
+function error_log(string $message): bool
+{
+    echo $message, "\n";
+    return true;
+}
+require $argv[1];
+$emails = new Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [202, json_encode([
+    'message_id' => 'msg_1',
+    'status' => 'queued',
+    'warnings' => [['code' => 'unverified_link', 'detail' => 'A link points to an unknown domain.']],
+]), []]);
+echo $emails->send(['to' => 'user@example.com', 'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b'])->getStatus();
+PHP, '-d disable_functions=error_log');
+
+        $this->assertSame(
+            "[PostHog][Emails] Email warning unverified_link: A link points to an unknown domain.\nqueued",
+            $output
+        );
+    }
+
     public function testTheMinuteAheadCountsInUtcWhenTheLocalClockLeavesDaylightSaving(): void
     {
         Clock::set(new MockClock('2026-11-01T05:59:30Z', 'America/New_York'));
@@ -2361,6 +2385,74 @@ PHP);
         $result = unserialize(serialize(new NotedSendEmailResult('msg_1', 'kept')));
 
         $this->assertSame(['msg_1', 'queued', 'kept'], [$result->getId(), $result->getStatus(), $result->getNote()]);
+    }
+
+    public static function subclassesWithTheirOwnSerialization(): array
+    {
+        $result = ['PostHog\SendEmailResult', "'msg_1'"];
+        $error = ['PostHog\EmailError', "'throttled', 'Slow down.', 429"];
+        $sleep = 'private string $token = "tok"; public function __sleep() { return []; }';
+        $serialize = 'public function __serialize() { return ["own" => 1]; } '
+            . 'public function __unserialize(array $d) {}';
+        $own = 'O:4:"Kept":1:{s:3:"own";i:1;}';
+
+        return [
+            'a result subclass whose __sleep leaves a field out' => [...$result, $sleep, 'O:4:"Kept":0:{}'],
+            'an error subclass whose __sleep leaves a field out' => [...$error, $sleep, 'O:4:"Kept":0:{}'],
+            'a result subclass with an untyped __serialize' => [...$result, $serialize, $own],
+            'an error subclass with an untyped __serialize' => [...$error, $serialize, $own],
+        ];
+    }
+
+    #[DataProvider('subclassesWithTheirOwnSerialization')]
+    public function testASubclassWithItsOwnSerializationKeepsIt(
+        string $parent,
+        string $arguments,
+        string $body,
+        string $serialized
+    ): void {
+        $output = self::runPhp(
+            "require \$argv[1];\nfinal class Kept extends $parent { $body }\necho serialize(new Kept($arguments));"
+        );
+
+        $this->assertSame($serialized, $output);
+    }
+
+    public function testAnUnconfirmedScheduleKeepsItsMessageIdThroughSerialization(): void
+    {
+        $this->reply([202, '{"message_id":"' . self::MESSAGE_ID . '","status":"queued","scheduled_at":null}', []]);
+        $ignoreArgs = ini_set('zend.exception_ignore_args', '1');
+        try {
+            $this->emails()->send([
+                'to' => 'user@example.com',
+                'template_id' => self::TEMPLATE_ID,
+                'scheduled_at' => '2099-01-01T09:00:00Z',
+            ]);
+            $this->fail('Expected schedule_not_confirmed');
+        } catch (EmailError $error) {
+            $read = unserialize(serialize($error));
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $ignoreArgs);
+        }
+
+        $this->assertSame(['schedule_not_confirmed', self::MESSAGE_ID], [$read->getErrorCode(), $read->getMessageId()]);
+    }
+
+    private static function runPhp(string $code, string $options = ''): string
+    {
+        $script = tempnam(sys_get_temp_dir(), 'posthog-emails-');
+        file_put_contents($script, "<?php\n" . $code);
+        try {
+            exec(
+                escapeshellarg(PHP_BINARY) . " $options " . escapeshellarg($script) . ' '
+                    . escapeshellarg(__DIR__ . '/../vendor/autoload.php') . ' 2>&1',
+                $output
+            );
+        } finally {
+            unlink($script);
+        }
+
+        return implode("\n", $output);
     }
 
     public function testAScheduledResultKeepsItsScheduleThroughSerialization(): void

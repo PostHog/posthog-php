@@ -1816,11 +1816,11 @@
                         }
                     ]
                 },
-                "__serialize": {
+                "__sleep": {
                     "static": false,
                     "abstract": false,
                     "final": false,
-                    "returnType": "array",
+                    "returnType": null,
                     "parameters": []
                 },
                 "getDocsUrl": {
@@ -5591,11 +5591,11 @@
                         }
                     ]
                 },
-                "__serialize": {
+                "__sleep": {
                     "static": false,
                     "abstract": false,
                     "final": false,
-                    "returnType": "array",
+                    "returnType": null,
                     "parameters": []
                 },
                 "getId": {
