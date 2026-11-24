@@ -1069,6 +1069,10 @@ class Client implements FeatureFlagEvaluationsHost
         $localFlagDefinition = null;
 
         $definitionSnapshot = $this->flagDefinitionSnapshot();
+        [$personKnownAbsentKeys, $groupKnownAbsentKeys] = self::knownAbsentKeyLookups(
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
+        );
         foreach ($definitionSnapshot['flags'] as $flag) {
             if ($flag["key"] == $key) {
                 $localFlagDefinition = $flag;
@@ -1080,8 +1084,8 @@ class Client implements FeatureFlagEvaluationsHost
                         $groups,
                         $personProperties,
                         $groupProperties,
-                        $personPropertyKeysKnownAbsent,
-                        $groupPropertyKeysKnownAbsent
+                        $personKnownAbsentKeys,
+                        $groupKnownAbsentKeys
                     );
                 } catch (RequiresServerEvaluationException $e) {
                     $result = null;
@@ -1401,6 +1405,10 @@ class Client implements FeatureFlagEvaluationsHost
         $fallbackToFlags = false;
 
         $definitionSnapshot = $this->flagDefinitionSnapshot();
+        [$personKnownAbsentKeys, $groupKnownAbsentKeys] = self::knownAbsentKeyLookups(
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
+        );
         if (count($definitionSnapshot['flags']) > 0) {
             foreach ($definitionSnapshot['flags'] as $flag) {
                 try {
@@ -1411,8 +1419,8 @@ class Client implements FeatureFlagEvaluationsHost
                         $groups,
                         $personProperties,
                         $groupProperties,
-                        $personPropertyKeysKnownAbsent,
-                        $groupPropertyKeysKnownAbsent
+                        $personKnownAbsentKeys,
+                        $groupKnownAbsentKeys
                     );
                 } catch (RequiresServerEvaluationException $e) {
                     $fallbackToFlags = true;
@@ -1536,6 +1544,10 @@ class Client implements FeatureFlagEvaluationsHost
         // any flag was inconclusive (which forces a remote round trip) so we can skip /flags
         // entirely when local evaluation covered everything we know about.
         $definitionSnapshot = $this->flagDefinitionSnapshot();
+        [$personKnownAbsentKeys, $groupKnownAbsentKeys] = self::knownAbsentKeyLookups(
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
+        );
         $hasLocalDefinitions = count($definitionSnapshot['flags']) > 0;
         if ($hasLocalDefinitions) {
             $localKeys = [];
@@ -1558,8 +1570,8 @@ class Client implements FeatureFlagEvaluationsHost
                         $groups,
                         $personProperties,
                         $groupProperties,
-                        $personPropertyKeysKnownAbsent,
-                        $groupPropertyKeysKnownAbsent
+                        $personKnownAbsentKeys,
+                        $groupKnownAbsentKeys
                     );
                 } catch (RequiresServerEvaluationException | InconclusiveMatchException $e) {
                     $fallbackToRemote = true;
@@ -1810,19 +1822,18 @@ class Client implements FeatureFlagEvaluationsHost
         ];
     }
 
-    private function computeFlagLocally(
-        array $featureFlag,
-        array $definitionSnapshot,
-        string $distinctId,
-        array $groups = array(),
-        array $personProperties = array(),
-        array $groupProperties = array(),
-        ?array $personPropertyKeysKnownAbsent = null,
-        ?array $groupPropertyKeysKnownAbsent = null
-    ): bool | string {
-        // Create evaluation cache for flag dependencies
-        $evaluationCache = [];
-
+    /**
+     * Build the known-absent lookup maps once per evaluation call, not once per flag.
+     *
+     * @param list<string>|null $personPropertyKeysKnownAbsent
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent
+     * @return array{0: array<string, true>, 1: array<string, array<string, true>>} Person keys, then group keys
+     *     by group type name, as array keys.
+     */
+    private static function knownAbsentKeyLookups(
+        ?array $personPropertyKeysKnownAbsent,
+        ?array $groupPropertyKeysKnownAbsent
+    ): array {
         $personKnownAbsentKeys = [];
         foreach ($personPropertyKeysKnownAbsent ?? [] as $absentKey) {
             // Known absence never hides a persons-table field read through the metadata prefix.
@@ -1834,6 +1845,25 @@ class Client implements FeatureFlagEvaluationsHost
         foreach ($groupPropertyKeysKnownAbsent ?? [] as $groupType => $absentKeys) {
             $groupKnownAbsentKeys[$groupType] = array_fill_keys($absentKeys, true);
         }
+        return [$personKnownAbsentKeys, $groupKnownAbsentKeys];
+    }
+
+    /**
+     * @param array<string, true> $personKnownAbsentKeys From knownAbsentKeyLookups().
+     * @param array<string, array<string, true>> $groupKnownAbsentKeys From knownAbsentKeyLookups().
+     */
+    private function computeFlagLocally(
+        array $featureFlag,
+        array $definitionSnapshot,
+        string $distinctId,
+        array $groups = array(),
+        array $personProperties = array(),
+        array $groupProperties = array(),
+        array $personKnownAbsentKeys = array(),
+        array $groupKnownAbsentKeys = array()
+    ): bool | string {
+        // Create evaluation cache for flag dependencies
+        $evaluationCache = [];
 
         if (!$featureFlag["active"]) {
             return false;
