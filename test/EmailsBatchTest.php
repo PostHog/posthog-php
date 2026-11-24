@@ -444,20 +444,45 @@ class EmailsBatchTest extends TestCase
         $this->assertSame([], $this->requests);
     }
 
-    public function testABatchTooLargeForPostHogIsTheErrorAndSaysToSplitIt(): void
+    #[DataProvider('tooLargeAnswers')]
+    public function testABatchTooLargeForPostHogIsTheErrorWithPostHogsFix(int $status, array $answer, ?string $fix): void
     {
-        $this->reply(self::wholeCall(413, 'content_too_large'));
+        $this->reply([$status, json_encode($answer), []]);
 
         $error = $this->batchError(self::recipients(100), ['max_retries' => 2]);
 
-        $this->assertSame(['content_too_large', 413, 'Nope.'], [
+        $this->assertSame(['content_too_large', $status, 'Nope.', $fix], [
             $error->getErrorCode(),
             $error->getStatusCode(),
             $error->getMessage(),
+            $error->getFix(),
         ]);
-        $this->assertSame('Split the recipients into smaller batches.', $error->getFix());
         $this->assertSame(self::times(100, 'failed'), self::statuses($error->getResults()));
         $this->assertCount(1, $this->requests);
+    }
+
+    public static function tooLargeAnswers(): array
+    {
+        $answer = ['type' => 'invalid_request', 'code' => 'content_too_large', 'detail' => 'Nope.'];
+
+        return [
+            "a body too large, with PostHog's fix" => [
+                413,
+                [...$answer, 'fix' => 'Split the recipients into smaller batches.'],
+                'Split the recipients into smaller batches.',
+            ],
+            'a body too large, without a fix' => [
+                413,
+                $answer,
+                'Make the email or its template_data smaller, or send fewer recipients in each batch.',
+            ],
+            'shared content too large' => [
+                400,
+                [...$answer, 'fix' => 'Make the shared template_data smaller.'],
+                'Make the shared template_data smaller.',
+            ],
+            'shared content too large, without a fix' => [400, $answer, null],
+        ];
     }
 
     public function testAHundredRecipientsGoOutInOneRequest(): void
@@ -478,7 +503,7 @@ require $argv[1];
 $appMemory = str_repeat('b', 14 * 1024 * 1024);
 $emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [
     200,
-    '{"results":[{"error":{"code":"content_too_large","detail":"Too large.","status":413}}]}',
+    '{"results":[{"message_id":"m0","error":{"code":"content_too_large","detail":"Too large.","status":400}}]}',
     [],
 ]);
 $result = $emails->batch([
@@ -489,6 +514,63 @@ echo $result->getResults()[0]->getStatus(), ' ', $result->getResults()[0]->getEr
 PHP;
 
         $this->assertSame([0, 'failed content_too_large'], self::runWithMemoryLimit($script, '32M'));
+    }
+
+    public function testAHundredRecipientsNearTheBodyLimitGoOutInTightMemory(): void
+    {
+        $script = <<<'PHP'
+<?php
+require $argv[1];
+$appMemory = str_repeat('b', 15 * 1024 * 1024);
+$slots = json_encode(['results' => array_fill(0, 100, ['message_id' => 'm', 'status' => 'queued'])]);
+$sent = 0;
+$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static function (
+    string $method,
+    string $url,
+    array $headers,
+    string $body
+) use ($slots, &$sent): array {
+    $sent = strlen($body);
+    return [200, $slots, []];
+});
+$recipients = [];
+for ($index = 0; $index < 100; $index++) {
+    $recipients[] = ['to' => "user$index@example.com", 'template_data' => ['note' => str_repeat('x', 45000)]];
+}
+$result = $emails->batch([
+    'recipients' => $recipients,
+    'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
+]);
+$queued = array_filter($result->getResults(), static fn($r): bool => $r->getStatus() === 'queued');
+echo count($queued), ' ', $sent > 4500000 ? 'body sent' : "body of $sent bytes";
+PHP;
+
+        $this->assertSame([0, '100 body sent'], self::runWithMemoryLimit($script, '35M'));
+    }
+
+    public function testSharedDataTooLargeForPostHogComesBackAsItsRefusalInTightMemory(): void
+    {
+        $script = <<<'PHP'
+<?php
+require $argv[1];
+$appMemory = str_repeat('b', 9 * 1024 * 1024);
+$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [
+    413,
+    '{"type":"invalid_request","code":"content_too_large","detail":"Too large."}',
+    [],
+]);
+try {
+    $emails->batch([
+        'recipients' => [['to' => 'user@example.com']],
+        'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
+        'template_data' => ['note' => str_repeat('x', 7 * 1024 * 1024)],
+    ]);
+} catch (PostHog\EmailBatchError $error) {
+    echo $error->getErrorCode();
+}
+PHP;
+
+        $this->assertSame([0, 'content_too_large'], self::runWithMemoryLimit($script, '32M'));
     }
 
     public function testARecipientNestedDeeperThanItsEncodingAllowsIsRefusedBeforeAnyRequest(): void
@@ -567,11 +649,11 @@ PHP;
         $this->assertSame(['queued'], self::statuses($result->getResults()));
     }
 
-    public function testARetryAfterALostAnswerReportsWhatTheRetryAnswered(): void
+    public function testARecipientARetryRefusesAfterALostAnswerStaysUnconfirmedWithItsKey(): void
     {
         $this->reply(
             self::networkError(),
-            self::ok(self::queued('m0', true), self::refused('m1', 'idempotency_key_reused'))
+            self::ok(self::queued('m0', true), self::refused('m1', 'recipient_suppressed'))
         );
         $recipients = self::recipients(2);
         unset($recipients[1]['idempotency_key']);
@@ -585,8 +667,11 @@ PHP;
         [$first, $second] = $result->getResults();
         $this->assertSame($derived, $second->getIdempotencyKey());
         $this->assertSame(['queued', 'm0', true], [$first->getStatus(), $first->getMessageId(), $first->isReplayed()]);
-        $this->assertSame(['failed', 'm1'], [$second->getStatus(), $second->getMessageId()]);
-        $this->assertSame('idempotency_key_reused', $second->getError()->getErrorCode());
+        $this->assertSame(['unconfirmed', 'm1'], [$second->getStatus(), $second->getMessageId()]);
+        $this->assertSame(
+            ['recipient_suppressed', 'Send it again with the same idempotency_key within 24 hours, so it goes out once.'],
+            [$second->getError()->getErrorCode(), $second->getError()->getFix()]
+        );
     }
 
     public function testAnAnswerTooLargeToReadLeavesTheRequestUnconfirmed(): void

@@ -31,10 +31,9 @@ final class EmailBatch
     private bool $mayHaveQueued = false;
 
     /**
-     * @param list<array{to: string, key: string, wire: string}> $members
-     * @param string $opening The request body up to its first recipient.
+     * @param list<array{to: string, key: string}> $members
      */
-    private function __construct(private array $members, private string $opening)
+    private function __construct(private array $members, private string $body)
     {
     }
 
@@ -76,13 +75,19 @@ final class EmailBatch
             }
             $members[] = $member;
         }
-        $pairs = [];
-        foreach ($shared as $name => $value) {
-            $pairs[] = self::encode((string) $name, 'The email') . ':' . self::encode($value, 'The email');
+        $body = self::encode($shared, 'The email');
+        $body[-1] = ',';
+        $body .= '"recipients":[';
+        foreach ($members as $index => $member) {
+            if ($index > 0) {
+                $body .= ',';
+            }
+            $body .= $member['wire'];
+            unset($members[$index]['wire'], $member);
         }
-        $opening = '{' . implode(',', [...$pairs, '"recipients":[']);
+        $body .= ']}';
 
-        return new self($members, $opening);
+        return new self($members, $body);
     }
 
     /**
@@ -178,14 +183,14 @@ final class EmailBatch
 
     public function requestBody(): string
     {
-        return $this->opening . implode(',', array_column($this->members, 'wire')) . ']}';
+        return $this->body;
     }
 
     public function lost(EmailError $error): EmailError
     {
         $this->mayHaveQueued = true;
         $inFlight = $error->getStatusCode() === 409 && $error->getErrorCode() === self::IN_FLIGHT;
-        $cause = $inFlight ? self::inFlight($error) : self::unconfirmed(null);
+        $cause = $inFlight ? self::sendAgain($error) : self::unconfirmed(null);
         $this->setAll('unconfirmed', $cause);
 
         return $error;
@@ -230,6 +235,10 @@ final class EmailBatch
             return;
         }
         $answer = self::slotError($error, $messageId);
+        if ($this->mayHaveQueued) {
+            $this->set($index, 'unconfirmed', $messageId, error: self::sendAgain($answer));
+            return;
+        }
         $status = in_array($answer->getErrorCode(), self::UNCONFIRMED_CODES, true) ? 'unconfirmed' : 'failed';
         $this->set($index, $status, $messageId, error: $answer);
     }
@@ -303,7 +312,7 @@ final class EmailBatch
             ];
         }
         if ($status === 413) {
-            $answered['fix'] = 'Split the recipients into smaller batches.';
+            $answered += ['fix' => 'Make the email or its template_data smaller, or send fewer recipients in each batch.'];
         }
         if (($answered['code'] ?? null) === 'batch_unavailable') {
             $answered['fix'] = 'Until batch sends are on for the project, ' . self::SEND_SINGLY;
@@ -341,7 +350,7 @@ final class EmailBatch
         );
     }
 
-    private static function inFlight(EmailError $error): EmailError
+    private static function sendAgain(EmailError $error): EmailError
     {
         return new EmailError(
             $error->getErrorCode(),
@@ -352,7 +361,8 @@ final class EmailBatch
             $error->getDocsUrl(),
             $error->getField(),
             $error->getRetryAfterMs(),
-            $error
+            $error,
+            $error->getMessageId()
         );
     }
 }
