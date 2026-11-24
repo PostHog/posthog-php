@@ -438,7 +438,8 @@ final class Emails
      * EmailBatchError, whose getResults() holds every recipient: `failed`, or `unconfirmed` when an attempt may have
      * queued it. getFix() carries PostHog's advice. The code `content_too_large` with status 413 means the request
      * is larger than PostHog takes: send fewer recipients in each batch, or a smaller email. With status 400 it means
-     * the shared content is too large, so fewer recipients won't help: make the content or template_data smaller.
+     * the content or template_data every recipient shares is too large, so fewer recipients won't help: make it
+     * smaller, or send those emails one at a time with send().
      * `batch_unavailable` (409) means the project can't send batches yet, and is never retried.
      * `not_found` (404) means the template doesn't exist or batch sends are off for the project. For both, send each
      * email the batch didn't queue with send() and its recipient's `idempotency_key`.
