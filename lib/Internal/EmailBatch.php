@@ -9,6 +9,7 @@ use PostHog\EmailError;
 use PostHog\EmailWarning;
 use PostHog\SendBatchResult;
 use PostHog\Uuid;
+use Throwable;
 
 /**
  * @internal
@@ -81,9 +82,14 @@ final class EmailBatch
         try {
             return new self($members, json_encode($request, self::JSON_FLAGS));
         } catch (JsonException $exception) {
-            self::encode($shared, 'The email');
-            foreach ($wires as $index => $wire) {
-                self::encode($wire, "recipients[$index]", 510);
+            try {
+                self::encode($shared, 'The email');
+                foreach ($wires as $index => $wire) {
+                    self::encode($wire, "recipients[$index]", 510);
+                }
+            } catch (EmailError $traced) {
+                throw $traced;
+            } catch (Throwable) {
             }
             throw self::unencodable('The email', $exception);
         }

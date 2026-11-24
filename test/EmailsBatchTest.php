@@ -13,6 +13,7 @@ use PostHog\EmailBatchError;
 use PostHog\EmailError;
 use PostHog\Emails;
 use PostHog\SendBatchResult;
+use RuntimeException;
 use stdClass;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
@@ -446,8 +447,11 @@ class EmailsBatchTest extends TestCase
     }
 
     #[DataProvider('tooLargeAnswers')]
-    public function testABatchTooLargeForPostHogIsTheErrorWithPostHogsFix(int $status, array $answer, ?string $fix): void
-    {
+    public function testABatchTooLargeForPostHogIsTheErrorWithPostHogsFix(
+        int $status,
+        array $answer,
+        ?string $fix
+    ): void {
         $this->reply([$status, json_encode($answer), []]);
 
         $error = $this->batchError(self::recipients(100), ['max_retries' => 2]);
@@ -554,7 +558,10 @@ $result = $emails->batch([
     'recipients' => $recipients,
     'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
 ]);
-$ids = array_map(static fn($r): ?string => $r->getStatus() === 'queued' ? $r->getMessageId() : null, $result->getResults());
+$ids = array_map(
+    static fn($r): ?string => $r->getStatus() === 'queued' ? $r->getMessageId() : null,
+    $result->getResults()
+);
 echo count(array_unique(array_filter($ids))), ' ', $sent > 4500000 ? 'body sent' : "body of $sent bytes";
 PHP;
 
@@ -604,14 +611,19 @@ PHP;
         $this->assertSame([0, 'content_too_large'], self::runWithMemoryLimit($script, '32M'));
     }
 
-    public function testAValueThatFailsToEncodeOnceSendsNothingEvenIfItWouldEncodeLater(): void
+    #[DataProvider('laterSerializations')]
+    public function testAValueThatFailsToEncodeOnceIsRefusedWithoutARequestWhateverItDoesLater(Closure $later): void
     {
-        $value = new class implements JsonSerializable {
+        $value = new class ($later) implements JsonSerializable {
             private int $calls = 0;
+
+            public function __construct(private Closure $later)
+            {
+            }
 
             public function jsonSerialize(): mixed
             {
-                return ++$this->calls === 1 ? NAN : 'later';
+                return ++$this->calls === 1 ? NAN : ($this->later)();
             }
         };
 
@@ -622,6 +634,16 @@ PHP;
             $this->assertSame('invalid_form', $error->getErrorCode());
         }
         $this->assertSame([], $this->requests);
+    }
+
+    public static function laterSerializations(): array
+    {
+        return [
+            'encodes later' => [static fn(): string => 'later'],
+            'throws later' => [static function (): never {
+                throw new RuntimeException('Serialized once already.');
+            }],
+        ];
     }
 
     public function testARecipientNestedDeeperThanItsEncodingAllowsIsRefusedBeforeAnyRequest(): void
@@ -720,7 +742,10 @@ PHP;
         $this->assertSame(['queued', 'm0', true], [$first->getStatus(), $first->getMessageId(), $first->isReplayed()]);
         $this->assertSame(['unconfirmed', 'm1'], [$second->getStatus(), $second->getMessageId()]);
         $this->assertSame(
-            ['recipient_suppressed', 'Send it again with the same idempotency_key within 24 hours, so it goes out once.'],
+            [
+                'recipient_suppressed',
+                'Send it again with the same idempotency_key within 24 hours, so it goes out once.',
+            ],
             [$second->getError()->getErrorCode(), $second->getError()->getFix()]
         );
     }
@@ -748,7 +773,11 @@ PHP;
         [$result] = $error->getResults();
         $this->assertSame('unconfirmed', $result->getStatus());
         $this->assertSame(
-            ['sending_paused', 422, 'Send it again with the same idempotency_key within 24 hours, so it goes out once.'],
+            [
+                'sending_paused',
+                422,
+                'Send it again with the same idempotency_key within 24 hours, so it goes out once.',
+            ],
             [$result->getError()->getErrorCode(), $result->getError()->getStatusCode(), $result->getError()->getFix()]
         );
     }
