@@ -32,6 +32,19 @@ class SendEmailResult
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public function __serialize(): array
+    {
+        $properties = (array) $this;
+        if ($this->scheduledAt === null) {
+            unset($properties["\0" . self::class . "\0scheduledAt"]);
+        }
+
+        return $properties;
+    }
+
+    /**
      * The queued email's message ID. Pass it to Emails::get() to read the email's status.
      */
     public function getId(): string
@@ -56,8 +69,9 @@ class SendEmailResult
     }
 
     /**
-     * `scheduled` when the email waits for its `scheduled_at`, `queued` when it goes out now: a send without
-     * `scheduled_at`, or one whose `scheduled_at` had passed when PostHog accepted it.
+     * `scheduled` when PostHog confirmed the email's `scheduled_at`, even if a replay answers after the email
+     * went out. `queued` when it goes out now: a send without `scheduled_at`, or one whose `scheduled_at` was at
+     * most a minute ahead of the client's clock when it sent the attempt PostHog answered, a replay included.
      */
     public function getStatus(): string
     {
