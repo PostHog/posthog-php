@@ -217,12 +217,13 @@ final class Emails
      * on every retry. A time that has passed sends the email now. Only PostHog Cloud schedules emails: on
      * any other app host, such as a self-hosted PostHog, a reverse proxy or a custom domain, a send with
      * `scheduled_at` throws `scheduling_requires_cloud` before any request. The result's getStatus() is
-     * `scheduled` and getScheduledAt() the confirmed time, or `queued` and null when the time had passed or
-     * was at most a minute ahead of this machine's clock. When PostHog accepts the email without confirming
-     * the time, or queues it now for a time more than a minute ahead, the send throws `schedule_not_confirmed`
-     * with the email's getMessageId(): read its status before you send it again. Work out a relative time,
-     * such as an hour from now, once, and pass the same time when you send again with the same
-     * `idempotency_key`: the key covers the time, so another time throws `idempotency_key_reused`. To stop
+     * `scheduled` and getScheduledAt() the confirmed time, or `queued` and null when the time had passed.
+     * When PostHog accepts the email without confirming the time, the send throws `schedule_not_confirmed`
+     * with the email's getMessageId(): read its status before you send it again. So does a `queued` answer
+     * for a time more than a minute ahead of this machine's clock; the minute allows for clock difference.
+     * Work out a relative time, such as an hour from now, once, and pass the same time when you send again
+     * with the same `idempotency_key`: the key covers the time, so another time throws
+     * `idempotency_key_reused`. To stop
      * scheduled emails before they go out, disable the email's workflow in PostHog until they have reached
      * a final status. That refuses every new send of it meanwhile.
      *
@@ -1271,9 +1272,10 @@ final class Emails
     private static function sendsNow(array $fields, DateTimeImmutable $requested): bool
     {
         return ($fields['status'] ?? null) === 'queued'
-            && array_key_exists('scheduled_at', $fields)
-            && $fields['scheduled_at'] === null
-            && $requested <= Clock::get()->now()->modify('+' . self::SEND_NOW_LEEWAY_SECONDS . ' seconds');
+            && ($fields['scheduled_at'] ?? null) === null
+            && $requested <= Clock::get()->now()
+                ->setTimezone(new DateTimeZone('UTC'))
+                ->modify('+' . self::SEND_NOW_LEEWAY_SECONDS . ' seconds');
     }
 
     /**
