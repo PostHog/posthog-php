@@ -8,6 +8,7 @@ use DateTimeInterface;
 use DateTimeZone;
 use InvalidArgumentException;
 use JsonException;
+use PostHog\Internal\ScheduledEmailResult;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\MonotonicClock;
@@ -1279,7 +1280,7 @@ final class Emails
             throw self::scheduleNotConfirmed($id, $status);
         }
 
-        return new SendEmailResult($id, $replayed, $warnings, $scheduledAt);
+        return new ScheduledEmailResult($id, $replayed, $warnings, $scheduledAt);
     }
 
     /**

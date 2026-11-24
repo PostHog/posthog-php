@@ -5578,25 +5578,8 @@
                             "default": [],
                             "defaultConstant": null,
                             "hasDefault": true
-                        },
-                        {
-                            "name": "scheduledAt",
-                            "type": "?DateTimeImmutable",
-                            "byReference": false,
-                            "variadic": false,
-                            "optional": true,
-                            "default": null,
-                            "defaultConstant": null,
-                            "hasDefault": true
                         }
                     ]
-                },
-                "__sleep": {
-                    "static": false,
-                    "abstract": false,
-                    "final": false,
-                    "returnType": null,
-                    "parameters": []
                 },
                 "getId": {
                     "static": false,

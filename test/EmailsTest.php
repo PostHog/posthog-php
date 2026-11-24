@@ -2518,6 +2518,48 @@ PHP);
         $this->assertTrue($reflector->isUninitializedLazyObject($lazy));
     }
 
+    public static function lazyResultSubclasses(): array
+    {
+        $dynamic = '#[AllowDynamicProperties] final class Kept extends PostHog\SendEmailResult {}';
+        $virtual = 'final class Kept extends PostHog\SendEmailResult { public string $label { get => "kept"; } }';
+        $made = '$r = new Kept("msg_1"); $r->context = "kept"; return $r;';
+
+        return [
+            'a ghost with a dynamic property' => [
+                $dynamic,
+                'newLazyGhost(static function (Kept $r) { $r->__construct("msg_1"); $r->context = "kept"; })',
+                'context',
+            ],
+            'a proxy with a dynamic property' => [$dynamic, "newLazyProxy(static function () { $made })", 'context'],
+            'a ghost with a virtual property' => [
+                $virtual,
+                'newLazyGhost(static function (Kept $r) { $r->__construct("msg_1"); })',
+                'label',
+            ],
+            'a proxy with a virtual property' => [$virtual, 'newLazyProxy(static fn() => new Kept("msg_1"))', 'label'],
+        ];
+    }
+
+    #[DataProvider('lazyResultSubclasses')]
+    #[RequiresPhp('>= 8.4')]
+    public function testALazyResultSubclassKeepsItsPropertiesThroughSerialization(
+        string $class,
+        string $lazy,
+        string $property
+    ): void {
+        $output = self::runPhp(<<<PHP
+set_error_handler(static function (int \$no, string \$message): never {
+    throw new ErrorException(\$message, 0, \$no);
+});
+require \$argv[1];
+$class
+\$read = unserialize(serialize((new ReflectionClass(Kept::class))->$lazy));
+echo \$read->getId(), ' ', \$read->$property;
+PHP);
+
+        $this->assertSame('msg_1 kept', $output);
+    }
+
     public function testAnUnconfirmedScheduleKeepsItsMessageIdThroughSerialization(): void
     {
         $this->reply([202, '{"message_id":"' . self::MESSAGE_ID . '","status":"queued","scheduled_at":null}', []]);
