@@ -1900,11 +1900,19 @@ class EmailsTest extends TestCase
         );
     }
 
-    public function testAnUnconfirmedScheduleWithWarningsStillNamesTheEmailWhenErrorLogIsDisabled(): void
+    public static function errorLogsThatCannotLog(): array
+    {
+        return [
+            'disabled' => [''],
+            'replaced by one that throws' => ['function error_log(): never { throw new RuntimeException(); }'],
+        ];
+    }
+
+    #[DataProvider('errorLogsThatCannotLog')]
+    public function testAnUnconfirmedScheduleWithWarningsStillNamesTheEmailWhenErrorLogCannotLog(string $errorLog): void
     {
         $script = tempnam(sys_get_temp_dir(), 'posthog-emails-');
-        file_put_contents($script, <<<'PHP'
-<?php
+        file_put_contents($script, "<?php\n$errorLog\n" . <<<'PHP'
 require $argv[1];
 $emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [202, json_encode([
     'message_id' => 'msg_1',
@@ -1951,30 +1959,53 @@ PHP);
         $this->assertSame('schedule_not_confirmed', $error->getErrorCode());
     }
 
-    public static function timesAgainstTheSystemClock(): array
+    public static function clocksThatFailAgainstTheSystemClock(): array
     {
-        return [
-            'a day before the system clock' => ['-1 day', 'queued'],
-            'a day after the system clock' => ['+1 day', 'schedule_not_confirmed'],
-        ];
+        $cases = [];
+        foreach (['now() throws', 'its time fails to convert', 'its time fails to move'] as $failure) {
+            $cases["$failure, a day before the system clock"] = [$failure, '-1 day', 'queued'];
+            $cases["$failure, a day after the system clock"] = [$failure, '+1 day', 'schedule_not_confirmed'];
+        }
+
+        return $cases;
     }
 
-    #[DataProvider('timesAgainstTheSystemClock')]
-    public function testAClockThatFailsAfterTheAnswerFallsBackToTheSystemClock(string $offset, string $outcome): void
-    {
+    #[DataProvider('clocksThatFailAgainstTheSystemClock')]
+    public function testAClockThatFailsAfterTheAnswerFallsBackToTheSystemClock(
+        string $failure,
+        string $offset,
+        string $outcome
+    ): void {
         $answered = fn (): bool => $this->requests !== [];
-        Clock::set(new class ($this->clock, $answered) implements ClockInterface {
-            public function __construct(private ClockInterface $working, private Closure $answered)
-            {
+        Clock::set(new class ($this->clock, $answered, $failure) implements ClockInterface {
+            public function __construct(
+                private ClockInterface $working,
+                private Closure $answered,
+                private string $failure
+            ) {
             }
 
             public function now(): DateTimeImmutable
             {
-                if (($this->answered)()) {
-                    throw new RuntimeException('clock unavailable');
+                if (!($this->answered)()) {
+                    return $this->working->now();
                 }
 
-                return $this->working->now();
+                return match ($this->failure) {
+                    'its time fails to convert' => new class ('now') extends DateTimeImmutable {
+                        public function setTimezone(DateTimeZone $timezone): static
+                        {
+                            throw new RuntimeException('timezone unavailable');
+                        }
+                    },
+                    'its time fails to move' => new class ('now') extends DateTimeImmutable {
+                        public function modify(string $modifier): static
+                        {
+                            throw new RuntimeException('modify unavailable');
+                        }
+                    },
+                    default => throw new RuntimeException('clock unavailable'),
+                };
             }
 
             public function sleep(float|int $seconds): void
