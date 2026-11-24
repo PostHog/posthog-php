@@ -1150,7 +1150,7 @@ final class Emails
                     $reply = $this->request('POST', $url, $headers, $body, $timeoutMs);
                 } catch (EmailError $error) {
                     if (in_array($error->getErrorCode(), self::LOST_ANSWER_CODES, true)) {
-                        $run->lost($position);
+                        $run->lost($position, $error);
                     }
                     throw $error;
                 }
@@ -1183,6 +1183,8 @@ final class Emails
                 if ($error->getStatusCode() === 404) {
                     continue;
                 }
+                return;
+            } catch (Throwable) {
                 return;
             }
             $run->found($index, $status->getId());

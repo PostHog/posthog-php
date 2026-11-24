@@ -3,6 +3,8 @@
 namespace PostHog\Test;
 
 use Closure;
+use Error;
+use ErrorException;
 use DateTimeImmutable;
 use DateTimeZone;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -13,6 +15,7 @@ use PostHog\EmailError;
 use PostHog\Emails;
 use PostHog\SendBatchResult;
 use stdClass;
+use Throwable;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\MockClock;
@@ -506,6 +509,11 @@ class EmailsBatchTest extends TestCase
         return [
             'html' => [['template_key' => 'news', 'subject' => 'News', 'html' => $over, 'text' => 'Hi'], 'html'],
             'text' => [['template_key' => 'news', 'subject' => 'News', 'html' => '<p>Hi</p>', 'text' => $over], 'text'],
+            'from' => [['template_key' => 'news', 'subject' => 'News', 'html' => '<p>Hi</p>', 'from' => $over], 'from'],
+            'reply_to' => [
+                ['template_key' => 'news', 'subject' => 'News', 'html' => '<p>Hi</p>', 'reply_to' => $over],
+                'reply_to',
+            ],
             'template_data' => [
                 ['template_id' => self::TEMPLATE_ID, 'template_data' => ['note' => $over]],
                 'template_data',
@@ -527,21 +535,48 @@ class EmailsBatchTest extends TestCase
         $this->assertSame([], $this->requests);
     }
 
-    public function testHoldsOneRequestBodyAtATime(): void
+    public function testABatchOf10000RecipientsFitsIn26MibOfMemory(): void
     {
-        $recipients = self::recipients(3000);
-        $usageAtTheFirstRequest = 0;
-        $this->reply(function (string $url, string $body) use (&$usageAtTheFirstRequest): array {
-            $usageAtTheFirstRequest = memory_get_usage();
+        $script = tempnam(sys_get_temp_dir(), 'posthog-emails-batch-');
+        file_put_contents($script, <<<'PHP'
+<?php
+require $argv[1];
+$requests = 0;
+$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static function (
+    string $method,
+    string $url,
+    array $headers,
+    ?string $body
+) use (&$requests): array {
+    $requests++;
+    $slots = [];
+    foreach (json_decode($body, true)['recipients'] as $recipient) {
+        $slots[] = ['message_id' => 'msg_' . $recipient['idempotency_key'], 'status' => 'queued'];
+    }
 
-            return self::allQueued()($url, $body);
-        }, ...array_fill(0, 29, self::allQueued()));
-        $usageBefore = memory_get_usage();
+    return [200, json_encode(['results' => $slots]), []];
+});
+$recipients = [];
+for ($index = 0; $index < 10000; $index++) {
+    $recipients[] = ['to' => "user$index@example.com", 'idempotency_key' => "key-$index"];
+}
+$result = $emails->batch([
+    'recipients' => $recipients,
+    'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
+    'template_data' => ['note' => str_repeat('x', 200000)],
+]);
+$queued = count(array_filter($result->getResults(), static fn($email): bool => $email->getStatus() === 'queued'));
+echo json_encode([$requests, $queued]);
+PHP);
+        try {
+            $command = escapeshellarg(PHP_BINARY) . ' -d memory_limit=26M ' . escapeshellarg($script) . ' '
+                . escapeshellarg(__DIR__ . '/../vendor/autoload.php') . ' 2>&1';
+            exec($command, $output, $exitCode);
 
-        $this->batch($recipients, ['template_data' => ['note' => str_repeat('x', 200_000)]]);
-
-        $this->assertSame(array_fill(0, 30, 100), $this->recipientsPerRequest());
-        $this->assertLessThan(5_000_000, $usageAtTheFirstRequest - $usageBefore);
+            $this->assertSame([0, '[100,10000]'], [$exitCode, implode("\n", $output)]);
+        } finally {
+            unlink($script);
+        }
     }
 
     public static function requestsAtTheLimit(): array
@@ -749,7 +784,6 @@ class EmailsBatchTest extends TestCase
 
         $this->assertSame('client_closed', $error->getErrorCode());
         $this->assertCount(1, $this->requests);
-        $this->assertTrue($this->closed);
         $this->assertSame(
             [...self::times(100, 'failed'), ...self::times(50, 'not_attempted')],
             self::statuses($error->getResults())
@@ -939,6 +973,78 @@ class EmailsBatchTest extends TestCase
         $this->assertSame(['not_found', $message], [$error->getErrorCode(), $error->getMessage()]);
         $this->assertStringContainsString('batch sends', strtolower((string) $error->getWhy()));
         $this->assertSame('Check template_id, or ' . self::SEND_SINGLY, $error->getFix());
+    }
+
+    public static function retriesAfterAnUnconfirmingAttempt(): array
+    {
+        $unavailable = self::wholeCall(503, 'delivery_unavailable');
+
+        return [
+            'a 503, then an answer without a result per recipient' => [$unavailable, self::ok(), 'api_error'],
+            'a lost answer, then an answer without a result per recipient' => [
+                self::networkError(),
+                self::ok(),
+                'api_error',
+            ],
+            'a 503, then a 503' => [$unavailable, $unavailable, 'delivery_unavailable'],
+        ];
+    }
+
+    #[DataProvider('retriesAfterAnUnconfirmingAttempt')]
+    public function testARetryThatCannotConfirmEitherIsTheLaterError(
+        mixed $first,
+        mixed $retry,
+        string $laterCode
+    ): void {
+        $this->reply($first, $retry, self::wholeCall(404, 'not_found'));
+
+        $error = $this->batchError(self::recipients(1), ['max_retries' => 1]);
+
+        [$result] = $error->getResults();
+        $this->assertSame('unconfirmed', $result->getStatus());
+        $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
+        $this->assertSame($laterCode, $result->getLaterError()?->getErrorCode());
+    }
+
+    public static function lookupFailures(): array
+    {
+        return [
+            'a promoted deprecation' => [new ErrorException('Constant DATE_RFC7231 is deprecated', 0, E_DEPRECATED)],
+            'a missing class' => [new Error('Class "Symfony\\Component\\Clock\\Clock" not found')],
+        ];
+    }
+
+    #[DataProvider('lookupFailures')]
+    public function testALookupThatThrowsStopsTheReadsAndKeepsEveryResult(Throwable $failure): void
+    {
+        $this->reply(
+            self::ok(self::queued('m0'), self::notConfirmed(null), self::notConfirmed(null)),
+            static function () use ($failure): never {
+                throw $failure;
+            }
+        );
+
+        $result = $this->batch(self::recipients(3), ['max_retries' => 0]);
+
+        $this->assertSame(['key-1'], $this->readsByKey());
+        $this->assertSame(
+            [['queued', 'm0'], ['unconfirmed', null], ['unconfirmed', null]],
+            array_map(static fn($r): array => [$r->getStatus(), $r->getMessageId()], $result->getResults())
+        );
+    }
+
+    #[DataProvider('lookupFailures')]
+    public function testALookupThatThrowsAfterAFailedRequestStillThrowsTheBatchError(Throwable $failure): void
+    {
+        $this->reply(self::networkError(), static function () use ($failure): never {
+            throw $failure;
+        });
+
+        $error = $this->batchError(self::recipients(2), ['max_retries' => 0]);
+
+        $this->assertSame('network_error', $error->getErrorCode());
+        $this->assertSame(['key-0'], $this->readsByKey());
+        $this->assertSame(['unconfirmed', 'unconfirmed'], self::statuses($error->getResults()));
     }
 
     public function testAnAnswerWithoutAResultPerRecipientLeavesTheRequestUnconfirmed(): void

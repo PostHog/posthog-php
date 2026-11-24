@@ -195,26 +195,13 @@ final class EmailBatch
         return $this->opening . implode(',', $wires) . ']}';
     }
 
-    /**
-     * @param EmailError|null $laterError What the attempt answered, kept as the later error of a recipient an
-     *     earlier attempt already left `unconfirmed`.
-     */
-    public function lost(int $position, ?EmailError $laterError = null): void
+    public function lost(int $position, EmailError $error): void
     {
+        $this->recordLaterError($position, $error);
         foreach ($this->requests[$position] as $index) {
-            $earlier = $this->results[$index] ?? null;
-            if ($laterError !== null && $this->isUnconfirmed($index)) {
-                $this->set(
-                    $index,
-                    'unconfirmed',
-                    $earlier->getMessageId(),
-                    error: $earlier->getError(),
-                    laterError: $laterError
-                );
-                continue;
+            if (!$this->isUnconfirmed($index)) {
+                $this->set($index, 'unconfirmed', error: self::unconfirmed(null));
             }
-            $messageId = $earlier?->getMessageId();
-            $this->set($index, 'unconfirmed', $messageId, error: self::unconfirmed($messageId));
         }
     }
 
@@ -227,23 +214,22 @@ final class EmailBatch
         $fields = EmailReplies::fields($body);
         if ($status < 200 || $status >= 300) {
             $error = self::requestError($fields, $status, $headers, $indices);
-            if ($status >= 500) {
-                $this->lost($position);
-            } elseif ($error->getErrorCode() === self::IN_FLIGHT) {
+            if ($status >= 500 || $error->getErrorCode() === self::IN_FLIGHT) {
                 $this->lost($position, $error);
             } else {
-                $this->refusedLater($position, $error);
+                $this->recordLaterError($position, $error);
             }
             throw $error;
         }
         $slots = $fields['results'] ?? null;
         if (!is_array($slots) || !array_is_list($slots) || count($slots) !== count($indices)) {
-            $this->lost($position);
-            throw new EmailError(
+            $error = new EmailError(
                 'api_error',
                 'PostHog answered the batch without a result for each recipient.',
                 $status
             );
+            $this->lost($position, $error);
+            throw $error;
         }
         foreach ($indices as $slot => $index) {
             $this->settle($index, is_array($slots[$slot]) ? $slots[$slot] : []);
@@ -255,7 +241,7 @@ final class EmailBatch
         }
     }
 
-    private function refusedLater(int $position, EmailError $error): void
+    private function recordLaterError(int $position, EmailError $error): void
     {
         foreach ($this->requests[$position] as $index) {
             if ($this->isUnconfirmed($index)) {
@@ -483,13 +469,11 @@ final class EmailBatch
     private static function sharedTooLarge(array $shared): EmailError
     {
         $sizes = [];
-        foreach (['html', 'text', 'subject'] as $field) {
-            if (is_string($shared[$field] ?? null)) {
-                $sizes[$field] = strlen($shared[$field]);
-            }
+        foreach (array_diff_key($shared, ['template_id' => true, 'template_key' => true]) as $name => $value) {
+            $sizes[$name === 'message_data' ? 'template_data' : $name] = strlen(self::encode([$value], $name));
         }
         arsort($sizes);
-        $field = array_key_exists('template_id', $shared) ? 'template_data' : (string) array_key_first($sizes);
+        $field = (string) array_key_first($sizes);
 
         return new EmailError(
             'content_too_large',
