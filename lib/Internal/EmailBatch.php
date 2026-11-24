@@ -80,13 +80,12 @@ final class EmailBatch
         $request = [...$shared, 'recipients' => $wires];
         try {
             return new self($members, json_encode($request, self::JSON_FLAGS));
-        } catch (JsonException) {
+        } catch (JsonException $exception) {
             self::encode($shared, 'The email');
             foreach ($wires as $index => $wire) {
                 self::encode($wire, "recipients[$index]", 510);
             }
-
-            return new self($members, self::encode($request, 'The email'));
+            throw self::unencodable('The email', $exception);
         }
     }
 
@@ -154,12 +153,17 @@ final class EmailBatch
         try {
             return json_encode($payload, self::JSON_FLAGS, $depth);
         } catch (JsonException $exception) {
-            throw new EmailError(
-                'invalid_form',
-                "$what could not be encoded as JSON, so no email was sent: " . $exception->getMessage() . '.',
-                previous: $exception
-            );
+            throw self::unencodable($what, $exception);
         }
+    }
+
+    private static function unencodable(string $what, JsonException $exception): EmailError
+    {
+        return new EmailError(
+            'invalid_form',
+            "$what could not be encoded as JSON, so no email was sent: " . $exception->getMessage() . '.',
+            previous: $exception
+        );
     }
 
     public function requestBody(): string
@@ -204,7 +208,11 @@ final class EmailBatch
         foreach (array_keys($this->members) as $index) {
             $this->settle($index, is_array($slots[$index]) ? $slots[$index] : []);
         }
-        $this->warnings = EmailReplies::warnings($fields);
+        foreach (EmailReplies::warnings($fields) as $warning) {
+            if (!in_array($warning, $this->warnings)) {
+                $this->warnings[] = $warning;
+            }
+        }
     }
 
     /**

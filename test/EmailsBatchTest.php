@@ -5,6 +5,7 @@ namespace PostHog\Test;
 use Closure;
 use DateTimeImmutable;
 use DateTimeZone;
+use JsonSerializable;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\BatchEmailResult;
@@ -603,6 +604,26 @@ PHP;
         $this->assertSame([0, 'content_too_large'], self::runWithMemoryLimit($script, '32M'));
     }
 
+    public function testAValueThatFailsToEncodeOnceSendsNothingEvenIfItWouldEncodeLater(): void
+    {
+        $value = new class implements JsonSerializable {
+            private int $calls = 0;
+
+            public function jsonSerialize(): mixed
+            {
+                return ++$this->calls === 1 ? NAN : 'later';
+            }
+        };
+
+        try {
+            $this->batch(self::recipients(1, ['template_data' => ['note' => $value]]));
+            $this->fail('Expected invalid_form');
+        } catch (EmailError $error) {
+            $this->assertSame('invalid_form', $error->getErrorCode());
+        }
+        $this->assertSame([], $this->requests);
+    }
+
     public function testARecipientNestedDeeperThanItsEncodingAllowsIsRefusedBeforeAnyRequest(): void
     {
         $nested = 'v';
@@ -1024,7 +1045,7 @@ PHP;
     {
         global $errorMessages;
         $warning = ['code' => 'sandbox_sender', 'detail' => 'Sent from the test sender.'];
-        $this->reply(self::allQueued(['warnings' => [$warning]]));
+        $this->reply(self::allQueued(['warnings' => [$warning, $warning]]));
 
         $result = $this->batch(self::recipients(2));
 
