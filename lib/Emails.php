@@ -329,12 +329,20 @@ final class Emails
                 return self::parseSendReply($scheduledAt, ...$reply);
             }
         );
-        foreach ($result->getWarnings() as $warning) {
+        self::logWarnings($result->getWarnings());
+
+        return $result;
+    }
+
+    /**
+     * @param list<EmailWarning> $warnings
+     */
+    private static function logWarnings(array $warnings): void
+    {
+        foreach ($warnings as $warning) {
             $line = $warning->getCode() . ': ' . $warning->getMessage();
             error_log('[PostHog][Emails] Email warning ' . self::onOneLogLine($line));
         }
-
-        return $result;
     }
 
     /**
@@ -1261,6 +1269,7 @@ final class Emails
             return new SendEmailResult($id, $replayed, $warnings);
         }
         if (!self::confirmsSchedule($fields, $scheduledAt)) {
+            self::logWarnings($warnings);
             throw self::scheduleNotConfirmed($id, $status);
         }
 
@@ -1281,9 +1290,9 @@ final class Emails
     private static function isAtMostAMinuteAhead(DateTimeImmutable $requested): bool
     {
         try {
-            $clock = class_exists(Clock::class) ? Clock::get() : new NativeClock();
+            $now = class_exists(Clock::class) ? Clock::get()->now() : new DateTimeImmutable('now');
 
-            return $requested <= $clock->now()
+            return $requested <= $now
                 ->setTimezone(new DateTimeZone('UTC'))
                 ->modify('+' . self::SEND_NOW_LEEWAY_SECONDS . ' seconds');
         } catch (Throwable) {

@@ -2,6 +2,7 @@
 
 namespace PostHog\Test;
 
+use ErrorException;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
@@ -13,11 +14,14 @@ final class EmailsWithoutTheSymfonyClockClassTest extends TestCase
 {
     public function testAPastTimeQueuedNowOnSymfonyClock62IsAnAcceptance(): void
     {
-        // symfony/clock 6.2 has NativeClock but no Clock class. Composer's autoloader is unregistered for that one
-        // class, so class_exists() returns false as it does on 6.2.
+        // symfony/clock 6.2 has no Clock class, and on PHP 8.4+ loading its NativeClock raises a deprecation, which
+        // an app that turns deprecations into exceptions throws. The wrapped loader does both.
         foreach (spl_autoload_functions() as $loader) {
             spl_autoload_unregister($loader);
             spl_autoload_register(static function (string $class) use ($loader): void {
+                if ($class === 'Symfony\Component\Clock\NativeClock') {
+                    throw new ErrorException('Implicitly marking parameter $timezone as nullable is deprecated');
+                }
                 if ($class !== 'Symfony\Component\Clock\Clock') {
                     $loader($class);
                 }
