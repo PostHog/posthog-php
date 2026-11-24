@@ -446,11 +446,11 @@ class EmailsBatchTest extends TestCase
 
     public function testABatchTooLargeForPostHogIsTheErrorAndSaysToSplitIt(): void
     {
-        $this->reply(self::wholeCall(413, 'too_large'));
+        $this->reply(self::wholeCall(413, 'content_too_large'));
 
         $error = $this->batchError(self::recipients(100), ['max_retries' => 2]);
 
-        $this->assertSame(['too_large', 413, 'Nope.'], [
+        $this->assertSame(['content_too_large', 413, 'Nope.'], [
             $error->getErrorCode(),
             $error->getStatusCode(),
             $error->getMessage(),
