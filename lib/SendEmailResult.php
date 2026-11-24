@@ -3,6 +3,7 @@
 namespace PostHog;
 
 use DateTimeImmutable;
+use ReflectionClass;
 
 /**
  * The accepted email. A result means PostHog queued or scheduled the email, not that it was delivered.
@@ -36,6 +37,9 @@ class SendEmailResult
      */
     public function __sleep()
     {
+        if (PHP_VERSION_ID >= 80400 && (new ReflectionClass($this))->isUninitializedLazyObject($this)) {
+            return self::declaredPropertyNames(new ReflectionClass($this));
+        }
         $properties = (array) $this;
         $scheduledAt = "\0" . self::class . "\0scheduledAt";
         if (array_key_exists($scheduledAt, $properties) && $properties[$scheduledAt] === null) {
@@ -43,6 +47,28 @@ class SendEmailResult
         }
 
         return array_map(strval(...), array_keys($properties));
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function declaredPropertyNames(ReflectionClass $class): array
+    {
+        $names = [];
+        for (; $class !== false; $class = $class->getParentClass()) {
+            foreach ($class->getProperties() as $property) {
+                if ($property->isStatic() || $property->getDeclaringClass()->getName() !== $class->getName()) {
+                    continue;
+                }
+                $names[] = match (true) {
+                    $property->isPrivate() => "\0{$class->getName()}\0{$property->getName()}",
+                    $property->isProtected() => "\0*\0{$property->getName()}",
+                    default => $property->getName(),
+                };
+            }
+        }
+
+        return array_values(array_unique($names));
     }
 
     /**

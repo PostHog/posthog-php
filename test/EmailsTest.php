@@ -2479,14 +2479,43 @@ PHP);
         $this->assertSame($serialized, $output);
     }
 
-    #[RequiresPhp('>= 8.4')]
-    public function testALazyResultSerializesWithoutBeingInitialized(): void
+    public static function lazyResults(): array
     {
-        $lazy = (new \ReflectionClass(SendEmailResult::class))->newLazyGhost(static function (): never {
-            throw new RuntimeException('The result was initialized.');
-        }, \ReflectionClass::SKIP_INITIALIZATION_ON_SERIALIZE);
+        return [
+            'a ghost' => [false],
+            'a proxy' => [true],
+        ];
+    }
 
-        $this->assertSame('O:23:"PostHog\SendEmailResult":0:{}', serialize($lazy));
+    #[DataProvider('lazyResults')]
+    #[RequiresPhp('>= 8.4')]
+    public function testALazyResultSerializedByDefaultKeepsItsFields(bool $proxy): void
+    {
+        $reflector = new \ReflectionClass(SendEmailResult::class);
+        $lazy = $proxy
+            ? $reflector->newLazyProxy(static fn(): SendEmailResult => new SendEmailResult('msg_1'))
+            : $reflector->newLazyGhost(static function (SendEmailResult $result): void {
+                $result->__construct('msg_1');
+            });
+
+        $this->assertSame('msg_1', unserialize(serialize($lazy))->getId());
+    }
+
+    #[DataProvider('lazyResults')]
+    #[RequiresPhp('>= 8.4')]
+    public function testALazyResultSerializesWithoutBeingInitializedWhenAskedTo(bool $proxy): void
+    {
+        $reflector = new \ReflectionClass(SendEmailResult::class);
+        $fail = static function (): never {
+            throw new RuntimeException('The result was initialized.');
+        };
+        $lazy = $proxy
+            ? $reflector->newLazyProxy($fail, \ReflectionClass::SKIP_INITIALIZATION_ON_SERIALIZE)
+            : $reflector->newLazyGhost($fail, \ReflectionClass::SKIP_INITIALIZATION_ON_SERIALIZE);
+
+        serialize($lazy);
+
+        $this->assertTrue($reflector->isUninitializedLazyObject($lazy));
     }
 
     public function testAnUnconfirmedScheduleKeepsItsMessageIdThroughSerialization(): void
