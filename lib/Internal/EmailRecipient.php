@@ -5,8 +5,6 @@ namespace PostHog\Internal;
 use PostHog\EmailError;
 
 /**
- * Checks who an email goes to: its address, distinct ID and idempotency key.
- *
  * @internal
  */
 final class EmailRecipient

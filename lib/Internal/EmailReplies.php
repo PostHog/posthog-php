@@ -9,8 +9,6 @@ use PostHog\EmailWarning;
 use Symfony\Component\Clock\Clock;
 
 /**
- * Reads PostHog's answers to email requests.
- *
  * @internal
  */
 final class EmailReplies

@@ -11,12 +11,6 @@ use PostHog\SendBatchResult;
 use PostHog\Uuid;
 
 /**
- * The recipients of one Emails::batch() call, split into requests, and what PostHog answered for each.
- *
- * A recipient is `unconfirmed` once PostHog may have queued its email: a request for it went unanswered, or
- * PostHog said it couldn't tell. It stays `unconfirmed` until PostHog answers `queued`, since a later refusal
- * doesn't prove the first attempt sent nothing.
- *
  * @internal
  */
 final class EmailBatch
@@ -47,8 +41,6 @@ final class EmailBatch
     }
 
     /**
-     * Checks every recipient before any request, and gives each the idempotency key its every attempt carries.
-     *
      * @param array<string, mixed> $shared The email every recipient gets, as the request carries it.
      */
     public static function prepare(array $shared, mixed $recipients): self
@@ -166,10 +158,6 @@ final class EmailBatch
         }
     }
 
-    /**
-     * Puts the recipients in requests of at most 100 recipients and 4 MiB, in order. A recipient too large for
-     * any request fails here and joins no request.
-     */
     private function split(): void
     {
         $emptyBytes = strlen($this->opening) + strlen(']}');
@@ -200,9 +188,6 @@ final class EmailBatch
         return count($this->requests);
     }
 
-    /**
-     * Builds the body of request `$position`. Every attempt of the request sends this same body.
-     */
     public function requestBody(int $position): string
     {
         $wires = array_map(fn(int $index): string => $this->members[$index]['wire'], $this->requests[$position]);
@@ -211,9 +196,6 @@ final class EmailBatch
     }
 
     /**
-     * An attempt of request `$position` got no answer the client can read, so it may have queued any of its
-     * recipients.
-     *
      * @param EmailError|null $laterError What the attempt answered, kept as the later error of a recipient an
      *     earlier attempt already left `unconfirmed`.
      */
@@ -237,9 +219,6 @@ final class EmailBatch
     }
 
     /**
-     * Records PostHog's answer to request `$position`. Throws the request's error when PostHog refused the whole
-     * request or its answer can't be read.
-     *
      * @param list<string> $headers
      */
     public function answer(int $position, int $status, string $body, array $headers): void
@@ -315,9 +294,6 @@ final class EmailBatch
         }
     }
 
-    /**
-     * Request `$position` failed as a whole, so the batch stops there.
-     */
     public function stop(int $position, EmailError $error): void
     {
         foreach ($this->requests[$position] as $index) {
@@ -331,9 +307,6 @@ final class EmailBatch
         ));
     }
 
-    /**
-     * The client shut down before request `$position` went out.
-     */
     public function closedAt(int $position): EmailError
     {
         $error = new EmailError(
@@ -371,10 +344,6 @@ final class EmailBatch
         return $keys;
     }
 
-    /**
-     * PostHog has an email under the recipient's key. That shows neither that this call queued it nor that it
-     * goes out, so the recipient stays `unconfirmed`, now with the email's ID.
-     */
     public function found(int $index, string $messageId): void
     {
         $result = $this->results[$index];
@@ -463,9 +432,6 @@ final class EmailBatch
     }
 
     /**
-     * PostHog names a recipient by its position in the request. The caller knows it by its position in
-     * `recipients`.
-     *
      * @param list<int> $indices
      */
     private static function recipientsField(string $attr, array $indices): string
