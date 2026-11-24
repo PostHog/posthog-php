@@ -126,7 +126,7 @@ final class EmailBatch
         $sizes = [];
         $bytes = strlen('{}') + count($wire) - 1;
         foreach ($wire as $name => $value) {
-            $values[$name] = self::encode($value, "recipients[$index]");
+            $values[$name] = self::encode($value, "recipients[$index]", 511);
             $sizes[$name === 'message_data' ? 'template_data' : $name] = strlen($values[$name]);
             $bytes += strlen("\"$name\":") + strlen($values[$name]);
         }
@@ -180,10 +180,10 @@ final class EmailBatch
         return $data === [] ? (object) [] : $data;
     }
 
-    private static function encode(mixed $payload, string $what): string
+    private static function encode(mixed $payload, string $what, int $depth = 512): string
     {
         try {
-            return json_encode($payload, self::JSON_FLAGS);
+            return json_encode($payload, self::JSON_FLAGS, $depth);
         } catch (JsonException $exception) {
             throw new EmailError(
                 'invalid_form',

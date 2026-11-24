@@ -717,7 +717,10 @@ $emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static
     ?string $body
 ) use (&$requests): array {
     $requests++;
-    preg_match_all('/"idempotency_key":"(key-\\d)"/', $body, $keys);
+    if (function_exists('json_validate') && !json_validate($body)) {
+        return [400, '{"type":"validation_error","code":"invalid_json","detail":"Bad JSON."}', []];
+    }
+    preg_match_all('/"idempotency_key"\\s*:\\s*"(key-\\d)"/', $body, $keys);
     $slots = [];
     foreach ($keys[1] as $key) {
         $slots[] = ['message_id' => "msg_$key", 'status' => 'queued'];
@@ -749,17 +752,36 @@ require $argv[1];
 $appMemory = str_repeat('b', 14 * 1024 * 1024);
 $emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [
     200,
-    '{"results":[{"message_id":"msg_1","status":"queued"}]}',
+    '{"results":[{"error":{"code":"content_too_large","detail":"Too large.","status":413}}]}',
     [],
 ]);
 $result = $emails->batch([
     'recipients' => [['to' => 'user@example.com', 'template_data' => ['note' => str_repeat('x', 3950000)]]],
     'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
 ]);
-echo $result->getResults()[0]->getStatus();
+echo $result->getResults()[0]->getStatus(), ' ', $result->getResults()[0]->getError()->getErrorCode();
 PHP;
 
-        $this->assertSame([0, 'queued'], self::runWithMemoryLimit($script, '32M'));
+        $this->assertSame([0, 'failed content_too_large'], self::runWithMemoryLimit($script, '32M'));
+    }
+
+    public function testARecipientNestedDeeperThanItsEncodingAllowsIsRefusedBeforeAnyRequest(): void
+    {
+        $nested = 'v';
+        for ($level = 1; $level < 512; $level++) {
+            $nested = [$nested];
+        }
+
+        try {
+            $this->batch([
+                ...self::recipients(1),
+                ['to' => 'deep@example.com', 'idempotency_key' => 'key-deep', 'template_data' => ['deep' => $nested]],
+            ]);
+            $this->fail('Expected invalid_form');
+        } catch (EmailError $error) {
+            $this->assertSame('invalid_form', $error->getErrorCode());
+        }
+        $this->assertSame([], $this->requests);
     }
 
     public function testARecipientWithoutToIsRefusedBeforeSharedContentIsEncoded(): void
