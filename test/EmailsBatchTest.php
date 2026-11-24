@@ -840,6 +840,23 @@ PHP;
         $this->assertSame([self::BATCH_URL], $this->requestUrls());
     }
 
+    public function testAWholeRequestInFlightAnswerKeepsPostHogsFixOnItsRecipients(): void
+    {
+        $this->reply([409, json_encode([
+            'type' => 'invalid_request',
+            'code' => 'idempotency_key_in_flight',
+            'detail' => 'Nope.',
+            'fix' => 'Wait a minute, then send it again with the same idempotency_key.',
+        ]), []]);
+
+        $error = $this->batchError(self::recipients(1), ['max_retries' => 0]);
+
+        $this->assertSame(
+            'Wait a minute, then send it again with the same idempotency_key.',
+            $error->getResults()[0]->getError()->getFix()
+        );
+    }
+
     public static function attemptsAfterAnInFlightAnswer(): array
     {
         return [
@@ -881,6 +898,27 @@ PHP;
         $this->assertCount(1, $this->requests);
         $this->assertSame(['failed', 'failed'], self::statuses($error->getResults()));
         $this->assertSame('client_closed', $error->getResults()[0]->getError()->getErrorCode());
+    }
+
+    public function testAShutdownWhileWaitingToRetryALostAnswerKeepsItsRecipientsUnconfirmedWithTheirKeys(): void
+    {
+        Clock::set(self::clockThatShutsDownOnSleep($this->clock, function (): void {
+            $this->closed = true;
+        }));
+        $this->reply(self::networkError(), self::allQueued());
+
+        $error = $this->batchError(
+            [['to' => 'a@example.com'], ['to' => 'b@example.com']],
+            emails: $this->closedEmails()
+        );
+
+        $this->assertSame('client_closed', $error->getErrorCode());
+        $this->assertCount(1, $this->requests);
+        $this->assertSame(['unconfirmed', 'unconfirmed'], self::statuses($error->getResults()));
+        $this->assertSame(
+            array_column($this->body(0)['recipients'], 'idempotency_key'),
+            array_map(static fn($r): string => $r->getIdempotencyKey(), $error->getResults())
+        );
     }
 
     private static function clockThatShutsDownOnSleep(MockClock $clock, Closure $shutDown): ClockInterface
