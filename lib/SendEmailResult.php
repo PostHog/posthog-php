@@ -57,7 +57,8 @@ class SendEmailResult
 
     /**
      * `scheduled` when the email waits for its `scheduled_at`, `queued` when it goes out now: a send without
-     * `scheduled_at`, or one whose `scheduled_at` had passed when PostHog accepted it.
+     * `scheduled_at`, or one whose `scheduled_at` was at most a minute ahead of the client's clock when it sent
+     * the request PostHog accepted.
      */
     public function getStatus(): string
     {

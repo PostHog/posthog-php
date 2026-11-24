@@ -2066,6 +2066,24 @@ PHP);
         $this->assertSame(self::MESSAGE_ID, $error->getMessageId());
     }
 
+    public function testTheMinuteAheadIsCountedFromBeforeTheAttemptPostHogAccepted(): void
+    {
+        $this->reply([503, '{"code":"unavailable"}', ['Retry-After: 2']], [202, json_encode([
+            'message_id' => self::MESSAGE_ID,
+            'status' => 'queued',
+            'scheduled_at' => null,
+        ]), []]);
+
+        $result = $this->emails()->send([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => '2026-11-02T12:01:01Z',
+        ]);
+
+        $this->assertSame([self::MESSAGE_ID, 'queued'], [$result->getId(), $result->getStatus()]);
+        $this->assertCount(2, $this->requests);
+    }
+
     public static function clocksThatFail(): array
     {
         $cases = [
@@ -2087,22 +2105,13 @@ PHP);
         string $offset,
         string $outcome
     ): void {
-        Clock::set(new class ($this->clock, $failure, $clockTime) implements ClockInterface {
-            private int $reads = 0;
-
-            public function __construct(
-                private ClockInterface $working,
-                private string $failure,
-                private string $time
-            ) {
+        Clock::set(new class ($failure, $clockTime) implements ClockInterface {
+            public function __construct(private string $failure, private string $time)
+            {
             }
 
             public function now(): DateTimeImmutable
             {
-                if ($this->reads++ > 0) {
-                    return $this->working->now();
-                }
-
                 return match ($this->failure) {
                     'its time fails to convert' => new class ($this->time) extends DateTimeImmutable {
                         public function setTimezone(DateTimeZone $timezone): static
@@ -2129,14 +2138,17 @@ PHP);
                 return $this;
             }
         });
-        $this->reply([202, json_encode([
-            'message_id' => self::MESSAGE_ID,
-            'status' => 'queued',
-            'scheduled_at' => null,
-        ]), []]);
+        $requests = 0;
+        $accepted = json_encode(['message_id' => self::MESSAGE_ID, 'status' => 'queued', 'scheduled_at' => null]);
+        $transport = static function () use (&$requests, $accepted): array {
+            $requests++;
+
+            return [202, $accepted, []];
+        };
+        $emails = new Emails('phs_secret', 'us.i.posthog.com', transport: $transport);
 
         try {
-            $sent = $this->emails()->send([
+            $sent = $emails->send([
                 'to' => 'user@example.com',
                 'template_id' => self::TEMPLATE_ID,
                 'scheduled_at' => new DateTimeImmutable($offset),
@@ -2147,7 +2159,7 @@ PHP);
         }
 
         $this->assertSame([$outcome, self::MESSAGE_ID], [$status, $messageId]);
-        $this->assertCount(1, $this->requests, 'an accepted send is never sent again');
+        $this->assertSame(1, $requests, 'an accepted send is never sent again');
     }
 
     public static function unconfirmedSchedules(): array

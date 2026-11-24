@@ -321,10 +321,10 @@ final class Emails
             'Content-Type: application/json',
             'Idempotency-Key: ' . $idempotencyKey,
         ]);
-        $mayGoNow = $scheduledAt !== null && self::isAtMostAMinuteAhead($scheduledAt);
         $result = $this->withRetries(
             $maxRetries,
-            function () use ($appHost, $headers, $body, $scheduledAt, $mayGoNow): SendEmailResult {
+            function () use ($appHost, $headers, $body, $scheduledAt): SendEmailResult {
+                $mayGoNow = $scheduledAt !== null && self::isAtMostAMinuteAhead($scheduledAt);
                 $reply = $this->request('POST', $appHost . self::SEND_PATH, $headers, $body);
 
                 return self::parseSendReply($scheduledAt, $mayGoNow, ...$reply);
