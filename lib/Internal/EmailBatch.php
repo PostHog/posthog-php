@@ -147,12 +147,13 @@ final class EmailBatch
      */
     private static function joined(array $values): string
     {
-        $pairs = [];
+        $parts = [];
         foreach ($values as $name => $json) {
-            $pairs[] = "\"$name\":$json";
+            array_push($parts, $parts === [] ? '{' : ',', "\"$name\":", $json);
         }
+        $parts[] = '}';
 
-        return '{' . implode(',', $pairs) . '}';
+        return implode('', $parts);
     }
 
     private static function templateData(int $index, mixed $data, bool $isTemplateForm): array|object

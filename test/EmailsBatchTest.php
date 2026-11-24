@@ -741,6 +741,27 @@ PHP;
         $this->assertSame([0, '[2,8]'], self::runWithMemoryLimit($script, '29M'));
     }
 
+    public function testARecipientIsEncodedWithoutExtraCopiesOfItsData(): void
+    {
+        $script = <<<'PHP'
+<?php
+require $argv[1];
+$appMemory = str_repeat('b', 14 * 1024 * 1024);
+$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [
+    200,
+    '{"results":[{"message_id":"msg_1","status":"queued"}]}',
+    [],
+]);
+$result = $emails->batch([
+    'recipients' => [['to' => 'user@example.com', 'template_data' => ['note' => str_repeat('x', 3950000)]]],
+    'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
+]);
+echo $result->getResults()[0]->getStatus();
+PHP;
+
+        $this->assertSame([0, 'queued'], self::runWithMemoryLimit($script, '32M'));
+    }
+
     public function testARecipientWithoutToIsRefusedBeforeSharedContentIsEncoded(): void
     {
         $script = <<<'PHP'
