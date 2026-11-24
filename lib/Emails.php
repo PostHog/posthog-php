@@ -334,12 +334,13 @@ final class Emails
             'Content-Type: application/json',
             'Idempotency-Key: ' . $idempotencyKey,
         ]);
+        $mayGoNow = $scheduledAt !== null && self::isAtMostAMinuteAhead($scheduledAt);
         $result = $this->withRetries(
             $maxRetries,
-            function () use ($appHost, $headers, $body, $scheduledAt): SendEmailResult {
+            function () use ($appHost, $headers, $body, $scheduledAt, $mayGoNow): SendEmailResult {
                 $reply = $this->request('POST', $appHost . self::SEND_PATH, $headers, $body);
 
-                return self::parseSendReply($scheduledAt, ...$reply);
+                return self::parseSendReply($scheduledAt, $mayGoNow, ...$reply);
             }
         );
         self::logWarnings($result->getWarnings());
@@ -1426,6 +1427,7 @@ final class Emails
      */
     private static function parseSendReply(
         ?DateTimeImmutable $scheduledAt,
+        bool $mayGoNow,
         int $status,
         string $body,
         array $headers
@@ -1440,7 +1442,7 @@ final class Emails
         }
         $warnings = EmailReplies::warnings($fields);
         $replayed = ($fields['replayed'] ?? false) === true;
-        if ($scheduledAt === null || self::sendsNow($fields, $scheduledAt)) {
+        if ($scheduledAt === null || ($mayGoNow && self::sendsNow($fields))) {
             return new SendEmailResult($id, $replayed, $warnings);
         }
         if (!self::confirmsSchedule($fields, $scheduledAt)) {
@@ -1454,12 +1456,11 @@ final class Emails
     /**
      * @param array<string, mixed> $fields
      */
-    private static function sendsNow(array $fields, DateTimeImmutable $requested): bool
+    private static function sendsNow(array $fields): bool
     {
         return ($fields['status'] ?? null) === 'queued'
             && array_key_exists('scheduled_at', $fields)
-            && $fields['scheduled_at'] === null
-            && self::isAtMostAMinuteAhead($requested);
+            && $fields['scheduled_at'] === null;
     }
 
     private static function isAtMostAMinuteAhead(DateTimeImmutable $requested): bool
