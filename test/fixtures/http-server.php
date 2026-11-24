@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/../CanonicalJson.php';
+
 $server = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
 if ($server === false) {
     throw new RuntimeException($error, $errno);
@@ -9,28 +11,6 @@ $rawResponses = json_decode($argv[2], false, 512, JSON_THROW_ON_ERROR);
 $selfAddress = stream_socket_get_name($server, false);
 echo $selfAddress . "\n";
 flush();
-
-$canonicalizeJson = static function (mixed $value) use (&$canonicalizeJson): mixed {
-    if ($value instanceof stdClass) {
-        $properties = get_object_vars($value);
-        ksort($properties, SORT_STRING);
-        $sorted = new stdClass();
-        foreach ($properties as $key => $item) {
-            $sorted->{(string) $key} = $canonicalizeJson($item);
-        }
-
-        return $sorted;
-    }
-    if (is_array($value)) {
-        return array_map($canonicalizeJson, $value);
-    }
-
-    return $value;
-};
-$canonicalJson = static fn (mixed $value): string => json_encode(
-    $canonicalizeJson($value),
-    JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR
-);
 
 while ($connection = stream_socket_accept($server, 30)) {
     stream_set_timeout($connection, 5);
@@ -63,7 +43,8 @@ while ($connection = stream_socket_accept($server, 30)) {
             $decoded = json_decode($body, false);
             $rawExpected = $rawNext?->accepts?->json_body ?? null;
             $matches = json_last_error() === JSON_ERROR_NONE
-                && $canonicalJson($decoded) === $canonicalJson($rawExpected);
+                && \PostHog\Test\CanonicalJson::encode($decoded)
+                    === \PostHog\Test\CanonicalJson::encode($rawExpected);
             if (!$matches) {
                 $refusal = $next['refusal'];
             }
