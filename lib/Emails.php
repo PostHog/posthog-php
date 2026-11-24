@@ -345,7 +345,7 @@ final class Emails
             try {
                 error_log('[PostHog][Emails] Email warning ' . self::onOneLogLine($line));
             } catch (Throwable) {
-                return;
+                continue;
             }
         }
     }

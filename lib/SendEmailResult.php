@@ -36,7 +36,7 @@ class SendEmailResult
      */
     public function __sleep()
     {
-        $properties = array_keys((array) $this);
+        $properties = array_map(strval(...), array_keys((array) $this));
         if ($this->scheduledAt === null) {
             $properties = array_values(array_diff($properties, ["\0" . self::class . "\0scheduledAt"]));
         }
