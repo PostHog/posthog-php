@@ -81,8 +81,9 @@ class BatchEmailResult
     }
 
     /**
-     * Why the email is not `queued`, or null when it is. For an `unconfirmed` email, the code is
-     * `delivery_unavailable`, `idempotency_key_in_flight` or `api_error`.
+     * Why the email is not `queued`, or null when it is. An `unconfirmed` email can carry any code, such as
+     * `delivery_unavailable`, `idempotency_key_in_flight`, or the refusal of a retry after a lost answer, so decide
+     * whether to send it again from getStatus(), not from the code.
      */
     public function getError(): ?EmailError
     {
