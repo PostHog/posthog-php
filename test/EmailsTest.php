@@ -1970,11 +1970,19 @@ class EmailsTest extends TestCase
         );
     }
 
-    public function testAnUnconfirmedScheduleWithWarningsStillNamesTheEmailWhenErrorLogIsDisabled(): void
+    public static function errorLogsThatCannotLog(): array
+    {
+        return [
+            'disabled' => [''],
+            'replaced by one that throws' => ['function error_log(): never { throw new RuntimeException(); }'],
+        ];
+    }
+
+    #[DataProvider('errorLogsThatCannotLog')]
+    public function testAnUnconfirmedScheduleWithWarningsStillNamesTheEmailWhenErrorLogCannotLog(string $errorLog): void
     {
         $script = tempnam(sys_get_temp_dir(), 'posthog-emails-');
-        file_put_contents($script, <<<'PHP'
-<?php
+        file_put_contents($script, "<?php\n$errorLog\n" . <<<'PHP'
 require $argv[1];
 $emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [202, json_encode([
     'message_id' => 'msg_1',

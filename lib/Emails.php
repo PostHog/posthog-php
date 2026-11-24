@@ -344,7 +344,11 @@ final class Emails
         }
         foreach ($warnings as $warning) {
             $line = $warning->getCode() . ': ' . $warning->getMessage();
-            error_log('[PostHog][Emails] Email warning ' . self::onOneLogLine($line));
+            try {
+                error_log('[PostHog][Emails] Email warning ' . self::onOneLogLine($line));
+            } catch (Throwable) {
+                return;
+            }
         }
     }
 
