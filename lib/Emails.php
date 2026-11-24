@@ -1281,7 +1281,9 @@ final class Emails
     private static function isAtMostAMinuteAhead(DateTimeImmutable $requested): bool
     {
         try {
-            return $requested <= Clock::get()->now()
+            $clock = class_exists(Clock::class) ? Clock::get() : new NativeClock();
+
+            return $requested <= $clock->now()
                 ->setTimezone(new DateTimeZone('UTC'))
                 ->modify('+' . self::SEND_NOW_LEEWAY_SECONDS . ' seconds');
         } catch (Throwable) {
