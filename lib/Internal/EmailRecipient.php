@@ -16,9 +16,9 @@ final class EmailRecipient
     /**
      * @param array<string, mixed> $fields The recipient's fields, without nulls.
      * @param int|null $index The recipient's position in a batch's `recipients`, or null for a single send.
-     * @return array{string, ?string, ?string} The address, the distinct ID and the idempotency key.
+     * @return array{string, ?string} The address and the distinct ID.
      */
-    public static function check(array $fields, ?int $index = null): array
+    public static function address(array $fields, ?int $index = null): array
     {
         $to = $fields['to'] ?? null;
         if (!is_string($to) || trim($to) === '') {
@@ -29,6 +29,16 @@ final class EmailRecipient
         if ($distinctId !== null && (!is_string($distinctId) || $distinctId === '')) {
             throw self::invalid('invalid_distinct_id', 'distinct_id must be a nonempty string.', 'distinct_id', $index);
         }
+
+        return [$to, $distinctId];
+    }
+
+    /**
+     * @param array<string, mixed> $fields The recipient's fields, without nulls.
+     * @param int|null $index The recipient's position in a batch's `recipients`, or null for a single send.
+     */
+    public static function idempotencyKey(array $fields, ?int $index = null): ?string
+    {
         $idempotencyKey = $fields['idempotency_key'] ?? null;
         if (
             $idempotencyKey !== null
@@ -42,7 +52,7 @@ final class EmailRecipient
             );
         }
 
-        return [$to, $distinctId, $idempotencyKey];
+        return $idempotencyKey;
     }
 
     private static function invalid(string $code, string $message, string $field, ?int $index): EmailError

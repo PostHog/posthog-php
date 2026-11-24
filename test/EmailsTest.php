@@ -998,6 +998,16 @@ class EmailsTest extends TestCase
                 'invalid_idempotency_key',
                 'idempotency_key',
             ],
+            'no form and a bad idempotency key' => [
+                ['to' => 'user@example.com', 'idempotency_key' => 'welcome user'],
+                'invalid_form',
+                null,
+            ],
+            'empty subject and a bad idempotency key' => [
+                ['subject' => '', 'idempotency_key' => 'welcome user'] + $code,
+                'invalid_form',
+                'subject',
+            ],
             'negative max_retries' => [$template + ['max_retries' => -1], 'invalid_max_retries', 'max_retries'],
             'max_retries as a string' => [$template + ['max_retries' => '1'], 'invalid_max_retries', 'max_retries'],
             'html with invalid UTF-8' => [['html' => "\xB1\x31"] + $code, 'invalid_form', null],

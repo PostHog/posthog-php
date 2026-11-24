@@ -13,7 +13,7 @@ use PostHog\Uuid;
 /**
  * The recipients of one Emails::batch() call, split into requests, and what PostHog answered for each.
  *
- * A recipient is maybe queued once PostHog may have queued its email: a request for it went unanswered, or
+ * A recipient is `unconfirmed` once PostHog may have queued its email: a request for it went unanswered, or
  * PostHog said it couldn't tell. It stays `unconfirmed` until PostHog answers `queued`, since a later refusal
  * doesn't prove the first attempt sent nothing.
  *
@@ -25,25 +25,25 @@ final class EmailBatch
     private const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
     private const RECIPIENT_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'template_data'];
     private const UNCONFIRMED_CODES = ['idempotency_key_in_flight', 'delivery_unavailable', 'api_error'];
+    private const IN_FLIGHT = 'idempotency_key_in_flight';
     private const JSON_FLAGS = JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
     private const SEND_SINGLY = "send each email the batch didn't queue with emails()->send() and its recipient's "
         . 'idempotency_key.';
 
-    /** @var list<array{body: string, indices: list<int>}> */
+    /** @var list<list<int>> The positions in `recipients` that each request carries. */
     private array $requests = [];
     /** @var array<int, BatchEmailResult> */
     private array $results = [];
-    /** @var array<int, true> */
-    private array $maybeQueued = [];
     /** @var list<EmailWarning> */
     private array $warnings = [];
 
     /**
-     * @param list<array{to: string, key: string, wire: string}> $members
+     * @param list<array{to: string, key: string, wire: string, field: string}> $members
+     * @param string $opening The request body up to its first recipient.
      */
-    private function __construct(private array $members, string $emptyBody)
+    private function __construct(private array $members, private string $opening)
     {
-        $this->split($emptyBody);
+        $this->split();
     }
 
     /**
@@ -51,7 +51,7 @@ final class EmailBatch
      *
      * @param array<string, mixed> $shared The email every recipient gets, as the request carries it.
      */
-    public static function prepare(array $shared, mixed $recipients, bool $isTemplateForm): self
+    public static function prepare(array $shared, mixed $recipients): self
     {
         if (!is_array($recipients) || $recipients === [] || !array_is_list($recipients)) {
             throw new EmailError(
@@ -61,6 +61,11 @@ final class EmailBatch
                 field: 'recipients'
             );
         }
+        $emptyBody = self::encode([...$shared, 'recipients' => []], 'The email');
+        if (strlen($emptyBody) > self::MAX_REQUEST_BYTES) {
+            throw self::sharedTooLarge($shared);
+        }
+        $isTemplateForm = array_key_exists('template_id', $shared);
         $members = [];
         $firstWithKey = [];
         foreach ($recipients as $index => $recipient) {
@@ -78,11 +83,11 @@ final class EmailBatch
             $members[] = $member;
         }
 
-        return new self($members, self::encode([...$shared, 'recipients' => []], 'The email'));
+        return new self($members, substr($emptyBody, 0, -strlen(']}')));
     }
 
     /**
-     * @return array{to: string, key: string, wire: string}
+     * @return array{to: string, key: string, wire: string, field: string}
      */
     private static function member(int $index, mixed $recipient, bool $isTemplateForm): array
     {
@@ -106,16 +111,23 @@ final class EmailBatch
                 );
             }
         }
-        [$to, $distinctId, $key] = EmailRecipient::check($recipient, $index);
-        $wire = ['to' => $to, 'idempotency_key' => $key ?? Uuid::v4()];
+        [$to, $distinctId] = EmailRecipient::address($recipient, $index);
+        $wire = ['to' => $to, 'idempotency_key' => EmailRecipient::idempotencyKey($recipient, $index) ?? Uuid::v4()];
         if ($distinctId !== null) {
             $wire['distinct_id'] = $distinctId;
         }
+        $field = "recipients__$index";
         if (array_key_exists('template_data', $recipient)) {
             $wire['message_data'] = self::templateData($index, $recipient['template_data'], $isTemplateForm);
+            $field .= '__template_data';
         }
 
-        return ['to' => $to, 'key' => $wire['idempotency_key'], 'wire' => self::encode($wire, "recipients[$index]")];
+        return [
+            'to' => $to,
+            'key' => $wire['idempotency_key'],
+            'wire' => self::encode($wire, "recipients[$index]"),
+            'field' => $field,
+        ];
     }
 
     private static function templateData(int $index, mixed $data, bool $isTemplateForm): array|object
@@ -155,43 +167,32 @@ final class EmailBatch
     }
 
     /**
-     * Splits the recipients into requests of at most 100 recipients and 4 MiB, in order. A recipient too large for
+     * Puts the recipients in requests of at most 100 recipients and 4 MiB, in order. A recipient too large for
      * any request fails here and joins no request.
      */
-    private function split(string $emptyBody): void
+    private function split(): void
     {
+        $emptyBytes = strlen($this->opening) + strlen(']}');
         $indices = [];
-        $wires = [];
-        $bytes = strlen($emptyBody);
+        $bytes = $emptyBytes;
         foreach ($this->members as $index => $member) {
             $memberBytes = strlen($member['wire']);
-            if (strlen($emptyBody) + $memberBytes > self::MAX_REQUEST_BYTES) {
-                $this->set($index, 'failed', error: self::recipientTooLarge());
+            if ($emptyBytes + $memberBytes > self::MAX_REQUEST_BYTES) {
+                $this->set($index, 'failed', error: self::recipientTooLarge($member['field']));
                 continue;
             }
             $separatorBytes = $indices === [] ? 0 : 1;
             $full = count($indices) === self::MAX_RECIPIENTS_PER_REQUEST;
             if ($indices !== [] && ($full || $bytes + $separatorBytes + $memberBytes > self::MAX_REQUEST_BYTES)) {
-                $this->addRequest($emptyBody, $indices, $wires);
-                [$indices, $wires, $bytes, $separatorBytes] = [[], [], strlen($emptyBody), 0];
+                $this->requests[] = $indices;
+                [$indices, $bytes, $separatorBytes] = [[], $emptyBytes, 0];
             }
             $indices[] = $index;
-            $wires[] = $member['wire'];
             $bytes += $separatorBytes + $memberBytes;
         }
         if ($indices !== []) {
-            $this->addRequest($emptyBody, $indices, $wires);
+            $this->requests[] = $indices;
         }
-    }
-
-    /**
-     * @param list<int> $indices
-     * @param list<string> $wires
-     */
-    private function addRequest(string $emptyBody, array $indices, array $wires): void
-    {
-        $withoutClosingBrackets = substr($emptyBody, 0, -strlen(']}'));
-        $this->requests[] = ['body' => $withoutClosingBrackets . implode(',', $wires) . ']}', 'indices' => $indices];
     }
 
     public function requestCount(): int
@@ -199,20 +200,38 @@ final class EmailBatch
         return count($this->requests);
     }
 
+    /**
+     * Builds the body of request `$position`. Every attempt of the request sends this same body.
+     */
     public function requestBody(int $position): string
     {
-        return $this->requests[$position]['body'];
+        $wires = array_map(fn(int $index): string => $this->members[$index]['wire'], $this->requests[$position]);
+
+        return $this->opening . implode(',', $wires) . ']}';
     }
 
     /**
      * An attempt of request `$position` got no answer the client can read, so it may have queued any of its
      * recipients.
+     *
+     * @param EmailError|null $laterError What the attempt answered, kept as the later error of a recipient an
+     *     earlier attempt already left `unconfirmed`.
      */
-    public function lost(int $position): void
+    public function lost(int $position, ?EmailError $laterError = null): void
     {
-        foreach ($this->requests[$position]['indices'] as $index) {
-            $this->maybeQueued[$index] = true;
-            $messageId = ($this->results[$index] ?? null)?->getMessageId();
+        foreach ($this->requests[$position] as $index) {
+            $earlier = $this->results[$index] ?? null;
+            if ($laterError !== null && $this->isUnconfirmed($index)) {
+                $this->set(
+                    $index,
+                    'unconfirmed',
+                    $earlier->getMessageId(),
+                    error: $earlier->getError(),
+                    laterError: $laterError
+                );
+                continue;
+            }
+            $messageId = $earlier?->getMessageId();
             $this->set($index, 'unconfirmed', $messageId, error: self::unconfirmed($messageId));
         }
     }
@@ -225,13 +244,18 @@ final class EmailBatch
      */
     public function answer(int $position, int $status, string $body, array $headers): void
     {
-        $indices = $this->requests[$position]['indices'];
+        $indices = $this->requests[$position];
         $fields = EmailReplies::fields($body);
         if ($status < 200 || $status >= 300) {
+            $error = self::requestError($fields, $status, $headers, $indices);
             if ($status >= 500) {
                 $this->lost($position);
+            } elseif ($error->getErrorCode() === self::IN_FLIGHT) {
+                $this->lost($position, $error);
+            } else {
+                $this->refusedLater($position, $error);
             }
-            throw self::requestError($fields, $status, $headers, $indices);
+            throw $error;
         }
         $slots = $fields['results'] ?? null;
         if (!is_array($slots) || !array_is_list($slots) || count($slots) !== count($indices)) {
@@ -252,6 +276,22 @@ final class EmailBatch
         }
     }
 
+    private function refusedLater(int $position, EmailError $error): void
+    {
+        foreach ($this->requests[$position] as $index) {
+            if ($this->isUnconfirmed($index)) {
+                $earlier = $this->results[$index];
+                $this->set(
+                    $index,
+                    'unconfirmed',
+                    $earlier->getMessageId(),
+                    error: $earlier->getError(),
+                    laterError: $error
+                );
+            }
+        }
+    }
+
     /**
      * @param array<string, mixed> $slot
      */
@@ -264,12 +304,11 @@ final class EmailBatch
             return;
         }
         $answer = self::slotError($error, $messageId);
-        if (isset($this->maybeQueued[$index])) {
+        if ($this->isUnconfirmed($index)) {
             $earlier = $this->results[$index];
             $messageId ??= $earlier->getMessageId();
             $this->set($index, 'unconfirmed', $messageId, error: $earlier->getError(), laterError: $answer);
         } elseif (in_array($answer->getErrorCode(), self::UNCONFIRMED_CODES, true)) {
-            $this->maybeQueued[$index] = true;
             $this->set($index, 'unconfirmed', $messageId, error: $answer);
         } else {
             $this->set($index, 'failed', $messageId, error: $answer);
@@ -281,20 +320,9 @@ final class EmailBatch
      */
     public function stop(int $position, EmailError $error): void
     {
-        $status = $error->getStatusCode();
-        $later = $status !== null && $status < 500 ? $error : null;
-        foreach ($this->requests[$position]['indices'] as $index) {
-            if (!isset($this->maybeQueued[$index])) {
+        foreach ($this->requests[$position] as $index) {
+            if (!$this->isUnconfirmed($index)) {
                 $this->set($index, 'failed', error: $error);
-            } elseif ($later !== null) {
-                $earlier = $this->results[$index];
-                $this->set(
-                    $index,
-                    'unconfirmed',
-                    $earlier->getMessageId(),
-                    error: $earlier->getError(),
-                    laterError: $later
-                );
             }
         }
         $this->skipFrom($position + 1, new EmailError(
@@ -319,23 +347,23 @@ final class EmailBatch
 
     private function skipFrom(int $position, EmailError $error): void
     {
-        foreach (array_slice($this->requests, $position) as $request) {
-            foreach ($request['indices'] as $index) {
+        foreach (array_slice($this->requests, $position) as $indices) {
+            foreach ($indices as $index) {
                 $this->set($index, 'not_attempted', error: $error);
             }
         }
     }
 
     /**
-     * @return array<int, string> The idempotency key of each recipient a lost answer left without a message ID,
-     *     by its position in `recipients`.
+     * @return array<int, string> The idempotency key of each `unconfirmed` recipient without a message ID, by its
+     *     position in `recipients`.
      */
-    public function keysToRead(): array
+    public function unconfirmedWithoutMessageId(): array
     {
         $keys = [];
-        foreach ($this->maybeQueued as $index => $_) {
-            if ($this->results[$index]->getMessageId() === null) {
-                $keys[$index] = $this->members[$index]['key'];
+        foreach ($this->results as $index => $result) {
+            if ($result->getStatus() === 'unconfirmed' && $result->getMessageId() === null) {
+                $keys[$index] = $result->getIdempotencyKey();
             }
         }
         ksort($keys);
@@ -343,9 +371,20 @@ final class EmailBatch
         return $keys;
     }
 
-    public function accepted(int $index, string $messageId): void
+    /**
+     * PostHog has an email under the recipient's key. That shows neither that this call queued it nor that it
+     * goes out, so the recipient stays `unconfirmed`, now with the email's ID.
+     */
+    public function found(int $index, string $messageId): void
     {
-        $this->set($index, 'queued', $messageId);
+        $result = $this->results[$index];
+        $this->set(
+            $index,
+            'unconfirmed',
+            $messageId,
+            error: $result->getError(),
+            laterError: $result->getLaterError()
+        );
     }
 
     public function result(): SendBatchResult
@@ -356,6 +395,11 @@ final class EmailBatch
     public function failure(EmailError $error): EmailBatchError
     {
         return new EmailBatchError($error, $this->outcome(), $this->warnings);
+    }
+
+    private function isUnconfirmed(int $index): bool
+    {
+        return ($this->results[$index] ?? null)?->getStatus() === 'unconfirmed';
     }
 
     /**
@@ -467,13 +511,37 @@ final class EmailBatch
         );
     }
 
-    private static function recipientTooLarge(): EmailError
+    /**
+     * @param array<string, mixed> $shared
+     */
+    private static function sharedTooLarge(array $shared): EmailError
+    {
+        $sizes = [];
+        foreach (['html', 'text', 'subject'] as $field) {
+            if (is_string($shared[$field] ?? null)) {
+                $sizes[$field] = strlen($shared[$field]);
+            }
+        }
+        arsort($sizes);
+        $field = array_key_exists('template_id', $shared) ? 'template_data' : (string) array_key_first($sizes);
+
+        return new EmailError(
+            'content_too_large',
+            "The $field every recipient of the batch gets is larger than one batch request takes (4 MiB of JSON), "
+            . 'so no email was sent.',
+            fix: "Make $field smaller, such as by linking to images instead of embedding them, or send each email "
+                . 'with emails()->send().',
+            field: $field
+        );
+    }
+
+    private static function recipientTooLarge(string $field): EmailError
     {
         return new EmailError(
             'content_too_large',
             "This recipient's email is larger than one batch request takes, so it wasn't sent.",
             fix: "Send this recipient's email with emails()->send().",
-            field: 'recipients'
+            field: $field
         );
     }
 }

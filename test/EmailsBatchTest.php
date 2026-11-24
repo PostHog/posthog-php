@@ -3,6 +3,8 @@
 namespace PostHog\Test;
 
 use Closure;
+use DateTimeImmutable;
+use DateTimeZone;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use PostHog\BatchEmailResult;
@@ -12,6 +14,8 @@ use PostHog\Emails;
 use PostHog\SendBatchResult;
 use stdClass;
 use Symfony\Component\Clock\Clock;
+use Symfony\Component\Clock\ClockInterface;
+use Symfony\Component\Clock\MockClock;
 
 class EmailsBatchTest extends TestCase
 {
@@ -107,14 +111,29 @@ class EmailsBatchTest extends TestCase
     }
 
     /** @return array{int, string, list<string>} */
-    private static function statusFound(string $messageId): array
+    private static function statusFound(string $messageId, string $status = 'sent', ?string $reason = null): array
     {
         return [200, json_encode([
             'id' => $messageId,
-            'status' => 'sent',
+            'status' => $status,
             'created_at' => '2026-11-02T10:00:00Z',
             'status_at' => '2026-11-02T10:00:01Z',
+            'reason' => $reason,
         ]), []];
+    }
+
+    /** @return array<string, mixed> */
+    private static function notConfirmed(?string $messageId = 'm0'): array
+    {
+        return array_filter([
+            'message_id' => $messageId,
+            'error' => [
+                'code' => 'delivery_unavailable',
+                'detail' => 'Not confirmed.',
+                'status' => 503,
+                'retryable' => true,
+            ],
+        ]);
     }
 
     /** A server that answers after this many seconds: a request with a shorter timeout gets no answer. */
@@ -287,11 +306,9 @@ class EmailsBatchTest extends TestCase
 
         $this->batch([['to' => 'a@example.com', 'idempotency_key' => 'k', 'template_data' => []]]);
 
-        $this->assertSame(
-            '{"template_id":"' . self::TEMPLATE_ID . '","message_data":{},"recipients":'
-            . '[{"to":"a@example.com","idempotency_key":"k","message_data":{}}]}',
-            $this->requests[0]['body']
-        );
+        $body = json_decode($this->requests[0]['body'], flags: JSON_THROW_ON_ERROR);
+        $this->assertEquals(new stdClass(), $body->message_data);
+        $this->assertEquals(new stdClass(), $body->recipients[0]->message_data);
     }
 
     public function testACodeBatchSendsTheSameContentToEveryRecipient(): void
@@ -474,12 +491,57 @@ class EmailsBatchTest extends TestCase
         $results = $result->getResults();
         $this->assertSame(['queued', 'queued', 'queued', 'failed', 'queued'], self::statuses($results));
         $tooLarge = $results[3];
-        $this->assertSame(['content_too_large', 'recipients', 'validation_error'], [
+        $this->assertSame(['content_too_large', 'recipients__3__template_data', 'validation_error'], [
             $tooLarge->getError()->getErrorCode(),
             $tooLarge->getError()->getField(),
             $tooLarge->getError()->getErrorName(),
         ]);
         $this->assertSame([null, 'key-3'], [$tooLarge->getMessageId(), $tooLarge->getIdempotencyKey()]);
+    }
+
+    public static function sharedContentOver4Mib(): array
+    {
+        $over = str_repeat('x', self::FOUR_MIB);
+
+        return [
+            'html' => [['template_key' => 'news', 'subject' => 'News', 'html' => $over, 'text' => 'Hi'], 'html'],
+            'text' => [['template_key' => 'news', 'subject' => 'News', 'html' => '<p>Hi</p>', 'text' => $over], 'text'],
+            'template_data' => [
+                ['template_id' => self::TEMPLATE_ID, 'template_data' => ['note' => $over]],
+                'template_data',
+            ],
+        ];
+    }
+
+    #[DataProvider('sharedContentOver4Mib')]
+    public function testSharedContentOver4MibIsRefusedBeforeAnyRequest(array $content, string $field): void
+    {
+        $error = $this->refusal(['recipients' => self::recipients(2), ...$content]);
+
+        $this->assertNotInstanceOf(EmailBatchError::class, $error);
+        $this->assertSame(['content_too_large', $field, 'validation_error'], [
+            $error->getErrorCode(),
+            $error->getField(),
+            $error->getErrorName(),
+        ]);
+        $this->assertSame([], $this->requests);
+    }
+
+    public function testHoldsOneRequestBodyAtATime(): void
+    {
+        $recipients = self::recipients(3000);
+        $usageAtTheFirstRequest = 0;
+        $this->reply(function (string $url, string $body) use (&$usageAtTheFirstRequest): array {
+            $usageAtTheFirstRequest = memory_get_usage();
+
+            return self::allQueued()($url, $body);
+        }, ...array_fill(0, 29, self::allQueued()));
+        $usageBefore = memory_get_usage();
+
+        $this->batch($recipients, ['template_data' => ['note' => str_repeat('x', 200_000)]]);
+
+        $this->assertSame(array_fill(0, 30, 100), $this->recipientsPerRequest());
+        $this->assertLessThan(5_000_000, $usageAtTheFirstRequest - $usageBefore);
     }
 
     public static function requestsAtTheLimit(): array
@@ -534,12 +596,17 @@ class EmailsBatchTest extends TestCase
             self::networkError(),
             self::ok(self::queued('m0', true), self::refused('m1', 'idempotency_key_reused'))
         );
+        $recipients = self::recipients(2);
+        unset($recipients[1]['idempotency_key']);
 
-        $result = $this->batch(self::recipients(2));
+        $result = $this->batch($recipients);
 
         $this->assertCount(2, $this->requests);
-        $this->assertSame($this->requests[0]['body'], $this->requests[1]['body']);
+        $this->assertSame($this->body(0), $this->body(1));
+        $derived = $this->body(1)['recipients'][1]['idempotency_key'];
+        $this->assertMatchesRegularExpression(self::UUID_V4, $derived);
         [$first, $second] = $result->getResults();
+        $this->assertSame($derived, $second->getIdempotencyKey());
         $this->assertSame(['queued', 'm0', true], [$first->getStatus(), $first->getMessageId(), $first->isReplayed()]);
         $this->assertSame(['unconfirmed', 'm1'], [$second->getStatus(), $second->getMessageId()]);
         $this->assertSame('delivery_unavailable', $second->getError()->getErrorCode());
@@ -561,34 +628,95 @@ class EmailsBatchTest extends TestCase
         $this->assertSame(['key-0'], $this->readsByKey());
     }
 
-    public function testA503ThenARefusalAlsoKeepsTheRecipientUnconfirmed(): void
+    public function testA503ThenARefusalOfTheWholeRequestKeepsTheRecipientUnconfirmed(): void
     {
-        $this->reply(self::wholeCall(503, 'delivery_unavailable'), self::ok(self::refused('m0', 'sending_paused')));
+        $notFound = self::wholeCall(404, 'not_found');
+        $this->reply(self::wholeCall(503, 'delivery_unavailable'), self::wholeCall(422, 'sending_paused'), $notFound);
 
-        [$result] = $this->batch(self::recipients(1))->getResults();
+        $error = $this->batchError(self::recipients(1));
 
+        $this->assertSame(['sending_paused', 422], [$error->getErrorCode(), $error->getStatusCode()]);
+        [$result] = $error->getResults();
         $this->assertSame('unconfirmed', $result->getStatus());
+        $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
         $this->assertSame('sending_paused', $result->getLaterError()->getErrorCode());
     }
 
-    public static function answersThatMayStillGoOut(): array
+    public function testARecipientThePipelineDidNotConfirmIsUnconfirmed(): void
     {
-        return [
-            'not confirmed by the pipeline' => [self::refused('m0', 'delivery_unavailable', 503, true)],
-            'held by another request' => [self::refused('m0', 'idempotency_key_in_flight', 409, true)],
-        ];
-    }
-
-    #[DataProvider('answersThatMayStillGoOut')]
-    public function testARecipientPostHogMayStillSendIsUnconfirmed(array $answer): void
-    {
-        $this->reply(self::ok($answer));
+        $this->reply(self::ok(self::notConfirmed()));
 
         [$result] = $this->batch(self::recipients(1))->getResults();
 
         $this->assertSame(['unconfirmed', 'm0'], [$result->getStatus(), $result->getMessageId()]);
-        $this->assertSame($answer['error']['code'], $result->getError()->getErrorCode());
+        $this->assertSame(['delivery_unavailable', 503], [
+            $result->getError()->getErrorCode(),
+            $result->getError()->getStatusCode(),
+        ]);
         $this->assertNull($result->getLaterError());
+    }
+
+    public function testABatchThatSucceedsReadsEachUnconfirmedEmailWithoutAMessageId(): void
+    {
+        $this->reply(
+            self::ok(self::queued('m0'), self::notConfirmed(null), self::notConfirmed('m2')),
+            self::statusFound('m1')
+        );
+
+        $result = $this->batch(self::recipients(3), ['max_retries' => 0]);
+
+        $this->assertSame(['key-1'], $this->readsByKey());
+        $this->assertSame(
+            [['queued', 'm0'], ['unconfirmed', 'm1'], ['unconfirmed', 'm2']],
+            array_map(static fn($r): array => [$r->getStatus(), $r->getMessageId()], $result->getResults())
+        );
+    }
+
+    public function testAWholeRequestInFlightAnswerLeavesItsRecipientsUnconfirmed(): void
+    {
+        $this->reply(self::wholeCall(409, 'idempotency_key_in_flight'), self::statusFound('m0'), self::wholeCall(404));
+
+        $error = $this->batchError(self::recipients(2), ['max_retries' => 0]);
+
+        $this->assertSame('idempotency_key_in_flight', $error->getErrorCode());
+        $this->assertSame(
+            [['unconfirmed', 'm0', null], ['unconfirmed', null, null]],
+            array_map(
+                static fn($r): array => [$r->getStatus(), $r->getMessageId(), $r->getLaterError()],
+                $error->getResults()
+            )
+        );
+        $this->assertSame(['key-0', 'key-1'], $this->readsByKey());
+    }
+
+    public static function attemptsAfterAnInFlightAnswer(): array
+    {
+        return [
+            'a refusal after an in-flight answer' => [
+                [self::wholeCall(409, 'idempotency_key_in_flight'), self::wholeCall(429, 'quota_limited')],
+                'quota_limited',
+            ],
+            'an in-flight answer after a 503' => [
+                [self::wholeCall(503, 'delivery_unavailable'), self::wholeCall(409, 'idempotency_key_in_flight')],
+                'idempotency_key_in_flight',
+            ],
+        ];
+    }
+
+    #[DataProvider('attemptsAfterAnInFlightAnswer')]
+    public function testTheAttemptAfterTheOneThatLeftARecipientUnconfirmedIsItsLaterError(
+        array $answers,
+        string $laterCode
+    ): void {
+        $this->reply(...$answers, ...[self::wholeCall(404)]);
+
+        $error = $this->batchError(self::recipients(1), ['max_retries' => 1]);
+
+        [$result] = $error->getResults();
+        $this->assertSame('unconfirmed', $result->getStatus());
+        $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
+        $this->assertSame($laterCode, $result->getLaterError()->getErrorCode());
+        $this->assertCount(3, $this->requests);
     }
 
     public function testAShutdownDuringABatchStopsItBeforeTheNextRequest(): void
@@ -612,21 +740,46 @@ class EmailsBatchTest extends TestCase
 
     public function testAShutdownDuringARetryWaitSendsNoRetry(): void
     {
-        $this->reply(function (): array {
+        Clock::set(self::clockThatShutsDownOnSleep($this->clock, function (): void {
             $this->closed = true;
-
-            return self::wholeCall(429);
-        }, self::allQueued());
+        }));
+        $this->reply(self::wholeCall(429), self::allQueued());
 
         $error = $this->batchError(self::recipients(150), emails: $this->closedEmails());
 
         $this->assertSame('client_closed', $error->getErrorCode());
         $this->assertCount(1, $this->requests);
+        $this->assertTrue($this->closed);
         $this->assertSame(
             [...self::times(100, 'failed'), ...self::times(50, 'not_attempted')],
             self::statuses($error->getResults())
         );
         $this->assertSame('client_closed', $error->getResults()[0]->getError()->getErrorCode());
+    }
+
+    private static function clockThatShutsDownOnSleep(MockClock $clock, Closure $shutDown): ClockInterface
+    {
+        return new class ($clock, $shutDown) implements ClockInterface {
+            public function __construct(private MockClock $clock, private Closure $shutDown)
+            {
+            }
+
+            public function now(): DateTimeImmutable
+            {
+                return $this->clock->now();
+            }
+
+            public function sleep(float|int $seconds): void
+            {
+                ($this->shutDown)();
+                $this->clock->sleep($seconds);
+            }
+
+            public function withTimeZone(DateTimeZone|string $timezone): static
+            {
+                return $this;
+            }
+        };
     }
 
     public function testAShutdownBeforeALostAnswerReadsNoEmailByItsKey(): void
@@ -671,12 +824,12 @@ class EmailsBatchTest extends TestCase
 
     public function testARefusalOfTheWholeRequestAfterALostAnswerKeepsItsRecipientsUnconfirmed(): void
     {
-        $this->reply(self::networkError(), self::wholeCall(429, 'quota_limited'), self::wholeCall(404, 'not_found'));
+        $this->reply(self::networkError(), self::wholeCall(429, 'quota_limited'), self::statusFound('m0'));
 
         $error = $this->batchError(self::recipients(1));
 
         [$result] = $error->getResults();
-        $this->assertSame('unconfirmed', $result->getStatus());
+        $this->assertSame(['unconfirmed', 'm0'], [$result->getStatus(), $result->getMessageId()]);
         $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
         $this->assertSame('quota_limited', $result->getLaterError()->getErrorCode());
         $this->assertSame(['key-0'], $this->readsByKey());
@@ -694,10 +847,31 @@ class EmailsBatchTest extends TestCase
         $this->assertSame('network_error', $error->getErrorCode());
         $this->assertSame(['key-0', 'key-1'], $this->readsByKey());
         $this->assertSame(
-            [['queued', 'm0'], ['unconfirmed', null]],
+            [['unconfirmed', 'm0'], ['unconfirmed', null]],
             array_map(static fn($r): array => [$r->getStatus(), $r->getMessageId()], $error->getResults())
         );
         $this->assertSame('delivery_unavailable', $error->getResults()[1]->getError()->getErrorCode());
+    }
+
+    public static function statusesReadByKey(): array
+    {
+        return [
+            'sent' => [self::statusFound('m0')],
+            'refused' => [self::statusFound('m0', 'failed', 'recipient_suppressed')],
+        ];
+    }
+
+    #[DataProvider('statusesReadByKey')]
+    public function testAStatusReadByKeyFillsInOnlyTheMessageId(array $read): void
+    {
+        $this->reply(self::networkError(), $read);
+
+        $error = $this->batchError(self::recipients(1), ['max_retries' => 0]);
+
+        [$result] = $error->getResults();
+        $this->assertSame(['unconfirmed', 'm0'], [$result->getStatus(), $result->getMessageId()]);
+        $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
+        $this->assertNull($result->getLaterError());
     }
 
     public function testAnEmailWithAMessageIdIsNotReadByItsKey(): void
@@ -739,7 +913,7 @@ class EmailsBatchTest extends TestCase
     {
         $this->reply(self::wholeCall(409, 'batch_unavailable'));
 
-        $error = $this->batchError(self::recipients(2));
+        $error = $this->batchError(self::recipients(2), ['max_retries' => 2]);
 
         $this->assertCount(1, $this->requests);
         $this->assertSame('batch_unavailable', $error->getErrorCode());
@@ -776,6 +950,10 @@ class EmailsBatchTest extends TestCase
 
         $this->assertSame('api_error', $error->getErrorCode());
         $this->assertSame(['unconfirmed', 'unconfirmed'], self::statuses($error->getResults()));
+        $this->assertSame(
+            [null, null],
+            array_map(static fn($r): ?EmailError => $r->getLaterError(), $error->getResults())
+        );
         $this->assertSame(['key-0', 'key-1'], $this->readsByKey());
     }
 

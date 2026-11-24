@@ -419,32 +419,35 @@ final class Emails
      * Each recipient's `idempotency_key` is 1 to 255 visible ASCII characters, a different one for each recipient
      * of the call, and every retry reuses it, so a retry never queues an email twice. Without it, the client makes
      * one that covers its own retries but not a second call, so pass keys you store when a batch may be cut off
-     * and run again: a rerun within 24 hours replays the emails that went out instead of sending them twice. A
-     * single send and a batch recipient with the same key and the same email replay each other. Never reuse a key
-     * for another email: after a lost answer, the client reads the email by its key, and an earlier email with
-     * that key reads as this one, `queued`.
+     * and run again: a rerun within 24 hours replays the emails that went out instead of sending them twice. Make
+     * each key name one email of one run, such as `digest:2026-11-24:ada`. A single send and a batch recipient
+     * with the same key and the same email replay each other. Never reuse a key for another email: PostHog would
+     * replay the earlier email instead of sending this one.
      *
      * Check each result's getStatus():
      *
      * - `queued`: PostHog accepted the email.
      * - `failed`: PostHog refused it, and getError() says why, such as a suppressed address.
-     * - `unconfirmed`: the client can't tell whether PostHog accepted it, such as after a lost answer. Send it
-     *   again with the same key within 24 hours, so it goes out once.
+     * - `unconfirmed`: the client can't tell whether PostHog accepted it, such as after a lost answer, or when
+     *   another request still holds its key. Send it again with the same key within 24 hours, so it goes out once.
      * - `not_attempted`: an earlier request of the batch failed, so the client sent nothing for it.
      *
      * A request that fails as a whole, such as a rate limit past its retries, stops the batch and throws
-     * EmailBatchError, whose getResults() holds every recipient. After a lost answer, the client reads each email
-     * it may have queued by its key, and reports the ones PostHog has as `queued`. The code `batch_unavailable`
-     * (409) means the project can't send batches yet, and `not_found` (404) that the template doesn't exist or
-     * batch sends are off for the project: send each email the batch didn't queue with send() and its recipient's
-     * `idempotency_key`.
+     * EmailBatchError, whose getResults() holds every recipient. At the end of every batch, the client reads each
+     * `unconfirmed` email without a message ID by its key. When PostHog has the email, the recipient comes back
+     * still `unconfirmed`, with the email's getMessageId(). The code `batch_unavailable` (409) means the project
+     * can't send batches yet, and is never retried. `not_found` (404) means the template doesn't exist or batch
+     * sends are off for the project. For both, send each email the batch didn't queue with send() and its
+     * recipient's `idempotency_key`. Shared content over 4 MiB of JSON throws `content_too_large` before any
+     * request, and a recipient whose email alone is that large is `failed` with `content_too_large`.
      *
      * ```php
+     * $run = 'digest:' . date('Y-m-d');
      * $result = $client->emails()->batch([
      *     'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
      *     'recipients' => [
-     *         ['to' => 'ada@example.com', 'template_data' => ['name' => 'Ada'], 'idempotency_key' => 'digest:ada'],
-     *         ['to' => 'alan@example.com', 'template_data' => ['name' => 'Alan'], 'idempotency_key' => 'digest:alan'],
+     *         ['to' => 'ada@example.com', 'template_data' => ['name' => 'Ada'], 'idempotency_key' => "$run:ada"],
+     *         ['to' => 'alan@example.com', 'template_data' => ['name' => 'Alan'], 'idempotency_key' => "$run:alan"],
      *     ],
      * ]);
      * foreach ($result->getResults() as $email) {
@@ -484,8 +487,8 @@ final class Emails
      */
     public function batch(array $batch): SendBatchResult
     {
-        [$shared, $isTemplateForm, $maxRetries] = $this->prepareBatch($batch);
-        $run = EmailBatch::prepare($shared, $batch['recipients'] ?? null, $isTemplateForm);
+        [$shared, $maxRetries] = $this->prepareBatch($batch);
+        $run = EmailBatch::prepare($shared, $batch['recipients'] ?? null);
         [$appHost, $secretKey] = $this->connect(self::SEND_NOT_DONE, self::SEND_KEY_NEEDED);
         try {
             $this->sendBatch($run, $appHost, $secretKey, $maxRetries);
@@ -506,7 +509,7 @@ final class Emails
     private function prepareSend(array $email): array
     {
         $email = array_filter($email, static fn($value): bool => $value !== null);
-        [$to, $distinctId, $idempotencyKey] = EmailRecipient::check($email);
+        [$to, $distinctId] = EmailRecipient::address($email);
         $hasTemplateId = array_key_exists('template_id', $email);
         if ($hasTemplateId === array_key_exists('template_key', $email)) {
             throw new EmailError(
@@ -515,6 +518,7 @@ final class Emails
             );
         }
         [$payload, $files] = $hasTemplateId ? [self::templateContent($email), []] : self::codeContent($email);
+        $idempotencyKey = EmailRecipient::idempotencyKey($email);
         $maxRetries = $this->maxRetries($email);
         $scheduledAt = array_key_exists('scheduled_at', $email) ? self::scheduledAt($email['scheduled_at']) : null;
         $payload['to'] = $to;
@@ -538,8 +542,7 @@ final class Emails
     }
 
     /**
-     * @return array{array<string, mixed>, bool, int} The email every recipient gets, whether it is a template
-     *     made in PostHog, and the retries of each request.
+     * @return array{array<string, mixed>, int} The email every recipient gets, and the retries of each request.
      */
     private function prepareBatch(array $batch): array
     {
@@ -566,7 +569,7 @@ final class Emails
         unset($batch['recipients']);
         $shared = $isTemplateForm ? self::templateContent($batch, 'batch') : self::codeContent($batch, 'batch')[0];
 
-        return [$shared, $isTemplateForm, $maxRetries];
+        return [$shared, $maxRetries];
     }
 
     private function maxRetries(array $call): int
@@ -1136,14 +1139,15 @@ final class Emails
             'client_closed',
             "The PostHog client is shut down, so it didn't retry this request of the batch."
         );
+        $url = $appHost . self::BATCH_PATH;
         for ($position = 0; $position < $run->requestCount(); $position++) {
             if ($position > 0 && ($this->isClosed)()) {
                 throw $run->failure($run->closedAt($position));
             }
-            $url = $appHost . self::BATCH_PATH;
-            $attemptOnce = function () use ($run, $position, $url, $headers, $timeoutMs): void {
+            $body = $run->requestBody($position);
+            $attemptOnce = function () use ($run, $position, $url, $headers, $body, $timeoutMs): void {
                 try {
-                    $reply = $this->request('POST', $url, $headers, $run->requestBody($position), $timeoutMs);
+                    $reply = $this->request('POST', $url, $headers, $body, $timeoutMs);
                 } catch (EmailError $error) {
                     if (in_array($error->getErrorCode(), self::LOST_ANSWER_CODES, true)) {
                         $run->lost($position);
@@ -1156,16 +1160,17 @@ final class Emails
                 $this->withRetries($maxRetries, $attemptOnce, $closedBeforeARetry);
             } catch (EmailError $error) {
                 $run->stop($position, $error);
-                $this->readLost($run, $appHost, $secretKey);
+                $this->readUnconfirmed($run, $appHost, $secretKey);
                 throw $run->failure($error);
             }
         }
+        $this->readUnconfirmed($run, $appHost, $secretKey);
     }
 
-    private function readLost(EmailBatch $run, string $appHost, string $secretKey): void
+    private function readUnconfirmed(EmailBatch $run, string $appHost, string $secretKey): void
     {
         $headers = $this->headers($secretKey, []);
-        foreach ($run->keysToRead() as $index => $idempotencyKey) {
+        foreach ($run->unconfirmedWithoutMessageId() as $index => $idempotencyKey) {
             if (($this->isClosed)()) {
                 return;
             }
@@ -1180,7 +1185,7 @@ final class Emails
                 }
                 return;
             }
-            $run->accepted($index, $status->getId());
+            $run->found($index, $status->getId());
         }
     }
 
@@ -1320,11 +1325,6 @@ final class Emails
     private static function wholeEpochSecondsAsFloat(DateTimeImmutable $time): float
     {
         return (float) $time->format('U');
-    }
-
-    private static function epochSecondsAsFloat(DateTimeImmutable $time): float
-    {
-        return (float) $time->format('U.u');
     }
 
     private static function onOneLogLine(string $text): string

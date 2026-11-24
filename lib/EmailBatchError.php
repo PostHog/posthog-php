@@ -7,7 +7,7 @@ namespace PostHog;
  *
  * The code, message and other fields are that request's error. getResults() holds every recipient: those of
  * earlier requests as PostHog answered them, those of the failed request as `failed`, or `unconfirmed` where an
- * earlier attempt may have queued them, and the rest as `not_attempted`.
+ * attempt may have queued them, and the rest as `not_attempted`.
  */
 class EmailBatchError extends EmailError
 {

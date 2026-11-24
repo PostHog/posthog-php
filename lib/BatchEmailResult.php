@@ -11,7 +11,8 @@ namespace PostHog;
  * - `failed`: PostHog didn't queue the email, and getError() says why, such as a suppressed address.
  * - `unconfirmed`: the client can't tell whether PostHog queued the email, such as after a lost answer. It may
  *   still go out. Send it again with the same idempotency key within 24 hours, so it goes out once.
- *   getLaterError() holds what a retry in the same call answered, which describes only that retry.
+ *   getMessageId() is the email's ID when PostHog answered one or has an email under the key.
+ *   getLaterError() holds what a later attempt in the same call answered, which describes only that attempt.
  * - `not_attempted`: an earlier request of the batch failed, so the client sent nothing for this recipient.
  */
 class BatchEmailResult
@@ -65,8 +66,9 @@ class BatchEmailResult
     }
 
     /**
-     * The email's message ID when PostHog named it, also for some emails it didn't queue. Pass it to
-     * Emails::get() to read the email's status.
+     * The email's message ID when PostHog named it, also for some emails it didn't queue. For an `unconfirmed`
+     * email, it can be the ID of the email PostHog has under the recipient's key, which the client read at the end
+     * of the batch. Pass it to Emails::get() to read the email's status.
      */
     public function getMessageId(): ?string
     {
