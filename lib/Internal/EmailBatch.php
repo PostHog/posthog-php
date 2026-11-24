@@ -118,16 +118,21 @@ final class EmailBatch
         if ($distinctId !== null) {
             $wire['distinct_id'] = $distinctId;
         }
-        $field = "recipients__$index";
         if (array_key_exists('template_data', $recipient)) {
             $wire['message_data'] = self::templateData($index, $recipient['template_data'], $isTemplateForm);
+        }
+        $encoded = self::encode($wire, "recipients[$index]");
+        $field = "recipients__$index";
+        if ($distinctId !== null && 2 * strlen(self::encode($distinctId, "recipients[$index]")) > strlen($encoded)) {
+            $field .= '__distinct_id';
+        } elseif (array_key_exists('template_data', $recipient)) {
             $field .= '__template_data';
         }
 
         return [
             'to' => $to,
             'key' => $wire['idempotency_key'],
-            'wire' => self::encode($wire, "recipients[$index]"),
+            'wire' => $encoded,
             'field' => $field,
         ];
     }
@@ -487,8 +492,8 @@ final class EmailBatch
 
         return new EmailError(
             'content_too_large',
-            "The $field every recipient of the batch gets is larger than one batch request takes (4 MiB of JSON), "
-            . 'so no email was sent.',
+            'The email every recipient of the batch gets is larger than one batch request takes (4 MiB of JSON), so '
+            . "no email was sent. Its largest part is $field.",
             fix: "Make $field smaller, such as by linking to images instead of embedding them, or send each email "
                 . 'with emails()->send().',
             field: $field

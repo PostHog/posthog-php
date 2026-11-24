@@ -537,6 +537,54 @@ class EmailsBatchTest extends TestCase
         $this->assertSame([], $this->requests);
     }
 
+    public function testSharedContentOver4MibOnlyTogetherNamesItsLargestPart(): void
+    {
+        $half = intdiv(self::FOUR_MIB, 2) + 1024;
+
+        $error = $this->refusal([
+            'recipients' => self::recipients(1),
+            'template_key' => 'news',
+            'subject' => 'News',
+            'html' => str_repeat('h', $half + 1),
+            'text' => str_repeat('t', $half),
+        ]);
+
+        $this->assertSame([
+            'content_too_large',
+            'html',
+            'The email every recipient of the batch gets is larger than one batch request takes (4 MiB of JSON), so '
+                . 'no email was sent. Its largest part is html.',
+        ], [$error->getErrorCode(), $error->getField(), $error->getMessage()]);
+        $this->assertSame([], $this->requests);
+    }
+
+    public static function recipientsTooLargeAlone(): array
+    {
+        return [
+            'a large distinct_id' => [
+                ['distinct_id' => str_repeat('d', self::FOUR_MIB), 'template_data' => ['greeting' => 'Hi']],
+                'recipients__0__distinct_id',
+            ],
+            'large template_data' => [
+                ['distinct_id' => 'user-1', 'template_data' => ['note' => str_repeat('x', self::FOUR_MIB)]],
+                'recipients__0__template_data',
+            ],
+        ];
+    }
+
+    #[DataProvider('recipientsTooLargeAlone')]
+    public function testARecipientTooLargeAloneNamesItsLargestField(array $fields, string $field): void
+    {
+        $result = $this->batch([['to' => 'a@example.com', 'idempotency_key' => 'k1', ...$fields]]);
+
+        $recipient = $result->getResults()[0];
+        $this->assertSame(
+            ['failed', 'content_too_large', $field],
+            [$recipient->getStatus(), $recipient->getError()->getErrorCode(), $recipient->getError()->getField()]
+        );
+        $this->assertSame([], $this->requests);
+    }
+
     public static function sharedContentAtTheLimit(): array
     {
         return [
