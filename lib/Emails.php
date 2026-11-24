@@ -1459,6 +1459,7 @@ final class Emails
             return new SendEmailResult($id, $replayed, $warnings);
         }
         if (!self::confirmsSchedule($fields, $scheduledAt)) {
+            self::logWarnings($warnings);
             throw self::scheduleNotConfirmed($id, $status);
         }
 
@@ -1479,7 +1480,9 @@ final class Emails
     private static function isAtMostAMinuteAhead(DateTimeImmutable $requested): bool
     {
         try {
-            return $requested <= Clock::get()->now()
+            $now = class_exists(Clock::class) ? Clock::get()->now() : new DateTimeImmutable('now');
+
+            return $requested <= $now
                 ->setTimezone(new DateTimeZone('UTC'))
                 ->modify('+' . self::SEND_NOW_LEEWAY_SECONDS . ' seconds');
         } catch (Throwable) {

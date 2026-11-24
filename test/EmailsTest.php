@@ -1866,10 +1866,12 @@ class EmailsTest extends TestCase
     #[DataProvider('timesTooFarAheadToSendNow')]
     public function testATimeMoreThanAMinuteAheadQueuedNowIsAnErrorWithTheMessageId(string $requested): void
     {
+        global $errorMessages;
         $this->reply([202, json_encode([
             'message_id' => self::MESSAGE_ID,
             'status' => 'queued',
             'scheduled_at' => null,
+            'warnings' => [['code' => 'unverified_link', 'detail' => 'A link points to an unknown domain.']],
         ]), []]);
 
         $error = $this->sendError([
@@ -1882,6 +1884,10 @@ class EmailsTest extends TestCase
         $this->assertSame(202, $error->getStatusCode());
         $this->assertSame(self::MESSAGE_ID, $error->getMessageId());
         $this->assertCount(1, $this->requests, 'an accepted send is never sent again');
+        $this->assertSame(
+            ['[PostHog][Emails] Email warning unverified_link: A link points to an unknown domain.'],
+            $errorMessages
+        );
     }
 
     public function testTheMinuteAheadCountsInUtcWhenTheLocalClockLeavesDaylightSaving(): void
