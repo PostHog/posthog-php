@@ -628,8 +628,7 @@ class EmailsBatchTest extends TestCase
 
     public function testABatchOf10000RecipientsFitsIn24MibOfMemory(): void
     {
-        $script = tempnam(sys_get_temp_dir(), 'posthog-emails-batch-');
-        file_put_contents($script, <<<'PHP'
+        $script = <<<'PHP'
 <?php
 require $argv[1];
 $requests = 0;
@@ -658,22 +657,13 @@ $result = $emails->batch([
 ]);
 $queued = count(array_filter($result->getResults(), static fn($email): bool => $email->getStatus() === 'queued'));
 echo json_encode([$requests, $queued]);
-PHP);
-        try {
-            $command = escapeshellarg(PHP_BINARY) . ' -d memory_limit=24M ' . escapeshellarg($script) . ' '
-                . escapeshellarg(__DIR__ . '/../vendor/autoload.php') . ' 2>&1';
-            exec($command, $output, $exitCode);
-
-            $this->assertSame([0, '[100,10000]'], [$exitCode, implode("\n", $output)]);
-        } finally {
-            unlink($script);
-        }
+PHP;
+        $this->assertSame([0, '[100,10000]'], self::runWithMemoryLimit($script, '24M'));
     }
 
     public function testARecipientWithA10MibDistinctIdOfNulBytesFailsWithin128MibOfMemory(): void
     {
-        $script = tempnam(sys_get_temp_dir(), 'posthog-emails-batch-');
-        file_put_contents($script, <<<'PHP'
+        $script = <<<'PHP'
 <?php
 require $argv[1];
 $emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [500, '', []]);
@@ -682,25 +672,16 @@ $recipient = $emails->batch([
     'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
 ])->getResults()[0];
 echo json_encode([$recipient->getStatus(), $recipient->getError()->getErrorCode(), $recipient->getError()->getField()]);
-PHP);
-        try {
-            $command = escapeshellarg(PHP_BINARY) . ' -d memory_limit=128M ' . escapeshellarg($script) . ' '
-                . escapeshellarg(__DIR__ . '/../vendor/autoload.php') . ' 2>&1';
-            exec($command, $output, $exitCode);
-
-            $this->assertSame(
-                [0, '["failed","content_too_large","recipients__0__distinct_id"]'],
-                [$exitCode, implode("\n", $output)]
-            );
-        } finally {
-            unlink($script);
-        }
+PHP;
+        $this->assertSame(
+            [0, '["failed","content_too_large","recipients__0__distinct_id"]'],
+            self::runWithMemoryLimit($script, '128M')
+        );
     }
 
     public function testA32MibHtmlIsRefusedWithin128MibOfMemory(): void
     {
-        $script = tempnam(sys_get_temp_dir(), 'posthog-emails-batch-');
-        file_put_contents($script, <<<'PHP'
+        $script = <<<'PHP'
 <?php
 require $argv[1];
 $requests = 0;
@@ -719,13 +700,81 @@ try {
 } catch (PostHog\EmailError $error) {
     echo json_encode([$requests, $error->getErrorCode(), $error->getField()]);
 }
-PHP);
+PHP;
+        $this->assertSame([0, '[0,"content_too_large","html"]'], self::runWithMemoryLimit($script, '128M'));
+    }
+
+    public function testEachRequestOfABatchIsBuiltAfterThePreviousOneIsFreed(): void
+    {
+        $script = <<<'PHP'
+<?php
+require $argv[1];
+$requests = 0;
+$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static function (
+    string $method,
+    string $url,
+    array $headers,
+    ?string $body
+) use (&$requests): array {
+    $requests++;
+    preg_match_all('/"idempotency_key":"(key-\\d)"/', $body, $keys);
+    $slots = [];
+    foreach ($keys[1] as $key) {
+        $slots[] = ['message_id' => "msg_$key", 'status' => 'queued'];
+    }
+
+    return [200, json_encode(['results' => $slots]), []];
+});
+$recipients = [];
+for ($index = 0; $index < 8; $index++) {
+    $recipients[] = [
+        'to' => "user$index@example.com",
+        'idempotency_key' => "key-$index",
+        'template_data' => ['note' => str_repeat(chr(97 + $index), 1010000)],
+    ];
+}
+$result = $emails->batch(['recipients' => $recipients, 'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b']);
+$queued = count(array_filter($result->getResults(), static fn($email): bool => $email->getStatus() === 'queued'));
+echo json_encode([$requests, $queued]);
+PHP;
+
+        $this->assertSame([0, '[2,8]'], self::runWithMemoryLimit($script, '29M'));
+    }
+
+    public function testARecipientWithoutToIsRefusedBeforeSharedContentIsEncoded(): void
+    {
+        $script = <<<'PHP'
+<?php
+require $argv[1];
+$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [500, '', []]);
+try {
+    $emails->batch([
+        'recipients' => [['distinct_id' => 'user-1']],
+        'template_key' => 'news',
+        'subject' => 'News',
+        'html' => str_repeat("\0", 21 * 1024 * 1024),
+    ]);
+} catch (PostHog\EmailError $error) {
+    echo json_encode([$error->getErrorCode(), $error->getField()]);
+}
+PHP;
+
+        $this->assertSame([0, '["invalid_recipient","recipients__0__to"]'], self::runWithMemoryLimit($script, '128M'));
+    }
+
+    /**
+     * @return array{int, string}
+     */
+    private static function runWithMemoryLimit(string $code, string $limit): array
+    {
+        $script = tempnam(sys_get_temp_dir(), 'posthog-emails-batch-');
+        file_put_contents($script, $code);
         try {
-            $command = escapeshellarg(PHP_BINARY) . ' -d memory_limit=128M ' . escapeshellarg($script) . ' '
+            $command = escapeshellarg(PHP_BINARY) . " -d memory_limit=$limit " . escapeshellarg($script) . ' '
                 . escapeshellarg(__DIR__ . '/../vendor/autoload.php') . ' 2>&1';
             exec($command, $output, $exitCode);
 
-            $this->assertSame([0, '[0,"content_too_large","html"]'], [$exitCode, implode("\n", $output)]);
+            return [$exitCode, implode("\n", $output)];
         } finally {
             unlink($script);
         }
@@ -880,10 +929,12 @@ PHP);
         return [
             'a refusal after an in-flight answer' => [
                 [self::wholeCall(409, 'idempotency_key_in_flight'), self::wholeCall(429, 'quota_limited')],
+                'idempotency_key_in_flight',
                 'quota_limited',
             ],
             'an in-flight answer after a 503' => [
                 [self::wholeCall(503, 'delivery_unavailable'), self::wholeCall(409, 'idempotency_key_in_flight')],
+                'delivery_unavailable',
                 'idempotency_key_in_flight',
             ],
         ];
@@ -892,6 +943,7 @@ PHP);
     #[DataProvider('attemptsAfterAnInFlightAnswer')]
     public function testTheAttemptAfterTheOneThatLeftARecipientUnconfirmedIsItsLaterError(
         array $answers,
+        string $code,
         string $laterCode
     ): void {
         $this->reply(...$answers);
@@ -900,7 +952,7 @@ PHP);
 
         [$result] = $error->getResults();
         $this->assertSame('unconfirmed', $result->getStatus());
-        $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
+        $this->assertSame($code, $result->getError()->getErrorCode());
         $this->assertSame($laterCode, $result->getLaterError()->getErrorCode());
         $this->assertSame([self::BATCH_URL, self::BATCH_URL], $this->requestUrls());
     }

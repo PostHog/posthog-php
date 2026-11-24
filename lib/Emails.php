@@ -1169,6 +1169,7 @@ final class Emails
                 $run->stop($position, $error);
                 throw $run->failure($error);
             }
+            unset($body, $attemptOnce);
         }
     }
 

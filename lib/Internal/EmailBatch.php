@@ -53,20 +53,6 @@ final class EmailBatch
                 field: 'recipients'
             );
         }
-        $encoded = [];
-        $size = strlen('{"recipients":[]}');
-        foreach ($shared as $name => $value) {
-            $encoded[$name] = self::encode($value, 'The email');
-            $size += strlen(self::encode((string) $name, 'The email')) + strlen($encoded[$name]) + strlen(':,');
-        }
-        if ($size > self::MAX_REQUEST_BYTES) {
-            throw self::sharedTooLarge($encoded);
-        }
-        $pairs = [];
-        foreach ($encoded as $name => $json) {
-            $pairs[] = self::encode((string) $name, 'The email') . ':' . $json;
-        }
-        $opening = '{' . implode(',', [...$pairs, '"recipients":[']);
         $isTemplateForm = array_key_exists('template_id', $shared);
         $members = [];
         $firstWithKey = [];
@@ -84,6 +70,20 @@ final class EmailBatch
             }
             $members[] = $member;
         }
+        $encoded = [];
+        $size = strlen('{"recipients":[]}');
+        foreach ($shared as $name => $value) {
+            $encoded[$name] = self::encode($value, 'The email');
+            $size += strlen(self::encode((string) $name, 'The email')) + strlen($encoded[$name]) + strlen(':,');
+        }
+        if ($size > self::MAX_REQUEST_BYTES) {
+            throw self::sharedTooLarge($encoded);
+        }
+        $pairs = [];
+        foreach ($encoded as $name => $json) {
+            $pairs[] = self::encode((string) $name, 'The email') . ':' . $json;
+        }
+        $opening = '{' . implode(',', [...$pairs, '"recipients":[']);
 
         return new self($members, $opening);
     }
@@ -223,9 +223,14 @@ final class EmailBatch
 
     public function requestBody(int $position): string
     {
-        $wires = array_map(fn(int $index): string => $this->members[$index]['wire'], $this->requests[$position]);
+        $parts = [$this->opening];
+        foreach ($this->requests[$position] as $index) {
+            $parts[] = $this->members[$index]['wire'];
+            $parts[] = ',';
+        }
+        $parts[count($parts) - 1] = ']}';
 
-        return $this->opening . implode(',', $wires) . ']}';
+        return implode('', $parts);
     }
 
     public function lost(int $position, EmailError $error): void
@@ -233,7 +238,8 @@ final class EmailBatch
         $this->recordLaterError($position, $error);
         foreach ($this->requests[$position] as $index) {
             if (!$this->isUnconfirmed($index)) {
-                $this->set($index, 'unconfirmed', error: self::unconfirmed(null));
+                $cause = $error->getErrorCode() === self::IN_FLIGHT ? $error : self::unconfirmed(null);
+                $this->set($index, 'unconfirmed', error: $cause);
             }
         }
     }
