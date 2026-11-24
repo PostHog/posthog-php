@@ -521,17 +521,24 @@ PHP;
         $script = <<<'PHP'
 <?php
 require $argv[1];
-$appMemory = str_repeat('b', 15 * 1024 * 1024);
-$slots = json_encode(['results' => array_fill(0, 100, ['message_id' => 'm', 'status' => 'queued'])]);
+$appMemory = str_repeat('b', 16 * 1024 * 1024);
 $sent = 0;
 $emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static function (
     string $method,
     string $url,
     array $headers,
     string $body
-) use ($slots, &$sent): array {
+) use (&$sent): array {
+    preg_match_all('/"idempotency_key":"([^"]+)"/', $body, $keys);
+    $valid = PHP_VERSION_ID < 80300 || json_validate($body);
+    if (!$valid || !str_ends_with($body, ']}') || count(array_unique($keys[1])) !== 100) {
+        return [400, '{"type":"invalid_request","code":"invalid_request","detail":"Not a batch."}', []];
+    }
     $sent = strlen($body);
-    return [200, $slots, []];
+    return [200, json_encode(['results' => array_map(
+        static fn(string $key): array => ['message_id' => "msg-$key", 'status' => 'queued'],
+        $keys[1]
+    )]), []];
 });
 $recipients = [];
 for ($index = 0; $index < 100; $index++) {
@@ -541,11 +548,11 @@ $result = $emails->batch([
     'recipients' => $recipients,
     'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
 ]);
-$queued = array_filter($result->getResults(), static fn($r): bool => $r->getStatus() === 'queued');
-echo count($queued), ' ', $sent > 4500000 ? 'body sent' : "body of $sent bytes";
+$ids = array_map(static fn($r): ?string => $r->getStatus() === 'queued' ? $r->getMessageId() : null, $result->getResults());
+echo count(array_unique(array_filter($ids))), ' ', $sent > 4500000 ? 'body sent' : "body of $sent bytes";
 PHP;
 
-        $this->assertSame([0, '100 body sent'], self::runWithMemoryLimit($script, '35M'));
+        $this->assertSame([0, '100 body sent'], self::runWithMemoryLimit($script, '32M'));
     }
 
     public function testSharedDataTooLargeForPostHogComesBackAsItsRefusalInTightMemory(): void
@@ -699,18 +706,34 @@ PHP;
         $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
     }
 
-    public function testARecipientThePipelineDidNotConfirmIsUnconfirmed(): void
-    {
-        $this->reply(self::ok(self::notConfirmed()));
+    #[DataProvider('slotsWithoutAConfirmation')]
+    public function testARecipientPostHogDidNotConfirmIsUnconfirmedWithTheAdviceToSendAgain(
+        array $slot,
+        array $error
+    ): void {
+        $this->reply(self::ok($slot));
 
         [$result] = $this->batch(self::recipients(1))->getResults();
 
-        $this->assertSame(['unconfirmed', 'm0'], [$result->getStatus(), $result->getMessageId()]);
-        $this->assertSame(['delivery_unavailable', 503], [
+        $this->assertSame(['unconfirmed', 'm0', 'key-0'], [
+            $result->getStatus(),
+            $result->getMessageId(),
+            $result->getIdempotencyKey(),
+        ]);
+        $sendAgain = 'Send it again with the same idempotency_key within 24 hours, so it goes out once.';
+        $this->assertSame([...$error, $sendAgain], [
             $result->getError()->getErrorCode(),
             $result->getError()->getStatusCode(),
+            $result->getError()->getFix(),
         ]);
-        $this->assertSame('key-0', $result->getIdempotencyKey());
+    }
+
+    public static function slotsWithoutAConfirmation(): array
+    {
+        return [
+            'not confirmed by the pipeline' => [self::notConfirmed(), ['delivery_unavailable', 503]],
+            'an unreadable result' => [['message_id' => 'm0', 'status' => 'pending'], ['api_error', null]],
+        ];
     }
 
     public function testABatchThatSucceedsReadsNothingBackForAnUnconfirmedEmail(): void

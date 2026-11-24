@@ -82,7 +82,7 @@ final class EmailBatch
             if ($index > 0) {
                 $body .= ',';
             }
-            $body .= $member['wire'];
+            $body .= self::joined($index, $member['wire']);
             unset($members[$index]['wire'], $member);
         }
         $body .= ']}';
@@ -91,7 +91,7 @@ final class EmailBatch
     }
 
     /**
-     * @return array{to: string, key: string, wire: string}
+     * @return array{to: string, key: string, wire: array<string, mixed>}
      */
     private static function member(int $index, mixed $recipient, bool $isTemplateForm): array
     {
@@ -123,22 +123,17 @@ final class EmailBatch
         if (array_key_exists('template_data', $recipient)) {
             $wire['message_data'] = self::templateData($index, $recipient['template_data'], $isTemplateForm);
         }
-        $values = [];
-        foreach ($wire as $name => $value) {
-            $values[$name] = self::encode($value, "recipients[$index]", 511);
-        }
-
-        return ['to' => $to, 'key' => $wire['idempotency_key'], 'wire' => self::joined($values)];
+        return ['to' => $to, 'key' => $wire['idempotency_key'], 'wire' => $wire];
     }
 
     /**
-     * @param array<string, string> $values
+     * @param array<string, mixed> $wire
      */
-    private static function joined(array $values): string
+    private static function joined(int $index, array $wire): string
     {
         $parts = [];
-        foreach ($values as $name => $json) {
-            array_push($parts, $parts === [] ? '{' : ',', "\"$name\":", $json);
+        foreach ($wire as $name => $value) {
+            array_push($parts, $parts === [] ? '{' : ',', "\"$name\":", self::encode($value, "recipients[$index]", 511));
         }
         $parts[] = '}';
 
@@ -235,12 +230,11 @@ final class EmailBatch
             return;
         }
         $answer = self::slotError($error, $messageId);
-        if ($this->mayHaveQueued) {
+        if ($this->mayHaveQueued || in_array($answer->getErrorCode(), self::UNCONFIRMED_CODES, true)) {
             $this->set($index, 'unconfirmed', $messageId, error: self::sendAgain($answer));
             return;
         }
-        $status = in_array($answer->getErrorCode(), self::UNCONFIRMED_CODES, true) ? 'unconfirmed' : 'failed';
-        $this->set($index, $status, $messageId, error: $answer);
+        $this->set($index, 'failed', $messageId, error: $answer);
     }
 
     public function result(): SendBatchResult
