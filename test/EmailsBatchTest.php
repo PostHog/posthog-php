@@ -16,6 +16,8 @@ use PostHog\Emails;
 use PostHog\SendBatchResult;
 use stdClass;
 use Throwable;
+use JsonSerializable;
+use RuntimeException;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Clock\MockClock;
@@ -532,6 +534,42 @@ class EmailsBatchTest extends TestCase
             $error->getField(),
             $error->getErrorName(),
         ]);
+        $this->assertSame([], $this->requests);
+    }
+
+    public static function valuesThatChangeOnASecondEncoding(): array
+    {
+        return [
+            'INF the second time' => [static fn(): float => INF],
+            'an exception the second time' => [static function (): never {
+                throw new RuntimeException('Serialized twice.');
+            }],
+        ];
+    }
+
+    #[DataProvider('valuesThatChangeOnASecondEncoding')]
+    public function testSharedContentOver4MibIsDiagnosedFromItsOnlyEncoding(Closure $secondTime): void
+    {
+        $note = new class (str_repeat('x', self::FOUR_MIB), $secondTime) implements JsonSerializable {
+            private int $encodings = 0;
+
+            public function __construct(private string $first, private Closure $secondTime)
+            {
+            }
+
+            public function jsonSerialize(): mixed
+            {
+                return $this->encodings++ === 0 ? $this->first : ($this->secondTime)();
+            }
+        };
+
+        $error = $this->refusal([
+            'recipients' => self::recipients(1),
+            'template_id' => self::TEMPLATE_ID,
+            'template_data' => ['note' => $note],
+        ]);
+
+        $this->assertSame(['content_too_large', 'template_data'], [$error->getErrorCode(), $error->getField()]);
         $this->assertSame([], $this->requests);
     }
 

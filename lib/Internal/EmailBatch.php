@@ -53,9 +53,17 @@ final class EmailBatch
                 field: 'recipients'
             );
         }
-        $emptyBody = self::encode([...$shared, 'recipients' => []], 'The email');
-        if (strlen($emptyBody) > self::MAX_REQUEST_BYTES) {
-            throw self::sharedTooLarge($shared);
+        $encoded = [];
+        foreach ($shared as $name => $value) {
+            $encoded[$name] = self::encode($value, 'The email');
+        }
+        $pairs = [];
+        foreach ($encoded as $name => $json) {
+            $pairs[] = self::encode((string) $name, 'The email') . ':' . $json;
+        }
+        $opening = '{' . implode(',', [...$pairs, '"recipients":[']);
+        if (strlen($opening) + strlen(']}') > self::MAX_REQUEST_BYTES) {
+            throw self::sharedTooLarge($encoded);
         }
         $isTemplateForm = array_key_exists('template_id', $shared);
         $members = [];
@@ -75,7 +83,7 @@ final class EmailBatch
             $members[] = $member;
         }
 
-        return new self($members, substr($emptyBody, 0, -strlen(']}')));
+        return new self($members, $opening);
     }
 
     /**
@@ -145,7 +153,7 @@ final class EmailBatch
         return $data === [] ? (object) [] : $data;
     }
 
-    private static function encode(array $payload, string $what): string
+    private static function encode(mixed $payload, string $what): string
     {
         try {
             return json_encode($payload, self::JSON_FLAGS);
@@ -466,11 +474,14 @@ final class EmailBatch
     /**
      * @param array<string, mixed> $shared
      */
-    private static function sharedTooLarge(array $shared): EmailError
+    /**
+     * @param array<string, string> $encoded
+     */
+    private static function sharedTooLarge(array $encoded): EmailError
     {
         $sizes = [];
-        foreach (array_diff_key($shared, ['template_id' => true, 'template_key' => true]) as $name => $value) {
-            $sizes[$name === 'message_data' ? 'template_data' : $name] = strlen(self::encode([$value], $name));
+        foreach (array_diff_key($encoded, ['template_id' => true, 'template_key' => true]) as $name => $json) {
+            $sizes[$name === 'message_data' ? 'template_data' : $name] = strlen($json);
         }
         arsort($sizes);
         $field = (string) array_key_first($sizes);
