@@ -482,6 +482,11 @@ class EmailsBatchTest extends TestCase
                 'Make the shared template_data smaller.',
             ],
             'shared content too large, without a fix' => [400, $answer, null],
+            'a body too large, with an empty fix' => [
+                413,
+                [...$answer, 'fix' => ''],
+                'Make the email or its template_data smaller, or send fewer recipients in each batch.',
+            ],
         ];
     }
 
@@ -516,9 +521,11 @@ PHP;
         $this->assertSame([0, 'failed content_too_large'], self::runWithMemoryLimit($script, '32M'));
     }
 
-    public function testAHundredRecipientsNearTheBodyLimitGoOutInTightMemory(): void
+    #[DataProvider('recipientsNearTheBodyLimit')]
+    public function testAHundredRecipientsNearTheBodyLimitGoOutInTightMemory(int $each, int $last): void
     {
-        $script = <<<'PHP'
+        $bodyFile = tempnam(sys_get_temp_dir(), 'posthog-emails-batch-body-');
+        $script = "<?php\n\$each = $each;\n\$last = $last;\n\$bodyFile = '$bodyFile';\n?>" . <<<'PHP'
 <?php
 require $argv[1];
 $appMemory = str_repeat('b', 16 * 1024 * 1024);
@@ -528,12 +535,9 @@ $emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static
     string $url,
     array $headers,
     string $body
-) use (&$sent): array {
+) use (&$sent, $bodyFile): array {
     preg_match_all('/"idempotency_key":"([^"]+)"/', $body, $keys);
-    $valid = PHP_VERSION_ID < 80300 || json_validate($body);
-    if (!$valid || !str_ends_with($body, ']}') || count(array_unique($keys[1])) !== 100) {
-        return [400, '{"type":"invalid_request","code":"invalid_request","detail":"Not a batch."}', []];
-    }
+    file_put_contents($bodyFile, $body);
     $sent = strlen($body);
     return [200, json_encode(['results' => array_map(
         static fn(string $key): array => ['message_id' => "msg-$key", 'status' => 'queued'],
@@ -542,7 +546,8 @@ $emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static
 });
 $recipients = [];
 for ($index = 0; $index < 100; $index++) {
-    $recipients[] = ['to' => "user$index@example.com", 'template_data' => ['note' => str_repeat('x', 45000)]];
+    $size = $index === 99 ? $last : $each;
+    $recipients[] = ['to' => "user$index@example.com", 'template_data' => ['note' => str_repeat('x', $size)]];
 }
 $result = $emails->batch([
     'recipients' => $recipients,
@@ -552,7 +557,25 @@ $ids = array_map(static fn($r): ?string => $r->getStatus() === 'queued' ? $r->ge
 echo count(array_unique(array_filter($ids))), ' ', $sent > 4500000 ? 'body sent' : "body of $sent bytes";
 PHP;
 
-        $this->assertSame([0, '100 body sent'], self::runWithMemoryLimit($script, '32M'));
+        try {
+            $this->assertSame([0, '100 body sent'], self::runWithMemoryLimit($script, '32M'));
+            $request = json_decode(file_get_contents($bodyFile), true, flags: JSON_THROW_ON_ERROR);
+        } finally {
+            unlink($bodyFile);
+        }
+        $this->assertSame([...array_fill(0, 99, $each), $last], array_map(
+            static fn(array $recipient): int => strlen($recipient['message_data']['note']),
+            $request['recipients']
+        ));
+        $this->assertCount(100, array_unique(array_column($request['recipients'], 'idempotency_key')));
+    }
+
+    public static function recipientsNearTheBodyLimit(): array
+    {
+        return [
+            'evenly sized' => [45000, 45000],
+            'one large recipient' => [2020, 4800000],
+        ];
     }
 
     public function testSharedDataTooLargeForPostHogComesBackAsItsRefusalInTightMemory(): void
@@ -703,7 +726,10 @@ PHP;
         $this->assertSame(['sending_paused', 422], [$error->getErrorCode(), $error->getStatusCode()]);
         [$result] = $error->getResults();
         $this->assertSame('unconfirmed', $result->getStatus());
-        $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
+        $this->assertSame(
+            ['sending_paused', 422, 'Send it again with the same idempotency_key within 24 hours, so it goes out once.'],
+            [$result->getError()->getErrorCode(), $result->getError()->getStatusCode(), $result->getError()->getFix()]
+        );
     }
 
     #[DataProvider('slotsWithoutAConfirmation')]
@@ -860,7 +886,7 @@ PHP;
         $this->assertSame('key-2', $results[2]->getIdempotencyKey());
     }
 
-    public function testARefusalOfTheWholeRequestAfterALostAnswerKeepsItsRecipientsUnconfirmed(): void
+    public function testARefusalOfTheWholeRequestAfterALostAnswerKeepsItsRecipientsUnconfirmedWithTheRefusal(): void
     {
         $this->reply(self::networkError(), self::wholeCall(429, 'quota_limited'));
 
@@ -868,7 +894,10 @@ PHP;
 
         [$result] = $error->getResults();
         $this->assertSame(['unconfirmed', null], [$result->getStatus(), $result->getMessageId()]);
-        $this->assertSame('delivery_unavailable', $result->getError()->getErrorCode());
+        $this->assertSame(
+            ['quota_limited', 429, 'Send it again with the same idempotency_key within 24 hours, so it goes out once.'],
+            [$result->getError()->getErrorCode(), $result->getError()->getStatusCode(), $result->getError()->getFix()]
+        );
         $this->assertSame([self::BATCH_URL, self::BATCH_URL], $this->requestUrls());
     }
 

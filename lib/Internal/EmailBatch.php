@@ -60,6 +60,7 @@ final class EmailBatch
         }
         $isTemplateForm = array_key_exists('template_id', $shared);
         $members = [];
+        $wires = [];
         $firstWithKey = [];
         foreach ($recipients as $index => $recipient) {
             $member = self::member($index, $recipient, $isTemplateForm);
@@ -73,21 +74,20 @@ final class EmailBatch
                     field: "recipients__{$index}__idempotency_key"
                 );
             }
-            $members[] = $member;
+            $members[] = ['to' => $member['to'], 'key' => $member['key']];
+            $wires[] = $member['wire'];
         }
-        $body = self::encode($shared, 'The email');
-        $body[-1] = ',';
-        $body .= '"recipients":[';
-        foreach ($members as $index => $member) {
-            if ($index > 0) {
-                $body .= ',';
+        $request = [...$shared, 'recipients' => $wires];
+        try {
+            return new self($members, json_encode($request, self::JSON_FLAGS));
+        } catch (JsonException) {
+            self::encode($shared, 'The email');
+            foreach ($wires as $index => $wire) {
+                self::encode($wire, "recipients[$index]", 510);
             }
-            $body .= self::joined($index, $member['wire']);
-            unset($members[$index]['wire'], $member);
-        }
-        $body .= ']}';
 
-        return new self($members, $body);
+            return new self($members, self::encode($request, 'The email'));
+        }
     }
 
     /**
@@ -124,20 +124,6 @@ final class EmailBatch
             $wire['message_data'] = self::templateData($index, $recipient['template_data'], $isTemplateForm);
         }
         return ['to' => $to, 'key' => $wire['idempotency_key'], 'wire' => $wire];
-    }
-
-    /**
-     * @param array<string, mixed> $wire
-     */
-    private static function joined(int $index, array $wire): string
-    {
-        $parts = [];
-        foreach ($wire as $name => $value) {
-            array_push($parts, $parts === [] ? '{' : ',', "\"$name\":", self::encode($value, "recipients[$index]", 511));
-        }
-        $parts[] = '}';
-
-        return implode('', $parts);
     }
 
     private static function templateData(int $index, mixed $data, bool $isTemplateForm): array|object
@@ -185,7 +171,7 @@ final class EmailBatch
     {
         $this->mayHaveQueued = true;
         $inFlight = $error->getStatusCode() === 409 && $error->getErrorCode() === self::IN_FLIGHT;
-        $cause = $inFlight ? self::sendAgain($error) : self::unconfirmed(null);
+        $cause = $inFlight ? self::sendAgain($error, $error->getFix() ?? self::SEND_AGAIN) : self::unconfirmed(null);
         $this->setAll('unconfirmed', $cause);
 
         return $error;
@@ -201,6 +187,9 @@ final class EmailBatch
             $error = self::requestError($fields, $status, $headers);
             if ($status >= 500 || ($status === 409 && $error->getErrorCode() === self::IN_FLIGHT)) {
                 throw $this->lost($error);
+            }
+            if ($this->mayHaveQueued) {
+                $this->setAll('unconfirmed', self::sendAgain($error, self::SEND_AGAIN));
             }
             throw $error;
         }
@@ -231,7 +220,7 @@ final class EmailBatch
         }
         $answer = self::slotError($error, $messageId);
         if ($this->mayHaveQueued || in_array($answer->getErrorCode(), self::UNCONFIRMED_CODES, true)) {
-            $this->set($index, 'unconfirmed', $messageId, error: self::sendAgain($answer));
+            $this->set($index, 'unconfirmed', $messageId, error: self::sendAgain($answer, self::SEND_AGAIN));
             return;
         }
         $this->set($index, 'failed', $messageId, error: $answer);
@@ -306,7 +295,8 @@ final class EmailBatch
             ];
         }
         if ($status === 413) {
-            $answered += ['fix' => 'Make the email or its template_data smaller, or send fewer recipients in each batch.'];
+            $answered['fix'] = EmailReplies::text($answered['fix'] ?? null)
+                ?? 'Make the email or its template_data smaller, or send fewer recipients in each batch.';
         }
         if (($answered['code'] ?? null) === 'batch_unavailable') {
             $answered['fix'] = 'Until batch sends are on for the project, ' . self::SEND_SINGLY;
@@ -344,14 +334,14 @@ final class EmailBatch
         );
     }
 
-    private static function sendAgain(EmailError $error): EmailError
+    private static function sendAgain(EmailError $error, string $fix): EmailError
     {
         return new EmailError(
             $error->getErrorCode(),
             $error->getMessage(),
             $error->getStatusCode(),
             $error->getWhy(),
-            $error->getFix() ?? self::SEND_AGAIN,
+            $fix,
             $error->getDocsUrl(),
             $error->getField(),
             $error->getRetryAfterMs(),
