@@ -13,36 +13,16 @@ class SendEmailResult
     private bool $replayed;
     /** @var list<EmailWarning> */
     private array $warnings;
-    private ?DateTimeImmutable $scheduledAt = null;
 
     /**
      * @internal Created by Emails::send().
      * @param list<EmailWarning> $warnings
      */
-    public function __construct(
-        string $id,
-        bool $replayed = false,
-        array $warnings = [],
-        ?DateTimeImmutable $scheduledAt = null
-    ) {
+    public function __construct(string $id, bool $replayed = false, array $warnings = [])
+    {
         $this->id = $id;
         $this->replayed = $replayed;
         $this->warnings = $warnings;
-        $this->scheduledAt = $scheduledAt;
-    }
-
-    /**
-     * @return list<string>
-     */
-    public function __sleep()
-    {
-        $properties = (array) $this;
-        $scheduledAt = "\0" . self::class . "\0scheduledAt";
-        if (array_key_exists($scheduledAt, $properties) && $properties[$scheduledAt] === null) {
-            unset($properties[$scheduledAt]);
-        }
-
-        return array_map(strval(...), array_keys($properties));
     }
 
     /**
@@ -76,7 +56,7 @@ class SendEmailResult
      */
     public function getStatus(): string
     {
-        return $this->scheduledAt === null ? 'queued' : 'scheduled';
+        return 'queued';
     }
 
     /**
@@ -84,6 +64,6 @@ class SendEmailResult
      */
     public function getScheduledAt(): ?DateTimeImmutable
     {
-        return $this->scheduledAt;
+        return null;
     }
 }

@@ -2420,14 +2420,85 @@ PHP);
         $this->assertSame($serialized, $output);
     }
 
-    #[RequiresPhp('>= 8.4')]
-    public function testALazyResultSerializesWithoutBeingInitialized(): void
+    public static function lazyResults(): array
     {
-        $lazy = (new \ReflectionClass(SendEmailResult::class))->newLazyGhost(static function (): never {
-            throw new RuntimeException('The result was initialized.');
-        }, \ReflectionClass::SKIP_INITIALIZATION_ON_SERIALIZE);
+        return [
+            'a ghost' => [false],
+            'a proxy' => [true],
+        ];
+    }
 
-        $this->assertSame('O:23:"PostHog\SendEmailResult":0:{}', serialize($lazy));
+    #[DataProvider('lazyResults')]
+    #[RequiresPhp('>= 8.4')]
+    public function testALazyResultSerializedByDefaultKeepsItsFields(bool $proxy): void
+    {
+        $reflector = new \ReflectionClass(SendEmailResult::class);
+        $lazy = $proxy
+            ? $reflector->newLazyProxy(static fn(): SendEmailResult => new SendEmailResult('msg_1'))
+            : $reflector->newLazyGhost(static function (SendEmailResult $result): void {
+                $result->__construct('msg_1');
+            });
+
+        $this->assertSame('msg_1', unserialize(serialize($lazy))->getId());
+    }
+
+    #[DataProvider('lazyResults')]
+    #[RequiresPhp('>= 8.4')]
+    public function testALazyResultSerializesWithoutBeingInitializedWhenAskedTo(bool $proxy): void
+    {
+        $reflector = new \ReflectionClass(SendEmailResult::class);
+        $fail = static function (): never {
+            throw new RuntimeException('The result was initialized.');
+        };
+        $lazy = $proxy
+            ? $reflector->newLazyProxy($fail, \ReflectionClass::SKIP_INITIALIZATION_ON_SERIALIZE)
+            : $reflector->newLazyGhost($fail, \ReflectionClass::SKIP_INITIALIZATION_ON_SERIALIZE);
+
+        serialize($lazy);
+
+        $this->assertTrue($reflector->isUninitializedLazyObject($lazy));
+    }
+
+    public static function lazyResultSubclasses(): array
+    {
+        $dynamic = '#[AllowDynamicProperties] final class Kept extends PostHog\SendEmailResult {}';
+        $virtual = 'final class Kept extends PostHog\SendEmailResult { public string $label { get => "kept"; } }';
+        $made = '$r = new Kept("msg_1"); $r->context = "kept"; return $r;';
+
+        return [
+            'a ghost with a dynamic property' => [
+                $dynamic,
+                'newLazyGhost(static function (Kept $r) { $r->__construct("msg_1"); $r->context = "kept"; })',
+                'context',
+            ],
+            'a proxy with a dynamic property' => [$dynamic, "newLazyProxy(static function () { $made })", 'context'],
+            'a ghost with a virtual property' => [
+                $virtual,
+                'newLazyGhost(static function (Kept $r) { $r->__construct("msg_1"); })',
+                'label',
+            ],
+            'a proxy with a virtual property' => [$virtual, 'newLazyProxy(static fn() => new Kept("msg_1"))', 'label'],
+        ];
+    }
+
+    #[DataProvider('lazyResultSubclasses')]
+    #[RequiresPhp('>= 8.4')]
+    public function testALazyResultSubclassKeepsItsPropertiesThroughSerialization(
+        string $class,
+        string $lazy,
+        string $property
+    ): void {
+        $output = self::runPhp(<<<PHP
+set_error_handler(static function (int \$no, string \$message): never {
+    throw new ErrorException(\$message, 0, \$no);
+});
+require \$argv[1];
+$class
+\$read = unserialize(serialize((new ReflectionClass(Kept::class))->$lazy));
+echo \$read->getId(), ' ', \$read->$property;
+PHP);
+
+        $this->assertSame('msg_1 kept', $output);
     }
 
     public function testAnUnconfirmedScheduleKeepsItsMessageIdThroughSerialization(): void
