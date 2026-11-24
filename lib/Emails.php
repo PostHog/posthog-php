@@ -339,6 +339,9 @@ final class Emails
      */
     private static function logWarnings(array $warnings): void
     {
+        if (!function_exists('error_log')) {
+            return;
+        }
         foreach ($warnings as $warning) {
             $line = $warning->getCode() . ': ' . $warning->getMessage();
             error_log('[PostHog][Emails] Email warning ' . self::onOneLogLine($line));
@@ -1289,14 +1292,19 @@ final class Emails
 
     private static function isAtMostAMinuteAhead(DateTimeImmutable $requested): bool
     {
-        try {
-            $now = class_exists(Clock::class) ? Clock::get()->now() : new DateTimeImmutable('now');
+        return $requested <= self::now()
+            ->setTimezone(new DateTimeZone('UTC'))
+            ->modify('+' . self::SEND_NOW_LEEWAY_SECONDS . ' seconds');
+    }
 
-            return $requested <= $now
-                ->setTimezone(new DateTimeZone('UTC'))
-                ->modify('+' . self::SEND_NOW_LEEWAY_SECONDS . ' seconds');
+    private static function now(): DateTimeImmutable
+    {
+        // symfony/clock 6.2 has no Clock class, and up to 6.3.0 its NativeClock raises a deprecation on PHP 8.4+
+        // that an app may turn into an exception.
+        try {
+            return Clock::get()->now();
         } catch (Throwable) {
-            return false;
+            return new DateTimeImmutable('now');
         }
     }
 
