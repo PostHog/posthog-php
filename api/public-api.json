@@ -2,6 +2,162 @@
     "schemaVersion": 1,
     "namespace": "PostHog\\",
     "symbols": {
+        "PostHog\\BatchEmailResult": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "index",
+                            "type": "int",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "to",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "idempotencyKey",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "status",
+                            "type": "string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "messageId",
+                            "type": "?string",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "replayed",
+                            "type": "bool",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": false,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "error",
+                            "type": "?PostHog\\EmailError",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        },
+                        {
+                            "name": "laterError",
+                            "type": "?PostHog\\EmailError",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getError": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?PostHog\\EmailError",
+                    "parameters": []
+                },
+                "getIdempotencyKey": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                },
+                "getIndex": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "int",
+                    "parameters": []
+                },
+                "getLaterError": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?PostHog\\EmailError",
+                    "parameters": []
+                },
+                "getMessageId": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "?string",
+                    "parameters": []
+                },
+                "getStatus": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                },
+                "getTo": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "string",
+                    "parameters": []
+                },
+                "isReplayed": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": []
+                }
+            }
+        },
         "PostHog\\Client": {
             "type": "class",
             "abstract": false,
@@ -1695,6 +1851,73 @@
                 }
             }
         },
+        "PostHog\\EmailBatchError": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": "PostHog\\EmailError",
+            "implements": [
+                "Stringable",
+                "Throwable"
+            ],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "error",
+                            "type": "PostHog\\EmailError",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "results",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "warnings",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getResults": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": []
+                },
+                "getWarnings": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": []
+                }
+            }
+        },
         "PostHog\\EmailError": {
             "type": "class",
             "abstract": false,
@@ -2181,6 +2404,24 @@
                             "default": null,
                             "defaultConstant": null,
                             "hasDefault": true
+                        }
+                    ]
+                },
+                "batch": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "PostHog\\SendBatchResult",
+                    "parameters": [
+                        {
+                            "name": "batch",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
                         }
                     ]
                 },
@@ -5522,6 +5763,60 @@
                     "abstract": false,
                     "final": false,
                     "returnType": "string",
+                    "parameters": []
+                }
+            }
+        },
+        "PostHog\\SendBatchResult": {
+            "type": "class",
+            "abstract": false,
+            "final": false,
+            "readonly": false,
+            "extends": null,
+            "implements": [],
+            "constants": [],
+            "properties": [],
+            "methods": {
+                "__construct": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": null,
+                    "parameters": [
+                        {
+                            "name": "results",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": false,
+                            "default": null,
+                            "defaultConstant": null,
+                            "hasDefault": false
+                        },
+                        {
+                            "name": "warnings",
+                            "type": "array",
+                            "byReference": false,
+                            "variadic": false,
+                            "optional": true,
+                            "default": [],
+                            "defaultConstant": null,
+                            "hasDefault": true
+                        }
+                    ]
+                },
+                "getResults": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
+                    "parameters": []
+                },
+                "getWarnings": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "array",
                     "parameters": []
                 }
             }
