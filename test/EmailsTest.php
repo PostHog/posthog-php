@@ -1893,26 +1893,20 @@ class EmailsTest extends TestCase
 
     public static function timesPostHogMaySendNow(): array
     {
-        $null = ['scheduled_at' => null];
-
         return [
-            'a past time' => ['2026-11-01T09:00:00Z', '2026-11-01T09:00:00.000Z', $null],
-            'a minute ahead of the clock' => ['2026-11-02T12:01:00Z', '2026-11-02T12:01:00.000Z', $null],
-            'a past time, answered without the scheduled_at key' => [
-                '2026-11-01T09:00:00Z',
-                '2026-11-01T09:00:00.000Z',
-                [],
-            ],
+            'a past time' => ['2026-11-01T09:00:00Z', '2026-11-01T09:00:00.000Z'],
+            'a minute ahead of the clock' => ['2026-11-02T12:01:00Z', '2026-11-02T12:01:00.000Z'],
         ];
     }
 
     #[DataProvider('timesPostHogMaySendNow')]
-    public function testATimeNoMoreThanAMinuteAheadQueuedNowIsAnAcceptance(
-        string $requested,
-        string $sent,
-        array $time
-    ): void {
-        $this->reply([202, json_encode(['message_id' => self::MESSAGE_ID, 'status' => 'queued'] + $time), []]);
+    public function testATimeNoMoreThanAMinuteAheadQueuedNowIsAnAcceptance(string $requested, string $sent): void
+    {
+        $this->reply([202, json_encode([
+            'message_id' => self::MESSAGE_ID,
+            'status' => 'queued',
+            'scheduled_at' => null,
+        ]), []]);
 
         $result = $this->emails()->send([
             'to' => 'user@example.com',
@@ -1924,6 +1918,20 @@ class EmailsTest extends TestCase
         $this->assertSame(self::MESSAGE_ID, $result->getId());
         $this->assertSame('queued', $result->getStatus());
         $this->assertNull($result->getScheduledAt());
+    }
+
+    public function testAQueuedAnswerWithoutTheScheduledAtKeyIsAnErrorEvenForAPastTime(): void
+    {
+        $this->reply([202, json_encode(['message_id' => self::MESSAGE_ID, 'status' => 'queued']), []]);
+
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => '2026-11-01T09:00:00Z',
+        ]);
+
+        $this->assertSame('schedule_not_confirmed', $error->getErrorCode());
+        $this->assertSame(self::MESSAGE_ID, $error->getMessageId());
     }
 
     public static function timesTooFarAheadToSendNow(): array

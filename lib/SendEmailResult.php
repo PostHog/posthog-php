@@ -56,8 +56,8 @@ class SendEmailResult
     }
 
     /**
-     * `scheduled` when the email waits for its `scheduled_at`, `queued` when it goes out now because its
-     * `scheduled_at` had passed when PostHog accepted it.
+     * `scheduled` when the email waits for its `scheduled_at`, `queued` when it goes out now: a send without
+     * `scheduled_at`, or one whose `scheduled_at` had passed when PostHog accepted it.
      */
     public function getStatus(): string
     {

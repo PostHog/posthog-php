@@ -1272,7 +1272,8 @@ final class Emails
     private static function sendsNow(array $fields, DateTimeImmutable $requested): bool
     {
         return ($fields['status'] ?? null) === 'queued'
-            && ($fields['scheduled_at'] ?? null) === null
+            && array_key_exists('scheduled_at', $fields)
+            && $fields['scheduled_at'] === null
             && $requested <= Clock::get()->now()
                 ->setTimezone(new DateTimeZone('UTC'))
                 ->modify('+' . self::SEND_NOW_LEEWAY_SECONDS . ' seconds');
