@@ -617,6 +617,40 @@ PHP);
         }
     }
 
+    public function testA32MibHtmlIsRefusedWithin128MibOfMemory(): void
+    {
+        $script = tempnam(sys_get_temp_dir(), 'posthog-emails-batch-');
+        file_put_contents($script, <<<'PHP'
+<?php
+require $argv[1];
+$requests = 0;
+$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static function () use (&$requests): array {
+    $requests++;
+
+    return [500, '', []];
+});
+try {
+    $emails->batch([
+        'recipients' => [['to' => 'user@example.com']],
+        'template_key' => 'news',
+        'subject' => 'News',
+        'html' => str_repeat('x', 32 * 1024 * 1024),
+    ]);
+} catch (PostHog\EmailError $error) {
+    echo json_encode([$requests, $error->getErrorCode(), $error->getField()]);
+}
+PHP);
+        try {
+            $command = escapeshellarg(PHP_BINARY) . ' -d memory_limit=128M ' . escapeshellarg($script) . ' '
+                . escapeshellarg(__DIR__ . '/../vendor/autoload.php') . ' 2>&1';
+            exec($command, $output, $exitCode);
+
+            $this->assertSame([0, '[0,"content_too_large","html"]'], [$exitCode, implode("\n", $output)]);
+        } finally {
+            unlink($script);
+        }
+    }
+
     public static function requestsAtTheLimit(): array
     {
         return [

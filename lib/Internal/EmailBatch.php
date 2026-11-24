@@ -54,17 +54,19 @@ final class EmailBatch
             );
         }
         $encoded = [];
+        $size = strlen('{"recipients":[]}');
         foreach ($shared as $name => $value) {
             $encoded[$name] = self::encode($value, 'The email');
+            $size += strlen(self::encode((string) $name, 'The email')) + strlen($encoded[$name]) + strlen(':,');
+        }
+        if ($size > self::MAX_REQUEST_BYTES) {
+            throw self::sharedTooLarge($encoded);
         }
         $pairs = [];
         foreach ($encoded as $name => $json) {
             $pairs[] = self::encode((string) $name, 'The email') . ':' . $json;
         }
         $opening = '{' . implode(',', [...$pairs, '"recipients":[']);
-        if (strlen($opening) + strlen(']}') > self::MAX_REQUEST_BYTES) {
-            throw self::sharedTooLarge($encoded);
-        }
         $isTemplateForm = array_key_exists('template_id', $shared);
         $members = [];
         $firstWithKey = [];
@@ -471,9 +473,6 @@ final class EmailBatch
         );
     }
 
-    /**
-     * @param array<string, mixed> $shared
-     */
     /**
      * @param array<string, string> $encoded
      */
