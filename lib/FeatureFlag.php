@@ -1366,9 +1366,16 @@ class FeatureFlag
             ? FeatureFlag::personEvaluationContext($distinctId, $properties, $knownAbsentKeys)
             : FeatureFlag::personEvaluationContext(null, [], []);
         $context["hasPerson"] = is_null($flagAggregation);
-        $context["groups"] = $groups;
-        $context["groupProperties"] = $groupProperties;
-        $context["groupTypeMapping"] = $groupTypeMapping;
+        $context["groups"] = $groups ?? [];
+        $context["groupProperties"] = $groupProperties ?? [];
+        $context["groupTypeMapping"] = $groupTypeMapping ?? [];
+        // The group arguments are optional, so a group flag whose own group is missing from them was called
+        // without its groups, and a group dependency can't be resolved as false.
+        $ownGroupName = is_null($flagAggregation)
+            ? null
+            : $context["groupTypeMapping"][strval($flagAggregation)] ?? null;
+        $context["hasGroups"] = is_null($flagAggregation)
+            || (!is_null($ownGroupName) && array_key_exists($ownGroupName, $context["groups"]));
         $context["groupKnownAbsentKeys"] = $groupKnownAbsentKeys;
 
         return FeatureFlag::matchFeatureFlagPropertiesForIdentity(
@@ -1439,6 +1446,7 @@ class FeatureFlag
             $propertyMatchingVersion,
             [
                 "hasPerson" => true,
+                "hasGroups" => true,
                 "distinctId" => $distinctId,
                 "groups" => $groups,
                 "personProperties" => $personProperties,
@@ -1454,10 +1462,11 @@ class FeatureFlag
 
     /**
      * Evaluate a flag from the top-level inputs with the property context and bucketing identifier of its
-     * own aggregation. A group flag whose group isn't supplied is false.
+     * own aggregation. A group flag whose group isn't supplied is false, unless the groups are unknown.
      *
      * @param array{
      *     hasPerson: bool,
+     *     hasGroups: bool,
      *     distinctId: string|null,
      *     groups: array<string, mixed>,
      *     personProperties: array<string, mixed>,
@@ -1516,6 +1525,12 @@ class FeatureFlag
         }
 
         if (!array_key_exists($groupName, $context["groups"])) {
+            if (!$context["hasGroups"]) {
+                throw new InconclusiveMatchException(
+                    "Can't evaluate a group flag without the groups of the evaluation",
+                    reason: UnresolvedFlagReason::MISSING_CONTEXT
+                );
+            }
             return false;
         }
 
@@ -1543,6 +1558,7 @@ class FeatureFlag
     {
         return [
             "hasPerson" => true,
+            "hasGroups" => true,
             "distinctId" => $distinctId,
             "groups" => [],
             "personProperties" => $personProperties ?? [],

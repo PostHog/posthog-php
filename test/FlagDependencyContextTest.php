@@ -232,6 +232,44 @@ class FlagDependencyContextTest extends TestCase
         }
     }
 
+    public static function directGroupFlagMatchWithoutGroupsProvider(): array
+    {
+        return [
+            'groups and mapping omitted' => [[], []],
+            'mapping without groups' => [[], ['0' => 'organization']],
+            'null groups with mapping' => [null, ['0' => 'organization']],
+            'null groups and mapping' => [null, null],
+        ];
+    }
+
+    /**
+     * @dataProvider directGroupFlagMatchWithoutGroupsProvider
+     */
+    public function testDirectGroupFlagMatchWithoutGroupsLeavesGroupDependencyInconclusive(
+        ?array $groups,
+        ?array $groupTypeMapping
+    ): void {
+        $orgParent = self::flag('org-parent', [], 0);
+        $orgChild = self::flag('org-child', [self::dependsOn('org-parent')], 0);
+
+        try {
+            FeatureFlag::matchFeatureFlagProperties(
+                $orgChild,
+                'acme',
+                [],
+                [],
+                ['org-parent' => $orgParent, 'org-child' => $orgChild],
+                [],
+                $groups,
+                null,
+                $groupTypeMapping
+            );
+            $this->fail('Expected InconclusiveMatchException');
+        } catch (InconclusiveMatchException $e) {
+            $this->assertSame(UnresolvedFlagReason::UNRESOLVED_DEPENDENCY, $e->getReason());
+        }
+    }
+
     public function testGroupFlagDependencyBucketsByTheGroupKey(): void
     {
         $this->makeClient([
