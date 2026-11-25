@@ -412,6 +412,25 @@ class RuntimeTest extends TestCase
         $this->app->make(PostHog::class)->evaluateFlags(personPropertyKeysKnownAbsent: array_fill(0, 1001, 'plan'));
     }
 
+    public function testGetAllFlagsRejectsTooManyKnownAbsentKeysBeforeLoadingDefinitions(): void
+    {
+        $this->app['config']->set('posthog.secret_key', 'server-secret');
+        $http = $this->createMock(HttpClient::class);
+        $http->expects($this->never())->method('sendRequest');
+        $sdk = new Client(
+            'project-key',
+            ['consumer' => 'noop'],
+            $http,
+            loadFeatureFlags: false,
+            secretKey: 'server-secret',
+        );
+        $manager = $this->app->make(PostHog::class);
+        (new \ReflectionProperty(PostHog::class, 'client'))->setValue($manager, $sdk);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $manager->getAllFlags('user', personPropertyKeysKnownAbsent: array_fill(0, 1001, 'plan'));
+    }
+
     public function testFakeEvaluateFlagsRejectsTooManyKnownAbsentKeys(): void
     {
         $this->expectException(\InvalidArgumentException::class);

@@ -373,6 +373,8 @@ class PostHog
 
     private function callFlagMethod(string $method, array $arguments, ?string $distinctId): mixed
     {
+        // Every flag method takes the known-absent lists as its last two arguments.
+        Client::assertKnownAbsentKeysValid(...array_slice($arguments, -2));
         $data = $this->app->make(Context::class)->data();
         $groupsIndex = $method === 'getAllFlags' ? 1 : 2;
         $arguments[$groupsIndex] = $arguments[$groupsIndex] ?: ($data['groups'] ?? []);
