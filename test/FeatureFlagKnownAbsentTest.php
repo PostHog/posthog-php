@@ -583,6 +583,34 @@ class FeatureFlagKnownAbsentTest extends TestCase
         $this->assertSame(['project-in-org' => UnresolvedFlagReason::MISSING_CONTEXT], $local->getUnresolvedFlags());
     }
 
+    public static function groupFilterWithoutIndexProvider(): iterable
+    {
+        yield 'exact' => ['exact', 'enterprise', false];
+        yield 'is_not_set' => ['is_not_set', null, true];
+    }
+
+    #[DataProvider('groupFilterWithoutIndexProvider')]
+    public function testGroupFilterWithoutIndexUsesTheConditionGroupTypeKeys(
+        string $operator,
+        ?string $value,
+        bool $expected
+    ): void {
+        $tierFilter = ['key' => 'tier', 'type' => 'group', 'operator' => $operator, 'value' => $value];
+        $this->makeClient([self::flag('legacy-tier', [$tierFilter], 0)], groupTypeMapping: ['0' => 'organization']);
+
+        $local = $this->client->evaluateFlags(
+            'user-1',
+            groups: ['organization' => 'acme'],
+            groupProperties: ['organization' => ['tier' => 'enterprise']],
+            onlyEvaluateLocally: true,
+            groupPropertyKeysKnownAbsent: ['organization' => ['tier']]
+        );
+
+        $this->assertSame($expected, $local->getFlag('legacy-tier'));
+        $this->assertSame([], $local->getUnresolvedFlags());
+        $this->assertSame([], $this->flagsRequestBodies());
+    }
+
     public function testFlagDependencyWithOtherAggregationIgnoresParentKeys(): void
     {
         $groupDependency = self::flag('org-untiered', [[

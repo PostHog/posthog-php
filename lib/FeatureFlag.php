@@ -1245,7 +1245,7 @@ class FeatureFlag
 
     /**
      * The known-absent keys that apply to a property filter. Person keys apply only to `person` filters and
-     * group keys only to `group` filters on their own group type. A `person_metadata` filter reads a
+     * group keys only to `group` filters on their own group type, or without a group type index. A `person_metadata` filter reads a
      * persons-table field, so it, like any other filter type, never resolves from a listing.
      *
      * @param array<string, mixed> $property Feature flag property filter.
@@ -1260,9 +1260,12 @@ class FeatureFlag
         if (is_null($keysAggregation)) {
             $applies = $filterType === "person";
         } else {
-            $applies = $filterType === "group" &&
-                FeatureFlag::aggregationKey($property["group_type_index"] ?? null) ===
-                    FeatureFlag::aggregationKey($keysAggregation);
+            // Like the flags service, a group filter without its own index reads the condition's group type.
+            $applies = $filterType === "group" && (
+                !isset($property["group_type_index"]) ||
+                FeatureFlag::aggregationKey($property["group_type_index"]) ===
+                    FeatureFlag::aggregationKey($keysAggregation)
+            );
         }
         return $applies ? $knownAbsentKeys : [];
     }
