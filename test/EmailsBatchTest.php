@@ -1107,6 +1107,7 @@ PHP;
 
         $this->assertCount(1, $this->requests);
         $this->assertSame('batch_unavailable', $error->getErrorCode());
+        $this->assertSame('validation_error', $error->getErrorName());
         $this->assertSame('Until batch sends are on for the project, ' . self::SEND_SINGLY, $error->getFix());
         $this->assertSame(['failed', 'failed'], self::statuses($error->getResults()));
     }

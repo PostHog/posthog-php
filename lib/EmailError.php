@@ -184,7 +184,9 @@ class EmailError extends RuntimeException
             400 => 'validation_error',
             403 => 'invalid_permission',
             404 => 'not_found',
-            409 => $code === 'template_outdated' ? 'validation_error' : 'concurrent_idempotent_requests',
+            409 => in_array($code, ['template_outdated', 'batch_unavailable'], true)
+                ? 'validation_error'
+                : 'concurrent_idempotent_requests',
             422 => $code === 'idempotency_key_reused' ? 'invalid_idempotent_request' : 'validation_error',
             429 => $code === 'quota_limited' ? 'monthly_quota_exceeded' : 'rate_limit_exceeded',
             503 => 'service_unavailable',
