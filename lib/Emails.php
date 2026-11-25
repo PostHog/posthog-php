@@ -1274,27 +1274,36 @@ final class Emails
     private function waitToRetry(int $delayMs, EmailError $error): void
     {
         $clock = self::forwardOnlyClock();
-        $start = $clock->now();
+        $startedNs = hrtime(true);
+        $start = $clock?->now();
         while (!($this->isClosed)()) {
-            $remainingUs = $delayMs * 1000 - self::microsecondsBetween($start, $clock->now());
+            $elapsedUs = $clock === null
+                ? intdiv(hrtime(true) - $startedNs, 1000)
+                : self::microsecondsBetween($start, $clock->now());
+            $remainingUs = $delayMs * 1000 - $elapsedUs;
             if ($remainingUs <= 0) {
                 return;
             }
-            $clock->sleep($remainingUs / 1_000_000);
+            $clock === null ? usleep($remainingUs) : $clock->sleep($remainingUs / 1_000_000);
         }
 
         throw $error;
     }
 
-    private static function forwardOnlyClock(): ClockInterface
+    private static function forwardOnlyClock(): ?ClockInterface
     {
         try {
             $clock = Clock::get();
+            if (!$clock instanceof NativeClock) {
+                return $clock;
+            }
         } catch (Throwable) {
-            return new MonotonicClock();
         }
-
-        return $clock instanceof NativeClock ? new MonotonicClock() : $clock;
+        try {
+            return new MonotonicClock();
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     private static function microsecondsBetween(DateTimeImmutable $start, DateTimeImmutable $end): int

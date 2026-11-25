@@ -932,7 +932,7 @@ PHP;
 
         $error = $this->batchError([['to' => 'a@example.com'], ['to' => 'b@example.com']]);
 
-        $this->assertInstanceOf(Error::class, $error->getPrevious()?->getPrevious());
+        $this->assertSame('client_error', $error->getErrorCode());
         $this->assertCount(1, $this->requests);
         $this->assertSame(['unconfirmed', 'unconfirmed'], self::statuses($error->getResults()));
         $this->assertSame(
@@ -940,6 +940,54 @@ PHP;
             array_map(static fn($r): string => $r->getIdempotencyKey(), $error->getResults())
         );
         $this->assertSame('delivery_unavailable', $error->getResults()[0]->getError()->getErrorCode());
+    }
+
+    public static function answersThatMayHaveQueued(): array
+    {
+        return [
+            'a 503' => [503, ''],
+            'an in-flight 409' => [409, '{"code":"idempotency_key_in_flight","detail":"Nope."}'],
+        ];
+    }
+
+    #[DataProvider('answersThatMayHaveQueued')]
+    public function testAnAnswerThatMayHaveQueuedKeepsItsRecipientsUnconfirmedWhenReadingItThrows(
+        int $status,
+        string $body
+    ): void {
+        Clock::set(new class ($this->clock, fn(): bool => $this->requests !== []) implements ClockInterface {
+            public function __construct(private MockClock $clock, private Closure $afterTheRequest)
+            {
+            }
+
+            public function now(): DateTimeImmutable
+            {
+                if (($this->afterTheRequest)()) {
+                    throw new Error('The clock failed.');
+                }
+
+                return $this->clock->now();
+            }
+
+            public function sleep(float|int $seconds): void
+            {
+                $this->clock->sleep($seconds);
+            }
+
+            public function withTimeZone(DateTimeZone|string $timezone): static
+            {
+                return $this;
+            }
+        });
+        $this->reply([$status, $body, ['Retry-After: Wed, 21 Oct 2026 07:28:00 GMT']]);
+
+        $error = $this->batchError(self::recipients(2));
+
+        $this->assertCount(1, $this->requests);
+        $this->assertSame(
+            [['unconfirmed', 'key-0'], ['unconfirmed', 'key-1']],
+            array_map(static fn($r): array => [$r->getStatus(), $r->getIdempotencyKey()], $error->getResults())
+        );
     }
 
     private static function clockThatShutsDownOnSleep(MockClock $clock, Closure $shutDown): ClockInterface

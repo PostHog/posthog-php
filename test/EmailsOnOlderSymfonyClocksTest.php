@@ -20,13 +20,14 @@ final class EmailsOnOlderSymfonyClocksTest extends TestCase
         return [
             'symfony/clock 6.2' => [true],
             'symfony/clock 6.3.0' => [false],
+            'symfony/clock 6.2.0 on PHP 8.4, whose MonotonicClock raises a deprecation' => [true, true],
         ];
     }
 
     #[DataProvider('olderClocks')]
-    public function testAPastTimeQueuedNowIsAnAcceptance(bool $withoutTheClockClass): void
+    public function testAPastTimeQueuedNowIsAnAcceptance(bool $withoutTheClockClass, bool $monotonicFails = false): void
     {
-        self::loadWithAnOlderClock($withoutTheClockClass);
+        self::loadWithAnOlderClock($withoutTheClockClass, $monotonicFails);
         $messageId = '01a18356-c56c-0001-e494-7666bc915188';
         $emails = new Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [
             202,
@@ -45,9 +46,9 @@ final class EmailsOnOlderSymfonyClocksTest extends TestCase
     }
 
     #[DataProvider('olderClocks')]
-    public function testABatchRetriesAfterALostAnswer(bool $withoutTheClockClass): void
+    public function testABatchRetriesAfterALostAnswer(bool $withoutTheClockClass, bool $monotonicFails = false): void
     {
-        self::loadWithAnOlderClock($withoutTheClockClass);
+        self::loadWithAnOlderClock($withoutTheClockClass, $monotonicFails);
         $requests = 0;
         $emails = new Emails('phs_secret', 'us.i.posthog.com', transport: static function () use (&$requests): array {
             $requests++;
@@ -71,15 +72,20 @@ final class EmailsOnOlderSymfonyClocksTest extends TestCase
         $this->assertSame(2, $requests);
     }
 
-    private static function loadWithAnOlderClock(bool $withoutTheClockClass): void
+    private static function loadWithAnOlderClock(bool $withoutTheClockClass, bool $monotonicFails): void
     {
         foreach (spl_autoload_functions() as $loader) {
             spl_autoload_unregister($loader);
-            spl_autoload_register(static function (string $class) use ($loader, $withoutTheClockClass): void {
-                if ($class === 'Symfony\Component\Clock\NativeClock') {
+            $deprecated = ['Symfony\Component\Clock\NativeClock'];
+            if ($monotonicFails) {
+                $deprecated[] = 'Symfony\Component\Clock\MonotonicClock';
+            }
+            $without = $withoutTheClockClass;
+            spl_autoload_register(static function (string $class) use ($loader, $without, $deprecated): void {
+                if (in_array($class, $deprecated, true)) {
                     throw new ErrorException('Implicitly marking parameter $timezone as nullable is deprecated');
                 }
-                if (!$withoutTheClockClass || $class !== 'Symfony\Component\Clock\Clock') {
+                if (!$without || $class !== 'Symfony\Component\Clock\Clock') {
                     $loader($class);
                 }
             });

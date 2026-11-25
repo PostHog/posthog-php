@@ -174,12 +174,14 @@ final class EmailBatch
     {
         $fields = EmailReplies::fields($body);
         if ($status < 200 || $status >= 300) {
-            $error = self::requestError($fields, $status, $headers);
             $code = EmailReplies::text($fields['code'] ?? null);
             $inFlight = $status === 409 && ($code === null || $code === self::IN_FLIGHT);
             if ($status >= 500 || $inFlight) {
-                throw $this->lost($error);
+                $this->mayHaveQueued = true;
+                $this->setAll('unconfirmed', self::unconfirmed(null));
+                throw $this->lost(self::requestError($fields, $status, $headers));
             }
+            $error = self::requestError($fields, $status, $headers);
             if ($this->mayHaveQueued) {
                 $this->setAll('unconfirmed', self::sendAgain($error, self::SEND_AGAIN));
             }
