@@ -1863,73 +1863,19 @@ class Client implements FeatureFlagEvaluationsHost
         array $personKnownAbsentKeys = array(),
         array $groupKnownAbsentKeys = array()
     ): bool | string {
-        // Create evaluation cache for flag dependencies
-        $evaluationCache = [];
-
-        if (!$featureFlag["active"]) {
-            return false;
-        }
-
-        if ($featureFlag["ensure_experience_continuity"] ?? false) {
-            throw new InconclusiveMatchException(
-                "Flag has experience continuity enabled",
-                reason: UnresolvedFlagReason::EXPERIENCE_CONTINUITY
-            );
-        }
-
-        $flagFilters = $featureFlag["filters"] ?? [];
-        $aggregationGroupTypeIndex = $flagFilters["aggregation_group_type_index"] ?? null;
-
-        if (!is_null($aggregationGroupTypeIndex)) {
-            $groupName = $definitionSnapshot['group_type_mapping'][strval($aggregationGroupTypeIndex)] ?? null;
-
-            if (is_null($groupName)) {
-                throw new InconclusiveMatchException(
-                    "Flag has unknown group type index",
-                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
-                );
-            }
-
-            if (!array_key_exists($groupName, $groups)) {
-                return false;
-            }
-
-            $focusedGroupProperties = $groupProperties[$groupName];
-            return FeatureFlag::matchFeatureFlagProperties(
-                $featureFlag,
-                $groups[$groupName],
-                $focusedGroupProperties,
-                $definitionSnapshot['cohorts'],
-                $definitionSnapshot['flags_by_key'],
-                $evaluationCache,
-                $groups,
-                $groupProperties,
-                $definitionSnapshot['group_type_mapping'],
-                $definitionSnapshot['property_matching_version'],
-                $groupKnownAbsentKeys[$groupName] ?? [],
-                $groupKnownAbsentKeys
-            );
-        } else {
-            $localPersonProperties = $personProperties;
-            if (!array_key_exists('distinct_id', $localPersonProperties)) {
-                $localPersonProperties['distinct_id'] = $distinctId;
-            }
-
-            return FeatureFlag::matchFeatureFlagProperties(
-                $featureFlag,
-                $distinctId,
-                $localPersonProperties,
-                $definitionSnapshot['cohorts'],
-                $definitionSnapshot['flags_by_key'],
-                $evaluationCache,
-                $groups,
-                $groupProperties,
-                $definitionSnapshot['group_type_mapping'],
-                $definitionSnapshot['property_matching_version'],
-                $personKnownAbsentKeys,
-                $groupKnownAbsentKeys
-            );
-        }
+        return FeatureFlag::computeFlagLocally(
+            $featureFlag,
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $definitionSnapshot['cohorts'],
+            $definitionSnapshot['flags_by_key'],
+            $definitionSnapshot['group_type_mapping'],
+            $definitionSnapshot['property_matching_version'],
+            $personKnownAbsentKeys,
+            $groupKnownAbsentKeys
+        );
     }
 
 

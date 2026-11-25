@@ -12,6 +12,7 @@ use PostHog\Client;
 use PostHog\FeatureFlag;
 use PostHog\InconclusiveMatchException;
 use PostHog\PostHog;
+use PostHog\UnresolvedFlagReason;
 
 class FeatureFlagHoldoutTest extends TestCase
 {
@@ -276,35 +277,39 @@ class FeatureFlagHoldoutTest extends TestCase
         return [$evaluations, $remoteCalls];
     }
 
-    public function testDependencyWithHoldoutAggregatedDifferentlyIsInconclusiveLocally(): void
+    public function testPersonFlagDependencyOnGroupHoldoutBucketsByTheGroupKey(): void
     {
         $flags = [
             self::groupCheckout(['id' => 727, 'exclusion_percentage' => 20]),
             self::bannerDependingOnCheckout('control'),
         ];
 
+        // The distinct id "user-1" would bucket into the holdout; the company key "user-5" does not.
         [$evaluations, $remoteCalls] = $this->dependencyEvaluation($flags, 'user-1', ['company' => 'user-5'], true);
 
         self::assertSame('control', $evaluations->getFlag('checkout'));
-        self::assertNull($evaluations->getFlag('checkout-banner'));
+        self::assertTrue($evaluations->getFlag('checkout-banner'));
+        self::assertSame([], $evaluations->getUnresolvedFlags());
         self::assertSame([], $remoteCalls);
     }
 
-    public function testGroupDependencyOfPersonFlagWithHoldoutIsInconclusiveLocally(): void
+    public function testPersonFlagDependencyOnGroupHoldoutMatchesTheHoldoutVariant(): void
     {
         $flags = [
             self::groupCheckout(['id' => 727, 'exclusion_percentage' => 20]),
             self::bannerDependingOnCheckout('holdout-727'),
         ];
 
+        // The company key "user-1" buckets into the holdout; the distinct id "user-5" does not.
         [$evaluations, $remoteCalls] = $this->dependencyEvaluation($flags, 'user-5', ['company' => 'user-1'], true);
 
         self::assertSame('holdout-727', $evaluations->getFlag('checkout'));
-        self::assertNull($evaluations->getFlag('checkout-banner'));
+        self::assertTrue($evaluations->getFlag('checkout-banner'));
+        self::assertSame([], $evaluations->getUnresolvedFlags());
         self::assertSame([], $remoteCalls);
     }
 
-    public function testDependencyWithHoldoutAggregatedDifferentlyFallsBackToRemoteEvaluation(): void
+    public function testPersonFlagDependencyOnGroupHoldoutResolvesWithoutRemoteEvaluation(): void
     {
         $flags = [
             self::groupCheckout(['id' => 727, 'exclusion_percentage' => 20]),
@@ -325,8 +330,8 @@ class FeatureFlagHoldoutTest extends TestCase
             ]]
         );
 
-        self::assertCount(1, $remoteCalls);
-        self::assertSame('remote-banner-value', $evaluations->getFlag('checkout-banner'));
+        self::assertSame([], $remoteCalls);
+        self::assertTrue($evaluations->getFlag('checkout-banner'));
     }
 
     public function testDependencyWithHoldoutAggregatedTheSameStillEvaluatesLocally(): void
@@ -354,22 +359,27 @@ class FeatureFlagHoldoutTest extends TestCase
         self::assertSame([], $remoteCalls);
     }
 
-    public function testNestedDependencyKeepsTheOriginalIdentityAggregation(): void
+    public function testNestedDependencyUsesEachFlagsOwnAggregation(): void
     {
         $middle = self::bannerDependingOnCheckout('control');
         $middle['key'] = 'middle';
         $middle['filters']['aggregation_group_type_index'] = 0;
-        $top = self::bannerDependingOnCheckout('true');
+        $top = self::checkoutBanner([[
+            'key' => 'middle',
+            'type' => 'flag',
+            'operator' => 'flag_evaluates_to',
+            'value' => true,
+            'dependency_chain' => ['checkout', 'middle'],
+        ]]);
         $top['key'] = 'top';
-        $top['filters']['groups'][0]['properties'][0]['key'] = 'middle';
-        $top['filters']['groups'][0]['properties'][0]['dependency_chain'] = ['checkout', 'middle'];
         $flags = [self::groupCheckout(['id' => 727, 'exclusion_percentage' => 20]), $middle, $top];
 
-        // "top" is evaluated for a person, so the group holdout reached through the group-aggregated
-        // "middle" still has a mismatched identity.
+        // "top" is evaluated for a person, but "checkout" still buckets by the company key "user-5", which
+        // is outside the holdout, while the distinct id "user-1" is inside it.
         [$evaluations, $remoteCalls] = $this->dependencyEvaluation($flags, 'user-1', ['company' => 'user-5'], true);
 
-        self::assertNull($evaluations->getFlag('top'));
+        self::assertTrue($evaluations->getFlag('middle'));
+        self::assertTrue($evaluations->getFlag('top'));
         self::assertSame([], $remoteCalls);
     }
 
@@ -383,26 +393,55 @@ class FeatureFlagHoldoutTest extends TestCase
         return self::checkoutBanner([['key' => 'id', 'type' => 'cohort', 'value' => 42]]);
     }
 
-    private static function matchBannerAgainstHoldoutCohort(array $banner, ?array $cohorts = null)
-    {
+    private static function matchBannerAgainstHoldoutCohort(
+        array $banner,
+        string $distinctId,
+        string $companyKey,
+        ?array $cohorts = null
+    ) {
         $checkout = self::groupCheckout(['id' => 727, 'exclusion_percentage' => 20]);
         $cache = [];
 
         return FeatureFlag::matchFeatureFlagProperties(
             $banner,
-            'user-1',
+            $distinctId,
             [],
             $cohorts ?? self::checkoutCohort('holdout-727'),
             ['checkout' => $checkout, 'checkout-banner' => $banner],
-            $cache
+            $cache,
+            ['company' => $companyKey],
+            ['company' => []],
+            ['0' => 'company']
         );
     }
 
-    public function testCohortDependencyWithHoldoutAggregatedDifferentlyIsInconclusiveLocally(): void
+    public function testCohortDependencyOnGroupHoldoutBucketsByTheGroupKey(): void
     {
         // Hashing the person id "user-1" would land in the holdout, but "checkout" buckets by company key.
-        $this->expectException(InconclusiveMatchException::class);
-        self::matchBannerAgainstHoldoutCohort(self::bannerTargetingCheckoutCohort());
+        $banner = self::bannerTargetingCheckoutCohort();
+
+        self::assertFalse(self::matchBannerAgainstHoldoutCohort($banner, 'user-1', 'user-5'));
+        self::assertTrue(self::matchBannerAgainstHoldoutCohort($banner, 'user-5', 'user-1'));
+    }
+
+    public function testCohortDependencyOnGroupHoldoutIsInconclusiveWithoutGroups(): void
+    {
+        $banner = self::bannerTargetingCheckoutCohort();
+        $cache = [];
+
+        try {
+            FeatureFlag::matchFeatureFlagProperties(
+                $banner,
+                'user-1',
+                [],
+                self::checkoutCohort('holdout-727'),
+                ['checkout' => self::groupCheckout(['id' => 727, 'exclusion_percentage' => 20])],
+                $cache
+            );
+            self::fail('Expected InconclusiveMatchException');
+        } catch (InconclusiveMatchException $e) {
+            self::assertSame(UnresolvedFlagReason::UNRESOLVED_DEPENDENCY, $e->getReason());
+        }
     }
 
     public function testCohortDependencyWithHoldoutAggregatedTheSameStillEvaluatesLocally(): void
@@ -411,29 +450,31 @@ class FeatureFlagHoldoutTest extends TestCase
         $banner['filters']['aggregation_group_type_index'] = 0;
 
         // The company key "user-1" buckets into the holdout.
-        self::assertTrue(self::matchBannerAgainstHoldoutCohort($banner));
+        self::assertTrue(self::matchBannerAgainstHoldoutCohort($banner, 'user-1', 'user-1'));
     }
 
-    public function testNestedPropertyGroupInCohortKeepsTheIdentityAggregation(): void
+    public function testNestedPropertyGroupInCohortUsesTheDependencyGroupKey(): void
     {
         $dependency = self::checkoutDependencyProperty('holdout-727');
         $cohorts = [42 => ['type' => 'AND', 'values' => [['type' => 'OR', 'values' => [$dependency]]]]];
 
-        $this->expectException(InconclusiveMatchException::class);
-        self::matchBannerAgainstHoldoutCohort(self::bannerTargetingCheckoutCohort(), $cohorts);
+        self::assertFalse(
+            self::matchBannerAgainstHoldoutCohort(self::bannerTargetingCheckoutCohort(), 'user-1', 'user-5', $cohorts)
+        );
     }
 
-    public function testNestedCohortKeepsTheIdentityAggregation(): void
+    public function testNestedCohortUsesTheDependencyGroupKey(): void
     {
         $cohorts = self::checkoutCohort('holdout-727');
         $cohorts[43] = $cohorts[42];
         $cohorts[42] = ['type' => 'AND', 'values' => [['key' => 'id', 'type' => 'cohort', 'value' => 43]]];
 
-        $this->expectException(InconclusiveMatchException::class);
-        self::matchBannerAgainstHoldoutCohort(self::bannerTargetingCheckoutCohort(), $cohorts);
+        self::assertFalse(
+            self::matchBannerAgainstHoldoutCohort(self::bannerTargetingCheckoutCohort(), 'user-1', 'user-5', $cohorts)
+        );
     }
 
-    public function testCohortDependencyWithHoldoutAggregatedDifferentlyFallsBackToRemoteEvaluation(): void
+    public function testCohortDependencyOnGroupHoldoutResolvesWithoutRemoteEvaluation(): void
     {
         $flags = [
             self::groupCheckout(['id' => 727, 'exclusion_percentage' => 20]),
@@ -455,8 +496,8 @@ class FeatureFlagHoldoutTest extends TestCase
             self::checkoutCohort('holdout-727')
         );
 
-        self::assertCount(1, $remoteCalls);
-        self::assertSame('remote-banner-value', $evaluations->getFlag('checkout-banner'));
+        self::assertSame([], $remoteCalls);
+        self::assertFalse($evaluations->getFlag('checkout-banner'));
     }
 
     private function localEvaluationSnapshot(array $localFlags, string $distinctId, array $groups = [])
