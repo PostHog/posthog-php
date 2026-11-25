@@ -1,3 +1,9 @@
+## 4.27.1
+
+### Patch Changes
+
+- Email sends no longer trigger a PHP 8.5 deprecation notice when PostHog sends Retry-After as an HTTP date.
+
 ## 4.27.0
 
 ### Minor Changes

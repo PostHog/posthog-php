@@ -16,7 +16,15 @@ final class LocalHttpServer
         $this->requestsFile = tempnam(sys_get_temp_dir(), 'posthog-requests-');
         $this->errorsFile = tempnam(sys_get_temp_dir(), 'posthog-server-');
         $this->process = proc_open(
-            [PHP_BINARY, __DIR__ . '/fixtures/http-server.php', $this->requestsFile, json_encode($responses)],
+            // stdout is closed after reading the address, so a PHP notice displayed there would kill the server.
+            [
+                PHP_BINARY,
+                '-d',
+                'display_errors=stderr',
+                __DIR__ . '/fixtures/http-server.php',
+                $this->requestsFile,
+                json_encode($responses),
+            ],
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $this->errorsFile, 'a']],
             $pipes
         );
