@@ -1159,11 +1159,11 @@ final class Emails
         } catch (EmailError $error) {
             throw $run->failure($error);
         } catch (Throwable $throwable) {
-            throw $run->failure(new EmailError(
+            throw $run->failure($run->lost(new EmailError(
                 'client_error',
                 'The client failed while sending the batch: ' . $throwable->getMessage(),
                 previous: $throwable
-            ));
+            )));
         }
     }
 
@@ -1274,7 +1274,7 @@ final class Emails
     private function waitToRetry(int $delayMs, EmailError $error): void
     {
         $clock = self::forwardOnlyClock();
-        $started = hrtime();
+        $started = $clock === null ? hrtime() : null;
         $start = $clock?->now();
         while (!($this->isClosed)()) {
             $elapsedUs = $clock === null

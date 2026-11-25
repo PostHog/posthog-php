@@ -1225,6 +1225,60 @@ PHP;
         );
     }
 
+    public function testATransportThatThrowsKeepsTheRecipientsUnconfirmedWithTheirKeys(): void
+    {
+        $this->reply(static function (): never {
+            throw new RuntimeException('curl_getinfo() has been disabled for security reasons');
+        });
+
+        $error = $this->batchError(self::recipients(2));
+
+        $this->assertSame('client_error', $error->getErrorCode());
+        $this->assertCount(1, $this->requests);
+        $this->assertSame(
+            [['unconfirmed', 'key-0'], ['unconfirmed', 'key-1']],
+            array_map(static fn($r): array => [$r->getStatus(), $r->getIdempotencyKey()], $error->getResults())
+        );
+    }
+
+    public function testARecipientsDataAsDeepAsASingleSendAllowsGoesOut(): void
+    {
+        $data = 1;
+        for ($level = 0; $level < 510; $level++) {
+            $data = [$data];
+        }
+        $this->reply(self::ok(self::queued('m0')));
+
+        $result = $this->batch([['to' => 'a@example.com', 'template_data' => ['deep' => $data]]]);
+
+        $this->assertSame(['queued'], self::statuses($result->getResults()));
+    }
+
+    public function testARetryWaitOnAWorkingClockNeedsNoHrtime(): void
+    {
+        $script = <<<'PHP'
+<?php
+require $argv[1];
+Symfony\Component\Clock\Clock::set(new Symfony\Component\Clock\MockClock());
+$requests = 0;
+$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static function () use (&$requests): array {
+    $requests++;
+
+    return $requests === 1 ? [503, '', []] : [200, json_encode(['results' => [
+        ['message_id' => 'm0', 'status' => 'queued'],
+    ]]), []];
+});
+$result = $emails->batch([
+    'recipients' => [['to' => 'a@example.com']],
+    'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
+    'max_retries' => 1,
+]);
+echo json_encode([$result->getResults()[0]->getStatus(), $requests]);
+PHP;
+
+        $this->assertSame([0, '["queued",2]'], self::runWithPhpOptions($script, '-d disable_functions=hrtime'));
+    }
+
     public static function unreadableInFlightAnswers(): array
     {
         return [

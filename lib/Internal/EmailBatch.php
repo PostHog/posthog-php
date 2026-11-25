@@ -22,6 +22,7 @@ final class EmailBatch
         'Send it again with the same idempotency_key within 24 hours of its first use, so it goes out once.';
     private const IN_FLIGHT = 'idempotency_key_in_flight';
     private const JSON_FLAGS = JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
+    private const JSON_DEPTH = 514;
     private const SEND_SINGLY = "send each email the batch didn't queue with emails()->send() and its recipient's "
         . 'idempotency_key.';
 
@@ -82,7 +83,7 @@ final class EmailBatch
         }
         $request = [...$shared, 'recipients' => $wires];
         try {
-            return new self($members, json_encode($request, self::JSON_FLAGS));
+            return new self($members, json_encode($request, self::JSON_FLAGS, self::JSON_DEPTH));
         } catch (JsonException $exception) {
             throw new EmailError(
                 'invalid_form',
