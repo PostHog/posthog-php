@@ -22,6 +22,11 @@ class FeatureFlag
         UnresolvedFlagReason::MISSING_CONTEXT,
     ];
 
+    // Limits on flag dependency evaluation for one top-level flag, so a deep or branching dependency graph
+    // becomes inconclusive instead of exhausting the stack or taking exponential time.
+    private const MAX_DEPENDENCY_DEPTH = 100;
+    private const MAX_DEPENDENCY_EVALUATIONS = 1000;
+
     // Operators that match a property key the caller listed as known absent; every other operator doesn't.
     private const KNOWN_ABSENT_MATCHING_OPERATORS = [
         "is_not_set", "is_not", "not_icontains", "not_starts_with", "not_ends_with", "not_regex",
@@ -1441,6 +1446,8 @@ class FeatureFlag
                 "groupTypeMapping" => $groupTypeMapping,
                 "personKnownAbsentKeys" => $personKnownAbsentKeys,
                 "groupKnownAbsentKeys" => $groupKnownAbsentKeys,
+                "dependencyDepth" => 0,
+                "dependencyEvaluations" => FeatureFlag::dependencyEvaluationCounter(),
             ]
         );
     }
@@ -1457,8 +1464,11 @@ class FeatureFlag
      *     groupProperties: array<string, array<string, mixed>>,
      *     groupTypeMapping: array<string, string>,
      *     personKnownAbsentKeys: array<string, true>,
-     *     groupKnownAbsentKeys: array<string, array<string, true>>
-     * } $context The top-level inputs of the evaluation.
+     *     groupKnownAbsentKeys: array<string, array<string, true>>,
+     *     dependencyDepth: int,
+     *     dependencyEvaluations: \stdClass
+     * } $context The top-level inputs of the evaluation, the depth of the flag in the dependency graph, and
+     *     the dependency evaluations shared by the whole evaluation (see dependencyEvaluationCounter()).
      */
     private static function computeFlagInContext(
         array $flag,
@@ -1540,7 +1550,22 @@ class FeatureFlag
             "groupTypeMapping" => [],
             "personKnownAbsentKeys" => $personKnownAbsentKeys,
             "groupKnownAbsentKeys" => [],
+            "dependencyDepth" => 0,
+            "dependencyEvaluations" => FeatureFlag::dependencyEvaluationCounter(),
         ];
+    }
+
+    /**
+     * Counts the dependency evaluations of one top-level evaluation. An object, so every copy of the
+     * context shares it.
+     *
+     * @return \stdClass{count: int}
+     */
+    private static function dependencyEvaluationCounter(): \stdClass
+    {
+        $counter = new \stdClass();
+        $counter->count = 0;
+        return $counter;
     }
 
     /**
@@ -2062,6 +2087,18 @@ class FeatureFlag
                     reason: UnresolvedFlagReason::UNRESOLVED_DEPENDENCY
                 );
             } else {
+                $context["dependencyDepth"]++;
+                $context["dependencyEvaluations"]->count++;
+                if (
+                    $context["dependencyDepth"] > self::MAX_DEPENDENCY_DEPTH ||
+                    $context["dependencyEvaluations"]->count > self::MAX_DEPENDENCY_EVALUATIONS
+                ) {
+                    throw new InconclusiveMatchException(
+                        sprintf("Cannot evaluate flag dependency '%s' - dependency graph is too large", $depFlagKey),
+                        reason: UnresolvedFlagReason::UNRESOLVED_DEPENDENCY
+                    );
+                }
+
                 // Recursively evaluate the dependency
                 try {
                     $depResult = FeatureFlag::computeFlagInContext(

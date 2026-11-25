@@ -147,6 +147,65 @@ class FlagDependencyContextTest extends TestCase
         $this->assertResolvedLocally($evaluations);
     }
 
+    private static function dependsOnAll(array $keys): array
+    {
+        return array_map(fn (string $key): array => self::dependsOn($key), $keys);
+    }
+
+    public function testDependencyChainDeeperThanTheLimitIsInconclusive(): void
+    {
+        $flags = [self::flag('chain-150', [])];
+        for ($i = 149; $i >= 0; $i--) {
+            $flags[] = self::flag("chain-$i", [self::dependsOn('chain-' . ($i + 1))]);
+        }
+        $this->makeClient($flags);
+
+        $evaluations = $this->client->evaluateFlags(
+            'user-1',
+            onlyEvaluateLocally: true,
+            flagKeys: ['chain-0', 'chain-60']
+        );
+
+        $this->assertSame(
+            ['chain-0' => UnresolvedFlagReason::UNRESOLVED_DEPENDENCY],
+            $evaluations->getUnresolvedFlags()
+        );
+        $this->assertTrue($evaluations->getFlag('chain-60'));
+    }
+
+    private function makeBranchingGraph(array $leaf): void
+    {
+        // Each flag depends on the next two, so without shared work the evaluation takes 2^40 steps.
+        $flags = [self::flag('node-40', $leaf), self::flag('node-39', [self::dependsOn('node-40')])];
+        for ($i = 38; $i >= 0; $i--) {
+            $flags[] = self::flag("node-$i", self::dependsOnAll(['node-' . ($i + 1), 'node-' . ($i + 2)]));
+        }
+        $this->makeClient($flags);
+    }
+
+    public function testBranchingConclusiveDependencyGraphEvaluatesEachFlagOnce(): void
+    {
+        $this->makeBranchingGraph([]);
+
+        $start = microtime(true);
+        $evaluations = $this->client->evaluateFlags('user-1', onlyEvaluateLocally: true, flagKeys: ['node-0']);
+
+        $this->assertTrue($evaluations->getFlag('node-0'));
+        $this->assertLessThan(5.0, microtime(true) - $start);
+    }
+
+    public function testBranchingInconclusiveDependencyGraphStopsAtTheWorkBudget(): void
+    {
+        // A static cohort needs the server, so the leaf can never resolve locally.
+        $this->makeBranchingGraph([['key' => 'id', 'type' => 'cohort', 'value' => 999]]);
+
+        $start = microtime(true);
+        $evaluations = $this->client->evaluateFlags('user-1', onlyEvaluateLocally: true, flagKeys: ['node-0']);
+
+        $this->assertArrayHasKey('node-0', $evaluations->getUnresolvedFlags());
+        $this->assertLessThan(5.0, microtime(true) - $start);
+    }
+
     public function testDirectGroupFlagMatchDoesNotUseTheGroupKeyAsThePersonId(): void
     {
         $personParent = self::flag(
