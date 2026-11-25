@@ -5,6 +5,7 @@ namespace PostHog\Test;
 use Closure;
 use DateTimeImmutable;
 use DateTimeZone;
+use Error;
 use JsonSerializable;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -746,7 +747,7 @@ PHP;
         $this->assertSame(
             [
                 'recipient_suppressed',
-                'Send it again with the same idempotency_key within 24 hours, so it goes out once.',
+                'Send it again with the same idempotency_key within 24 hours of its first use, so it goes out once.',
             ],
             [$second->getError()->getErrorCode(), $second->getError()->getFix()]
         );
@@ -765,7 +766,7 @@ PHP;
             [
                 'sending_paused',
                 422,
-                'Send it again with the same idempotency_key within 24 hours, so it goes out once.',
+                'Send it again with the same idempotency_key within 24 hours of its first use, so it goes out once.',
             ],
             [$result->getError()->getErrorCode(), $result->getError()->getStatusCode(), $result->getError()->getFix()]
         );
@@ -785,7 +786,8 @@ PHP;
             $result->getMessageId(),
             $result->getIdempotencyKey(),
         ]);
-        $sendAgain = 'Send it again with the same idempotency_key within 24 hours, so it goes out once.';
+        $sendAgain = 'Send it again with the same idempotency_key within 24 hours of its first use, '
+            . 'so it goes out once.';
         $this->assertSame([...$error, $sendAgain], [
             $result->getError()->getErrorCode(),
             $result->getError()->getStatusCode(),
@@ -833,7 +835,7 @@ PHP;
             [
                 'idempotency_key_in_flight',
                 'Nope.',
-                'Send it again with the same idempotency_key within 24 hours, so it goes out once.',
+                'Send it again with the same idempotency_key within 24 hours of its first use, so it goes out once.',
             ],
             [$recipientError->getErrorCode(), $recipientError->getMessage(), $recipientError->getFix()]
         );
@@ -921,6 +923,25 @@ PHP;
         );
     }
 
+    public function testARetryWaitThatThrowsKeepsTheRecipientsUnconfirmedWithTheirKeys(): void
+    {
+        Clock::set(self::clockThatShutsDownOnSleep($this->clock, static function (): never {
+            throw new Error('Class "Symfony\\Component\\Clock\\Clock" not found');
+        }));
+        $this->reply(self::networkError(), self::allQueued());
+
+        $error = $this->batchError([['to' => 'a@example.com'], ['to' => 'b@example.com']]);
+
+        $this->assertInstanceOf(Error::class, $error->getPrevious()?->getPrevious());
+        $this->assertCount(1, $this->requests);
+        $this->assertSame(['unconfirmed', 'unconfirmed'], self::statuses($error->getResults()));
+        $this->assertSame(
+            array_column($this->body(0)['recipients'], 'idempotency_key'),
+            array_map(static fn($r): string => $r->getIdempotencyKey(), $error->getResults())
+        );
+        $this->assertSame('delivery_unavailable', $error->getResults()[0]->getError()->getErrorCode());
+    }
+
     private static function clockThatShutsDownOnSleep(MockClock $clock, Closure $shutDown): ClockInterface
     {
         return new class ($clock, $shutDown) implements ClockInterface {
@@ -972,7 +993,11 @@ PHP;
         [$result] = $error->getResults();
         $this->assertSame(['unconfirmed', null], [$result->getStatus(), $result->getMessageId()]);
         $this->assertSame(
-            ['quota_limited', 429, 'Send it again with the same idempotency_key within 24 hours, so it goes out once.'],
+            [
+                'quota_limited',
+                429,
+                'Send it again with the same idempotency_key within 24 hours of its first use, so it goes out once.',
+            ],
             [$result->getError()->getErrorCode(), $result->getError()->getStatusCode(), $result->getError()->getFix()]
         );
         $this->assertSame([self::BATCH_URL, self::BATCH_URL], $this->requestUrls());
@@ -995,7 +1020,7 @@ PHP;
         );
         $this->assertSame(
             "PostHog didn't confirm this email, so it may still go out. Send it again with the same idempotency_key "
-                . 'within 24 hours, so it goes out once.',
+                . 'within 24 hours of its first use, so it goes out once.',
             $error->getResults()[1]->getError()->getMessage()
         );
     }
@@ -1108,6 +1133,42 @@ PHP;
         $codes = array_map(static fn($warning): string => $warning->getCode(), $result->getWarnings());
         $this->assertSame(['sandbox_sender'], $codes);
         $this->assertSame([self::WARNING_LOGGED], $errorMessages);
+    }
+
+    public function testManyDistinctWarningsReachTheCallerInOrderWithoutQuadraticWork(): void
+    {
+        $warnings = array_map(static fn(int $index): array => ['code' => "w$index", 'detail' => 'd'], range(0, 19999));
+        $this->reply(self::allQueued(['warnings' => [...$warnings, $warnings[0], $warnings[19999]]]));
+        $started = hrtime(true);
+
+        $result = $this->batch(self::recipients(1));
+
+        $this->assertLessThan(2000, (hrtime(true) - $started) / 1e6);
+        $this->assertSame(
+            array_column($warnings, 'code'),
+            array_map(static fn($warning): string => $warning->getCode(), $result->getWarnings())
+        );
+    }
+
+    public static function unreadableInFlightAnswers(): array
+    {
+        return [
+            'an empty body' => [''],
+            'a body that is not JSON' => ['<html>Conflict</html>'],
+        ];
+    }
+
+    #[DataProvider('unreadableInFlightAnswers')]
+    public function testA409WithAnUnreadableBodyLeavesItsRecipientsUnconfirmedWithTheirKeys(string $body): void
+    {
+        $this->reply([409, $body, []]);
+
+        $error = $this->batchError(self::recipients(2), ['max_retries' => 0]);
+
+        $this->assertSame(
+            [['unconfirmed', 'key-0'], ['unconfirmed', 'key-1']],
+            array_map(static fn($r): array => [$r->getStatus(), $r->getIdempotencyKey()], $error->getResults())
+        );
     }
 
     public static function setupErrors(): array

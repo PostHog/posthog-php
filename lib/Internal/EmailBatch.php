@@ -18,7 +18,8 @@ final class EmailBatch
     private const MAX_RECIPIENTS = 100;
     private const RECIPIENT_FIELDS = ['to', 'distinct_id', 'idempotency_key', 'template_data'];
     private const UNCONFIRMED_CODES = ['idempotency_key_in_flight', 'delivery_unavailable', 'api_error'];
-    private const SEND_AGAIN = 'Send it again with the same idempotency_key within 24 hours, so it goes out once.';
+    private const SEND_AGAIN =
+        'Send it again with the same idempotency_key within 24 hours of its first use, so it goes out once.';
     private const IN_FLIGHT = 'idempotency_key_in_flight';
     private const JSON_FLAGS = JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
     private const SEND_SINGLY = "send each email the batch didn't queue with emails()->send() and its recipient's "
@@ -28,6 +29,8 @@ final class EmailBatch
     private array $results = [];
     /** @var list<EmailWarning> */
     private array $warnings = [];
+    /** @var array<string, true> */
+    private array $warningKeys = [];
     private bool $mayHaveQueued = false;
 
     /**
@@ -172,7 +175,9 @@ final class EmailBatch
         $fields = EmailReplies::fields($body);
         if ($status < 200 || $status >= 300) {
             $error = self::requestError($fields, $status, $headers);
-            if ($status >= 500 || ($status === 409 && $error->getErrorCode() === self::IN_FLIGHT)) {
+            $code = EmailReplies::text($fields['code'] ?? null);
+            $inFlight = $status === 409 && ($code === null || $code === self::IN_FLIGHT);
+            if ($status >= 500 || $inFlight) {
                 throw $this->lost($error);
             }
             if ($this->mayHaveQueued) {
@@ -192,7 +197,9 @@ final class EmailBatch
             $this->settle($index, is_array($slots[$index]) ? $slots[$index] : []);
         }
         foreach (EmailReplies::warnings($fields) as $warning) {
-            if (!in_array($warning, $this->warnings)) {
+            $key = serialize([$warning->getCode(), $warning->getMessage(), $warning->getFix()]);
+            if (!isset($this->warningKeys[$key])) {
+                $this->warningKeys[$key] = true;
                 $this->warnings[] = $warning;
             }
         }

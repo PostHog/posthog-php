@@ -10,7 +10,8 @@ namespace PostHog;
  * - `queued`: PostHog accepted the email. Read its status with Emails::get() to see whether it went out.
  * - `failed`: PostHog didn't queue the email, and getError() says why, such as a suppressed address.
  * - `unconfirmed`: the client can't tell whether PostHog queued the email, such as after a lost answer. It may
- *   still go out. Send it again with the same idempotency key within 24 hours, so it goes out once.
+ *   still go out. Send it again with the same idempotency key within 24 hours of its first use, so it goes out
+ *   once.
  *   getMessageId() is the email's ID when PostHog's answer named one.
  */
 class BatchEmailResult

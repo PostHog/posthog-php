@@ -420,9 +420,9 @@ final class Emails
      * Each recipient's `idempotency_key` is 1 to 255 visible ASCII characters, a different one for each recipient
      * of the call, and every retry reuses it, so a retry never queues an email twice. Without it, the client makes
      * one that covers its own retries but not a second call, so pass keys you store when a batch may be cut off
-     * and run again: a rerun within 24 hours replays the emails that went out instead of sending them twice. Build
-     * each key from an ID you store with the job, such as the digest's own ID, never from the time of the run, so
-     * a retry after midnight makes the same keys. A single send and a batch recipient
+     * and run again: a rerun within 24 hours of the first run replays the emails that went out instead of sending
+     * them twice. Build each key from an ID you store with the job, such as the digest's own ID, never from the time
+     * of the run, so a retry after midnight makes the same keys. A single send and a batch recipient
      * with the same key and the same email replay each other. Never reuse a key for another email: PostHog sends one
      * email per key, so the other doesn't go out. PostHog usually refuses it with `idempotency_key_reused`, but two
      * sends that arrive at the same time can both answer `queued`.
@@ -432,7 +432,8 @@ final class Emails
      * - `queued`: PostHog accepted the email.
      * - `failed`: PostHog refused it, and getError() says why, such as a suppressed address.
      * - `unconfirmed`: the client can't tell whether PostHog accepted it, such as after a lost answer, or when
-     *   another request still holds its key. Send it again with the same key within 24 hours, so it goes out once.
+     *   another request still holds its key. Send it again with the same key within 24 hours of its first use, so
+     *   it goes out once.
      *
      * When PostHog refuses the batch as a whole, such as a rate limit past its retries, batch() throws
      * EmailBatchError, whose getResults() holds every recipient: `failed`, or `unconfirmed` when an attempt may have
@@ -1157,6 +1158,12 @@ final class Emails
             }, $closedBeforeARetry);
         } catch (EmailError $error) {
             throw $run->failure($error);
+        } catch (Throwable $throwable) {
+            throw $run->failure(new EmailError(
+                'client_error',
+                'The client failed while sending the batch: ' . $throwable->getMessage(),
+                previous: $throwable
+            ));
         }
     }
 
@@ -1281,7 +1288,11 @@ final class Emails
 
     private static function forwardOnlyClock(): ClockInterface
     {
-        $clock = Clock::get();
+        try {
+            $clock = Clock::get();
+        } catch (Throwable) {
+            return new MonotonicClock();
+        }
 
         return $clock instanceof NativeClock ? new MonotonicClock() : $clock;
     }

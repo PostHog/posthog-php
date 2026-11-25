@@ -26,17 +26,7 @@ final class EmailsOnOlderSymfonyClocksTest extends TestCase
     #[DataProvider('olderClocks')]
     public function testAPastTimeQueuedNowIsAnAcceptance(bool $withoutTheClockClass): void
     {
-        foreach (spl_autoload_functions() as $loader) {
-            spl_autoload_unregister($loader);
-            spl_autoload_register(static function (string $class) use ($loader, $withoutTheClockClass): void {
-                if ($class === 'Symfony\Component\Clock\NativeClock') {
-                    throw new ErrorException('Implicitly marking parameter $timezone as nullable is deprecated');
-                }
-                if (!$withoutTheClockClass || $class !== 'Symfony\Component\Clock\Clock') {
-                    $loader($class);
-                }
-            });
-        }
+        self::loadWithAnOlderClock($withoutTheClockClass);
         $messageId = '01a18356-c56c-0001-e494-7666bc915188';
         $emails = new Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [
             202,
@@ -52,5 +42,47 @@ final class EmailsOnOlderSymfonyClocksTest extends TestCase
 
         $this->assertSame($messageId, $result->getId());
         $this->assertSame('queued', $result->getStatus());
+    }
+
+    #[DataProvider('olderClocks')]
+    public function testABatchRetriesAfterALostAnswer(bool $withoutTheClockClass): void
+    {
+        self::loadWithAnOlderClock($withoutTheClockClass);
+        $requests = 0;
+        $emails = new Emails('phs_secret', 'us.i.posthog.com', transport: static function () use (&$requests): array {
+            $requests++;
+
+            return $requests === 1 ? [503, '', []] : [200, json_encode(['results' => [
+                ['message_id' => 'm0', 'status' => 'queued'],
+                ['message_id' => 'm1', 'status' => 'queued'],
+            ]]), []];
+        });
+
+        $result = $emails->batch([
+            'recipients' => [['to' => 'a@example.com'], ['to' => 'b@example.com']],
+            'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
+            'max_retries' => 1,
+        ]);
+
+        $this->assertSame(
+            ['queued', 'queued'],
+            array_map(static fn($r): string => $r->getStatus(), $result->getResults())
+        );
+        $this->assertSame(2, $requests);
+    }
+
+    private static function loadWithAnOlderClock(bool $withoutTheClockClass): void
+    {
+        foreach (spl_autoload_functions() as $loader) {
+            spl_autoload_unregister($loader);
+            spl_autoload_register(static function (string $class) use ($loader, $withoutTheClockClass): void {
+                if ($class === 'Symfony\Component\Clock\NativeClock') {
+                    throw new ErrorException('Implicitly marking parameter $timezone as nullable is deprecated');
+                }
+                if (!$withoutTheClockClass || $class !== 'Symfony\Component\Clock\Clock') {
+                    $loader($class);
+                }
+            });
+        }
     }
 }
