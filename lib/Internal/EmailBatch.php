@@ -304,17 +304,19 @@ final class EmailBatch
     {
         $answered = array_filter($fields, static fn($value): bool => $value !== null);
         if ($status === 404 && self::namesNoField($answered)) {
+            $cause = $this->isTemplateForm
+                ? "PostHog found no template with this template_id, or batch sends aren't available for this "
+                    . 'project, so it'
+                : "Batch sends or sending from code aren't available for this project, so PostHog";
             $answered = [
                 ...array_diff_key($answered, ['why' => true]),
                 'code' => 'not_found',
-                'detail' => $this->isTemplateForm
-                    ? "PostHog found no template with this template_id, or batch sends aren't available for this "
-                        . 'project, so it sent no email of this request.'
-                    : "Batch sends from code aren't available for this project, so PostHog sent no email of this "
-                        . 'request.',
+                'detail' => $this->mayHaveQueued
+                    ? "$cause refused this retry. An earlier attempt may have queued the email."
+                    : "$cause sent no email of this request.",
                 'fix' => $this->isTemplateForm
                     ? "Check template_id. If it's right, " . self::SEND_EACH_ON_ITS_OWN
-                    : ucfirst(self::SEND_EACH_ON_ITS_OWN),
+                    : 'If the project can send email from code, ' . self::SEND_EACH_ON_ITS_OWN,
             ];
         }
         if ($status === 413) {

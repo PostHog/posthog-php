@@ -30,6 +30,8 @@ class EmailsBatchTest extends TestCase
     private const WARNING_LOGGED = '[PostHog][Emails] Email warning sandbox_sender: Sent from the test sender.';
     private const SEND_SINGLY = "send each email the batch didn't queue with emails()->send() and its recipient's "
         . 'idempotency_key.';
+    private const SEND_AGAIN = 'Send it again with the same idempotency_key within 24 hours of its first use, so it '
+        . 'goes out once.';
     private const SEND_EACH_ON_ITS_OWN = 'send each recipient on its own with emails()->send() and its '
         . 'idempotency_key until batch sends are available.';
 
@@ -1189,12 +1191,33 @@ PHP;
 
         $this->assertSame(['not_found', 404], [$error->getErrorCode(), $error->getStatusCode()]);
         $this->assertSame(
-            "Batch sends from code aren't available for this project, so PostHog sent no email of this request.",
+            "Batch sends or sending from code aren't available for this project, so PostHog sent no email of this "
+            . 'request.',
             $error->getMessage()
         );
-        $this->assertSame(ucfirst(self::SEND_EACH_ON_ITS_OWN), $error->getFix());
+        $this->assertSame('If the project can send email from code, ' . self::SEND_EACH_ON_ITS_OWN, $error->getFix());
         $this->assertNull($error->getWhy());
         $this->assertSame(['failed'], self::statuses($error->getResults()));
+    }
+
+    public function testA404OnARetryAfterALostAnswerDoesNotSayNothingWasSent(): void
+    {
+        $this->reply(
+            self::networkError(),
+            [404, '{"type":"invalid_request","code":"not_found","detail":"Not found."}', []]
+        );
+
+        $error = $this->batchError(self::recipients(2), ['max_retries' => 1]);
+
+        $this->assertSame(['unconfirmed', 'unconfirmed'], self::statuses($error->getResults()));
+        foreach ([$error, ...array_map(static fn($r): EmailError => $r->getError(), $error->getResults())] as $read) {
+            $this->assertStringNotContainsString('sent no email', $read->getMessage());
+            $this->assertStringContainsString('may have queued', $read->getMessage());
+        }
+        $this->assertSame(
+            [self::SEND_AGAIN, self::SEND_AGAIN],
+            array_map(static fn($r): ?string => $r->getError()->getFix(), $error->getResults())
+        );
     }
 
     public function testA404ThatNamesAFieldKeepsPostHogsAnswer(): void
