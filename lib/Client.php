@@ -9,6 +9,7 @@ use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
 use PostHog\Consumer\NoOp;
 use PostHog\Consumer\Socket;
+use PostHog\Internal\KnownAbsentKeys;
 use Symfony\Component\Clock\Clock;
 use Throwable;
 
@@ -18,9 +19,6 @@ use Throwable;
 class Client implements FeatureFlagEvaluationsHost
 {
     private const SIZE_LIMIT = 50_000;
-
-    // The flags service rejects a known-absent list longer than this, counted with duplicates.
-    private const KNOWN_ABSENT_KEYS_LIMIT = 1000;
 
     private const PERSON_METADATA_KEY_PREFIX = '__posthog_person_metadata__';
 
@@ -1051,7 +1049,7 @@ class Client implements FeatureFlagEvaluationsHost
         ?array $personPropertyKeysKnownAbsent = null,
         ?array $groupPropertyKeysKnownAbsent = null
     ): ?FeatureFlagResult {
-        self::assertKnownAbsentKeysValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
+        KnownAbsentKeys::assertValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
         $distinctId = $this->resolveDistinctId($distinctId);
         if ($distinctId === '') {
             $this->warnMissingDistinctId('Feature flag evaluation');
@@ -1389,7 +1387,7 @@ class Client implements FeatureFlagEvaluationsHost
         ?array $personPropertyKeysKnownAbsent = null,
         ?array $groupPropertyKeysKnownAbsent = null
     ): array {
-        self::assertKnownAbsentKeysValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
+        KnownAbsentKeys::assertValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
         $distinctId = $this->resolveDistinctId($distinctId);
         if ($distinctId === '') {
             $this->warnMissingDistinctId('getAllFlags()');
@@ -1499,7 +1497,7 @@ class Client implements FeatureFlagEvaluationsHost
         ?array $personPropertyKeysKnownAbsent = null,
         ?array $groupPropertyKeysKnownAbsent = null
     ): FeatureFlagEvaluations {
-        self::assertKnownAbsentKeysValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
+        KnownAbsentKeys::assertValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
         $distinctId = $this->resolveDistinctId($distinctId);
         $host = new Internal\ContextualFeatureFlagEvaluationsHost(
             $this,
@@ -2509,7 +2507,7 @@ class Client implements FeatureFlagEvaluationsHost
         ?array $personPropertyKeysKnownAbsent = null,
         ?array $groupPropertyKeysKnownAbsent = null
     ): array {
-        self::assertKnownAbsentKeysValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
+        KnownAbsentKeys::assertValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
         if (!$this->enabled) {
             return $this->emptyFlagsResponse();
         }
@@ -3044,45 +3042,6 @@ class Client implements FeatureFlagEvaluationsHost
         $msg["timestamp"] = $this->formatTime($msg["timestamp"]);
 
         return $msg;
-    }
-
-    /**
-     * Reject known-absent lists the flags service would refuse, before any evaluation or request.
-     * Lists are never truncated.
-     *
-     * @internal Used by PostHog framework integrations that return before calling the client;
-     *     not part of the customer API.
-     * @param list<string>|null $personPropertyKeysKnownAbsent
-     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent
-     * @throws InvalidArgumentException
-     */
-    public static function assertKnownAbsentKeysValid(
-        ?array $personPropertyKeysKnownAbsent,
-        ?array $groupPropertyKeysKnownAbsent
-    ): void {
-        self::assertKnownAbsentKeyList($personPropertyKeysKnownAbsent ?? [], 'personPropertyKeysKnownAbsent');
-        foreach ($groupPropertyKeysKnownAbsent ?? [] as $groupType => $absentKeys) {
-            if (!is_array($absentKeys)) {
-                throw new InvalidArgumentException(
-                    "groupPropertyKeysKnownAbsent['{$groupType}'] must be a list of property keys."
-                );
-            }
-            self::assertKnownAbsentKeyList($absentKeys, "groupPropertyKeysKnownAbsent['{$groupType}']");
-        }
-    }
-
-    private static function assertKnownAbsentKeyList(array $absentKeys, string $name): void
-    {
-        if (count($absentKeys) > self::KNOWN_ABSENT_KEYS_LIMIT) {
-            throw new InvalidArgumentException(
-                "{$name} can hold at most " . self::KNOWN_ABSENT_KEYS_LIMIT . " keys, got " . count($absentKeys) . "."
-            );
-        }
-        foreach ($absentKeys as $absentKey) {
-            if (!is_string($absentKey)) {
-                throw new InvalidArgumentException("{$name} must hold only string property keys.");
-            }
-        }
     }
 
     private function addLocalPersonAndGroupProperties(

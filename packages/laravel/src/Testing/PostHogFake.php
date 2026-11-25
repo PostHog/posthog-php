@@ -5,6 +5,7 @@ namespace PostHog\Laravel\Testing;
 use PHPUnit\Framework\Assert;
 use PostHog\Client;
 use PostHog\FeatureFlagEvaluations;
+use PostHog\Internal\KnownAbsentKeys;
 use PostHog\Laravel\Context;
 use PostHog\Laravel\PostHog;
 use Throwable;
@@ -63,7 +64,7 @@ class PostHogFake extends PostHog
         ?array $personPropertyKeysKnownAbsent = null,
         ?array $groupPropertyKeysKnownAbsent = null,
     ): FeatureFlagEvaluations {
-        Client::assertKnownAbsentKeysValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
+        KnownAbsentKeys::assertValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
         return $this->flagSnapshot ?? new FeatureFlagEvaluations($distinctId ?? '', [], $groups, $this->client());
     }
 
