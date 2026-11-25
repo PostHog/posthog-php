@@ -29,7 +29,7 @@ final class EmailBatch
     private array $results = [];
     /** @var list<EmailWarning> */
     private array $warnings = [];
-    /** @var array<string, true> */
+    /** @var array<array-key, array<array-key, array<array-key, true>>> */
     private array $warningKeys = [];
     private bool $mayHaveQueued = false;
 
@@ -199,9 +199,10 @@ final class EmailBatch
             $this->settle($index, is_array($slots[$index]) ? $slots[$index] : []);
         }
         foreach (EmailReplies::warnings($fields) as $warning) {
-            $key = serialize([$warning->getCode(), $warning->getMessage(), $warning->getFix()]);
-            if (!isset($this->warningKeys[$key])) {
-                $this->warningKeys[$key] = true;
+            $fix = $warning->getFix();
+            $fixKey = $fix === null ? 0 : "s$fix";
+            if (!isset($this->warningKeys[$warning->getCode()][$warning->getMessage()][$fixKey])) {
+                $this->warningKeys[$warning->getCode()][$warning->getMessage()][$fixKey] = true;
                 $this->warnings[] = $warning;
             }
         }

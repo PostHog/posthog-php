@@ -1274,11 +1274,11 @@ final class Emails
     private function waitToRetry(int $delayMs, EmailError $error): void
     {
         $clock = self::forwardOnlyClock();
-        $startedNs = hrtime(true);
+        $started = hrtime();
         $start = $clock?->now();
         while (!($this->isClosed)()) {
             $elapsedUs = $clock === null
-                ? intdiv(hrtime(true) - $startedNs, 1000)
+                ? self::microsecondsSince($started)
                 : self::microsecondsBetween($start, $clock->now());
             $remainingUs = $delayMs * 1000 - $elapsedUs;
             if ($remainingUs <= 0) {
@@ -1304,6 +1304,16 @@ final class Emails
         } catch (Throwable) {
             return null;
         }
+    }
+
+    /**
+     * @param array{int, int} $started
+     */
+    private static function microsecondsSince(array $started): int
+    {
+        [$seconds, $nanoseconds] = hrtime();
+
+        return ($seconds - $started[0]) * 1_000_000 + intdiv($nanoseconds - $started[1], 1000);
     }
 
     private static function microsecondsBetween(DateTimeImmutable $start, DateTimeImmutable $end): int

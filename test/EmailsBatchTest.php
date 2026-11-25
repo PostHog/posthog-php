@@ -524,7 +524,7 @@ $result = $emails->batch([
 echo $result->getResults()[0]->getStatus(), ' ', $result->getResults()[0]->getError()->getErrorCode();
 PHP;
 
-        $this->assertSame([0, 'failed content_too_large'], self::runWithMemoryLimit($script, '32M'));
+        $this->assertSame([0, 'failed content_too_large'], self::runWithPhpOptions($script, '-d memory_limit=32M'));
     }
 
     #[DataProvider('recipientsNearTheBodyLimit')]
@@ -566,7 +566,7 @@ echo count(array_unique(array_filter($ids))), ' ', $sent > 4500000 ? 'body sent'
 PHP;
 
         try {
-            $this->assertSame([0, '100 body sent'], self::runWithMemoryLimit($script, '32M'));
+            $this->assertSame([0, '100 body sent'], self::runWithPhpOptions($script, '-d memory_limit=32M'));
             $request = json_decode(file_get_contents($bodyFile), true, flags: JSON_THROW_ON_ERROR);
         } finally {
             unlink($bodyFile);
@@ -608,7 +608,7 @@ try {
 }
 PHP;
 
-        $this->assertSame([0, 'content_too_large'], self::runWithMemoryLimit($script, '32M'));
+        $this->assertSame([0, 'content_too_large'], self::runWithPhpOptions($script, '-d memory_limit=32M'));
     }
 
     #[DataProvider('laterSerializations')]
@@ -686,18 +686,21 @@ try {
 }
 PHP;
 
-        $this->assertSame([0, '["invalid_recipient","recipients__0__to"]'], self::runWithMemoryLimit($script, '128M'));
+        $this->assertSame(
+            [0, '["invalid_recipient","recipients__0__to"]'],
+            self::runWithPhpOptions($script, '-d memory_limit=128M')
+        );
     }
 
     /**
      * @return array{int, string}
      */
-    private static function runWithMemoryLimit(string $code, string $limit): array
+    private static function runWithPhpOptions(string $code, string $options): array
     {
         $script = tempnam(sys_get_temp_dir(), 'posthog-emails-batch-');
         file_put_contents($script, $code);
         try {
-            $command = escapeshellarg(PHP_BINARY) . " -d memory_limit=$limit " . escapeshellarg($script) . ' '
+            $command = escapeshellarg(PHP_BINARY) . " $options " . escapeshellarg($script) . ' '
                 . escapeshellarg(__DIR__ . '/../vendor/autoload.php') . ' 2>&1';
             exec($command, $output, $exitCode);
 
@@ -1195,6 +1198,29 @@ PHP;
         $this->assertSame(
             array_column($warnings, 'code'),
             array_map(static fn($warning): string => $warning->getCode(), $result->getWarnings())
+        );
+    }
+
+    public function testAQueuedAnswerWithWarningsKeepsItsResultsWhenSerializeIsDisabled(): void
+    {
+        $script = <<<'PHP'
+<?php
+require $argv[1];
+$emails = new PostHog\Emails('phs_secret', 'us.i.posthog.com', transport: static fn(): array => [200, json_encode([
+    'results' => [['message_id' => 'm0', 'status' => 'queued']],
+    'warnings' => [['code' => 'unverified_link', 'detail' => 'A link points to an unknown domain.']],
+]), []]);
+$result = $emails->batch([
+    'recipients' => [['to' => 'a@example.com']],
+    'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
+]);
+$recipient = $result->getResults()[0];
+echo json_encode([$recipient->getStatus(), $recipient->getMessageId(), count($result->getWarnings())]);
+PHP;
+
+        $this->assertSame(
+            [0, '["queued","m0",1]'],
+            self::runWithPhpOptions($script, '-d disable_functions=serialize -d error_log=/dev/null')
         );
     }
 
