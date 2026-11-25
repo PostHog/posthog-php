@@ -8,8 +8,11 @@ require_once 'test/error_log_mock.php';
 
 use PHPUnit\Framework\TestCase;
 use PostHog\Client;
+use PostHog\FeatureFlag;
 use PostHog\FeatureFlagEvaluations;
+use PostHog\InconclusiveMatchException;
 use PostHog\PostHog;
+use PostHog\UnresolvedFlagReason;
 
 /**
  * A flag dependency is evaluated as if the referenced flag were evaluated directly with the same inputs,
@@ -142,6 +145,32 @@ class FlagDependencyContextTest extends TestCase
         $this->assertTrue($evaluations->getFlag('org-parent'));
         $this->assertTrue($evaluations->getFlag('person-child'));
         $this->assertResolvedLocally($evaluations);
+    }
+
+    public function testDirectGroupFlagMatchDoesNotUseTheGroupKeyAsThePersonId(): void
+    {
+        $personParent = self::flag(
+            'person-parent',
+            [['key' => 'distinct_id', 'type' => 'person', 'operator' => 'exact', 'value' => 'acme']]
+        );
+        $orgChild = self::flag('org-child', [self::dependsOn('person-parent')], 0);
+
+        try {
+            FeatureFlag::matchFeatureFlagProperties(
+                $orgChild,
+                'acme',
+                [],
+                [],
+                ['person-parent' => $personParent, 'org-child' => $orgChild],
+                [],
+                ['organization' => 'acme'],
+                ['organization' => []],
+                ['0' => 'organization']
+            );
+            $this->fail('Expected InconclusiveMatchException');
+        } catch (InconclusiveMatchException $e) {
+            $this->assertSame(UnresolvedFlagReason::UNRESOLVED_DEPENDENCY, $e->getReason());
+        }
     }
 
     public function testGroupFlagDependencyBucketsByTheGroupKey(): void

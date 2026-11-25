@@ -1356,10 +1356,11 @@ class FeatureFlag
         $groupKnownAbsentKeys = []
     ) {
         $flagAggregation = ($flag["filters"] ?? [])["aggregation_group_type_index"] ?? null;
-        // Without the top-level inputs, a dependency of a group flag gets no person distinct id or properties.
+        // For a group flag, $distinctId is the group key, so a person dependency has no person to evaluate.
         $context = is_null($flagAggregation)
             ? FeatureFlag::personEvaluationContext($distinctId, $properties, $knownAbsentKeys)
-            : FeatureFlag::personEvaluationContext($distinctId, [], []);
+            : FeatureFlag::personEvaluationContext(null, [], []);
+        $context["hasPerson"] = is_null($flagAggregation);
         $context["groups"] = $groups;
         $context["groupProperties"] = $groupProperties;
         $context["groupTypeMapping"] = $groupTypeMapping;
@@ -1432,6 +1433,7 @@ class FeatureFlag
             $evaluationCache,
             $propertyMatchingVersion,
             [
+                "hasPerson" => true,
                 "distinctId" => $distinctId,
                 "groups" => $groups,
                 "personProperties" => $personProperties,
@@ -1448,6 +1450,7 @@ class FeatureFlag
      * own aggregation. A group flag whose group isn't supplied is false.
      *
      * @param array{
+     *     hasPerson: bool,
      *     distinctId: string|null,
      *     groups: array<string, mixed>,
      *     personProperties: array<string, mixed>,
@@ -1468,6 +1471,13 @@ class FeatureFlag
         $flagAggregation = ($flag["filters"] ?? [])["aggregation_group_type_index"] ?? null;
 
         if (is_null($flagAggregation)) {
+            if (!$context["hasPerson"]) {
+                throw new InconclusiveMatchException(
+                    "Can't evaluate a person flag without a person distinct id",
+                    reason: UnresolvedFlagReason::MISSING_CONTEXT
+                );
+            }
+
             $personProperties = $context["personProperties"];
             if (!is_null($context["distinctId"]) && !array_key_exists("distinct_id", $personProperties)) {
                 $personProperties["distinct_id"] = $context["distinctId"];
@@ -1522,6 +1532,7 @@ class FeatureFlag
     private static function personEvaluationContext($distinctId, $personProperties, array $personKnownAbsentKeys): array
     {
         return [
+            "hasPerson" => true,
             "distinctId" => $distinctId,
             "groups" => [],
             "personProperties" => $personProperties ?? [],
