@@ -1449,7 +1449,7 @@ class FeatureFlag
                 "hasGroups" => true,
                 "distinctId" => $distinctId,
                 "groups" => $groups,
-                "personProperties" => $personProperties,
+                "personProperties" => FeatureFlag::personPropertiesWithDistinctId($personProperties, $distinctId),
                 "groupProperties" => $groupProperties,
                 "groupTypeMapping" => $groupTypeMapping,
                 "personKnownAbsentKeys" => $personKnownAbsentKeys,
@@ -1497,15 +1497,10 @@ class FeatureFlag
                 );
             }
 
-            $personProperties = $context["personProperties"];
-            if (!is_null($context["distinctId"]) && !array_key_exists("distinct_id", $personProperties)) {
-                $personProperties["distinct_id"] = $context["distinctId"];
-            }
-
             return FeatureFlag::matchFeatureFlagPropertiesForIdentity(
                 $flag,
                 $context["distinctId"],
-                $personProperties,
+                $context["personProperties"],
                 $cohorts,
                 $flagsByKey,
                 $evaluationCache,
@@ -1561,6 +1556,21 @@ class FeatureFlag
     }
 
     /**
+     * The person properties of an evaluation, with the distinct id as the distinct_id property unless one
+     * is supplied. Built once per evaluation, so dependencies share the map instead of copying it.
+     *
+     * @param array<string, mixed> $personProperties
+     * @return array<string, mixed>
+     */
+    private static function personPropertiesWithDistinctId(array $personProperties, $distinctId): array
+    {
+        if (!is_null($distinctId) && !array_key_exists("distinct_id", $personProperties)) {
+            $personProperties["distinct_id"] = $distinctId;
+        }
+        return $personProperties;
+    }
+
+    /**
      * The top-level inputs of a public helper that only receives person inputs.
      *
      * @param array<string, true> $personKnownAbsentKeys
@@ -1573,7 +1583,7 @@ class FeatureFlag
             "hasGroups" => true,
             "distinctId" => $distinctId,
             "groups" => [],
-            "personProperties" => $personProperties ?? [],
+            "personProperties" => FeatureFlag::personPropertiesWithDistinctId($personProperties ?? [], $distinctId),
             "groupProperties" => [],
             "groupTypeMapping" => [],
             "personKnownAbsentKeys" => $personKnownAbsentKeys,

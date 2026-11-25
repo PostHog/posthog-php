@@ -183,6 +183,55 @@ class FlagDependencyContextTest extends TestCase
         $this->makeClient($flags);
     }
 
+    /**
+     * Evaluates the first flag with a large person property map and returns the peak memory growth.
+     *
+     * @return array{0: bool|string|null, 1: int}
+     */
+    private function evaluateWithLargePersonProperties(array $flags): array
+    {
+        $this->makeClient($flags);
+        $personProperties = ['region' => 'us'];
+        for ($i = 0; $i < 32768; $i++) {
+            $personProperties["prop-$i"] = $i;
+        }
+
+        gc_collect_cycles();
+        memory_reset_peak_usage();
+        $baseline = memory_get_usage();
+        $evaluations = $this->client->evaluateFlags(
+            'user-1',
+            personProperties: $personProperties,
+            onlyEvaluateLocally: true,
+            flagKeys: [$flags[count($flags) - 1]['key']]
+        );
+        $growth = memory_get_peak_usage() - $baseline;
+
+        $this->assertResolvedLocally($evaluations);
+        return [$evaluations->getFlag($flags[count($flags) - 1]['key']), $growth];
+    }
+
+    public function testPersonDependencyChainDoesNotCopyThePersonPropertiesPerDependency(): void
+    {
+        $regionFilter = [['key' => 'region', 'type' => 'person', 'operator' => 'exact', 'value' => 'us']];
+        $userFilter = [['key' => 'distinct_id', 'type' => 'person', 'operator' => 'exact', 'value' => 'user-1']];
+
+        [$singleResult, $singleGrowth] = $this->evaluateWithLargePersonProperties([
+            self::flag('chain-0', array_merge($regionFilter, $userFilter)),
+        ]);
+
+        $chain = [self::flag('chain-80', array_merge($regionFilter, $userFilter))];
+        for ($i = 79; $i >= 0; $i--) {
+            $chain[] = self::flag("chain-$i", array_merge([self::dependsOn('chain-' . ($i + 1))], $userFilter));
+        }
+        [$chainResult, $chainGrowth] = $this->evaluateWithLargePersonProperties($chain);
+
+        $this->assertTrue($singleResult);
+        $this->assertTrue($chainResult);
+        // One copy of the map is about 2.5 MiB, so a copy per dependency would add about 200 MiB.
+        $this->assertLessThan(50 * 1024 * 1024, $chainGrowth - $singleGrowth);
+    }
+
     public function testBranchingConclusiveDependencyGraphEvaluatesEachFlagOnce(): void
     {
         $this->makeBranchingGraph([]);
