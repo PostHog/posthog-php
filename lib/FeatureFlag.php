@@ -1245,8 +1245,9 @@ class FeatureFlag
 
     /**
      * The known-absent keys that apply to a property filter. Person keys apply only to `person` filters and
-     * group keys only to `group` filters on their own group type, or without a group type index. A `person_metadata` filter reads a
-     * persons-table field, so it, like any other filter type, never resolves from a listing.
+     * group keys only to `group` filters on their own group type, or without a group type index. A
+     * `person_metadata` filter reads a persons-table field, so it, like any other filter type, never resolves
+     * from a listing.
      *
      * @param array<string, mixed> $property Feature flag property filter.
      * @param int|string|null|false $keysAggregation See knownAbsentKeysAggregation().
