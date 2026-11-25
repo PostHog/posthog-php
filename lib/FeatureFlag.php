@@ -1524,7 +1524,7 @@ class FeatureFlag
             );
         }
 
-        if (!array_key_exists($groupName, $context["groups"])) {
+        if (!FeatureFlag::hasUsableGroupKey($context["groups"], $groupName)) {
             if (!$context["hasGroups"]) {
                 throw new InconclusiveMatchException(
                     "Can't evaluate a group flag without the groups of the evaluation",
@@ -1546,6 +1546,18 @@ class FeatureFlag
             $context["groupKnownAbsentKeys"][$groupName] ?? [],
             $context
         );
+    }
+
+    /**
+     * Like the flags service, only a non-empty string or a number is a group key. Any other value counts as
+     * no key for the group type, so it is never used for bucketing.
+     *
+     * @param array<string, mixed> $groups Group keys by group type name.
+     */
+    private static function hasUsableGroupKey(array $groups, string $groupName): bool
+    {
+        $groupKey = $groups[$groupName] ?? null;
+        return (is_string($groupKey) && $groupKey !== '') || is_int($groupKey) || is_float($groupKey);
     }
 
     /**
@@ -1639,7 +1651,7 @@ class FeatureFlag
                 if ($conditionAggregation !== $flagAggregation) {
                     if (!is_null($conditionAggregation)) {
                         $groupName = $context["groupTypeMapping"][strval($conditionAggregation)] ?? null;
-                        if (is_null($groupName) || !array_key_exists($groupName, $groups)) {
+                        if (is_null($groupName) || !FeatureFlag::hasUsableGroupKey($groups, $groupName)) {
                             continue;
                         }
                         if (!array_key_exists($groupName, $groupProperties)) {
