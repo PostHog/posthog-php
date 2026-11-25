@@ -233,6 +233,15 @@ final class EmailBatch
         return new SendBatchResult($this->outcome(), $this->warnings);
     }
 
+    public function interrupted(EmailError $error): EmailBatchError
+    {
+        if (!$this->mayHaveQueued) {
+            $this->lost($error);
+        }
+
+        return $this->failure($error);
+    }
+
     public function failure(EmailError $error): EmailBatchError
     {
         if (!$this->mayHaveQueued) {

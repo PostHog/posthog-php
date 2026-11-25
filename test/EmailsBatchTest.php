@@ -945,6 +945,29 @@ PHP;
         $this->assertSame('delivery_unavailable', $error->getResults()[0]->getError()->getErrorCode());
     }
 
+    public function testARetryWaitThatThrowsAfterAnInFlightAnswerKeepsPostHogsAnswerOnItsRecipients(): void
+    {
+        Clock::set(self::clockThatShutsDownOnSleep($this->clock, static function (): never {
+            throw new Error('The clock failed.');
+        }));
+        $this->reply(self::wholeCall(409, 'idempotency_key_in_flight'), self::allQueued());
+
+        $error = $this->batchError(self::recipients(2));
+
+        $this->assertSame('client_error', $error->getErrorCode());
+        $this->assertCount(1, $this->requests);
+        $this->assertSame(
+            [
+                ['unconfirmed', 'key-0', 'idempotency_key_in_flight'],
+                ['unconfirmed', 'key-1', 'idempotency_key_in_flight'],
+            ],
+            array_map(
+                static fn($r): array => [$r->getStatus(), $r->getIdempotencyKey(), $r->getError()?->getErrorCode()],
+                $error->getResults()
+            )
+        );
+    }
+
     public static function answersThatMayHaveQueued(): array
     {
         return [
@@ -1228,7 +1251,7 @@ PHP;
     public function testATransportThatThrowsKeepsTheRecipientsUnconfirmedWithTheirKeys(): void
     {
         $this->reply(static function (): never {
-            throw new RuntimeException('curl_getinfo() has been disabled for security reasons');
+            throw new Error('Call to undefined function curl_getinfo()');
         });
 
         $error = $this->batchError(self::recipients(2));
@@ -1252,6 +1275,10 @@ PHP;
         $result = $this->batch([['to' => 'a@example.com', 'template_data' => ['deep' => $data]]]);
 
         $this->assertSame(['queued'], self::statuses($result->getResults()));
+        $this->assertStringContainsString(
+            '"message_data":{"deep":' . json_encode($data) . '}',
+            (string) $this->requests[0]['body']
+        );
     }
 
     public function testARetryWaitOnAWorkingClockNeedsNoHrtime(): void

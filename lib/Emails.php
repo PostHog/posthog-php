@@ -1159,11 +1159,11 @@ final class Emails
         } catch (EmailError $error) {
             throw $run->failure($error);
         } catch (Throwable $throwable) {
-            throw $run->failure($run->lost(new EmailError(
+            throw $run->interrupted(new EmailError(
                 'client_error',
                 'The client failed while sending the batch: ' . $throwable->getMessage(),
                 previous: $throwable
-            )));
+            ));
         }
     }
 
