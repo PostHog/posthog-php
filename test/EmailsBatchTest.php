@@ -30,6 +30,8 @@ class EmailsBatchTest extends TestCase
     private const WARNING_LOGGED = '[PostHog][Emails] Email warning sandbox_sender: Sent from the test sender.';
     private const SEND_SINGLY = "send each email the batch didn't queue with emails()->send() and its recipient's "
         . 'idempotency_key.';
+    private const SEND_EACH_ON_ITS_OWN = 'send each recipient on its own with emails()->send() and its '
+        . 'idempotency_key until batch sends are available.';
 
     private bool $closed = false;
 
@@ -1135,24 +1137,77 @@ PHP;
         $this->assertSame(['failed', 'failed'], self::statuses($error->getResults()));
     }
 
-    public static function notFoundAnswers(): array
+    public static function notFoundAnswersWithoutAField(): array
     {
         return [
-            'empty body' => ['', 'PostHog found no batch send for this request, so no email was sent.'],
-            "PostHog's answer" => ['{"type":"invalid_request","code":"not_found","detail":"Not found."}', 'Not found.'],
+            'empty body' => [''],
+            'unknown template or batch sends off' => [
+                '{"type":"invalid_request","code":"not_found","detail":"Not found.","attr":null}',
+            ],
+            'no batch route' => ['{"type":"invalid_request","code":"not_found","detail":"Endpoint not found."}'],
+            'blank code' => ['{"code":"","detail":"Not found."}'],
+            'generic code' => ['{"code":"api_error"}'],
         ];
     }
 
-    #[DataProvider('notFoundAnswers')]
-    public function testA404SaysBatchSendsAreUnavailable(string $body, string $message): void
+    #[DataProvider('notFoundAnswersWithoutAField')]
+    public function testA404WithoutAFieldOnATemplateBatchSaysToCheckTheTemplateId(string $body): void
     {
         $this->reply([404, $body, []]);
 
+        $error = $this->batchError(self::recipients(2));
+
+        $this->assertSame(['not_found', 404], [$error->getErrorCode(), $error->getStatusCode()]);
+        $this->assertSame(
+            "PostHog found no template with this template_id, or batch sends aren't available for this project, "
+            . 'so it sent no email of this request.',
+            $error->getMessage()
+        );
+        $this->assertSame(
+            "Check template_id. If it's right, " . self::SEND_EACH_ON_ITS_OWN,
+            $error->getFix()
+        );
+        $this->assertNull($error->getWhy());
+        $this->assertSame(['failed', 'failed'], self::statuses($error->getResults()));
+    }
+
+    #[DataProvider('notFoundAnswersWithoutAField')]
+    public function testA404WithoutAFieldOnACodeBatchSaysToSendEachRecipientOnItsOwn(string $body): void
+    {
+        $this->reply([404, $body, []]);
+
+        try {
+            $this->emails()->batch([
+                'template_key' => 'digest',
+                'subject' => 'Hi',
+                'html' => '<p>Hi</p>',
+                'recipients' => self::recipients(1),
+            ]);
+            $this->fail('batch() did not throw EmailBatchError');
+        } catch (EmailBatchError $error) {
+        }
+
+        $this->assertSame(['not_found', 404], [$error->getErrorCode(), $error->getStatusCode()]);
+        $this->assertSame(
+            "Batch sends from code aren't available for this project, so PostHog sent no email of this request.",
+            $error->getMessage()
+        );
+        $this->assertSame(ucfirst(self::SEND_EACH_ON_ITS_OWN), $error->getFix());
+        $this->assertNull($error->getWhy());
+        $this->assertSame(['failed'], self::statuses($error->getResults()));
+    }
+
+    public function testA404ThatNamesAFieldKeepsPostHogsAnswer(): void
+    {
+        $this->reply([404, '{"type":"invalid_request","code":"not_found","detail":"Template is archived.",'
+            . '"attr":"template_id"}', []]);
+
         $error = $this->batchError(self::recipients(1));
 
-        $this->assertSame(['not_found', $message], [$error->getErrorCode(), $error->getMessage()]);
-        $this->assertStringContainsString('batch sends', strtolower((string) $error->getWhy()));
-        $this->assertSame('Check template_id, or ' . self::SEND_SINGLY, $error->getFix());
+        $this->assertSame(
+            ['not_found', 'Template is archived.', 'template_id'],
+            [$error->getErrorCode(), $error->getMessage(), $error->getField()]
+        );
     }
 
     public static function retriesAfterAnUnconfirmingAttempt(): array

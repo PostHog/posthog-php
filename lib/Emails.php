@@ -441,9 +441,11 @@ final class Emails
      * is larger than PostHog takes: send fewer recipients in each batch, or a smaller email. With status 400 it means
      * the content or template_data every recipient shares is too large, so fewer recipients won't help: make it
      * smaller, or send those emails one at a time with send().
-     * `batch_unavailable` (409) means the project can't send batches yet, and is never retried.
-     * `not_found` (404) means the template doesn't exist or batch sends are off for the project. For both, send each
-     * email the batch didn't queue with send() and its recipient's `idempotency_key`.
+     * `batch_unavailable` (409) means the project can't send batches yet, and is never retried. Send each email the
+     * batch didn't queue with send() and its recipient's `idempotency_key`.
+     * `not_found` (404) without a field means PostHog found no template with that `template_id`, or batch sends
+     * aren't available for the project. Check the `template_id`. If it's right, send each recipient on its own with
+     * send() and its `idempotency_key` until batch sends are available.
      *
      * ```php
      * $result = $client->emails()->batch([

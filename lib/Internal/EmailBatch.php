@@ -25,6 +25,8 @@ final class EmailBatch
     private const JSON_DEPTH = 514;
     private const SEND_SINGLY = "send each email the batch didn't queue with emails()->send() and its recipient's "
         . 'idempotency_key.';
+    private const SEND_EACH_ON_ITS_OWN = 'send each recipient on its own with emails()->send() and its '
+        . 'idempotency_key until batch sends are available.';
 
     /** @var array<int, BatchEmailResult> */
     private array $results = [];
@@ -37,7 +39,7 @@ final class EmailBatch
     /**
      * @param list<array{to: string, key: string}> $members
      */
-    private function __construct(private array $members, private string $body)
+    private function __construct(private array $members, private string $body, private bool $isTemplateForm)
     {
     }
 
@@ -83,7 +85,11 @@ final class EmailBatch
         }
         $request = [...$shared, 'recipients' => $wires];
         try {
-            return new self($members, json_encode($request, self::JSON_FLAGS, self::JSON_DEPTH));
+            return new self(
+                $members,
+                json_encode($request, self::JSON_FLAGS, self::JSON_DEPTH),
+                $isTemplateForm
+            );
         } catch (JsonException $exception) {
             throw new EmailError(
                 'invalid_form',
@@ -180,9 +186,9 @@ final class EmailBatch
             if ($status >= 500 || $inFlight) {
                 $this->mayHaveQueued = true;
                 $this->setAll('unconfirmed', self::unconfirmed(null));
-                throw $this->lost(self::requestError($fields, $status, $headers));
+                throw $this->lost($this->requestError($fields, $status, $headers));
             }
-            $error = self::requestError($fields, $status, $headers);
+            $error = $this->requestError($fields, $status, $headers);
             if ($this->mayHaveQueued) {
                 $this->setAll('unconfirmed', self::sendAgain($error, self::SEND_AGAIN));
             }
@@ -294,15 +300,21 @@ final class EmailBatch
      * @param array<string, mixed> $fields
      * @param list<string> $headers
      */
-    private static function requestError(array $fields, int $status, array $headers): EmailError
+    private function requestError(array $fields, int $status, array $headers): EmailError
     {
         $answered = array_filter($fields, static fn($value): bool => $value !== null);
-        if ($status === 404) {
-            $answered += [
+        if ($status === 404 && self::namesNoField($answered)) {
+            $answered = [
+                ...array_diff_key($answered, ['why' => true]),
                 'code' => 'not_found',
-                'detail' => 'PostHog found no batch send for this request, so no email was sent.',
-                'why' => "The template doesn't exist, or batch sends are off for this project or this PostHog version.",
-                'fix' => 'Check template_id, or ' . self::SEND_SINGLY,
+                'detail' => $this->isTemplateForm
+                    ? "PostHog found no template with this template_id, or batch sends aren't available for this "
+                        . 'project, so it sent no email of this request.'
+                    : "Batch sends from code aren't available for this project, so PostHog sent no email of this "
+                        . 'request.',
+                'fix' => $this->isTemplateForm
+                    ? "Check template_id. If it's right, " . self::SEND_EACH_ON_ITS_OWN
+                    : ucfirst(self::SEND_EACH_ON_ITS_OWN),
             ];
         }
         if ($status === 413) {
@@ -314,6 +326,17 @@ final class EmailBatch
         }
 
         return EmailReplies::error($answered, $status, $headers);
+    }
+
+    /**
+     * @param array<string, mixed> $answered
+     */
+    private static function namesNoField(array $answered): bool
+    {
+        $code = EmailReplies::text($answered['code'] ?? null);
+
+        return EmailReplies::text($answered['attr'] ?? null) === null
+            && in_array($code, [null, 'not_found', 'api_error'], true);
     }
 
     private static function slotError(mixed $error, ?string $messageId): EmailError
