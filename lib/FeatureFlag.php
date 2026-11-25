@@ -1664,15 +1664,18 @@ class FeatureFlag
                         if (is_null($groupName) || !FeatureFlag::hasUsableGroupKey($groups, $groupName)) {
                             continue;
                         }
-                        if (!array_key_exists($groupName, $groupProperties)) {
+                        $groupListing = $context["groupKnownAbsentKeys"][$groupName] ?? [];
+                        // A listing makes a missing property map an empty one: listed keys are absent, and
+                        // any other key stays inconclusive when a filter reads it.
+                        if (!array_key_exists($groupName, $groupProperties) && $groupListing === []) {
                             $inconclusiveReason = FeatureFlag::pickUnresolvedReason(
                                 $inconclusiveReason,
                                 UnresolvedFlagReason::MISSING_CONTEXT
                             );
                             continue;
                         }
-                        $effectiveProperties = $groupProperties[$groupName];
-                        $effectiveKnownAbsentKeys = $context["groupKnownAbsentKeys"][$groupName] ?? [];
+                        $effectiveProperties = $groupProperties[$groupName] ?? [];
+                        $effectiveKnownAbsentKeys = $groupListing;
                         $effectiveBucketing = $groups[$groupName];
                         $effectiveAggregation = $conditionAggregation;
                     }

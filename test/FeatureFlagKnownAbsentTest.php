@@ -846,6 +846,179 @@ class FeatureFlagKnownAbsentTest extends TestCase
         FeatureFlag::matchPropertyGroup($propertyGroup, [], [], knownAbsentKeys: ['tier' => true]);
     }
 
+    public static function listedGroupKeyWithoutPropertyMapProvider(): iterable
+    {
+        yield 'is_not_set' => ['is_not_set', null, true];
+        yield 'exact' => ['exact', 'pro', false];
+    }
+
+    private static function orgPlanFilter(string $operator, ?string $value): array
+    {
+        return [
+            'key' => 'plan', 'type' => 'group', 'group_type_index' => 0, 'operator' => $operator, 'value' => $value,
+        ];
+    }
+
+    private static function mixedOrgFlag(string $operator, ?string $value): array
+    {
+        return [
+            'id' => 1,
+            'key' => 'mixed-flag',
+            'active' => true,
+            'filters' => ['groups' => [[
+                'aggregation_group_type_index' => 0,
+                'properties' => [self::orgPlanFilter($operator, $value)],
+                'rollout_percentage' => 100,
+            ]]],
+        ];
+    }
+
+    #[DataProvider('listedGroupKeyWithoutPropertyMapProvider')]
+    public function testListedGroupKeyAppliesWithoutGroupPropertyMap(
+        string $operator,
+        ?string $value,
+        bool $expected
+    ): void {
+        $groupFlag = self::flag('org-flag', [self::orgPlanFilter($operator, $value)], 0);
+        $dependent = self::flag('dependent', [[
+            'key' => 'org-flag',
+            'type' => 'flag',
+            'value' => true,
+            'operator' => 'flag_evaluates_to',
+            'dependency_chain' => ['org-flag'],
+        ]]);
+        $this->makeClient(
+            [$groupFlag, self::mixedOrgFlag($operator, $value), $dependent],
+            groupTypeMapping: ['0' => 'organization']
+        );
+
+        $snapshot = $this->client->evaluateFlags(
+            'user-1',
+            groups: ['organization' => 'org-1'],
+            groupPropertyKeysKnownAbsent: ['organization' => ['plan']]
+        );
+
+        $this->assertSame($expected, $snapshot->getFlag('org-flag'));
+        $this->assertSame($expected, $snapshot->getFlag('mixed-flag'));
+        $this->assertSame($expected, $snapshot->getFlag('dependent'));
+        $this->assertSame([], $this->flagsRequestBodies());
+    }
+
+    #[DataProvider('listedGroupKeyWithoutPropertyMapProvider')]
+    public function testDirectMatchAppliesListedGroupKeyWithoutGroupPropertyMap(
+        string $operator,
+        ?string $value,
+        bool $expected
+    ): void {
+        $groupFlag = self::flag('org-flag', [self::orgPlanFilter($operator, $value)], 0);
+        $mixedFlag = self::mixedOrgFlag($operator, $value);
+        $dependsOnOrgFlag = [
+            'key' => 'org-flag',
+            'type' => 'flag',
+            'value' => true,
+            'operator' => 'flag_evaluates_to',
+            'dependency_chain' => ['org-flag'],
+        ];
+        $groupDependent = self::flag('org-dependent', [$dependsOnOrgFlag], 0);
+        $flagsByKey = ['org-flag' => $groupFlag, 'mixed-flag' => $mixedFlag, 'org-dependent' => $groupDependent];
+        $groups = ['organization' => 'org-1'];
+        $mapping = ['0' => 'organization'];
+        $listing = ['organization' => ['plan' => true]];
+
+        $this->assertSame($expected, FeatureFlag::matchFeatureFlagProperties(
+            $mixedFlag,
+            'user-1',
+            [],
+            [],
+            $flagsByKey,
+            [],
+            $groups,
+            [],
+            $mapping,
+            1,
+            [],
+            $listing
+        ));
+        $this->assertSame($expected, FeatureFlag::matchFeatureFlagProperties(
+            $groupDependent,
+            'org-1',
+            [],
+            [],
+            $flagsByKey,
+            [],
+            $groups,
+            [],
+            $mapping,
+            1,
+            ['plan' => true],
+            $listing
+        ));
+    }
+
+    public function testUnlistedGroupKeyWithoutGroupPropertyMapStaysInconclusive(): void
+    {
+        $groupFlag = self::flag('org-flag', [self::orgPlanFilter('is_not_set', null)], 0);
+        $this->makeClient(
+            [$groupFlag, self::mixedOrgFlag('is_not_set', null)],
+            groupTypeMapping: ['0' => 'organization']
+        );
+
+        $local = $this->client->evaluateFlags(
+            'user-1',
+            groups: ['organization' => 'org-1'],
+            onlyEvaluateLocally: true,
+            groupPropertyKeysKnownAbsent: ['organization' => ['region']]
+        );
+        $this->assertSame(
+            [
+                'org-flag' => UnresolvedFlagReason::MISSING_CONTEXT,
+                'mixed-flag' => UnresolvedFlagReason::MISSING_CONTEXT,
+            ],
+            $local->getUnresolvedFlags()
+        );
+
+        $snapshot = $this->client->evaluateFlags('user-1', groups: ['organization' => 'org-1']);
+        $this->assertSame(self::REMOTE_VALUE, $snapshot->getFlag('org-flag'));
+        $this->assertSame(self::REMOTE_VALUE, $snapshot->getFlag('mixed-flag'));
+        $this->assertCount(1, $this->flagsRequestBodies());
+
+        try {
+            FeatureFlag::matchFeatureFlagProperties(
+                self::mixedOrgFlag('is_not_set', null),
+                'user-1',
+                [],
+                [],
+                null,
+                null,
+                ['organization' => 'org-1'],
+                [],
+                ['0' => 'organization']
+            );
+            $this->fail('Expected InconclusiveMatchException');
+        } catch (InconclusiveMatchException $e) {
+            $this->assertSame(UnresolvedFlagReason::MISSING_CONTEXT, $e->getReason());
+        }
+    }
+
+    public function testListedGroupKeyWithoutUsableGroupKeyResolvesFalse(): void
+    {
+        $groupFlag = self::flag('org-flag', [self::orgPlanFilter('is_not_set', null)], 0);
+        $this->makeClient(
+            [$groupFlag, self::mixedOrgFlag('is_not_set', null)],
+            groupTypeMapping: ['0' => 'organization']
+        );
+
+        $snapshot = $this->client->evaluateFlags(
+            'user-1',
+            groups: ['organization' => ''],
+            groupPropertyKeysKnownAbsent: ['organization' => ['plan']]
+        );
+
+        $this->assertFalse($snapshot->getFlag('org-flag'));
+        $this->assertFalse($snapshot->getFlag('mixed-flag'));
+        $this->assertSame([], $this->flagsRequestBodies());
+    }
+
     public function testDirectEvaluateFlagDependencyUsesKeysForPersonDependency(): void
     {
         $dependency = self::flag('profile-incomplete', [self::personFilter('is_not_set', null)]);
