@@ -33,6 +33,8 @@ class FeatureFlag
      */
     public static function matchProperty($property, $propertyValues, $propertyMatchingVersion = 1)
     {
+        FeatureFlag::assertPropertyFilterTypeSupported($property);
+
         try {
             return FeatureFlag::matchPropertyValue($property, $propertyValues, $propertyMatchingVersion);
         } catch (InconclusiveMatchException $e) {
@@ -42,6 +44,34 @@ class FeatureFlag
             }
             throw $e;
         }
+    }
+
+    /**
+     * Throw an unsupported_definition error for a filter type that is not matched against the
+     * person or group properties the caller passes. Cohort and flag filters have their own
+     * matching. Any other type, such as `person_metadata` (a value the flags service reads from the
+     * persons table, not from person properties), cannot be evaluated locally: matching it against
+     * a caller property with the same key could disagree with the flags service. A missing, null,
+     * or empty type is a person filter.
+     *
+     * @param array<string, mixed> $property Feature flag property filter.
+     * @throws InconclusiveMatchException When the filter type cannot be evaluated locally.
+     */
+    private static function assertPropertyFilterTypeSupported($property): void
+    {
+        $type = $property["type"] ?? null;
+        if (in_array($type, [null, "", "person", "group"], true)) {
+            return;
+        }
+
+        throw new InconclusiveMatchException(
+            sprintf(
+                "Can't evaluate a '%s' filter on '%s' locally",
+                FeatureFlag::valueToString($type),
+                FeatureFlag::valueToString($property["key"] ?? "")
+            ),
+            reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+        );
     }
 
     /**
@@ -2037,6 +2067,7 @@ class FeatureFlag
         }
 
         try {
+            FeatureFlag::assertPropertyFilterTypeSupported($property);
             FeatureFlag::assertFilterSupported($property);
             return false;
         } catch (InconclusiveMatchException $e) {
