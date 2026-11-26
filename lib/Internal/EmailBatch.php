@@ -188,7 +188,9 @@ final class EmailBatch
                 || ($status === 409 && EmailReplies::text($fields['code'] ?? null) !== self::BATCH_UNAVAILABLE);
             $error = $this->requestError($fields, $status, $headers);
             if ($mayHaveQueuedThisOne) {
-                throw $this->lost($error);
+                $lostBefore = $this->mayHaveQueued;
+                $this->lost($error);
+                throw $lostBefore && $error->getFix() === null ? self::withFix($error, self::RESEND_EACH) : $error;
             }
             if ($this->mayHaveQueued) {
                 $this->setAll('unconfirmed', self::unconfirmedBy($error, self::SEND_AGAIN));
@@ -383,6 +385,22 @@ final class EmailBatch
             'delivery_unavailable',
             "PostHog didn't confirm this email, so it may still go out. " . self::SEND_AGAIN,
             messageId: $messageId
+        );
+    }
+
+    private static function withFix(EmailError $error, string $fix): EmailError
+    {
+        return new EmailError(
+            $error->getErrorCode(),
+            $error->getMessage(),
+            $error->getStatusCode(),
+            $error->getWhy(),
+            $fix,
+            $error->getDocsUrl(),
+            $error->getField(),
+            $error->getRetryAfterMs(),
+            $error,
+            $error->getMessageId()
         );
     }
 

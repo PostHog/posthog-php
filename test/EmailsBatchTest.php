@@ -1330,10 +1330,28 @@ PHP;
         $error = $this->batchError(self::recipients(1), ['max_retries' => 1]);
 
         $this->assertSame(
-            ['delivery_unavailable', 'Email delivery is down for maintenance.', 'A planned upgrade.'],
-            [$error->getErrorCode(), $error->getMessage(), $error->getWhy()]
+            [
+                'delivery_unavailable',
+                'Email delivery is down for maintenance.',
+                'A planned upgrade.',
+                self::RESEND_EACH,
+            ],
+            [$error->getErrorCode(), $error->getMessage(), $error->getWhy(), $error->getFix()]
         );
         $this->assertSame(['unconfirmed'], self::statuses($error->getResults()));
+    }
+
+    public function testAnInFlightAnswerWithoutAFixAfterALostAnswerSaysToResendWithTheSameKeys(): void
+    {
+        $this->reply(self::networkError(), self::wholeCall(409, 'idempotency_key_in_flight'));
+
+        $error = $this->batchError(self::recipients(2), ['max_retries' => 1]);
+
+        $this->assertSame(['Nope.', self::RESEND_EACH], [$error->getMessage(), $error->getFix()]);
+        $this->assertSame(
+            [self::SEND_AGAIN, self::SEND_AGAIN],
+            array_map(static fn($r): ?string => $r->getError()->getFix(), $error->getResults())
+        );
     }
 
     public function testA404ThatNamesAFieldKeepsPostHogsAnswer(): void
