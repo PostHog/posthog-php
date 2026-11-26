@@ -1,5 +1,12 @@
 # posthog-laravel
 
+## 0.5.4
+
+### Patch Changes
+
+- Updated dependencies:
+  - posthog-php@4.27.2
+
 ## 0.5.3
 
 ### Patch Changes

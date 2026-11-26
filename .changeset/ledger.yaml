@@ -202,3 +202,7 @@ posthog-php@4.27.1:
   dir: ""
   intents:
     - sour-roses-cheer
+posthog-php@4.27.2:
+  dir: ""
+  intents:
+    - silent-zebras-smell
