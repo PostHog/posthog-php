@@ -17,7 +17,6 @@ class EmailError extends RuntimeException
     private const REFUSED_BEFORE_ANY_REQUEST_CODES = [
         'too_many_attachments',
         'message_too_large',
-        'scheduling_requires_cloud',
     ];
 
     private string $errorName;

@@ -1832,7 +1832,7 @@ class EmailsTest extends TestCase
         ], $this->emails(['host' => $host, 'appHost' => $appHost]));
 
         $this->assertSame('scheduling_requires_cloud', $error->getErrorCode());
-        $this->assertSame('validation_error', $error->getErrorName());
+        $this->assertSame('application_error', $error->getErrorName());
         $this->assertSame('scheduled_at', $error->getField());
         $this->assertStringContainsString("sends email to $named,", $error->getMessage());
         $this->assertStringNotContainsString('proxy-password', $error->getMessage());
