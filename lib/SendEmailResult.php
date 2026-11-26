@@ -2,8 +2,10 @@
 
 namespace PostHog;
 
+use DateTimeImmutable;
+
 /**
- * The queued email. A result means PostHog queued the email, not that it was delivered.
+ * The accepted email. A result means PostHog queued or scheduled the email, not that it was delivered.
  */
 class SendEmailResult
 {
@@ -45,5 +47,24 @@ class SendEmailResult
     public function getWarnings(): array
     {
         return $this->warnings;
+    }
+
+    /**
+     * `scheduled` when PostHog confirmed the email's `scheduled_at`, even if a replay answers after the email
+     * went out. `queued` when it goes out now: a send without `scheduled_at`, or one whose `scheduled_at` was at
+     * most a minute ahead of the client's clock when the send's first attempt went out, even when a retry or a
+     * replay answers.
+     */
+    public function getStatus(): string
+    {
+        return 'queued';
+    }
+
+    /**
+     * When a scheduled email goes out, in UTC, to the millisecond. Null for an email that goes out now.
+     */
+    public function getScheduledAt(): ?DateTimeImmutable
+    {
+        return null;
     }
 }
