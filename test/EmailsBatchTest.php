@@ -32,6 +32,10 @@ class EmailsBatchTest extends TestCase
         . 'idempotency_key.';
     private const SEND_AGAIN = 'Send it again with the same idempotency_key within 24 hours of its first use, so it '
         . 'goes out once.';
+    private const RESEND_EACH = 'Send each recipient again with the same idempotency_key within 24 hours of its '
+        . 'first use, so each email goes out once.';
+    private const NOT_SAID_OF_AN_UNCONFIRMED_EMAIL = '/sent no|didn.t send|not sent|not queued|didn.t queue|failed|'
+        . 'split|smaller|new key/i';
     private const SEND_EACH_ON_ITS_OWN = 'send each recipient on its own with emails()->send() and its '
         . 'idempotency_key until batch sends are available.';
 
@@ -139,6 +143,11 @@ class EmailsBatchTest extends TestCase
 
             return $answer($url, $body);
         };
+    }
+
+    private static function unconfirmedMessage(string $code): string
+    {
+        return "PostHog didn't confirm this email: $code, so it may still go out.";
     }
 
     private static function networkError(): EmailError
@@ -755,8 +764,9 @@ PHP;
             [
                 'recipient_suppressed',
                 'Send it again with the same idempotency_key within 24 hours of its first use, so it goes out once.',
+                self::unconfirmedMessage('recipient_suppressed'),
             ],
-            [$second->getError()->getErrorCode(), $second->getError()->getFix()]
+            [$second->getError()->getErrorCode(), $second->getError()->getFix(), $second->getError()->getMessage()]
         );
     }
 
@@ -795,10 +805,11 @@ PHP;
         ]);
         $sendAgain = 'Send it again with the same idempotency_key within 24 hours of its first use, '
             . 'so it goes out once.';
-        $this->assertSame([...$error, $sendAgain], [
+        $this->assertSame([...$error, $sendAgain, self::unconfirmedMessage($error[0])], [
             $result->getError()->getErrorCode(),
             $result->getError()->getStatusCode(),
             $result->getError()->getFix(),
+            $result->getError()->getMessage(),
         ]);
     }
 
@@ -806,6 +817,18 @@ PHP;
     {
         return [
             'not confirmed by the pipeline' => [self::notConfirmed(), ['delivery_unavailable', 503]],
+            'not confirmed, in words that say it was not queued' => [
+                ['message_id' => 'm0', 'error' => [
+                    'code' => 'delivery_unavailable',
+                    'detail' => 'The email was not queued and not sent.',
+                    'status' => 503,
+                ]],
+                ['delivery_unavailable', 503],
+            ],
+            'not confirmed, without words' => [
+                ['message_id' => 'm0', 'error' => ['code' => 'idempotency_key_in_flight', 'status' => 409]],
+                ['idempotency_key_in_flight', 409],
+            ],
             'an unreadable result' => [['message_id' => 'm0', 'status' => 'pending'], ['api_error', null]],
         ];
     }
@@ -841,7 +864,7 @@ PHP;
         $this->assertSame(
             [
                 'idempotency_key_in_flight',
-                'Nope.',
+                self::unconfirmedMessage('idempotency_key_in_flight'),
                 'Send it again with the same idempotency_key within 24 hours of its first use, so it goes out once.',
             ],
             [$recipientError->getErrorCode(), $recipientError->getMessage(), $recipientError->getFix()]
@@ -1200,24 +1223,74 @@ PHP;
         $this->assertSame(['failed'], self::statuses($error->getResults()));
     }
 
-    public function testA404OnARetryAfterALostAnswerDoesNotSayNothingWasSent(): void
+    public static function refusalsOfARetryAfterALostAnswer(): array
     {
-        $this->reply(
-            self::networkError(),
-            [404, '{"type":"invalid_request","code":"not_found","detail":"Not found."}', []]
-        );
+        return [
+            'a 400' => [[400, json_encode([
+                'type' => 'validation_error',
+                'code' => 'invalid_template_data',
+                'detail' => 'template_data is invalid, so no email was sent.',
+                'why' => 'Nothing of this request was sent.',
+            ]), []], 'invalid_template_data'],
+            'a 404 without a field' => [
+                [404, '{"type":"invalid_request","code":"not_found","detail":"Not found."}', []],
+                'not_found',
+            ],
+            'batch sends off' => [[409, json_encode([
+                'type' => 'invalid_request',
+                'code' => 'batch_unavailable',
+                'detail' => "Batch sends aren't on for this project, so PostHog sent no email.",
+            ]), []], 'batch_unavailable'],
+            'a batch too large' => [[413, json_encode([
+                'type' => 'invalid_request',
+                'code' => 'content_too_large',
+                'detail' => "The batch is larger than PostHog can send at once, so PostHog didn't send it.",
+                'fix' => 'Split the recipients into smaller batches.',
+            ]), []], 'content_too_large'],
+            'a 413 without a body' => [[413, '', []], 'api_error'],
+        ];
+    }
+
+    #[DataProvider('refusalsOfARetryAfterALostAnswer')]
+    public function testARefusedRetryAfterALostAnswerSaysSomeEmailsMayHaveGoneOutAndToResendWithTheSameKeys(
+        array $refusal,
+        string $code
+    ): void {
+        $this->reply(self::networkError(), $refusal);
 
         $error = $this->batchError(self::recipients(2), ['max_retries' => 1]);
 
-        $this->assertSame(['unconfirmed', 'unconfirmed'], self::statuses($error->getResults()));
-        foreach ([$error, ...array_map(static fn($r): EmailError => $r->getError(), $error->getResults())] as $read) {
-            $this->assertStringNotContainsString('sent no email', $read->getMessage());
-            $this->assertStringContainsString('may have queued', $read->getMessage());
-        }
+        $this->assertCount(2, $this->requests);
         $this->assertSame(
-            [self::SEND_AGAIN, self::SEND_AGAIN],
-            array_map(static fn($r): ?string => $r->getError()->getFix(), $error->getResults())
+            [
+                $code,
+                $refusal[0],
+                "PostHog refused a retry of this batch with $code. An earlier attempt got no answer, so some of its "
+                    . "emails may have gone out: read each recipient's result.",
+                self::RESEND_EACH,
+                null,
+            ],
+            [$error->getErrorCode(), $error->getStatusCode(), $error->getMessage(), $error->getFix(), $error->getWhy()]
         );
+        $this->assertSame(
+            [
+                ['unconfirmed', 'key-0', $code, self::unconfirmedMessage($code), self::SEND_AGAIN],
+                ['unconfirmed', 'key-1', $code, self::unconfirmedMessage($code), self::SEND_AGAIN],
+            ],
+            array_map(static fn($r): array => [
+                $r->getStatus(),
+                $r->getIdempotencyKey(),
+                $r->getError()->getErrorCode(),
+                $r->getError()->getMessage(),
+                $r->getError()->getFix(),
+            ], $error->getResults())
+        );
+        foreach ([$error, ...array_map(static fn($r): EmailError => $r->getError(), $error->getResults())] as $read) {
+            $this->assertDoesNotMatchRegularExpression(
+                self::NOT_SAID_OF_AN_UNCONFIRMED_EMAIL,
+                $read->getMessage() . ' ' . $read->getFix() . ' ' . $read->getWhy()
+            );
+        }
     }
 
     public function testA404ThatNamesAFieldKeepsPostHogsAnswer(): void
@@ -1384,25 +1457,38 @@ PHP;
         $this->assertSame([0, '["queued",2]'], self::runWithPhpOptions($script, '-d disable_functions=hrtime'));
     }
 
-    public static function unreadableInFlightAnswers(): array
+    public static function conflictsOtherThanBatchUnavailable(): array
     {
         return [
             'an empty body' => [''],
             'a body that is not JSON' => ['<html>Conflict</html>'],
+            'a generic code' => ['{"type":"server_error","code":"api_error","detail":"Conflict."}'],
+            'a proxy conflict' => ['{"code":"conflict","detail":"The email failed: conflict."}'],
         ];
     }
 
-    #[DataProvider('unreadableInFlightAnswers')]
-    public function testA409WithAnUnreadableBodyLeavesItsRecipientsUnconfirmedWithTheirKeys(string $body): void
+    #[DataProvider('conflictsOtherThanBatchUnavailable')]
+    public function testA409OtherThanBatchUnavailableLeavesItsRecipientsUnconfirmedWithTheirKeys(string $body): void
     {
         $this->reply([409, $body, []]);
 
-        $error = $this->batchError(self::recipients(2), ['max_retries' => 0]);
+        $error = $this->batchError(self::recipients(2), ['max_retries' => 2]);
 
+        $this->assertCount(1, $this->requests);
         $this->assertSame(
-            [['unconfirmed', 'key-0'], ['unconfirmed', 'key-1']],
-            array_map(static fn($r): array => [$r->getStatus(), $r->getIdempotencyKey()], $error->getResults())
+            [['unconfirmed', 'key-0', self::SEND_AGAIN], ['unconfirmed', 'key-1', self::SEND_AGAIN]],
+            array_map(
+                static fn($r): array => [$r->getStatus(), $r->getIdempotencyKey(), $r->getError()->getFix()],
+                $error->getResults()
+            )
         );
+        foreach ($error->getResults() as $result) {
+            $this->assertStringContainsString("PostHog didn't confirm this email", $result->getError()->getMessage());
+            $this->assertDoesNotMatchRegularExpression(
+                self::NOT_SAID_OF_AN_UNCONFIRMED_EMAIL,
+                $result->getError()->getMessage()
+            );
+        }
     }
 
     public static function setupErrors(): array

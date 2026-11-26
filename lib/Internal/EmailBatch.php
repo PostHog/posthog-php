@@ -20,7 +20,10 @@ final class EmailBatch
     private const UNCONFIRMED_CODES = ['idempotency_key_in_flight', 'delivery_unavailable', 'api_error'];
     private const SEND_AGAIN =
         'Send it again with the same idempotency_key within 24 hours of its first use, so it goes out once.';
+    private const RESEND_EACH = 'Send each recipient again with the same idempotency_key within 24 hours of its '
+        . 'first use, so each email goes out once.';
     private const IN_FLIGHT = 'idempotency_key_in_flight';
+    private const BATCH_UNAVAILABLE = 'batch_unavailable';
     private const JSON_FLAGS = JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
     private const JSON_DEPTH = 514;
     private const SEND_SINGLY = "send each email the batch didn't queue with emails()->send() and its recipient's "
@@ -167,8 +170,8 @@ final class EmailBatch
     public function lost(EmailError $error): EmailError
     {
         $this->mayHaveQueued = true;
-        $inFlight = $error->getStatusCode() === 409 && $error->getErrorCode() === self::IN_FLIGHT;
-        $cause = $inFlight ? self::sendAgain($error, $error->getFix() ?? self::SEND_AGAIN) : self::unconfirmed(null);
+        $fix = $error->getErrorCode() === self::IN_FLIGHT ? $error->getFix() ?? self::SEND_AGAIN : self::SEND_AGAIN;
+        $cause = $error->getStatusCode() === 409 ? self::unconfirmedBy($error, $fix) : self::unconfirmed(null);
         $this->setAll('unconfirmed', $cause);
 
         return $error;
@@ -181,16 +184,14 @@ final class EmailBatch
     {
         $fields = EmailReplies::fields($body);
         if ($status < 200 || $status >= 300) {
-            $code = EmailReplies::text($fields['code'] ?? null);
-            $inFlight = $status === 409 && ($code === null || $code === self::IN_FLIGHT);
-            if ($status >= 500 || $inFlight) {
-                $this->mayHaveQueued = true;
-                $this->setAll('unconfirmed', self::unconfirmed(null));
-                throw $this->lost($this->requestError($fields, $status, $headers));
-            }
+            $mayHaveQueuedThisOne = $status >= 500
+                || ($status === 409 && EmailReplies::text($fields['code'] ?? null) !== self::BATCH_UNAVAILABLE);
             $error = $this->requestError($fields, $status, $headers);
+            if ($mayHaveQueuedThisOne) {
+                throw $this->lost($error);
+            }
             if ($this->mayHaveQueued) {
-                $this->setAll('unconfirmed', self::sendAgain($error, self::SEND_AGAIN));
+                $this->setAll('unconfirmed', self::unconfirmedBy($error, self::SEND_AGAIN));
             }
             throw $error;
         }
@@ -228,7 +229,7 @@ final class EmailBatch
         }
         $answer = self::slotError($error, $messageId);
         if ($this->mayHaveQueued || in_array($answer->getErrorCode(), self::UNCONFIRMED_CODES, true)) {
-            $this->set($index, 'unconfirmed', $messageId, error: self::sendAgain($answer, self::SEND_AGAIN));
+            $this->set($index, 'unconfirmed', $messageId, error: self::unconfirmedBy($answer, self::SEND_AGAIN));
             return;
         }
         $this->set($index, 'failed', $messageId, error: $answer);
@@ -311,9 +312,7 @@ final class EmailBatch
             $answered = [
                 ...array_diff_key($answered, ['why' => true]),
                 'code' => 'not_found',
-                'detail' => $this->mayHaveQueued
-                    ? "$cause refused this retry. An earlier attempt may have queued the email."
-                    : "$cause sent no email of this request.",
+                'detail' => "$cause sent no email of this request.",
                 'fix' => $this->isTemplateForm
                     ? "Check template_id. If it's right, " . self::SEND_EACH_ON_ITS_OWN
                     : 'If the project can send email from code, ' . self::SEND_EACH_ON_ITS_OWN,
@@ -323,8 +322,17 @@ final class EmailBatch
             $answered['fix'] = EmailReplies::text($answered['fix'] ?? null)
                 ?? 'Make the email or its template_data smaller, or send fewer recipients in each batch.';
         }
-        if (($answered['code'] ?? null) === 'batch_unavailable') {
+        if (($answered['code'] ?? null) === self::BATCH_UNAVAILABLE) {
             $answered['fix'] = 'Until batch sends are on for the project, ' . self::SEND_SINGLY;
+        }
+        if ($this->mayHaveQueued) {
+            $code = EmailReplies::text($answered['code'] ?? null) ?? 'api_error';
+            $answered = [
+                ...array_diff_key($answered, ['why' => true]),
+                'detail' => "PostHog refused a retry of this batch with $code. An earlier attempt got no answer, so "
+                    . "some of its emails may have gone out: read each recipient's result.",
+                'fix' => self::RESEND_EACH,
+            ];
         }
 
         return EmailReplies::error($answered, $status, $headers);
@@ -370,19 +378,20 @@ final class EmailBatch
         );
     }
 
-    private static function sendAgain(EmailError $error, string $fix): EmailError
+    private static function unconfirmedBy(EmailError $answer, string $fix): EmailError
     {
+        $code = $answer->getErrorCode();
+
         return new EmailError(
-            $error->getErrorCode(),
-            $error->getMessage(),
-            $error->getStatusCode(),
-            $error->getWhy(),
-            $fix,
-            $error->getDocsUrl(),
-            $error->getField(),
-            $error->getRetryAfterMs(),
-            $error,
-            $error->getMessageId()
+            $code,
+            "PostHog didn't confirm this email: $code, so it may still go out.",
+            $answer->getStatusCode(),
+            fix: $fix,
+            docsUrl: $answer->getDocsUrl(),
+            field: $answer->getField(),
+            retryAfterMs: $answer->getRetryAfterMs(),
+            previous: $answer,
+            messageId: $answer->getMessageId()
         );
     }
 }

@@ -431,9 +431,9 @@ final class Emails
      *
      * - `queued`: PostHog accepted the email.
      * - `failed`: PostHog refused it, and getError() says why, such as a suppressed address.
-     * - `unconfirmed`: the client can't tell whether PostHog accepted it, such as after a lost answer, or when
-     *   another request still holds its key. Send it again with the same key within 24 hours of its first use, so
-     *   it goes out once.
+     * - `unconfirmed`: the client can't tell whether PostHog accepted it, such as after a lost answer, or a 409
+     *   other than `batch_unavailable`, as when another request still holds its key. Send it again with the same
+     *   key within 24 hours of its first use, so it goes out once.
      *
      * When PostHog refuses the batch as a whole, such as a rate limit past its retries, batch() throws
      * EmailBatchError, whose getResults() holds every recipient: `failed`, or `unconfirmed` when an attempt may have
@@ -446,6 +446,9 @@ final class Emails
      * `not_found` (404) without a field means PostHog found no template with that `template_id`, or batch sends
      * aren't available for the project. Check the `template_id`. If it's right, send each recipient on its own with
      * send() and its `idempotency_key` until batch sends are available.
+     * When an earlier attempt got no answer, a refusal of the retry doesn't prove nothing went out: the error says
+     * some emails may have gone out, every recipient stays `unconfirmed`, and getFix() says to send each one again
+     * with the same `idempotency_key`.
      *
      * ```php
      * $result = $client->emails()->batch([
