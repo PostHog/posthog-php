@@ -2,6 +2,7 @@
 
 namespace PostHog;
 
+use PostHog\Internal\KnownAbsentKeys;
 use Symfony\Component\Clock\Clock;
 
 /**
@@ -22,17 +23,71 @@ class FeatureFlag
         UnresolvedFlagReason::MISSING_CONTEXT,
     ];
 
+    // Limits on flag dependency evaluation for one top-level flag, so a deep or branching dependency graph
+    // becomes inconclusive instead of exhausting the stack or taking exponential time.
+    private const MAX_DEPENDENCY_DEPTH = 100;
+    private const MAX_DEPENDENCY_EVALUATIONS = 1000;
+
+    // Operators that match a property key the caller listed as known absent; every other operator doesn't.
+    private const KNOWN_ABSENT_MATCHING_OPERATORS = [
+        "is_not_set", "is_not", "not_icontains", "not_starts_with", "not_ends_with", "not_regex",
+    ];
+
+    // Operators that matchPropertyValue() implements; every other operator needs server evaluation.
+    private const LOCALLY_SUPPORTED_OPERATORS = [
+        "exact", "is_not", "is_set", "is_not_set", "icontains", "not_icontains",
+        "starts_with", "not_starts_with", "ends_with", "not_ends_with", "regex", "not_regex",
+        "gt", "gte", "lt", "lte", "is_date_before", "is_date_after",
+        "semver_eq", "semver_neq", "semver_gt", "semver_gte", "semver_lt", "semver_lte",
+        "semver_tilde", "semver_caret", "semver_wildcard",
+    ];
+
     /**
      * Match a single property filter against provided property values.
      *
      * @param array<string, mixed> $property Feature flag property filter.
      * @param array<string, mixed> $propertyValues Available property values keyed by property name.
      * @param mixed $propertyMatchingVersion Definition snapshot selector; only 2 enables explicit matching.
+     * @param array<string, true> $knownAbsentKeys Property keys known to be absent, as array keys. A listed
+     *     key is absent even when $propertyValues holds a value for it. Applies only to `person` and `group`
+     *     filters, never to `person_metadata` or other filter types, and a key starting with
+     *     `__posthog_person_metadata__` never applies to a `person` filter.
      * @return bool Whether the property matches.
      * @throws InconclusiveMatchException When the property cannot be evaluated locally.
      */
-    public static function matchProperty($property, $propertyValues, $propertyMatchingVersion = 1)
-    {
+    public static function matchProperty(
+        $property,
+        $propertyValues,
+        $propertyMatchingVersion = 1,
+        $knownAbsentKeys = []
+    ) {
+        $key = $property["key"] ?? null;
+        $filterType = $property["type"] ?? null;
+        if (
+            in_array($filterType, ["person", "group"], true) &&
+            (is_string($key) || is_int($key)) &&
+            isset($knownAbsentKeys[$key]) &&
+            ($filterType === "group" || KnownAbsentKeys::appliesToPersonFilter($key))
+        ) {
+            // An operator the SDK doesn't implement stays inconclusive even for a known-absent key. Like the
+            // flags service, resolve without parsing, compiling or validating a present condition value.
+            $operator = $property["operator"] ?? "exact";
+            if (!in_array($operator, self::LOCALLY_SUPPORTED_OPERATORS, true)) {
+                throw new InconclusiveMatchException(
+                    "Unknown operator: " . $operator,
+                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                );
+            }
+            // A value-requiring operator with an omitted or null condition value also stays inconclusive.
+            if (!in_array($operator, ["is_set", "is_not_set"], true) && ($property["value"] ?? null) === null) {
+                throw new InconclusiveMatchException(
+                    "Can't match a known-absent property without a condition value",
+                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                );
+            }
+            return in_array($operator, self::KNOWN_ABSENT_MATCHING_OPERATORS, true);
+        }
+
         try {
             return FeatureFlag::matchPropertyValue($property, $propertyValues, $propertyMatchingVersion);
         } catch (InconclusiveMatchException $e) {
@@ -333,7 +388,8 @@ class FeatureFlag
         $flagsByKey = null,
         $evaluationCache = null,
         $distinctId = null,
-        $propertyMatchingVersion = 1
+        $propertyMatchingVersion = 1,
+        $knownAbsentKeys = []
     ) {
         return FeatureFlag::matchCohortForIdentity(
             $property,
@@ -341,22 +397,27 @@ class FeatureFlag
             $cohortProperties,
             $flagsByKey,
             $evaluationCache,
-            $distinctId,
             $propertyMatchingVersion,
-            false
+            null,
+            $knownAbsentKeys,
+            FeatureFlag::personEvaluationContext($distinctId, $propertyValues, $knownAbsentKeys)
         );
     }
 
-    /** @param int|string|null|false $identityAggregation See evaluateFlagDependencyForIdentity(). */
+    /**
+     * @param int|string|null $identityAggregation See matchFeatureFlagPropertiesForIdentity().
+     * @param array<string, mixed> $context See computeFlagInContext().
+     */
     private static function matchCohortForIdentity(
         $property,
         $propertyValues,
         $cohortProperties,
         $flagsByKey,
         &$evaluationCache,
-        $distinctId,
         $propertyMatchingVersion,
-        $identityAggregation
+        $identityAggregation,
+        array $knownAbsentKeys,
+        array $context
     ) {
         $cohortId = strval($property["value"]);
         if (!array_key_exists($cohortId, $cohortProperties)) {
@@ -373,9 +434,10 @@ class FeatureFlag
             $cohortProperties,
             $flagsByKey,
             $evaluationCache,
-            $distinctId,
             $propertyMatchingVersion,
-            $identityAggregation
+            $identityAggregation,
+            $knownAbsentKeys,
+            $context
         );
     }
 
@@ -400,7 +462,8 @@ class FeatureFlag
         $flagsByKey = null,
         $evaluationCache = null,
         $distinctId = null,
-        $propertyMatchingVersion = 1
+        $propertyMatchingVersion = 1,
+        $knownAbsentKeys = []
     ) {
         return FeatureFlag::matchPropertyGroupForIdentity(
             $propertyGroup,
@@ -408,22 +471,27 @@ class FeatureFlag
             $cohortProperties,
             $flagsByKey,
             $evaluationCache,
-            $distinctId,
             $propertyMatchingVersion,
-            false
+            null,
+            $knownAbsentKeys,
+            FeatureFlag::personEvaluationContext($distinctId, $propertyValues, $knownAbsentKeys)
         );
     }
 
-    /** @param int|string|null|false $identityAggregation See evaluateFlagDependencyForIdentity(). */
+    /**
+     * @param int|string|null $identityAggregation See matchFeatureFlagPropertiesForIdentity().
+     * @param array<string, mixed> $context See computeFlagInContext().
+     */
     private static function matchPropertyGroupForIdentity(
         $propertyGroup,
         $propertyValues,
         $cohortProperties,
         $flagsByKey,
         &$evaluationCache,
-        $distinctId,
         $propertyMatchingVersion,
-        $identityAggregation
+        $identityAggregation,
+        array $knownAbsentKeys,
+        array $context
     ) {
         if (!$propertyGroup) {
             return true;
@@ -449,9 +517,10 @@ class FeatureFlag
                         $cohortProperties,
                         $flagsByKey,
                         $evaluationCache,
-                        $distinctId,
                         $propertyMatchingVersion,
-                        $identityAggregation
+                        $identityAggregation,
+                        $knownAbsentKeys,
+                        $context
                     );
                     if ($propertyGroupType === 'AND') {
                         if (!$matches) {
@@ -491,24 +560,28 @@ class FeatureFlag
                             $cohortProperties,
                             $flagsByKey,
                             $evaluationCache,
-                            $distinctId,
                             $propertyMatchingVersion,
-                            $identityAggregation
+                            $identityAggregation,
+                            $knownAbsentKeys,
+                            $context
                         );
                     } elseif ($propType === 'flag') {
-                        $matches = FeatureFlag::evaluateFlagDependencyForIdentity(
+                        $matches = FeatureFlag::evaluateFlagDependencyInContext(
                             $prop,
                             $flagsByKey,
                             $evaluationCache,
-                            $distinctId,
-                            $propertyValues,
                             $cohortProperties,
                             $propertyMatchingVersion,
-                            $identityAggregation
+                            $context
                         );
                     } else {
                         FeatureFlag::assertPropertyFilterTypeSupported($prop);
-                        $matches = FeatureFlag::matchProperty($prop, $propertyValues, $propertyMatchingVersion);
+                        $matches = FeatureFlag::matchProperty(
+                            $prop,
+                            $propertyValues,
+                            $propertyMatchingVersion,
+                            FeatureFlag::knownAbsentKeysForFilter($prop, $identityAggregation, $knownAbsentKeys)
+                        );
                     }
 
                     $negation = $prop["negation"] ?? false;
@@ -1201,14 +1274,37 @@ class FeatureFlag
         return min(100.0, max(0.0, (float) $exclusionPercentage));
     }
 
-    private static function hasActiveHoldout($holdout): bool
-    {
-        return (FeatureFlag::holdoutPercentage($holdout) ?? 0.0) > 0.0;
-    }
-
     private static function aggregationKey($aggregation): ?string
     {
         return is_null($aggregation) ? null : strval($aggregation);
+    }
+
+    /**
+     * The known-absent keys that apply to a property filter. Person keys apply only to `person` filters and
+     * group keys only to `group` filters on their own group type, or without a group type index. A
+     * `person_metadata` filter reads a persons-table field, so it, like any other filter type, never resolves
+     * from a listing.
+     *
+     * @param array<string, mixed> $property Feature flag property filter.
+     * @param int|string|null $keysAggregation Aggregation the keys belong to: null for person keys, a group type
+     *     index for group keys.
+     * @param array<string, true> $knownAbsentKeys Keys known to be absent, as array keys.
+     * @return array<string, true>
+     */
+    private static function knownAbsentKeysForFilter(array $property, $keysAggregation, array $knownAbsentKeys): array
+    {
+        $filterType = $property["type"] ?? null;
+        if (is_null($keysAggregation)) {
+            $applies = $filterType === "person";
+        } else {
+            // Like the flags service, a group filter without its own index reads the condition's group type.
+            $applies = $filterType === "group" && (
+                !isset($property["group_type_index"]) ||
+                FeatureFlag::aggregationKey($property["group_type_index"]) ===
+                    FeatureFlag::aggregationKey($keysAggregation)
+            );
+        }
+        return $applies ? $knownAbsentKeys : [];
     }
 
     /**
@@ -1276,6 +1372,9 @@ class FeatureFlag
      * @param array<string, array<string, mixed>> $groupProperties Group properties for evaluation.
      * @param array<string, string> $groupTypeMapping Mapping from group type index to group type name.
      * @param mixed $propertyMatchingVersion Definition snapshot selector; defaults to legacy matching.
+     * @param array<string, true> $knownAbsentKeys Keys of $properties known to be absent, as array keys.
+     * @param array<string, array<string, true>> $groupKnownAbsentKeys Group property keys known to be absent,
+     *     as array keys, by group type name.
      * @return bool|string False for disabled, true for enabled boolean flags, or variant key.
      * @throws RequiresServerEvaluationException When server-side data is required.
      * @throws InconclusiveMatchException When the flag cannot be evaluated locally.
@@ -1290,8 +1389,28 @@ class FeatureFlag
         $groups = [],
         $groupProperties = [],
         $groupTypeMapping = [],
-        $propertyMatchingVersion = 1
+        $propertyMatchingVersion = 1,
+        $knownAbsentKeys = [],
+        $groupKnownAbsentKeys = []
     ) {
+        $flagAggregation = ($flag["filters"] ?? [])["aggregation_group_type_index"] ?? null;
+        // For a group flag, $distinctId is the group key, so a person dependency has no person to evaluate.
+        $context = is_null($flagAggregation)
+            ? FeatureFlag::personEvaluationContext($distinctId, $properties, $knownAbsentKeys)
+            : FeatureFlag::personEvaluationContext(null, [], []);
+        $context["hasPerson"] = is_null($flagAggregation);
+        $context["groups"] = $groups ?? [];
+        $context["groupProperties"] = $groupProperties ?? [];
+        $context["groupTypeMapping"] = $groupTypeMapping ?? [];
+        // The group arguments are optional, so a group flag whose own group is missing from them was called
+        // without its groups, and a group dependency can't be resolved as false.
+        $ownGroupName = is_null($flagAggregation)
+            ? null
+            : $context["groupTypeMapping"][strval($flagAggregation)] ?? null;
+        $context["hasGroups"] = is_null($flagAggregation)
+            || (!is_null($ownGroupName) && array_key_exists($ownGroupName, $context["groups"]));
+        $context["groupKnownAbsentKeys"] = $groupKnownAbsentKeys;
+
         return FeatureFlag::matchFeatureFlagPropertiesForIdentity(
             $flag,
             $distinctId,
@@ -1299,19 +1418,258 @@ class FeatureFlag
             $cohorts,
             $flagsByKey,
             $evaluationCache,
-            $groups,
-            $groupProperties,
-            $groupTypeMapping,
             $propertyMatchingVersion,
-            ($flag["filters"] ?? [])["aggregation_group_type_index"] ?? null
+            $flagAggregation,
+            $knownAbsentKeys,
+            $context
         );
     }
 
     /**
-     * Same as matchFeatureFlagProperties, but bucketing by an identity whose aggregation is already known.
-     * Dependency recursion keeps the root flag's identity, which may differ from the dependency's own.
+     * Evaluate a flag locally from the top-level inputs of an evaluation, selecting its aggregation. Flag
+     * dependencies are evaluated from the same inputs, each with its own aggregation.
      *
-     * @param int|string|null $identityAggregation Null for a person, a group type index otherwise.
+     * @internal Used by Client; not part of the customer API.
+     * @param array<string, mixed> $flag Feature flag definition.
+     * @param string $distinctId Person distinct ID.
+     * @param array<string, mixed> $groups Group keys by group type name.
+     * @param array<string, mixed> $personProperties Person properties.
+     * @param array<string, array<string, mixed>> $groupProperties Group properties by group type name.
+     * @param array<string, mixed> $cohorts Local cohort definitions keyed by cohort ID.
+     * @param array<string, array<string, mixed>> $flagsByKey Local feature flag definitions keyed by key.
+     * @param array<string, string> $groupTypeMapping Mapping from group type index to group type name.
+     * @param mixed $propertyMatchingVersion Definition snapshot selector.
+     * @param array<string, true> $personKnownAbsentKeys Person property keys known to be absent, as array keys.
+     * @param array<string, array<string, true>> $groupKnownAbsentKeys Group property keys known to be absent,
+     *     as array keys, by group type name.
+     * @return bool|string False for disabled, true for enabled boolean flags, or variant key.
+     * @throws RequiresServerEvaluationException When server-side data is required.
+     * @throws InconclusiveMatchException When the flag cannot be evaluated locally.
+     */
+    public static function computeFlagLocally(
+        array $flag,
+        string $distinctId,
+        array $groups,
+        array $personProperties,
+        array $groupProperties,
+        array $cohorts,
+        array $flagsByKey,
+        array $groupTypeMapping,
+        $propertyMatchingVersion,
+        array $personKnownAbsentKeys,
+        array $groupKnownAbsentKeys
+    ): bool|string {
+        if (!($flag["active"] ?? false)) {
+            return false;
+        }
+
+        if ($flag["ensure_experience_continuity"] ?? false) {
+            throw new InconclusiveMatchException(
+                "Flag has experience continuity enabled",
+                reason: UnresolvedFlagReason::EXPERIENCE_CONTINUITY
+            );
+        }
+
+        $evaluationCache = [];
+        return FeatureFlag::computeFlagInContext(
+            $flag,
+            $cohorts,
+            $flagsByKey,
+            $evaluationCache,
+            $propertyMatchingVersion,
+            [
+                "hasPerson" => true,
+                "hasGroups" => true,
+                "distinctId" => $distinctId,
+                "groups" => $groups,
+                "personProperties" => FeatureFlag::personPropertiesWithDistinctId($personProperties, $distinctId),
+                "groupProperties" => $groupProperties,
+                "groupTypeMapping" => $groupTypeMapping,
+                "personKnownAbsentKeys" => $personKnownAbsentKeys,
+                "groupKnownAbsentKeys" => $groupKnownAbsentKeys,
+                "dependencyDepth" => 0,
+                "dependencyEvaluations" => FeatureFlag::dependencyEvaluationCounter(),
+            ]
+        );
+    }
+
+    /**
+     * Evaluate a flag from the top-level inputs with the property context and bucketing identifier of its
+     * own aggregation. Without a usable key for the flag's group, the conditions aggregated by that group
+     * are skipped and the other conditions still run, unless the groups are unknown or a holdout needs the key.
+     *
+     * @param array{
+     *     hasPerson: bool,
+     *     hasGroups: bool,
+     *     distinctId: string|null,
+     *     groups: array<string, mixed>,
+     *     personProperties: array<string, mixed>,
+     *     groupProperties: array<string, array<string, mixed>>,
+     *     groupTypeMapping: array<string, string>,
+     *     personKnownAbsentKeys: array<string, true>,
+     *     groupKnownAbsentKeys: array<string, array<string, true>>,
+     *     dependencyDepth: int,
+     *     dependencyEvaluations: \stdClass
+     * } $context The top-level inputs of the evaluation, the depth of the flag in the dependency graph, and
+     *     the dependency evaluations shared by the whole evaluation (see dependencyEvaluationCounter()).
+     */
+    private static function computeFlagInContext(
+        array $flag,
+        $cohorts,
+        $flagsByKey,
+        &$evaluationCache,
+        $propertyMatchingVersion,
+        array $context
+    ): bool|string {
+        $flagAggregation = ($flag["filters"] ?? [])["aggregation_group_type_index"] ?? null;
+
+        if (is_null($flagAggregation)) {
+            if (!$context["hasPerson"]) {
+                throw new InconclusiveMatchException(
+                    "Can't evaluate a person flag without a person distinct id",
+                    reason: UnresolvedFlagReason::MISSING_CONTEXT
+                );
+            }
+
+            return FeatureFlag::matchFeatureFlagPropertiesForIdentity(
+                $flag,
+                $context["distinctId"],
+                $context["personProperties"],
+                $cohorts,
+                $flagsByKey,
+                $evaluationCache,
+                $propertyMatchingVersion,
+                null,
+                $context["personKnownAbsentKeys"],
+                $context
+            );
+        }
+
+        $groupName = $context["groupTypeMapping"][strval($flagAggregation)] ?? null;
+        if (is_null($groupName)) {
+            throw new InconclusiveMatchException(
+                "Flag has unknown group type index",
+                reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+            );
+        }
+
+        if (!FeatureFlag::hasUsableGroupKey($context["groups"], $groupName)) {
+            if (!$context["hasGroups"]) {
+                throw new InconclusiveMatchException(
+                    "Can't evaluate a group flag without the groups of the evaluation",
+                    reason: UnresolvedFlagReason::MISSING_CONTEXT
+                );
+            }
+            // The flags service buckets a holdout by the flag-level group key, so without one its
+            // membership is unknown.
+            if ((FeatureFlag::holdoutPercentage(($flag["filters"] ?? [])["holdout"] ?? null) ?? 0.0) > 0.0) {
+                throw new InconclusiveMatchException(
+                    "Can't evaluate the holdout of a group flag without its group key",
+                    reason: UnresolvedFlagReason::MISSING_CONTEXT
+                );
+            }
+
+            // A null group key skips every condition aggregated by the flag's group; other conditions still run.
+            return FeatureFlag::matchFeatureFlagPropertiesForIdentity(
+                $flag,
+                null,
+                [],
+                $cohorts,
+                $flagsByKey,
+                $evaluationCache,
+                $propertyMatchingVersion,
+                $flagAggregation,
+                [],
+                $context
+            );
+        }
+
+        return FeatureFlag::matchFeatureFlagPropertiesForIdentity(
+            $flag,
+            $context["groups"][$groupName],
+            $context["groupProperties"][$groupName] ?? [],
+            $cohorts,
+            $flagsByKey,
+            $evaluationCache,
+            $propertyMatchingVersion,
+            $flagAggregation,
+            $context["groupKnownAbsentKeys"][$groupName] ?? [],
+            $context
+        );
+    }
+
+    /**
+     * Like the flags service, only a non-empty string or a number is a group key. Any other value counts as
+     * no key for the group type, so it is never used for bucketing.
+     *
+     * @param array<string, mixed> $groups Group keys by group type name.
+     */
+    private static function hasUsableGroupKey(array $groups, string $groupName): bool
+    {
+        $groupKey = $groups[$groupName] ?? null;
+        return (is_string($groupKey) && $groupKey !== '') || is_int($groupKey) || is_float($groupKey);
+    }
+
+    /**
+     * The person properties of an evaluation, with the distinct id as the distinct_id property unless one
+     * is supplied. Built once per evaluation, so dependencies share the map instead of copying it.
+     *
+     * @param array<string, mixed> $personProperties
+     * @return array<string, mixed>
+     */
+    private static function personPropertiesWithDistinctId(array $personProperties, $distinctId): array
+    {
+        if (!is_null($distinctId) && !array_key_exists("distinct_id", $personProperties)) {
+            $personProperties["distinct_id"] = $distinctId;
+        }
+        return $personProperties;
+    }
+
+    /**
+     * The top-level inputs of a public helper that only receives person inputs.
+     *
+     * @param array<string, true> $personKnownAbsentKeys
+     * @return array<string, mixed> See computeFlagInContext().
+     */
+    private static function personEvaluationContext($distinctId, $personProperties, array $personKnownAbsentKeys): array
+    {
+        return [
+            "hasPerson" => true,
+            "hasGroups" => true,
+            "distinctId" => $distinctId,
+            "groups" => [],
+            "personProperties" => FeatureFlag::personPropertiesWithDistinctId($personProperties ?? [], $distinctId),
+            "groupProperties" => [],
+            "groupTypeMapping" => [],
+            "personKnownAbsentKeys" => $personKnownAbsentKeys,
+            "groupKnownAbsentKeys" => [],
+            "dependencyDepth" => 0,
+            "dependencyEvaluations" => FeatureFlag::dependencyEvaluationCounter(),
+        ];
+    }
+
+    /**
+     * Counts the dependency evaluations of one top-level evaluation. An object, so every copy of the
+     * context shares it.
+     *
+     * @return \stdClass{count: int}
+     */
+    private static function dependencyEvaluationCounter(): \stdClass
+    {
+        $counter = new \stdClass();
+        $counter->count = 0;
+        return $counter;
+    }
+
+    /**
+     * Match a flag with the properties and bucketing identifier of an aggregation already selected.
+     *
+     * @param string|int|float|null $distinctId Bucketing identifier of $identityAggregation; null for a group
+     *     without a usable key, which skips the conditions aggregated by that group.
+     * @param int|string|null $identityAggregation Aggregation of $distinctId and $properties: null for a
+     *     person, a group type index otherwise.
+     * @param array<string, true> $knownAbsentKeys Keys of $properties known to be absent, as array keys.
+     * @param array<string, mixed> $context See computeFlagInContext().
      */
     private static function matchFeatureFlagPropertiesForIdentity(
         $flag,
@@ -1320,16 +1678,18 @@ class FeatureFlag
         $cohorts,
         $flagsByKey,
         &$evaluationCache,
-        $groups,
-        $groupProperties,
-        $groupTypeMapping,
         $propertyMatchingVersion,
-        $identityAggregation
+        $identityAggregation,
+        array $knownAbsentKeys,
+        array $context
     ) {
         $flagFilters = $flag["filters"] ?? [];
 
         // Experiment holdouts win over every release condition, variant override, and rollout.
-        $holdoutVariant = FeatureFlag::matchHoldout($flagFilters["holdout"] ?? null, $distinctId);
+        // Without a group key, computeFlagInContext() already rejected a holdout above 0%.
+        $holdoutVariant = is_null($distinctId) && !is_null($identityAggregation)
+            ? null
+            : FeatureFlag::matchHoldout($flagFilters["holdout"] ?? null, $distinctId);
         if (!is_null($holdoutVariant)) {
             return $holdoutVariant;
         }
@@ -1338,45 +1698,64 @@ class FeatureFlag
         $flagAggregation = $flagFilters["aggregation_group_type_index"] ?? null;
         $earlyExitEnabled = $flagFilters["early_exit"] ?? false;
         $inconclusiveReason = null;
-        $groupEvaluationCaches = [];
+        $groups = $context["groups"];
+        $groupProperties = $context["groupProperties"];
 
         foreach ($flagConditions as $condition) {
             try {
-                // Per-condition aggregation overrides only when the condition explicitly
-                // sets its own aggregation_group_type_index (mixed targeting). When absent,
-                // use the properties/bucketing already resolved by the caller.
+                // A condition's own aggregation_group_type_index, even an explicit null (a person
+                // condition), overrides the flag-level aggregation. When absent, the condition uses the
+                // properties/bucketing already resolved by the caller.
                 $hasConditionAggregation = array_key_exists("aggregation_group_type_index", $condition);
                 $conditionAggregation = $hasConditionAggregation
                     ? $condition["aggregation_group_type_index"]
                     : $flagAggregation;
 
                 $effectiveProperties = $properties;
+                $effectiveKnownAbsentKeys = $knownAbsentKeys;
                 $effectiveBucketing = $distinctId;
                 $effectiveAggregation = $identityAggregation;
-                $conditionEvaluationCache = &$evaluationCache;
 
-                // Mixed-override path: condition-level aggregation differs from flag-level.
-                // This assumes flag-level aggregation is null for mixed flags.
-                if ($conditionAggregation !== $flagAggregation) {
-                    if (!is_null($conditionAggregation)) {
-                        $groupName = $groupTypeMapping[strval($conditionAggregation)] ?? null;
-                        if (is_null($groupName) || !array_key_exists($groupName, $groups)) {
-                            continue;
-                        }
-                        if (!array_key_exists($groupName, $groupProperties)) {
-                            $inconclusiveReason = FeatureFlag::pickUnresolvedReason(
-                                $inconclusiveReason,
-                                UnresolvedFlagReason::MISSING_CONTEXT
-                            );
-                            continue;
-                        }
-                        $effectiveProperties = $groupProperties[$groupName];
-                        $effectiveBucketing = $groups[$groupName];
-                        $effectiveAggregation = $conditionAggregation;
-                        // Dependency results depend on the bucketing identity, so each group keeps its own.
-                        $groupEvaluationCaches[$groupName] ??= is_null($evaluationCache) ? null : [];
-                        $conditionEvaluationCache = &$groupEvaluationCaches[$groupName];
+                if (
+                    FeatureFlag::aggregationKey($conditionAggregation) ===
+                        FeatureFlag::aggregationKey($identityAggregation)
+                ) {
+                    // Like the flags service, a group condition without its group key is skipped.
+                    if (is_null($distinctId) && !is_null($identityAggregation)) {
+                        continue;
                     }
+                } elseif (is_null($conditionAggregation)) {
+                    // A person condition in a group flag.
+                    if (!$context["hasPerson"]) {
+                        $inconclusiveReason = FeatureFlag::pickUnresolvedReason(
+                            $inconclusiveReason,
+                            UnresolvedFlagReason::MISSING_CONTEXT
+                        );
+                        continue;
+                    }
+                    $effectiveProperties = $context["personProperties"];
+                    $effectiveKnownAbsentKeys = $context["personKnownAbsentKeys"];
+                    $effectiveBucketing = $context["distinctId"];
+                    $effectiveAggregation = null;
+                } else {
+                    $groupName = $context["groupTypeMapping"][strval($conditionAggregation)] ?? null;
+                    if (is_null($groupName) || !FeatureFlag::hasUsableGroupKey($groups, $groupName)) {
+                        continue;
+                    }
+                    $groupListing = $context["groupKnownAbsentKeys"][$groupName] ?? [];
+                    // A listing makes a missing property map an empty one: listed keys are absent, and
+                    // any other key stays inconclusive when a filter reads it.
+                    if (!array_key_exists($groupName, $groupProperties) && $groupListing === []) {
+                        $inconclusiveReason = FeatureFlag::pickUnresolvedReason(
+                            $inconclusiveReason,
+                            UnresolvedFlagReason::MISSING_CONTEXT
+                        );
+                        continue;
+                    }
+                    $effectiveProperties = $groupProperties[$groupName] ?? [];
+                    $effectiveKnownAbsentKeys = $groupListing;
+                    $effectiveBucketing = $groups[$groupName];
+                    $effectiveAggregation = $conditionAggregation;
                 }
 
                 $matchResult = FeatureFlag::isConditionMatch(
@@ -1386,9 +1765,11 @@ class FeatureFlag
                     $effectiveProperties,
                     $cohorts,
                     $flagsByKey,
-                    $conditionEvaluationCache,
+                    $evaluationCache,
                     $propertyMatchingVersion,
-                    $effectiveAggregation
+                    $effectiveAggregation,
+                    $effectiveKnownAbsentKeys,
+                    $context
                 );
 
                 if ($matchResult === ConditionMatch::Match) {
@@ -1459,7 +1840,9 @@ class FeatureFlag
         $flagsByKey,
         &$evaluationCache,
         $propertyMatchingVersion,
-        $identityAggregation
+        $identityAggregation,
+        array $knownAbsentKeys,
+        array $context
     ): ConditionMatch {
         $rolloutPercentage = array_key_exists("rollout_percentage", $condition)
             ? $condition["rollout_percentage"] : null;
@@ -1479,24 +1862,28 @@ class FeatureFlag
                             $cohorts,
                             $flagsByKey,
                             $evaluationCache,
-                            $distinctId,
                             $propertyMatchingVersion,
-                            $identityAggregation
+                            $identityAggregation,
+                            $knownAbsentKeys,
+                            $context
                         );
                     } elseif ($propertyType == 'flag') {
-                        $matches = FeatureFlag::evaluateFlagDependencyForIdentity(
+                        $matches = FeatureFlag::evaluateFlagDependencyInContext(
                             $property,
                             $flagsByKey,
                             $evaluationCache,
-                            $distinctId,
-                            $properties,
                             $cohorts,
                             $propertyMatchingVersion,
-                            $identityAggregation
+                            $context
                         );
                     } else {
                         FeatureFlag::assertPropertyFilterTypeSupported($property);
-                        $matches = FeatureFlag::matchProperty($property, $properties, $propertyMatchingVersion);
+                        $matches = FeatureFlag::matchProperty(
+                            $property,
+                            $properties,
+                            $propertyMatchingVersion,
+                            FeatureFlag::knownAbsentKeysForFilter($property, $identityAggregation, $knownAbsentKeys)
+                        );
                     }
                 } catch (RequiresServerEvaluationException $e) {
                     // Fall back to the server only when this is the first filter that could not be
@@ -1760,33 +2147,32 @@ class FeatureFlag
         $distinctId,
         $properties,
         $cohortProperties,
-        $propertyMatchingVersion = 1
+        $propertyMatchingVersion = 1,
+        $knownAbsentKeys = []
     ) {
-        return FeatureFlag::evaluateFlagDependencyForIdentity(
+        return FeatureFlag::evaluateFlagDependencyInContext(
             $property,
             $flagsByKey,
             $evaluationCache,
-            $distinctId,
-            $properties,
             $cohortProperties,
             $propertyMatchingVersion,
-            false
+            FeatureFlag::personEvaluationContext($distinctId, $properties, $knownAbsentKeys)
         );
     }
 
     /**
-     * @param int|string|null|false $identityAggregation Aggregation of the identity being bucketed (null for a
-     *     person, a group type index otherwise). False means unknown and skips the holdout aggregation guard.
+     * Evaluate the referenced flag as if it were evaluated directly with the top-level inputs, with its own
+     * aggregation, and compare the result with the expected value.
+     *
+     * @param array<string, mixed> $context See computeFlagInContext().
      */
-    private static function evaluateFlagDependencyForIdentity(
+    private static function evaluateFlagDependencyInContext(
         $property,
         $flagsByKey,
         &$evaluationCache,
-        $distinctId,
-        $properties,
         $cohortProperties,
         $propertyMatchingVersion,
-        $identityAggregation
+        array $context
     ) {
         if ($flagsByKey === null || $evaluationCache === null) {
             throw new InconclusiveMatchException(
@@ -1806,7 +2192,7 @@ class FeatureFlag
         // Check if we've already evaluated this flag
         if (!array_key_exists($depFlagKey, $evaluationCache)) {
             $depFlag = $flagsByKey[$depFlagKey];
-            // Same order as Client::computeFlagLocally: an inactive flag is false whatever its
+            // Same order as computeFlagLocally(): an inactive flag is false whatever its
             // experience continuity setting.
             if (!($depFlag["active"] ?? false)) {
                 $evaluationCache[$depFlagKey] = false;
@@ -1820,38 +2206,27 @@ class FeatureFlag
                     reason: UnresolvedFlagReason::UNRESOLVED_DEPENDENCY
                 );
             } else {
-                // Holdout bucketing uses the evaluated identity, which can't be resolved for a
-                // dependency aggregated differently, so defer to server evaluation.
-                $depFilters = $depFlag["filters"] ?? [];
+                $context["dependencyDepth"]++;
+                $context["dependencyEvaluations"]->count++;
                 if (
-                    $identityAggregation !== false &&
-                    FeatureFlag::hasActiveHoldout($depFilters["holdout"] ?? null) &&
-                    FeatureFlag::aggregationKey($depFilters["aggregation_group_type_index"] ?? null) !==
-                        FeatureFlag::aggregationKey($identityAggregation)
+                    $context["dependencyDepth"] > self::MAX_DEPENDENCY_DEPTH ||
+                    $context["dependencyEvaluations"]->count > self::MAX_DEPENDENCY_EVALUATIONS
                 ) {
                     throw new InconclusiveMatchException(
-                        sprintf(
-                            "Cannot evaluate flag dependency '%s' with a holdout aggregated differently from the dependent flag", //phpcs:ignore
-                            $depFlagKey
-                        ),
-                        reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
+                        sprintf("Cannot evaluate flag dependency '%s' - dependency graph is too large", $depFlagKey),
+                        reason: UnresolvedFlagReason::UNRESOLVED_DEPENDENCY
                     );
                 }
 
                 // Recursively evaluate the dependency
                 try {
-                    $depResult = FeatureFlag::matchFeatureFlagPropertiesForIdentity(
+                    $depResult = FeatureFlag::computeFlagInContext(
                         $depFlag,
-                        $distinctId,
-                        $properties,
                         $cohortProperties,
                         $flagsByKey,
                         $evaluationCache,
-                        [],
-                        [],
-                        [],
                         $propertyMatchingVersion,
-                        $identityAggregation
+                        $context
                     );
                     $evaluationCache[$depFlagKey] = $depResult;
                 } catch (RequiresServerEvaluationException $e) {

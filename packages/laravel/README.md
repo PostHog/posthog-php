@@ -256,7 +256,11 @@ are silent. An explicit
 empty `flagKeys: []` returns an empty snapshot without evaluation.
 
 The full core signature is supported: `distinctId`, `groups`, `personProperties`,
-`groupProperties`, `onlyEvaluateLocally`, `disableGeoip`, and `flagKeys`.
+`groupProperties`, `onlyEvaluateLocally`, `disableGeoip`, `flagKeys`,
+`personPropertyKeysKnownAbsent`, and `groupPropertyKeysKnownAbsent`. The two
+known-absent lists are part of the snapshot inputs, so different lists don't reuse
+each other's snapshot. A list over 1000 keys throws `InvalidArgumentException`
+before any evaluation or request.
 The manager also supports the core-compatible `getAllFlags()`, `getFeatureFlag()`,
 `getFeatureFlagResult()`, `getFeatureFlagPayload()`, and `isFeatureEnabled()` methods
 with current context, plus `loadFlags()` and `contextFromHeaders()`. These methods

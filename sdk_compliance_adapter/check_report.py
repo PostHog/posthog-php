@@ -1,4 +1,4 @@
-"""Check inventory completeness in harness 1.32.0 Markdown; assertions stay advisory."""
+"""Check inventory completeness in harness 1.34.0 Markdown; assertions stay advisory."""
 
 import argparse
 import json

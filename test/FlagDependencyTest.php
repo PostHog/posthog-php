@@ -1029,10 +1029,10 @@ class FlagDependencyTest extends TestCase
         );
     }
 
-    public function testGroupConditionDependencyResultIsNotReusedForPersonCondition(): void
+    public function testDependencyDoesNotReadTheReferencingConditionGroupProperties(): void
     {
-        // The dependency matches only with the group's properties, so a result cached for the group
-        // condition must not resolve the person condition.
+        // The dependency is a person flag, so it reads person properties even when a group condition
+        // references it, and the group's "$group_key" never resolves it.
         $dependency = self::dependencyFlag(
             "dependency",
             [["key" => "\$group_key", "operator" => "exact", "value" => "acme"]]

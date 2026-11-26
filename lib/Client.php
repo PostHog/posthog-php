@@ -9,6 +9,7 @@ use PostHog\Consumer\ForkCurl;
 use PostHog\Consumer\LibCurl;
 use PostHog\Consumer\NoOp;
 use PostHog\Consumer\Socket;
+use PostHog\Internal\KnownAbsentKeys;
 use Symfony\Component\Clock\Clock;
 use Throwable;
 
@@ -870,6 +871,10 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
      * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
      * @param bool $sendFeatureFlagEvents Whether to send $feature_flag_called events.
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys known to be absent for
+     *     this evaluation. See evaluateFlags().
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to be
+     *     absent, by group type name. See evaluateFlags().
      * @return bool|null
      * @throws Exception
      */
@@ -880,7 +885,9 @@ class Client implements FeatureFlagEvaluationsHost
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
-        bool $sendFeatureFlagEvents = true
+        bool $sendFeatureFlagEvents = true,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): null | bool {
         trigger_error(
             'Client::isFeatureEnabled() is deprecated and will be removed in a future major '
@@ -899,7 +906,9 @@ class Client implements FeatureFlagEvaluationsHost
             $personProperties,
             $groupProperties,
             $onlyEvaluateLocally,
-            $sendFeatureFlagEvents
+            $sendFeatureFlagEvents,
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
         );
 
         if ($result === null) {
@@ -921,6 +930,10 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
      * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
      * @param bool $sendFeatureFlagEvents Whether to send $feature_flag_called events.
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys known to be absent for
+     *     this evaluation. See evaluateFlags().
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to be
+     *     absent, by group type name. See evaluateFlags().
      * @return bool|string|null
      * @throws Exception
      */
@@ -931,7 +944,9 @@ class Client implements FeatureFlagEvaluationsHost
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
-        bool $sendFeatureFlagEvents = true
+        bool $sendFeatureFlagEvents = true,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): null | bool | string {
         trigger_error(
             'Client::getFeatureFlag() is deprecated and will be removed in a future major '
@@ -949,7 +964,9 @@ class Client implements FeatureFlagEvaluationsHost
             $personProperties,
             $groupProperties,
             $onlyEvaluateLocally,
-            $sendFeatureFlagEvents
+            $sendFeatureFlagEvents,
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
         );
 
         return $result?->getValue();
@@ -967,6 +984,10 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
      * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
      * @param bool $sendFeatureFlagEvents Whether to send $feature_flag_called events.
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys known to be absent for
+     *     this evaluation. See evaluateFlags().
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to be
+     *     absent, by group type name. See evaluateFlags().
      * @return FeatureFlagResult|null
      * @throws Exception
      */
@@ -977,7 +998,9 @@ class Client implements FeatureFlagEvaluationsHost
         array $personProperties = array(),
         array $groupProperties = array(),
         bool $onlyEvaluateLocally = false,
-        bool $sendFeatureFlagEvents = true
+        bool $sendFeatureFlagEvents = true,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): ?FeatureFlagResult {
         trigger_error(
             'Client::getFeatureFlagResult() is deprecated and will be removed in a future major '
@@ -994,7 +1017,9 @@ class Client implements FeatureFlagEvaluationsHost
             $personProperties,
             $groupProperties,
             $onlyEvaluateLocally,
-            $sendFeatureFlagEvents
+            $sendFeatureFlagEvents,
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
         );
     }
 
@@ -1007,6 +1032,8 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, mixed> $groups
      * @param array<string, mixed> $personProperties
      * @param array<string, array<string, mixed>> $groupProperties
+     * @param list<string>|null $personPropertyKeysKnownAbsent
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent
      * @throws Exception
      */
     private function doGetFeatureFlagResult(
@@ -1016,8 +1043,11 @@ class Client implements FeatureFlagEvaluationsHost
         array $personProperties = [],
         array $groupProperties = [],
         bool $onlyEvaluateLocally = false,
-        bool $sendFeatureFlagEvents = true
+        bool $sendFeatureFlagEvents = true,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): ?FeatureFlagResult {
+        KnownAbsentKeys::assertValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
         $distinctId = $this->resolveDistinctId($distinctId);
         if ($distinctId === '') {
             $this->warnMissingDistinctId('Feature flag evaluation');
@@ -1035,6 +1065,10 @@ class Client implements FeatureFlagEvaluationsHost
         $localFlagDefinition = null;
 
         $definitionSnapshot = $this->flagDefinitionSnapshot();
+        [$personKnownAbsentKeys, $groupKnownAbsentKeys] = self::knownAbsentKeyLookups(
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
+        );
         foreach ($definitionSnapshot['flags'] as $flag) {
             if ($flag["key"] == $key) {
                 $localFlagDefinition = $flag;
@@ -1045,7 +1079,9 @@ class Client implements FeatureFlagEvaluationsHost
                         $distinctId,
                         $groups,
                         $personProperties,
-                        $groupProperties
+                        $groupProperties,
+                        $personKnownAbsentKeys,
+                        $groupKnownAbsentKeys
                     );
                 } catch (RequiresServerEvaluationException $e) {
                     $result = null;
@@ -1074,7 +1110,9 @@ class Client implements FeatureFlagEvaluationsHost
                     $personProperties,
                     $groupProperties,
                     null,
-                    [$key]
+                    [$key],
+                    $personPropertyKeysKnownAbsent,
+                    $groupPropertyKeysKnownAbsent
                 );
                 $errors = [];
 
@@ -1199,6 +1237,10 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, mixed> $groups Group identifiers for group-based flags.
      * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
      * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys known to be absent for
+     *     this evaluation. See evaluateFlags().
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to be
+     *     absent, by group type name. See evaluateFlags().
      * @return mixed
      */
     public function getFeatureFlagPayload(
@@ -1207,6 +1249,8 @@ class Client implements FeatureFlagEvaluationsHost
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null,
     ): mixed {
         trigger_error(
             'Client::getFeatureFlagPayload() is deprecated and will be removed in a future major '
@@ -1224,7 +1268,9 @@ class Client implements FeatureFlagEvaluationsHost
             $personProperties,
             $groupProperties,
             false,
-            false
+            false,
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
         );
 
         return $result?->getPayload();
@@ -1323,6 +1369,10 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
      * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
      * @param bool $onlyEvaluateLocally Whether to avoid a remote /flags fallback.
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys known to be absent for
+     *     this evaluation. See evaluateFlags().
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to be
+     *     absent, by group type name. See evaluateFlags().
      * @return array<string, bool|string>
      * @throws Exception
      */
@@ -1331,8 +1381,11 @@ class Client implements FeatureFlagEvaluationsHost
         array $groups = array(),
         array $personProperties = array(),
         array $groupProperties = array(),
-        bool $onlyEvaluateLocally = false
+        bool $onlyEvaluateLocally = false,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): array {
+        KnownAbsentKeys::assertValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
         $distinctId = $this->resolveDistinctId($distinctId);
         if ($distinctId === '') {
             $this->warnMissingDistinctId('getAllFlags()');
@@ -1348,6 +1401,10 @@ class Client implements FeatureFlagEvaluationsHost
         $fallbackToFlags = false;
 
         $definitionSnapshot = $this->flagDefinitionSnapshot();
+        [$personKnownAbsentKeys, $groupKnownAbsentKeys] = self::knownAbsentKeyLookups(
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
+        );
         if (count($definitionSnapshot['flags']) > 0) {
             foreach ($definitionSnapshot['flags'] as $flag) {
                 try {
@@ -1357,7 +1414,9 @@ class Client implements FeatureFlagEvaluationsHost
                         $distinctId,
                         $groups,
                         $personProperties,
-                        $groupProperties
+                        $groupProperties,
+                        $personKnownAbsentKeys,
+                        $groupKnownAbsentKeys
                     );
                 } catch (RequiresServerEvaluationException $e) {
                     $fallbackToFlags = true;
@@ -1374,7 +1433,14 @@ class Client implements FeatureFlagEvaluationsHost
 
         if ($fallbackToFlags && !$onlyEvaluateLocally) {
             try {
-                $featureFlags = $this->fetchFeatureVariants($distinctId, $groups, $personProperties, $groupProperties);
+                $featureFlags = $this->fetchFeatureVariants(
+                    $distinctId,
+                    $groups,
+                    $personProperties,
+                    $groupProperties,
+                    $personPropertyKeysKnownAbsent,
+                    $groupPropertyKeysKnownAbsent
+                );
                 $response = array_merge($response, $featureFlags);
             } catch (Exception $e) {
                 error_log("[PostHog][Client] Unable to get feature variants:" . $e->getMessage());
@@ -1405,7 +1471,18 @@ class Client implements FeatureFlagEvaluationsHost
      *     an empty snapshot without local or remote evaluation. Use this when you only need a
      *     handful of flags out of many. Distinct from FeatureFlagEvaluations::only(), which scopes
      *     which already-evaluated flags get attached to a captured event.
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys the caller knows the
+     *     person doesn't have. A listed key is absent even when $personProperties holds a value for it,
+     *     so local evaluation resolves it instead of falling back to /flags: `is_not_set`, `is_not` and
+     *     the `not_*` string operators match, and every other operator doesn't. An operator the SDK
+     *     can't evaluate locally still falls back. Keys apply only to `person` filters, never to
+     *     `person_metadata` or group filters, and keys starting with `__posthog_person_metadata__` are
+     *     ignored. The keys are also sent with any /flags request. At most 1000 keys.
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to
+     *     be absent, by group type name. Keys apply only to `group` filters on their own group type. At
+     *     most 1000 keys per group type.
      * @return FeatureFlagEvaluations
+     * @throws InvalidArgumentException When a known-absent list holds more than 1000 keys or a non-string key.
      */
     public function evaluateFlags(
         ?string $distinctId = null,
@@ -1414,8 +1491,11 @@ class Client implements FeatureFlagEvaluationsHost
         array $groupProperties = [],
         bool $onlyEvaluateLocally = false,
         ?bool $disableGeoip = null,
-        ?array $flagKeys = null
+        ?array $flagKeys = null,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): FeatureFlagEvaluations {
+        KnownAbsentKeys::assertValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
         $distinctId = $this->resolveDistinctId($distinctId);
         $host = new Internal\ContextualFeatureFlagEvaluationsHost(
             $this,
@@ -1461,6 +1541,10 @@ class Client implements FeatureFlagEvaluationsHost
         // any flag was inconclusive (which forces a remote round trip) so we can skip /flags
         // entirely when local evaluation covered everything we know about.
         $definitionSnapshot = $this->flagDefinitionSnapshot();
+        [$personKnownAbsentKeys, $groupKnownAbsentKeys] = self::knownAbsentKeyLookups(
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
+        );
         $hasLocalDefinitions = count($definitionSnapshot['flags']) > 0;
         if ($hasLocalDefinitions) {
             $localKeys = [];
@@ -1482,7 +1566,9 @@ class Client implements FeatureFlagEvaluationsHost
                         $distinctId,
                         $groups,
                         $personProperties,
-                        $groupProperties
+                        $groupProperties,
+                        $personKnownAbsentKeys,
+                        $groupKnownAbsentKeys
                     );
                 } catch (RequiresServerEvaluationException | InconclusiveMatchException $e) {
                     $fallbackToRemote = true;
@@ -1538,7 +1624,9 @@ class Client implements FeatureFlagEvaluationsHost
                     $personProperties,
                     $groupProperties,
                     $disableGeoip,
-                    $flagKeys
+                    $flagKeys,
+                    $personPropertyKeysKnownAbsent,
+                    $groupPropertyKeysKnownAbsent
                 );
 
                 $requestId = $response['requestId'] ?? null;
@@ -1731,77 +1819,53 @@ class Client implements FeatureFlagEvaluationsHost
         ];
     }
 
+    /**
+     * Build the known-absent lookup maps once per evaluation call, not once per flag.
+     *
+     * @param list<string>|null $personPropertyKeysKnownAbsent
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent
+     * @return array{0: array<string, true>, 1: array<string, array<string, true>>} Person keys, then group keys
+     *     by group type name, as array keys.
+     */
+    private static function knownAbsentKeyLookups(
+        ?array $personPropertyKeysKnownAbsent,
+        ?array $groupPropertyKeysKnownAbsent
+    ): array {
+        $personKnownAbsentKeys = array_fill_keys($personPropertyKeysKnownAbsent ?? [], true);
+        $groupKnownAbsentKeys = [];
+        foreach ($groupPropertyKeysKnownAbsent ?? [] as $groupType => $absentKeys) {
+            $groupKnownAbsentKeys[$groupType] = array_fill_keys($absentKeys, true);
+        }
+        return [$personKnownAbsentKeys, $groupKnownAbsentKeys];
+    }
+
+    /**
+     * @param array<string, true> $personKnownAbsentKeys From knownAbsentKeyLookups().
+     * @param array<string, array<string, true>> $groupKnownAbsentKeys From knownAbsentKeyLookups().
+     */
     private function computeFlagLocally(
         array $featureFlag,
         array $definitionSnapshot,
         string $distinctId,
         array $groups = array(),
         array $personProperties = array(),
-        array $groupProperties = array()
+        array $groupProperties = array(),
+        array $personKnownAbsentKeys = array(),
+        array $groupKnownAbsentKeys = array()
     ): bool | string {
-        // Create evaluation cache for flag dependencies
-        $evaluationCache = [];
-
-        if (!$featureFlag["active"]) {
-            return false;
-        }
-
-        if ($featureFlag["ensure_experience_continuity"] ?? false) {
-            throw new InconclusiveMatchException(
-                "Flag has experience continuity enabled",
-                reason: UnresolvedFlagReason::EXPERIENCE_CONTINUITY
-            );
-        }
-
-        $flagFilters = $featureFlag["filters"] ?? [];
-        $aggregationGroupTypeIndex = $flagFilters["aggregation_group_type_index"] ?? null;
-
-        if (!is_null($aggregationGroupTypeIndex)) {
-            $groupName = $definitionSnapshot['group_type_mapping'][strval($aggregationGroupTypeIndex)] ?? null;
-
-            if (is_null($groupName)) {
-                throw new InconclusiveMatchException(
-                    "Flag has unknown group type index",
-                    reason: UnresolvedFlagReason::UNSUPPORTED_DEFINITION
-                );
-            }
-
-            if (!array_key_exists($groupName, $groups)) {
-                return false;
-            }
-
-            $focusedGroupProperties = $groupProperties[$groupName];
-            return FeatureFlag::matchFeatureFlagProperties(
-                $featureFlag,
-                $groups[$groupName],
-                $focusedGroupProperties,
-                $definitionSnapshot['cohorts'],
-                $definitionSnapshot['flags_by_key'],
-                $evaluationCache,
-                $groups,
-                $groupProperties,
-                $definitionSnapshot['group_type_mapping'],
-                $definitionSnapshot['property_matching_version']
-            );
-        } else {
-            $localPersonProperties = $personProperties;
-            if (!array_key_exists('distinct_id', $localPersonProperties)) {
-                $localPersonProperties['distinct_id'] = $distinctId;
-            }
-
-            return FeatureFlag::matchFeatureFlagProperties(
-                $featureFlag,
-                $distinctId,
-                $localPersonProperties,
-                $definitionSnapshot['cohorts'],
-                $definitionSnapshot['flags_by_key'],
-                $evaluationCache,
-                $groups,
-                $groupProperties,
-                $definitionSnapshot['group_type_mapping'],
-                $definitionSnapshot['property_matching_version']
-            );
-        }
+        return FeatureFlag::computeFlagLocally(
+            $featureFlag,
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $definitionSnapshot['cohorts'],
+            $definitionSnapshot['flags_by_key'],
+            $definitionSnapshot['group_type_mapping'],
+            $definitionSnapshot['property_matching_version'],
+            $personKnownAbsentKeys,
+            $groupKnownAbsentKeys
+        );
     }
 
 
@@ -1812,15 +1876,28 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, mixed> $groups Group identifiers for group-based flags.
      * @param array<string, mixed> $personProperties Person properties to use for flag evaluation.
      * @param array<string, array<string, mixed>> $groupProperties Group properties to use for flag evaluation.
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys known to be absent for
+     *     this evaluation. See evaluateFlags().
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to be
+     *     absent, by group type name. See evaluateFlags().
      * @return array<string, bool|string> Feature flag values by key.
      */
     public function fetchFeatureVariants(
         string $distinctId,
         array $groups = [],
         array $personProperties = [],
-        array $groupProperties = []
+        array $groupProperties = [],
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): array {
-        $response = $this->fetchFlagsResponse($distinctId, $groups, $personProperties, $groupProperties);
+        $response = $this->fetchFlagsResponse(
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
+        );
         return $response['featureFlags'] ?? [];
     }
 
@@ -1829,15 +1906,28 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, mixed> $groups
      * @param array<string, mixed> $personProperties
      * @param array<string, array<string, mixed>> $groupProperties
+     * @param list<string>|null $personPropertyKeysKnownAbsent
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent
      * @return array<string, mixed> Feature flags response.
      */
     private function fetchFlagsResponse(
         string $distinctId,
         array $groups = [],
         array $personProperties = [],
-        array $groupProperties = []
+        array $groupProperties = [],
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): array {
-        return $this->flags($distinctId, $groups, $personProperties, $groupProperties);
+        return $this->flags(
+            $distinctId,
+            $groups,
+            $personProperties,
+            $groupProperties,
+            null,
+            null,
+            $personPropertyKeysKnownAbsent,
+            $groupPropertyKeysKnownAbsent
+        );
     }
 
     /**
@@ -2359,6 +2449,10 @@ class Client implements FeatureFlagEvaluationsHost
      * @param array<string, array<string, mixed>> $groupProperties Group properties for flag evaluation.
      * @param bool|null $disableGeoip Override GeoIP enrichment; null inherits the client setting.
      * @param list<string>|null $flagKeys Optional list of flag keys to evaluate.
+     * @param list<string>|null $personPropertyKeysKnownAbsent Person property keys known to be absent for
+     *     this evaluation. See evaluateFlags().
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent Group property keys known to be
+     *     absent, by group type name. See evaluateFlags().
      * @return array<string, mixed> The normalized feature flags response.
      */
     public function flags(
@@ -2367,7 +2461,9 @@ class Client implements FeatureFlagEvaluationsHost
         array $personProperties = [],
         array $groupProperties = [],
         ?bool $disableGeoip = null,
-        ?array $flagKeys = null
+        ?array $flagKeys = null,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): array {
         try {
             return $this->requestFlags(
@@ -2376,7 +2472,9 @@ class Client implements FeatureFlagEvaluationsHost
                 $personProperties,
                 $groupProperties,
                 $disableGeoip,
-                $flagKeys
+                $flagKeys,
+                $personPropertyKeysKnownAbsent,
+                $groupPropertyKeysKnownAbsent
             );
         } catch (HttpException $e) {
             error_log('[PostHog][Client] Unable to fetch feature flags: ' . $e->getMessage());
@@ -2385,8 +2483,11 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
+     * @param list<string>|null $personPropertyKeysKnownAbsent
+     * @param array<string, list<string>>|null $groupPropertyKeysKnownAbsent
      * @return array<string, mixed>
      * @throws HttpException On network errors, API errors, or quota limits.
+     * @throws InvalidArgumentException When a known-absent list is invalid.
      */
     private function requestFlags(
         string $distinctId,
@@ -2394,8 +2495,11 @@ class Client implements FeatureFlagEvaluationsHost
         array $personProperties = [],
         array $groupProperties = [],
         ?bool $disableGeoip = null,
-        ?array $flagKeys = null
+        ?array $flagKeys = null,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null
     ): array {
+        KnownAbsentKeys::assertValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
         if (!$this->enabled) {
             return $this->emptyFlagsResponse();
         }
@@ -2411,6 +2515,15 @@ class Client implements FeatureFlagEvaluationsHost
 
         if ($flagKeys !== null) {
             $payload["flag_keys_to_evaluate"] = array_values($flagKeys);
+        }
+
+        if (!empty($personPropertyKeysKnownAbsent)) {
+            $payload["person_property_keys_known_absent"] = array_values($personPropertyKeysKnownAbsent);
+        }
+
+        $groupKeysKnownAbsent = array_map('array_values', array_filter($groupPropertyKeysKnownAbsent ?? []));
+        if (!empty($groupKeysKnownAbsent)) {
+            $payload["group_property_keys_known_absent"] = (object) $groupKeysKnownAbsent;
         }
 
         $httpResponse = $this->sendFeatureFlagsRequest($payload);

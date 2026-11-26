@@ -74,15 +74,18 @@ class ApiSurfaceTest extends TestCase
             'key' => 'checkout', 'distinctId' => 'explicit', 'groups' => ['team' => 'one'],
             'personProperties' => ['plan' => 'pro'], 'groupProperties' => ['team' => ['size' => 2]],
         ];
-        $options = ['onlyEvaluateLocally' => true, 'sendFeatureFlagEvents' => false];
+        $knownAbsent = [
+            'personPropertyKeysKnownAbsent' => ['email'], 'groupPropertyKeysKnownAbsent' => ['team' => ['tier']],
+        ];
+        $options = ['onlyEvaluateLocally' => true, 'sendFeatureFlagEvents' => false] + $knownAbsent;
         $methods = [
             'boolean' => ['isFeatureEnabled', $single + $options, true],
             'value' => ['getFeatureFlag', $single + $options, 'variant'],
             'result' => ['getFeatureFlagResult', $single + $options, null],
-            'payload' => ['getFeatureFlagPayload', $single, ['color' => 'blue']],
+            'payload' => ['getFeatureFlagPayload', $single + $knownAbsent, ['color' => 'blue']],
             'all' => ['getAllFlags', array_diff_key($single, ['key' => true]) + [
                 'onlyEvaluateLocally' => true,
-            ], ['checkout' => true]],
+            ] + $knownAbsent, ['checkout' => true]],
         ];
         $cases = $methods;
         foreach ($methods as $name => [$method, $arguments, $result]) {

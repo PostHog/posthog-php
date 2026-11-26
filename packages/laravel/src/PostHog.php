@@ -9,6 +9,7 @@ use PostHog\Client;
 use PostHog\ContextScope;
 use PostHog\FeatureFlagEvaluations;
 use PostHog\FeatureFlagResult;
+use PostHog\Internal\KnownAbsentKeys;
 use PostHog\Laravel\Delivery\QueuedConsumer;
 use Throwable;
 
@@ -149,7 +150,10 @@ class PostHog
         bool $onlyEvaluateLocally = false,
         ?bool $disableGeoip = null,
         ?array $flagKeys = null,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null,
     ): FeatureFlagEvaluations {
+        KnownAbsentKeys::assertValid($personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent);
         $context = $this->app->make(Context::class);
         $data = $context->data();
         $distinctId ??= $data['distinctId'] ?? null;
@@ -157,6 +161,7 @@ class PostHog
         $disableGeoip ??= $this->app['config']->get('posthog.sdk.disableGeoip', true);
         $inputs = [
             $distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally, $disableGeoip, $flagKeys,
+            $personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent,
         ];
         if (!$this->enabled() || $distinctId === null || $distinctId === '') {
             return new FeatureFlagEvaluations(
@@ -262,10 +267,12 @@ class PostHog
         array $groupProperties = [],
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null,
     ): ?bool {
         return $this->callFlagMethod(__FUNCTION__, [
             $key, $distinctId, $groups, $personProperties, $groupProperties,
-            $onlyEvaluateLocally, $sendFeatureFlagEvents,
+            $onlyEvaluateLocally, $sendFeatureFlagEvents, $personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent,
         ], $distinctId);
     }
 
@@ -278,10 +285,12 @@ class PostHog
         array $groupProperties = [],
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null,
     ): bool|string|null {
         return $this->callFlagMethod(__FUNCTION__, [
             $key, $distinctId, $groups, $personProperties, $groupProperties,
-            $onlyEvaluateLocally, $sendFeatureFlagEvents,
+            $onlyEvaluateLocally, $sendFeatureFlagEvents, $personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent,
         ], $distinctId);
     }
 
@@ -294,10 +303,12 @@ class PostHog
         array $groupProperties = [],
         bool $onlyEvaluateLocally = false,
         bool $sendFeatureFlagEvents = true,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null,
     ): ?FeatureFlagResult {
         return $this->callFlagMethod(__FUNCTION__, [
             $key, $distinctId, $groups, $personProperties, $groupProperties,
-            $onlyEvaluateLocally, $sendFeatureFlagEvents,
+            $onlyEvaluateLocally, $sendFeatureFlagEvents, $personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent,
         ], $distinctId);
     }
 
@@ -313,9 +324,12 @@ class PostHog
         array $groups = [],
         array $personProperties = [],
         array $groupProperties = [],
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null,
     ): mixed {
         return $this->callFlagMethod(__FUNCTION__, [
             $key, $distinctId, $groups, $personProperties, $groupProperties,
+            $personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent,
         ], $distinctId);
     }
 
@@ -339,9 +353,12 @@ class PostHog
         array $personProperties = [],
         array $groupProperties = [],
         bool $onlyEvaluateLocally = false,
+        ?array $personPropertyKeysKnownAbsent = null,
+        ?array $groupPropertyKeysKnownAbsent = null,
     ): array {
         return $this->callFlagMethod(__FUNCTION__, [
             $distinctId, $groups, $personProperties, $groupProperties, $onlyEvaluateLocally,
+            $personPropertyKeysKnownAbsent, $groupPropertyKeysKnownAbsent,
         ], $distinctId);
     }
 
@@ -357,6 +374,8 @@ class PostHog
 
     private function callFlagMethod(string $method, array $arguments, ?string $distinctId): mixed
     {
+        // Every flag method takes the known-absent lists as its last two arguments.
+        KnownAbsentKeys::assertValid(...array_slice($arguments, -2));
         $data = $this->app->make(Context::class)->data();
         $groupsIndex = $method === 'getAllFlags' ? 1 : 2;
         $arguments[$groupsIndex] = $arguments[$groupsIndex] ?: ($data['groups'] ?? []);
