@@ -2139,10 +2139,10 @@ class Client implements FeatureFlagEvaluationsHost
         if (count($unsupportedDefinitionFlags) > 0) {
             $this->logWarning(sprintf(
                 'You are using local evaluation but %d flag(s) use something local evaluation does not support, '
-                . 'such as a static cohort, an unknown operator, a malformed value, or a missing or circular flag '
-                . 'dependency (reason: %s): %s. Evaluating these flags falls back to a server request when '
-                . 'evaluation reaches that part. To evaluate them locally, change these flags in PostHog or '
-                . 'upgrade posthog-php.',
+                . 'such as a static cohort, an unknown operator or filter type, a malformed value, or a missing '
+                . 'or circular flag dependency (reason: %s): %s. Evaluating these flags falls back to a server '
+                . 'request when evaluation reaches that part. To evaluate them locally, change these flags in '
+                . 'PostHog or upgrade posthog-php.',
                 count($unsupportedDefinitionFlags),
                 UnresolvedFlagReason::UNSUPPORTED_DEFINITION,
                 implode(', ', $unsupportedDefinitionFlags)
