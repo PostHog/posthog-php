@@ -465,13 +465,14 @@ class EmailsBatchTest extends TestCase
     public function testABatchTooLargeForPostHogIsTheErrorWithPostHogsFix(
         int $status,
         array $answer,
-        ?string $fix
+        ?string $fix,
+        string $code = 'content_too_large'
     ): void {
         $this->reply([$status, json_encode($answer), []]);
 
         $error = $this->batchError(self::recipients(100), ['max_retries' => 2]);
 
-        $this->assertSame(['content_too_large', $status, 'Nope.', $fix], [
+        $this->assertSame([$code, $status, 'Nope.', $fix], [
             $error->getErrorCode(),
             $error->getStatusCode(),
             $error->getMessage(),
@@ -499,6 +500,12 @@ class EmailsBatchTest extends TestCase
             ],
             'shared content too large, without a fix' => [400, $answer, null],
             'a body too large, with an empty fix' => [413, [...$answer, 'fix' => ''], self::SPLIT],
+            "a proxy's own code for a body too large" => [
+                413,
+                ['code' => 'payload_too_large', 'detail' => 'Nope.'],
+                self::SPLIT,
+                'payload_too_large',
+            ],
         ];
     }
 
@@ -868,6 +875,10 @@ PHP;
             'an error with a blank code on a 400' => [
                 ['message_id' => 'm0', 'status' => 'error', 'error' => ['code' => '  ', 'status' => 400]],
                 ['api_error', 400],
+            ],
+            'an error whose code is a form feed and a no-break space' => [
+                ['message_id' => 'm0', 'status' => 'error', 'error' => ['code' => "\f\u{00A0}", 'status' => 422]],
+                ['api_error', 422],
             ],
         ];
     }
