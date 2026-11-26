@@ -235,7 +235,8 @@ final class Emails
      * `scheduled` and getScheduledAt() the confirmed time, or `queued` and null when the time had passed.
      * When PostHog accepts the email without confirming the time, the send throws `schedule_not_confirmed`
      * with the email's getMessageId(): read its status before you send it again. So does a `queued` answer
-     * for a time more than a minute ahead of this machine's clock; the minute allows for clock difference.
+     * for a time more than a minute ahead of this machine's clock when the send's first attempt went out,
+     * even when a retry gets the answer; the minute allows for clock difference.
      * Work out a relative time, such as an hour from now, once, and pass the same time when you send again
      * with the same `idempotency_key`: the key covers the time, so another time throws
      * `idempotency_key_reused`. To stop
@@ -335,10 +336,10 @@ final class Emails
             'Content-Type: application/json',
             'Idempotency-Key: ' . $idempotencyKey,
         ]);
+        $mayGoNow = $scheduledAt !== null && self::isAtMostAMinuteAhead($scheduledAt);
         $result = $this->withRetries(
             $maxRetries,
-            function () use ($appHost, $headers, $body, $scheduledAt): SendEmailResult {
-                $mayGoNow = $scheduledAt !== null && self::isAtMostAMinuteAhead($scheduledAt);
+            function () use ($appHost, $headers, $body, $scheduledAt, $mayGoNow): SendEmailResult {
                 $reply = $this->request('POST', $appHost . self::SEND_PATH, $headers, $body);
 
                 return self::parseSendReply($scheduledAt, $mayGoNow, ...$reply);

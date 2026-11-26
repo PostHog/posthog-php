@@ -2078,9 +2078,30 @@ PHP, '-d disable_functions=error_log');
         $this->assertSame(self::MESSAGE_ID, $error->getMessageId());
     }
 
-    public function testTheMinuteAheadIsCountedFromBeforeTheAttemptPostHogAccepted(): void
+    public function testTheMinuteAheadIsCountedFromTheFirstAttemptNotFromARetry(): void
     {
         $this->reply([503, '{"code":"unavailable"}', ['Retry-After: 2']], [202, json_encode([
+            'message_id' => self::MESSAGE_ID,
+            'status' => 'queued',
+            'scheduled_at' => null,
+        ]), []]);
+
+        $error = $this->sendError([
+            'to' => 'user@example.com',
+            'template_id' => self::TEMPLATE_ID,
+            'scheduled_at' => '2026-11-02T12:01:01Z',
+        ]);
+
+        $this->assertSame(
+            ['schedule_not_confirmed', self::MESSAGE_ID],
+            [$error->getErrorCode(), $error->getMessageId()]
+        );
+        $this->assertCount(2, $this->requests);
+    }
+
+    public function testATimeWithinTheMinuteOfTheFirstAttemptIsAnAcceptanceAfterALongRetry(): void
+    {
+        $this->reply([503, '{"code":"unavailable"}', ['Retry-After: 30']], [202, json_encode([
             'message_id' => self::MESSAGE_ID,
             'status' => 'queued',
             'scheduled_at' => null,
@@ -2089,14 +2110,14 @@ PHP, '-d disable_functions=error_log');
         $result = $this->emails()->send([
             'to' => 'user@example.com',
             'template_id' => self::TEMPLATE_ID,
-            'scheduled_at' => '2026-11-02T12:01:01Z',
+            'scheduled_at' => '2026-11-02T12:00:58Z',
         ]);
 
         $this->assertSame([self::MESSAGE_ID, 'queued'], [$result->getId(), $result->getStatus()]);
         $this->assertCount(2, $this->requests);
     }
 
-    public function testAReplayAfterALostAnswerCountsTheMinuteFromTheAttemptThatGotIt(): void
+    public function testAReplayAfterALostAnswerCountsTheMinuteFromTheFirstAttempt(): void
     {
         $this->reply(new EmailError('network_error', 'The request to PostHog failed.'), [202, json_encode([
             'message_id' => self::MESSAGE_ID,
@@ -2105,13 +2126,13 @@ PHP, '-d disable_functions=error_log');
             'replayed' => true,
         ]), []]);
 
-        $result = $this->emails()->send([
+        $error = $this->sendError([
             'to' => 'user@example.com',
             'template_id' => self::TEMPLATE_ID,
             'scheduled_at' => '2026-11-02T12:01:00.500Z',
         ]);
 
-        $this->assertSame(['queued', true], [$result->getStatus(), $result->isReplayed()]);
+        $this->assertSame('schedule_not_confirmed', $error->getErrorCode());
         $this->assertCount(2, $this->requests);
     }
 
