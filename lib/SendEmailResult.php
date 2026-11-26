@@ -52,7 +52,8 @@ class SendEmailResult
     /**
      * `scheduled` when PostHog confirmed the email's `scheduled_at`, even if a replay answers after the email
      * went out. `queued` when it goes out now: a send without `scheduled_at`, or one whose `scheduled_at` was at
-     * most a minute ahead of the client's clock when it sent the attempt PostHog answered, a replay included.
+     * most a minute ahead of the client's clock when the send's first attempt went out, even when a retry or a
+     * replay answers.
      */
     public function getStatus(): string
     {
