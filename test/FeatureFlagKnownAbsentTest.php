@@ -1002,7 +1002,10 @@ class FeatureFlagKnownAbsentTest extends TestCase
         $metadataKey = '__posthog_person_metadata__created_at';
 
         $this->assertFalse(FeatureFlag::matchProperty(
-            ['key' => $metadataKey, 'type' => 'group', 'group_type_index' => 0, 'operator' => 'is_set', 'value' => null],
+            [
+                'key' => $metadataKey, 'type' => 'group', 'group_type_index' => 0,
+                'operator' => 'is_set', 'value' => null,
+            ],
             [$metadataKey => '2024-01-01T00:00:00Z'],
             1,
             [$metadataKey => true]
