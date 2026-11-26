@@ -439,7 +439,8 @@ final class Emails
      * When PostHog refuses the batch as a whole, such as a rate limit past its retries, batch() throws
      * EmailBatchError, whose getResults() holds every recipient: `failed`, or `unconfirmed` when an attempt may have
      * queued it. getFix() carries PostHog's advice. The code `content_too_large` with status 413 means the request
-     * is larger than PostHog takes: send fewer recipients in each batch, or a smaller email. With status 400 it means
+     * is larger than PostHog takes, also when a proxy answers 413 without a code: split the recipients into smaller
+     * batches, or send a smaller email. With status 400 it means
      * the content or template_data every recipient shares is too large, so fewer recipients won't help: make it
      * smaller, or send those emails one at a time with send().
      * `batch_unavailable` (409) means the project can't send batches yet, and is never retried. Send each email the

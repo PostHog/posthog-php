@@ -321,8 +321,11 @@ final class EmailBatch
             ];
         }
         if ($status === 413) {
+            $answered['code'] = self::code($answered['code'] ?? null) ?? 'content_too_large';
+            $answered['detail'] = EmailReplies::text($answered['detail'] ?? null)
+                ?? "The batch is larger than PostHog takes in one request, so PostHog didn't send it.";
             $answered['fix'] = EmailReplies::text($answered['fix'] ?? null)
-                ?? 'Make the email or its template_data smaller, or send fewer recipients in each batch.';
+                ?? 'Split the recipients into smaller batches, or make the email or its template_data smaller.';
         }
         if (($answered['code'] ?? null) === self::BATCH_UNAVAILABLE) {
             $answered['fix'] = 'Until batch sends are on for the project, ' . self::SEND_SINGLY;
@@ -368,7 +371,7 @@ final class EmailBatch
                 messageId: $messageId
             );
         }
-        $code = EmailReplies::text($error['code'] ?? null) ?? 'api_error';
+        $code = self::code($error['code'] ?? null) ?? 'api_error';
         $status = $error['status'] ?? null;
 
         return new EmailError(
@@ -377,6 +380,13 @@ final class EmailBatch
             is_int($status) ? $status : null,
             messageId: $messageId
         );
+    }
+
+    private static function code(mixed $value): ?string
+    {
+        $code = EmailReplies::text($value);
+
+        return $code === null || trim($code) === '' ? null : $code;
     }
 
     private static function unconfirmed(?string $messageId): EmailError

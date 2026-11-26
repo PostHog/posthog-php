@@ -36,6 +36,7 @@ class EmailsBatchTest extends TestCase
         . 'first use, so each email goes out once.';
     private const NOT_SAID_OF_AN_UNCONFIRMED_EMAIL = '/sent no|didn.t send|not sent|not queued|didn.t queue|failed|'
         . 'split|smaller|new key/i';
+    private const SPLIT = 'Split the recipients into smaller batches, or make the email or its template_data smaller.';
     private const SEND_EACH_ON_ITS_OWN = 'send each recipient on its own with emails()->send() and its '
         . 'idempotency_key until batch sends are available.';
 
@@ -490,23 +491,45 @@ class EmailsBatchTest extends TestCase
                 [...$answer, 'fix' => 'Split the recipients into smaller batches.'],
                 'Split the recipients into smaller batches.',
             ],
-            'a body too large, without a fix' => [
-                413,
-                $answer,
-                'Make the email or its template_data smaller, or send fewer recipients in each batch.',
-            ],
+            'a body too large, without a fix' => [413, $answer, self::SPLIT],
             'shared content too large' => [
                 400,
                 [...$answer, 'fix' => 'Make the shared template_data smaller.'],
                 'Make the shared template_data smaller.',
             ],
             'shared content too large, without a fix' => [400, $answer, null],
-            'a body too large, with an empty fix' => [
-                413,
-                [...$answer, 'fix' => ''],
-                'Make the email or its template_data smaller, or send fewer recipients in each batch.',
-            ],
+            'a body too large, with an empty fix' => [413, [...$answer, 'fix' => ''], self::SPLIT],
         ];
+    }
+
+    public static function tooLargeAnswersWithoutACode(): array
+    {
+        return [
+            'a body that is not JSON' => ['<html>413 Request Entity Too Large</html>'],
+            'an empty body' => [''],
+            'JSON without a code' => ['{"type":"invalid_request"}'],
+            'a blank code' => ['{"code":" "}'],
+        ];
+    }
+
+    #[DataProvider('tooLargeAnswersWithoutACode')]
+    public function testA413WithoutACodeIsContentTooLargeAndSaysToSplitTheBatch(string $body): void
+    {
+        $this->reply([413, $body, []]);
+
+        $error = $this->batchError(self::recipients(2), ['max_retries' => 2]);
+
+        $this->assertSame(
+            [
+                'content_too_large',
+                413,
+                "The batch is larger than PostHog takes in one request, so PostHog didn't send it.",
+                self::SPLIT,
+            ],
+            [$error->getErrorCode(), $error->getStatusCode(), $error->getMessage(), $error->getFix()]
+        );
+        $this->assertSame(['failed', 'failed'], self::statuses($error->getResults()));
+        $this->assertCount(1, $this->requests);
     }
 
     public function testAHundredRecipientsGoOutInOneRequest(): void
@@ -830,6 +853,22 @@ PHP;
                 ['idempotency_key_in_flight', 409],
             ],
             'an unreadable result' => [['message_id' => 'm0', 'status' => 'pending'], ['api_error', null]],
+            'an error without a code on a 400' => [
+                ['message_id' => 'm0', 'status' => 'error', 'error' => ['status' => 400, 'detail' => 'Refused.']],
+                ['api_error', 400],
+            ],
+            'an error with a null code on a 422' => [
+                ['message_id' => 'm0', 'status' => 'error', 'error' => ['code' => null, 'status' => 422]],
+                ['api_error', 422],
+            ],
+            'an error with an empty code on a 503' => [
+                ['message_id' => 'm0', 'status' => 'error', 'error' => ['code' => '', 'status' => 503]],
+                ['api_error', 503],
+            ],
+            'an error with a blank code on a 400' => [
+                ['message_id' => 'm0', 'status' => 'error', 'error' => ['code' => '  ', 'status' => 400]],
+                ['api_error', 400],
+            ],
         ];
     }
 
@@ -1247,7 +1286,7 @@ PHP;
                 'detail' => "The batch is larger than PostHog can send at once, so PostHog didn't send it.",
                 'fix' => 'Split the recipients into smaller batches.',
             ]), []], 'content_too_large'],
-            'a 413 without a body' => [[413, '', []], 'api_error'],
+            'a 413 without a body' => [[413, '', []], 'content_too_large'],
         ];
     }
 
