@@ -325,12 +325,20 @@ final class EmailBatch
         if (($answered['code'] ?? null) === self::BATCH_UNAVAILABLE) {
             $answered['fix'] = 'Until batch sends are on for the project, ' . self::SEND_SINGLY;
         }
-        if ($this->mayHaveQueued) {
-            $code = EmailReplies::text($answered['code'] ?? null) ?? 'api_error';
+        $code = EmailReplies::text($answered['code'] ?? null) ?? 'api_error';
+        $detail = match (true) {
+            $status >= 500, $code === self::IN_FLIGHT && $status === 409 => null,
+            $status === 409 && $code !== self::BATCH_UNAVAILABLE => "PostHog answered the batch with a 409 ($code) "
+                . "that doesn't say whether it queued the emails, so some of them may have gone out: read each "
+                . "recipient's result.",
+            $this->mayHaveQueued => "PostHog refused a retry of this batch with $code. An earlier attempt got no "
+                . "answer, so some of its emails may have gone out: read each recipient's result.",
+            default => null,
+        };
+        if ($detail !== null) {
             $answered = [
                 ...array_diff_key($answered, ['why' => true]),
-                'detail' => "PostHog refused a retry of this batch with $code. An earlier attempt got no answer, so "
-                    . "some of its emails may have gone out: read each recipient's result.",
+                'detail' => $detail,
                 'fix' => self::RESEND_EACH,
             ];
         }

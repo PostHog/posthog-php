@@ -1293,6 +1293,49 @@ PHP;
         }
     }
 
+    public function testAnInFlightAnswerAfterALostAnswerKeepsPostHogsAnswerAndFix(): void
+    {
+        $this->reply(self::networkError(), [409, json_encode([
+            'type' => 'invalid_request',
+            'code' => 'idempotency_key_in_flight',
+            'detail' => 'Another request with this key is in progress.',
+            'fix' => 'Wait a minute, then send it again with the same idempotency_key.',
+        ]), []]);
+
+        $error = $this->batchError(self::recipients(1), ['max_retries' => 1]);
+
+        $this->assertSame(
+            [
+                'Another request with this key is in progress.',
+                'Wait a minute, then send it again with the same idempotency_key.',
+            ],
+            [$error->getMessage(), $error->getFix()]
+        );
+        [$result] = $error->getResults();
+        $this->assertSame(
+            ['unconfirmed', 'Wait a minute, then send it again with the same idempotency_key.'],
+            [$result->getStatus(), $result->getError()->getFix()]
+        );
+    }
+
+    public function testA503AfterALostAnswerKeepsPostHogsAnswer(): void
+    {
+        $this->reply(self::networkError(), [503, json_encode([
+            'type' => 'server_error',
+            'code' => 'delivery_unavailable',
+            'detail' => 'Email delivery is down for maintenance.',
+            'why' => 'A planned upgrade.',
+        ]), []]);
+
+        $error = $this->batchError(self::recipients(1), ['max_retries' => 1]);
+
+        $this->assertSame(
+            ['delivery_unavailable', 'Email delivery is down for maintenance.', 'A planned upgrade.'],
+            [$error->getErrorCode(), $error->getMessage(), $error->getWhy()]
+        );
+        $this->assertSame(['unconfirmed'], self::statuses($error->getResults()));
+    }
+
     public function testA404ThatNamesAFieldKeepsPostHogsAnswer(): void
     {
         $this->reply([404, '{"type":"invalid_request","code":"not_found","detail":"Template is archived.",'
@@ -1463,7 +1506,9 @@ PHP;
             'an empty body' => [''],
             'a body that is not JSON' => ['<html>Conflict</html>'],
             'a generic code' => ['{"type":"server_error","code":"api_error","detail":"Conflict."}'],
-            'a proxy conflict' => ['{"code":"conflict","detail":"The email failed: conflict."}'],
+            'a proxy conflict' => [
+                '{"code":"conflict","detail":"The email failed: conflict.","fix":"Send it again with a new key."}',
+            ],
         ];
     }
 
@@ -1475,6 +1520,13 @@ PHP;
         $error = $this->batchError(self::recipients(2), ['max_retries' => 2]);
 
         $this->assertCount(1, $this->requests);
+        $this->assertSame(409, $error->getStatusCode());
+        $this->assertStringContainsString('some of them may have gone out', $error->getMessage());
+        $this->assertSame([self::RESEND_EACH, null], [$error->getFix(), $error->getWhy()]);
+        $this->assertDoesNotMatchRegularExpression(
+            self::NOT_SAID_OF_AN_UNCONFIRMED_EMAIL,
+            $error->getMessage() . ' ' . $error->getFix()
+        );
         $this->assertSame(
             [['unconfirmed', 'key-0', self::SEND_AGAIN], ['unconfirmed', 'key-1', self::SEND_AGAIN]],
             array_map(
