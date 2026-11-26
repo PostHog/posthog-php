@@ -17,7 +17,8 @@ use PostHog\UnresolvedFlagReason;
 
 /**
  * Like the flags service, a group key that isn't a non-empty string or a number counts as no group key
- * (PostHog/sdk-specs#250): its group conditions are skipped and a group flag resolves false locally.
+ * (PostHog/sdk-specs#250): its group conditions are skipped, so a group flag with only group conditions
+ * resolves false locally.
  */
 class UnusableGroupKeyTest extends TestCase
 {
@@ -189,7 +190,12 @@ class UnusableGroupKeyTest extends TestCase
     {
         $flag = self::orgFlag(extra: ['holdout' => ['id' => 7, 'exclusion_percentage' => 100]]);
 
-        $this->assertFalse(self::computeLocally($flag, ['organization' => $groupKey]));
+        try {
+            self::computeLocally($flag, ['organization' => $groupKey]);
+            $this->fail('Expected InconclusiveMatchException');
+        } catch (InconclusiveMatchException $e) {
+            $this->assertSame(UnresolvedFlagReason::MISSING_CONTEXT, $e->getReason());
+        }
     }
 
     #[DataProvider('unusableGroupKeys')]

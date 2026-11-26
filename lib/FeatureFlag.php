@@ -1462,7 +1462,8 @@ class FeatureFlag
 
     /**
      * Evaluate a flag from the top-level inputs with the property context and bucketing identifier of its
-     * own aggregation. A group flag whose group isn't supplied is false, unless the groups are unknown.
+     * own aggregation. Without a usable key for the flag's group, the conditions aggregated by that group
+     * are skipped and the other conditions still run, unless the groups are unknown or a holdout needs the key.
      *
      * @param array{
      *     hasPerson: bool,
@@ -1526,7 +1527,28 @@ class FeatureFlag
                     reason: UnresolvedFlagReason::MISSING_CONTEXT
                 );
             }
-            return false;
+            // The flags service buckets a holdout by the flag-level group key, so without one its
+            // membership is unknown.
+            if ((FeatureFlag::holdoutPercentage(($flag["filters"] ?? [])["holdout"] ?? null) ?? 0.0) > 0.0) {
+                throw new InconclusiveMatchException(
+                    "Can't evaluate the holdout of a group flag without its group key",
+                    reason: UnresolvedFlagReason::MISSING_CONTEXT
+                );
+            }
+
+            // A null group key skips every condition aggregated by the flag's group; other conditions still run.
+            return FeatureFlag::matchFeatureFlagPropertiesForIdentity(
+                $flag,
+                null,
+                [],
+                $cohorts,
+                $flagsByKey,
+                $evaluationCache,
+                $propertyMatchingVersion,
+                $flagAggregation,
+                [],
+                $context
+            );
         }
 
         return FeatureFlag::matchFeatureFlagPropertiesForIdentity(
@@ -1609,6 +1631,8 @@ class FeatureFlag
     /**
      * Match a flag with the properties and bucketing identifier of an aggregation already selected.
      *
+     * @param string|int|float|null $distinctId Bucketing identifier of $identityAggregation; null for a group
+     *     without a usable key, which skips the conditions aggregated by that group.
      * @param int|string|null $identityAggregation Aggregation of $distinctId and $properties: null for a
      *     person, a group type index otherwise.
      * @param array<string, true> $knownAbsentKeys Keys of $properties known to be absent, as array keys.
@@ -1629,7 +1653,10 @@ class FeatureFlag
         $flagFilters = $flag["filters"] ?? [];
 
         // Experiment holdouts win over every release condition, variant override, and rollout.
-        $holdoutVariant = FeatureFlag::matchHoldout($flagFilters["holdout"] ?? null, $distinctId);
+        // Without a group key, computeFlagInContext() already rejected a holdout above 0%.
+        $holdoutVariant = is_null($distinctId) && !is_null($identityAggregation)
+            ? null
+            : FeatureFlag::matchHoldout($flagFilters["holdout"] ?? null, $distinctId);
         if (!is_null($holdoutVariant)) {
             return $holdoutVariant;
         }
@@ -1643,9 +1670,9 @@ class FeatureFlag
 
         foreach ($flagConditions as $condition) {
             try {
-                // Per-condition aggregation overrides only when the condition explicitly
-                // sets its own aggregation_group_type_index (mixed targeting). When absent,
-                // use the properties/bucketing already resolved by the caller.
+                // A condition's own aggregation_group_type_index, even an explicit null (a person
+                // condition), overrides the flag-level aggregation. When absent, the condition uses the
+                // properties/bucketing already resolved by the caller.
                 $hasConditionAggregation = array_key_exists("aggregation_group_type_index", $condition);
                 $conditionAggregation = $hasConditionAggregation
                     ? $condition["aggregation_group_type_index"]
@@ -1656,29 +1683,46 @@ class FeatureFlag
                 $effectiveBucketing = $distinctId;
                 $effectiveAggregation = $identityAggregation;
 
-                // Mixed-override path: condition-level aggregation differs from flag-level.
-                // This assumes flag-level aggregation is null for mixed flags.
-                if ($conditionAggregation !== $flagAggregation) {
-                    if (!is_null($conditionAggregation)) {
-                        $groupName = $context["groupTypeMapping"][strval($conditionAggregation)] ?? null;
-                        if (is_null($groupName) || !FeatureFlag::hasUsableGroupKey($groups, $groupName)) {
-                            continue;
-                        }
-                        $groupListing = $context["groupKnownAbsentKeys"][$groupName] ?? [];
-                        // A listing makes a missing property map an empty one: listed keys are absent, and
-                        // any other key stays inconclusive when a filter reads it.
-                        if (!array_key_exists($groupName, $groupProperties) && $groupListing === []) {
-                            $inconclusiveReason = FeatureFlag::pickUnresolvedReason(
-                                $inconclusiveReason,
-                                UnresolvedFlagReason::MISSING_CONTEXT
-                            );
-                            continue;
-                        }
-                        $effectiveProperties = $groupProperties[$groupName] ?? [];
-                        $effectiveKnownAbsentKeys = $groupListing;
-                        $effectiveBucketing = $groups[$groupName];
-                        $effectiveAggregation = $conditionAggregation;
+                if (
+                    FeatureFlag::aggregationKey($conditionAggregation) ===
+                        FeatureFlag::aggregationKey($identityAggregation)
+                ) {
+                    // Like the flags service, a group condition without its group key is skipped.
+                    if (is_null($distinctId) && !is_null($identityAggregation)) {
+                        continue;
                     }
+                } elseif (is_null($conditionAggregation)) {
+                    // A person condition in a group flag.
+                    if (!$context["hasPerson"]) {
+                        $inconclusiveReason = FeatureFlag::pickUnresolvedReason(
+                            $inconclusiveReason,
+                            UnresolvedFlagReason::MISSING_CONTEXT
+                        );
+                        continue;
+                    }
+                    $effectiveProperties = $context["personProperties"];
+                    $effectiveKnownAbsentKeys = $context["personKnownAbsentKeys"];
+                    $effectiveBucketing = $context["distinctId"];
+                    $effectiveAggregation = null;
+                } else {
+                    $groupName = $context["groupTypeMapping"][strval($conditionAggregation)] ?? null;
+                    if (is_null($groupName) || !FeatureFlag::hasUsableGroupKey($groups, $groupName)) {
+                        continue;
+                    }
+                    $groupListing = $context["groupKnownAbsentKeys"][$groupName] ?? [];
+                    // A listing makes a missing property map an empty one: listed keys are absent, and
+                    // any other key stays inconclusive when a filter reads it.
+                    if (!array_key_exists($groupName, $groupProperties) && $groupListing === []) {
+                        $inconclusiveReason = FeatureFlag::pickUnresolvedReason(
+                            $inconclusiveReason,
+                            UnresolvedFlagReason::MISSING_CONTEXT
+                        );
+                        continue;
+                    }
+                    $effectiveProperties = $groupProperties[$groupName] ?? [];
+                    $effectiveKnownAbsentKeys = $groupListing;
+                    $effectiveBucketing = $groups[$groupName];
+                    $effectiveAggregation = $conditionAggregation;
                 }
 
                 $matchResult = FeatureFlag::isConditionMatch(
