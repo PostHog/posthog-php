@@ -1341,6 +1341,16 @@ PHP;
         $this->assertSame(['unconfirmed'], self::statuses($error->getResults()));
     }
 
+    public function testA503WithoutAFixAfterALostAnswerKeepsPostHogsRetryAfter(): void
+    {
+        $this->reply(self::networkError(), [503, '{"code":"delivery_unavailable"}', ['Retry-After: 31']]);
+
+        $error = $this->batchError(self::recipients(1), ['max_retries' => 1]);
+
+        $this->assertCount(2, $this->requests);
+        $this->assertSame([self::RESEND_EACH, 31000], [$error->getFix(), $error->getRetryAfterMs()]);
+    }
+
     public function testAnInFlightAnswerWithoutAFixAfterALostAnswerSaysToResendWithTheSameKeys(): void
     {
         $this->reply(self::networkError(), self::wholeCall(409, 'idempotency_key_in_flight'));
