@@ -20,8 +20,6 @@ class Client implements FeatureFlagEvaluationsHost
 {
     private const SIZE_LIMIT = 50_000;
 
-    private const PERSON_METADATA_KEY_PREFIX = '__posthog_person_metadata__';
-
     private const ENV_RELEASE_ID = "POSTHOG_RELEASE_ID";
 
     /**
@@ -1833,13 +1831,7 @@ class Client implements FeatureFlagEvaluationsHost
         ?array $personPropertyKeysKnownAbsent,
         ?array $groupPropertyKeysKnownAbsent
     ): array {
-        $personKnownAbsentKeys = [];
-        foreach ($personPropertyKeysKnownAbsent ?? [] as $absentKey) {
-            // Known absence never hides a persons-table field read through the metadata prefix.
-            if (!str_starts_with($absentKey, self::PERSON_METADATA_KEY_PREFIX)) {
-                $personKnownAbsentKeys[$absentKey] = true;
-            }
-        }
+        $personKnownAbsentKeys = array_fill_keys($personPropertyKeysKnownAbsent ?? [], true);
         $groupKnownAbsentKeys = [];
         foreach ($groupPropertyKeysKnownAbsent ?? [] as $groupType => $absentKeys) {
             $groupKnownAbsentKeys[$groupType] = array_fill_keys($absentKeys, true);

@@ -2,6 +2,7 @@
 
 namespace PostHog;
 
+use PostHog\Internal\KnownAbsentKeys;
 use Symfony\Component\Clock\Clock;
 
 /**
@@ -49,7 +50,8 @@ class FeatureFlag
      * @param mixed $propertyMatchingVersion Definition snapshot selector; only 2 enables explicit matching.
      * @param array<string, true> $knownAbsentKeys Property keys known to be absent, as array keys. A listed
      *     key is absent even when $propertyValues holds a value for it. Applies only to `person` and `group`
-     *     filters, never to `person_metadata` or other filter types.
+     *     filters, never to `person_metadata` or other filter types, and a key starting with
+     *     `__posthog_person_metadata__` never applies to a `person` filter.
      * @return bool Whether the property matches.
      * @throws InconclusiveMatchException When the property cannot be evaluated locally.
      */
@@ -60,10 +62,12 @@ class FeatureFlag
         $knownAbsentKeys = []
     ) {
         $key = $property["key"] ?? null;
+        $filterType = $property["type"] ?? null;
         if (
-            in_array($property["type"] ?? null, ["person", "group"], true) &&
+            in_array($filterType, ["person", "group"], true) &&
             (is_string($key) || is_int($key)) &&
-            isset($knownAbsentKeys[$key])
+            isset($knownAbsentKeys[$key]) &&
+            ($filterType === "group" || KnownAbsentKeys::appliesToPersonFilter($key))
         ) {
             // An operator the SDK doesn't implement stays inconclusive even for a known-absent key. Like the
             // flags service, resolve without parsing, compiling or validating a present condition value.

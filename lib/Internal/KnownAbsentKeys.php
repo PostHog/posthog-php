@@ -15,6 +15,8 @@ final class KnownAbsentKeys
     // The flags service rejects a known-absent list longer than this, counted with duplicates.
     private const LIMIT = 1000;
 
+    private const PERSON_METADATA_KEY_PREFIX = '__posthog_person_metadata__';
+
     private function __construct()
     {
     }
@@ -40,6 +42,15 @@ final class KnownAbsentKeys
             }
             self::assertValidList($absentKeys, "groupPropertyKeysKnownAbsent['{$groupType}']");
         }
+    }
+
+    /**
+     * Whether a listed person key can apply. Like the flags service, a person key with the person-metadata
+     * prefix never applies, so known absence never hides a persons-table field such as `created_at`.
+     */
+    public static function appliesToPersonFilter(string|int $absentKey): bool
+    {
+        return !str_starts_with((string) $absentKey, self::PERSON_METADATA_KEY_PREFIX);
     }
 
     private static function assertValidList(array $absentKeys, string $name): void

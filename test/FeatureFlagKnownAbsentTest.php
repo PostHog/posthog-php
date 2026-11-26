@@ -961,6 +961,54 @@ class FeatureFlagKnownAbsentTest extends TestCase
         ));
     }
 
+    public function testDirectCallsIgnoreListedPersonMetadataPrefixedKey(): void
+    {
+        $metadataKey = '__posthog_person_metadata__created_at';
+        $filter = self::personFilter('is_set', null, $metadataKey);
+        $properties = [$metadataKey => '2024-01-01T00:00:00Z'];
+        $listing = [$metadataKey => true];
+        $flag = self::flag('flag', [$filter]);
+
+        $this->assertTrue(FeatureFlag::matchProperty($filter, $properties, 1, $listing));
+        $this->assertTrue(FeatureFlag::matchPropertyGroup(
+            ['type' => 'AND', 'values' => [$filter]],
+            $properties,
+            [],
+            knownAbsentKeys: $listing
+        ));
+        $this->assertTrue(FeatureFlag::matchFeatureFlagProperties(
+            $flag,
+            'user-1',
+            $properties,
+            knownAbsentKeys: $listing
+        ));
+        $this->assertTrue(FeatureFlag::computeFlagLocally(
+            $flag,
+            'user-1',
+            [],
+            $properties,
+            [],
+            [],
+            ['flag' => $flag],
+            [],
+            1,
+            $listing,
+            []
+        ));
+    }
+
+    public function testDirectMatchPropertyAppliesPrefixedKeyToGroupFilter(): void
+    {
+        $metadataKey = '__posthog_person_metadata__created_at';
+
+        $this->assertFalse(FeatureFlag::matchProperty(
+            ['key' => $metadataKey, 'type' => 'group', 'group_type_index' => 0, 'operator' => 'is_set', 'value' => null],
+            [$metadataKey => '2024-01-01T00:00:00Z'],
+            1,
+            [$metadataKey => true]
+        ));
+    }
+
     public function testDirectMatchPropertyGroupAppliesKeysOnlyToPersonFilters(): void
     {
         $propertyGroup = ['type' => 'AND', 'values' => [[
