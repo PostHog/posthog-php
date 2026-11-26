@@ -601,7 +601,10 @@ class FeatureFlagKnownAbsentTest extends TestCase
             onlyEvaluateLocally: true,
             personPropertyKeysKnownAbsent: ['created_at']
         );
-        $this->assertSame(['meta-flag' => UnresolvedFlagReason::MISSING_CONTEXT], $local->getUnresolvedFlags());
+        $this->assertSame(
+            ['meta-flag' => UnresolvedFlagReason::UNSUPPORTED_DEFINITION],
+            $local->getUnresolvedFlags()
+        );
 
         $snapshot = $this->client->evaluateFlags('user-1', personPropertyKeysKnownAbsent: ['created_at']);
         $this->assertSame(self::REMOTE_VALUE, $snapshot->getFlag('meta-flag'));
@@ -630,7 +633,7 @@ class FeatureFlagKnownAbsentTest extends TestCase
         yield 'is_date_before' => [$createdAt + ['operator' => 'is_date_before', 'value' => '2024-01-01T00:00:00Z']];
     }
 
-    public function testPersonMetadataFilterOnListedKeyUsesSuppliedValue(): void
+    public function testPersonMetadataFilterOnListedKeyStaysInconclusiveWithSuppliedValue(): void
     {
         $filter = [
             'key' => 'created_at', 'type' => 'person_metadata',
@@ -644,8 +647,8 @@ class FeatureFlagKnownAbsentTest extends TestCase
             personPropertyKeysKnownAbsent: ['created_at']
         );
 
-        $this->assertTrue($snapshot->getFlag('meta-flag'));
-        $this->assertSame([], $this->flagsRequestBodies());
+        $this->assertSame(self::REMOTE_VALUE, $snapshot->getFlag('meta-flag'));
+        $this->assertCount(1, $this->flagsRequestBodies());
     }
 
     public function testPersonKnownAbsentKeyIgnoresGroupFilterInPersonFlag(): void
