@@ -876,6 +876,14 @@ PHP;
                 ['message_id' => 'm0', 'status' => 'error', 'error' => ['code' => '  ', 'status' => 400]],
                 ['api_error', 400],
             ],
+            'an error whose code is a NUL' => [
+                ['message_id' => 'm0', 'status' => 'error', 'error' => ['code' => "\0", 'status' => 400]],
+                ['api_error', 400],
+            ],
+            'an error whose code is a zero-width space' => [
+                ['message_id' => 'm0', 'status' => 'error', 'error' => ['code' => "\u{200B}", 'status' => 400]],
+                ['api_error', 400],
+            ],
             'an error whose code is a form feed and a no-break space' => [
                 ['message_id' => 'm0', 'status' => 'error', 'error' => ['code' => "\f\u{00A0}", 'status' => 422]],
                 ['api_error', 422],

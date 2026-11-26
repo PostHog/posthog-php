@@ -386,7 +386,7 @@ final class EmailBatch
     {
         $code = EmailReplies::text($value);
 
-        return $code === null || preg_match('/^[\s\p{Z}]*$/u', $code) === 1 ? null : $code;
+        return $code === null || preg_match('/^[\s\p{Z}\p{Cc}\p{Cf}]*$/u', $code) === 1 ? null : $code;
     }
 
     private static function unconfirmed(?string $messageId): EmailError
