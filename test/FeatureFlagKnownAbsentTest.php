@@ -220,6 +220,138 @@ class FeatureFlagKnownAbsentTest extends TestCase
         yield 'not_regex with null value' => [self::personFilter('not_regex', null)];
     }
 
+    #[DataProvider('omittedOrNullValueOnListedKeyProvider')]
+    public function testOmittedOrNullConditionValueOnListedKeyStaysInconclusive(
+        array $filter,
+        array $personProperties
+    ): void {
+        $this->makeClient([self::flag('flag', [$filter])]);
+
+        $local = $this->client->evaluateFlags(
+            'user-1',
+            personProperties: $personProperties,
+            onlyEvaluateLocally: true,
+            personPropertyKeysKnownAbsent: ['plan']
+        );
+        $this->assertSame(
+            ['flag' => UnresolvedFlagReason::UNSUPPORTED_DEFINITION],
+            $local->getUnresolvedFlags()
+        );
+
+        $snapshot = $this->client->evaluateFlags(
+            'user-1',
+            personProperties: $personProperties,
+            personPropertyKeysKnownAbsent: ['plan']
+        );
+        $this->assertSame(self::REMOTE_VALUE, $snapshot->getFlag('flag'));
+        $this->assertCount(1, $this->flagsRequestBodies());
+
+        try {
+            FeatureFlag::matchProperty($filter, $personProperties, 1, ['plan' => true]);
+            $this->fail('Expected an inconclusive match');
+        } catch (InconclusiveMatchException $e) {
+            $this->assertSame(UnresolvedFlagReason::UNSUPPORTED_DEFINITION, $e->getReason());
+        }
+    }
+
+    public static function omittedOrNullValueOnListedKeyProvider(): iterable
+    {
+        foreach (['exact', 'is_not', 'icontains', 'gt', 'is_date_before'] as $operator) {
+            $omitted = ['key' => 'plan', 'type' => 'person', 'operator' => $operator];
+            foreach (['listed only' => [], 'listed and supplied' => ['plan' => 'pro']] as $case => $properties) {
+                yield "{$operator} with value omitted, {$case}" => [$omitted, $properties];
+                yield "{$operator} with null value, {$case}" => [$omitted + ['value' => null], $properties];
+            }
+        }
+    }
+
+    #[DataProvider('setOperatorOmittedOrNullValueProvider')]
+    public function testSetOperatorWithOmittedOrNullValueOnListedKeyResolvesLocally(
+        array $filter,
+        array $personProperties,
+        bool $expected
+    ): void {
+        $this->makeClient([self::flag('flag', [$filter])]);
+
+        $snapshot = $this->client->evaluateFlags(
+            'user-1',
+            personProperties: $personProperties,
+            personPropertyKeysKnownAbsent: ['plan']
+        );
+
+        $this->assertSame($expected, $snapshot->getFlag('flag'));
+        $this->assertSame([], $this->flagsRequestBodies());
+    }
+
+    public static function setOperatorOmittedOrNullValueProvider(): iterable
+    {
+        foreach (['is_not_set' => true, 'is_set' => false] as $operator => $expected) {
+            $omitted = ['key' => 'plan', 'type' => 'person', 'operator' => $operator];
+            foreach (['listed only' => [], 'listed and supplied' => ['plan' => 'pro']] as $case => $properties) {
+                yield "{$operator} with value omitted, {$case}" => [$omitted, $properties, $expected];
+                yield "{$operator} with null value, {$case}" => [$omitted + ['value' => null], $properties, $expected];
+            }
+        }
+    }
+
+    #[DataProvider('listedAndSuppliedValuePresentProvider')]
+    public function testListedAndSuppliedKeyWithConditionValueResolvesFromListing(
+        string $operator,
+        mixed $value,
+        bool $expected
+    ): void {
+        $this->makeClient([self::flag('flag', [self::personFilter($operator, $value)])]);
+
+        $snapshot = $this->client->evaluateFlags(
+            'user-1',
+            personProperties: ['plan' => 'pro'],
+            personPropertyKeysKnownAbsent: ['plan']
+        );
+
+        $this->assertSame($expected, $snapshot->getFlag('flag'));
+        $this->assertSame([], $this->flagsRequestBodies());
+    }
+
+    public static function listedAndSuppliedValuePresentProvider(): iterable
+    {
+        yield 'exact' => ['exact', 'pro', false];
+        yield 'is_not' => ['is_not', 'pro', true];
+        yield 'icontains' => ['icontains', 'pro', false];
+        yield 'gt' => ['gt', '10', false];
+        yield 'is_date_before' => ['is_date_before', '2025-01-01T10:00:00Z', false];
+    }
+
+    #[DataProvider('unlistedSuppliedNullValueProvider')]
+    public function testUnlistedSuppliedKeyWithNullConditionValueKeepsMatching(
+        string $operator,
+        bool|string $expected
+    ): void {
+        $this->makeClient([self::flag('flag', [self::personFilter($operator, null)])]);
+
+        $local = $this->client->evaluateFlags(
+            'user-1',
+            personProperties: ['plan' => 'pro'],
+            onlyEvaluateLocally: true,
+            personPropertyKeysKnownAbsent: ['region']
+        );
+
+        if (is_bool($expected)) {
+            $this->assertSame($expected, $local->getFlag('flag'));
+            $this->assertSame([], $local->getUnresolvedFlags());
+        } else {
+            $this->assertSame(['flag' => $expected], $local->getUnresolvedFlags());
+        }
+    }
+
+    public static function unlistedSuppliedNullValueProvider(): iterable
+    {
+        yield 'exact' => ['exact', false];
+        yield 'is_not' => ['is_not', true];
+        yield 'icontains' => ['icontains', false];
+        yield 'gt' => ['gt', UnresolvedFlagReason::UNSUPPORTED_DEFINITION];
+        yield 'is_date_before' => ['is_date_before', UnresolvedFlagReason::UNSUPPORTED_DEFINITION];
+    }
+
     #[DataProvider('nullValueSetOperatorProvider')]
     public function testSetOperatorWithNullValueOnKnownAbsentKeyResolvesLocally(
         string $operator,
