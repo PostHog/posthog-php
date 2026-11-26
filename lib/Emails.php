@@ -8,6 +8,9 @@ use DateTimeInterface;
 use DateTimeZone;
 use InvalidArgumentException;
 use JsonException;
+use PostHog\Internal\EmailBatch;
+use PostHog\Internal\EmailRecipient;
+use PostHog\Internal\EmailReplies;
 use PostHog\Internal\ScheduledEmailResult;
 use Symfony\Component\Clock\Clock;
 use Symfony\Component\Clock\ClockInterface;
@@ -17,7 +20,7 @@ use Throwable;
 
 /**
  * Sends transactional email, from an email template made in PostHog or from content your code rendered,
- * and reads the status of each email it sent.
+ * to one recipient with send() or to many with batch(), and reads the status of each email it sent.
  *
  * Get it from the client with `$client->emails()` or `PostHog::emails()`. The client needs a project
  * secret API key (`phs_...`) as `$secretKey`: sending needs the `transactional_email:write` scope, reading
@@ -48,6 +51,7 @@ final class Emails
     private const SEND_PATH = '/api/messaging/send/email/';
     private const UPLOADS_PATH = '/api/messaging/attachments/uploads/';
     private const STATUS_PATH = '/api/messaging/emails/%s/';
+    private const BATCH_PATH = '/api/messaging/send/email_batch/';
     private const US_APP_HOST = 'https://us.posthog.com';
     private const EU_APP_HOST = 'https://eu.posthog.com';
     private const CLOUD_APP_HOSTS = [
@@ -58,12 +62,21 @@ final class Emails
         'eu.posthog.com' => self::EU_APP_HOST,
     ];
     private const MAX_RETRY_DELAY_MS = 30000;
+    private const BATCH_REQUEST_TIMEOUT_MS = 45000;
+    private const LOST_ANSWER_CODES = ['network_error', 'response_too_large'];
+    private const FIELDS_A_BATCH_REFUSES = [
+        'to' => 'Give each address as to in recipients.',
+        'distinct_id' => "Give each recipient's distinct_id in recipients.",
+        'idempotency_key' => "Give each recipient's idempotency_key in recipients.",
+        'scheduled_at' => 'Send each email with emails()->send(), which takes scheduled_at.',
+        'cc' => 'Send each email with emails()->send(), which takes cc.',
+        'bcc' => 'Send each email with emails()->send(), which takes bcc.',
+        'attachments' => 'Send each email with emails()->send(), which takes attachments.',
+    ];
     private const SEND_NOW_LEEWAY_SECONDS = 60;
     private const MAX_RESPONSE_BYTES = 1_048_576;
-    private const MAX_RETRY_AFTER_SECONDS = 31_536_000;
     private const NO_EXPECT_100_CONTINUE = 'Expect:';
     private const UUID_PATTERN = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iD';
-    private const IDEMPOTENCY_KEY_PATTERN = '/^[\x21-\x7e]{1,255}$/D';
     private const TEMPLATE_KEY_PATTERN = '/^[a-zA-Z0-9_-]{1,400}$/D';
     private const HEADER_TOKEN_PATTERN = '/^[\x21-\x7e]+$/D';
     private const TIMESTAMP_PATTERN = '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/D';
@@ -385,20 +398,131 @@ final class Emails
     }
 
     /**
+     * Queue the same email for many recipients, one email each, from a template made in PostHog or from content
+     * your code rendered.
+     *
+     * Pass one form, as send() takes it:
+     *
+     * - A template made transactional in PostHog: `template_id` and optional `template_data`, shared by every
+     *   recipient. A recipient's own `template_data` is merged over it: a top-level key set for the recipient
+     *   replaces the same key of the batch.
+     * - Content your code rendered, the same for every recipient: `template_key`, `subject`, and `html`, `text`
+     *   or both, with optional `from`, `reply_to`, `sensitive`, `tracking` and `capture_engagement`. A recipient
+     *   can't carry `template_data`: send personalized content with a `template_id` batch, or with send().
+     *
+     * A batch takes no `cc`, `bcc`, `attachments` or `scheduled_at`, and no `to`, `distinct_id` or
+     * `idempotency_key` of its own: each throws `invalid_form` before any request.
+     *
+     * `recipients` is a list of 1 to 100 recipients, each an array with `to` and optional `distinct_id`,
+     * `idempotency_key` and `template_data`. A null value counts as left out. The client sends the batch in one
+     * request and waits 45 seconds for the answer, or `email_request_timeout_ms` when that is longer.
+     * `max_retries` overrides the client's retries for the request.
+     *
+     * Each recipient's `idempotency_key` is 1 to 255 visible ASCII characters, a different one for each recipient
+     * of the call, and every retry reuses it, so a retry never queues an email twice. Without it, the client makes
+     * one that covers its own retries but not a second call, so pass keys you store when a batch may be cut off
+     * and run again: a rerun within 24 hours of the first run replays the emails that went out instead of sending
+     * them twice. Build each key from an ID you store with the job, such as the digest's own ID, never from the time
+     * of the run, so a retry after midnight makes the same keys. A single send and a batch recipient
+     * with the same key and the same email replay each other. Never reuse a key for another email: PostHog sends one
+     * email per key, so the other doesn't go out. PostHog usually refuses it with `idempotency_key_reused`, but two
+     * sends that arrive at the same time can both answer `queued`.
+     *
+     * Check each result's getStatus():
+     *
+     * - `queued`: PostHog accepted the email.
+     * - `failed`: PostHog refused it, and getError() says why, such as a suppressed address.
+     * - `unconfirmed`: the client can't tell whether PostHog accepted it, such as after a lost answer, or a 409
+     *   other than `batch_unavailable`, as when another request still holds its key. Send it again with the same
+     *   key within 24 hours of its first use, so it goes out once.
+     *
+     * When PostHog refuses the batch as a whole, such as a rate limit past its retries, batch() throws
+     * EmailBatchError, whose getResults() holds every recipient: `failed`, or `unconfirmed` when an attempt may have
+     * queued it. getFix() carries PostHog's advice. The code `content_too_large` with status 413 means the request
+     * is larger than PostHog takes, also when a proxy answers 413 without a code: split the recipients into smaller
+     * batches, or send a smaller email. With status 400 it means
+     * the content or template_data every recipient shares is too large, so fewer recipients won't help: make it
+     * smaller, or send those emails one at a time with send().
+     * `batch_unavailable` (409) means the project can't send batches yet, and is never retried. Send each email the
+     * batch didn't queue with send() and its recipient's `idempotency_key`.
+     * `not_found` (404) without a field means PostHog found no template with that `template_id`, or batch sends
+     * aren't available for the project. Check the `template_id`. If it's right, send each recipient on its own with
+     * send() and its `idempotency_key` until batch sends are available.
+     * When an earlier attempt got no answer, a refusal of the retry doesn't prove nothing went out: the error says
+     * some emails may have gone out, every recipient stays `unconfirmed`, and getFix() says to send each one again
+     * with the same `idempotency_key`.
+     *
+     * ```php
+     * $result = $client->emails()->batch([
+     *     'template_id' => '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b',
+     *     'recipients' => [
+     *         ['to' => 'ada@example.com', 'template_data' => ['name' => 'Ada'], 'idempotency_key' => "$digestId:ada"],
+     *         [
+     *             'to' => 'alan@example.com',
+     *             'template_data' => ['name' => 'Alan'],
+     *             'idempotency_key' => "$digestId:alan",
+     *         ],
+     *     ],
+     * ]);
+     * foreach ($result->getResults() as $email) {
+     *     if ($email->getStatus() !== 'queued') {
+     *         echo $email->getTo(), ': ', $email->getStatus(), ' ', $email->getError()?->getMessage(), PHP_EOL;
+     *     }
+     * }
+     * ```
+     *
+     * @param array{
+     *     recipients: list<array{
+     *         to: string,
+     *         distinct_id?: string|null,
+     *         idempotency_key?: string|null,
+     *         template_data?: array<string, mixed>|null
+     *     }>,
+     *     max_retries?: int|null,
+     *     template_id?: string,
+     *     template_data?: array<string, mixed>|null,
+     *     template_key?: string,
+     *     subject?: string,
+     *     html?: string|null,
+     *     text?: string|null,
+     *     from?: string|null,
+     *     reply_to?: string|list<string>|null,
+     *     sensitive?: bool|null,
+     *     tracking?: bool|array{opens?: bool|null, clicks?: bool|null, engagement?: bool|null}|null,
+     *     capture_engagement?: bool|null
+     * } $batch
+     * @return SendBatchResult A result per recipient, in the order of `recipients`.
+     * @throws EmailBatchError PostHog refused the batch as a whole, its answer was lost past the retries, or the
+     *     client shut down before a retry (`client_closed`). getResults() holds every recipient.
+     * @throws EmailError The client sent nothing: an argument check failed, with the name `validation_error` and
+     *     an `invalid_*` code, such as two recipients with the same `idempotency_key`, or the client can't send,
+     *     such as when it is disabled.
+     */
+    public function batch(array $batch): SendBatchResult
+    {
+        [$shared, $maxRetries] = $this->prepareBatch($batch);
+        $run = EmailBatch::prepare($shared, $batch['recipients'] ?? null);
+        [$appHost, $secretKey] = $this->connect(self::SEND_NOT_DONE, self::SEND_KEY_NEEDED);
+        try {
+            $this->sendBatch($run, $appHost, $secretKey, $maxRetries);
+        } catch (EmailBatchError $failure) {
+            self::logWarnings($failure->getWarnings());
+            throw $failure;
+        }
+        $result = $run->result();
+        self::logWarnings($result->getWarnings());
+
+        return $result;
+    }
+
+    /**
      * @return array{string, string, int, array<string, Upload>, DateTimeImmutable|null} The body, the
      *     idempotency key, the retries, the files to upload by SHA-256, and the time the email waits for.
      */
     private function prepareSend(array $email): array
     {
         $email = array_filter($email, static fn($value): bool => $value !== null);
-        $to = $email['to'] ?? null;
-        if (!is_string($to) || trim($to) === '') {
-            throw self::invalid('invalid_recipient', 'to must be one email address as a nonempty string.', 'to');
-        }
-        $distinctId = $email['distinct_id'] ?? null;
-        if ($distinctId !== null && (!is_string($distinctId) || $distinctId === '')) {
-            throw self::invalid('invalid_distinct_id', 'distinct_id must be a nonempty string.', 'distinct_id');
-        }
+        [$to, $distinctId] = EmailRecipient::address($email);
         $hasTemplateId = array_key_exists('template_id', $email);
         if ($hasTemplateId === array_key_exists('template_key', $email)) {
             throw new EmailError(
@@ -407,21 +531,8 @@ final class Emails
             );
         }
         [$payload, $files] = $hasTemplateId ? [self::templateContent($email), []] : self::codeContent($email);
-        $idempotencyKey = $email['idempotency_key'] ?? null;
-        if (
-            $idempotencyKey !== null
-            && (!is_string($idempotencyKey) || preg_match(self::IDEMPOTENCY_KEY_PATTERN, $idempotencyKey) !== 1)
-        ) {
-            throw self::invalid(
-                'invalid_idempotency_key',
-                'idempotency_key must be 1 to 255 visible ASCII characters without spaces.',
-                'idempotency_key'
-            );
-        }
-        $maxRetries = $email['max_retries'] ?? $this->maxRetries;
-        if (!is_int($maxRetries) || $maxRetries < 0) {
-            throw self::invalid('invalid_max_retries', 'max_retries must be a nonnegative integer.', 'max_retries');
-        }
+        $idempotencyKey = EmailRecipient::idempotencyKey($email);
+        $maxRetries = $this->maxRetries($email);
         $scheduledAt = array_key_exists('scheduled_at', $email) ? self::scheduledAt($email['scheduled_at']) : null;
         $payload['to'] = $to;
         if ($distinctId !== null) {
@@ -441,6 +552,47 @@ final class Emails
         }
 
         return [$body, $idempotencyKey ?? Uuid::v4(), $maxRetries, $files, $scheduledAt];
+    }
+
+    /**
+     * @return array{array<string, mixed>, int} The email every recipient gets, and the retries of each request.
+     */
+    private function prepareBatch(array $batch): array
+    {
+        $batch = array_filter($batch, static fn($value): bool => $value !== null);
+        foreach (self::FIELDS_A_BATCH_REFUSES as $field => $fix) {
+            if (array_key_exists($field, $batch)) {
+                throw new EmailError(
+                    'invalid_form',
+                    "A batch doesn't take $field, so no email was sent.",
+                    fix: $fix,
+                    field: $field
+                );
+            }
+        }
+        $isTemplateForm = array_key_exists('template_id', $batch);
+        if ($isTemplateForm === array_key_exists('template_key', $batch)) {
+            throw new EmailError(
+                'invalid_form',
+                'Send a batch with either template_id, or template_key with subject and html or text, so no email '
+                . 'was sent.'
+            );
+        }
+        $maxRetries = $this->maxRetries($batch);
+        unset($batch['recipients']);
+        $shared = $isTemplateForm ? self::templateContent($batch, 'batch') : self::codeContent($batch, 'batch')[0];
+
+        return [$shared, $maxRetries];
+    }
+
+    private function maxRetries(array $call): int
+    {
+        $maxRetries = $call['max_retries'] ?? $this->maxRetries;
+        if (!is_int($maxRetries) || $maxRetries < 0) {
+            throw self::invalid('invalid_max_retries', 'max_retries must be a nonnegative integer.', 'max_retries');
+        }
+
+        return $maxRetries;
     }
 
     private static function scheduledAt(mixed $value): DateTimeImmutable
@@ -503,7 +655,7 @@ final class Emails
     /**
      * @return array<string, mixed>
      */
-    private static function templateContent(array $email): array
+    private static function templateContent(array $email, string $call = 'send'): array
     {
         $templateId = $email['template_id'];
         if (!is_string($templateId) || preg_match(self::UUID_PATTERN, $templateId) !== 1) {
@@ -517,7 +669,7 @@ final class Emails
                 'template_data'
             );
         }
-        self::refuseFieldsOutside($email, true);
+        self::refuseFieldsOutside($email, true, $call);
 
         return [
             'template_id' => strtolower($templateId),
@@ -528,7 +680,7 @@ final class Emails
     /**
      * @return array{array<string, mixed>, array<string, Upload>}
      */
-    private static function codeContent(array $email): array
+    private static function codeContent(array $email, string $call = 'send'): array
     {
         $templateKey = $email['template_key'];
         if (!is_string($templateKey) || preg_match(self::TEMPLATE_KEY_PATTERN, $templateKey) !== 1) {
@@ -538,10 +690,10 @@ final class Emails
                 'template_key'
             );
         }
-        self::refuseFieldsOutside($email, false);
+        self::refuseFieldsOutside($email, false, $call);
         $subject = $email['subject'] ?? null;
         if (!is_string($subject) || $subject === '') {
-            throw self::invalid('invalid_form', 'A send with template_key needs a nonempty subject.', 'subject');
+            throw self::invalid('invalid_form', "A $call with template_key needs a nonempty subject.", 'subject');
         }
         $content = ['template_key' => $templateKey, 'subject' => $subject];
         foreach (['html', 'text'] as $field) {
@@ -556,7 +708,7 @@ final class Emails
         if (($content['html'] ?? '') === '' && ($content['text'] ?? '') === '') {
             throw self::invalid(
                 'invalid_form',
-                'A send with template_key needs a nonempty html, text or both.',
+                "A $call with template_key needs a nonempty html, text or both.",
                 array_key_exists('html', $content) || !array_key_exists('text', $content) ? 'html' : 'text'
             );
         }
@@ -768,7 +920,7 @@ final class Emails
         return new EmailError('invalid_attachment', $message . ' No email was sent.', field: $field);
     }
 
-    private static function refuseFieldsOutside(array $email, bool $isTemplateForm): void
+    private static function refuseFieldsOutside(array $email, bool $isTemplateForm, string $call): void
     {
         $formFields = array_merge(self::SHARED_FIELDS, $isTemplateForm ? self::TEMPLATE_FIELDS : self::CODE_FIELDS);
         $otherFields = $isTemplateForm ? self::CODE_FIELDS : self::TEMPLATE_FIELDS;
@@ -778,7 +930,7 @@ final class Emails
             }
             $field = (string) $field;
             $formName = $isTemplateForm ? 'template_id' : 'template_key';
-            $message = "A send with $formName doesn't take $field, so no email was sent.";
+            $message = "A $call with $formName doesn't take $field, so no email was sent.";
             if (!in_array($field, $otherFields, true)) {
                 throw new EmailError('invalid_form', $message, field: $field, fix: "Remove $field and send again.");
             }
@@ -885,7 +1037,7 @@ final class Emails
             why: 'PostHog sends an email with files only after every file reached its file storage.',
             fix: 'Send the email again. The client asks for a new upload URL on every send.',
             field: $file['field'],
-            retryAfterMs: self::retryAfterMs($answerHeaders)
+            retryAfterMs: EmailReplies::retryAfterMs($answerHeaders)
         );
     }
 
@@ -901,15 +1053,15 @@ final class Emails
         string $body,
         array $headers
     ): array {
-        $fields = self::replyFields($body);
+        $fields = EmailReplies::fields($body);
         if ($status === 404) {
-            $fields['code'] = self::text($fields['code'] ?? null) ?? 'not_found';
+            $fields['code'] = EmailReplies::text($fields['code'] ?? null) ?? 'not_found';
             $fields['attr'] = 'attachments';
-            throw self::replyError($fields, $status, $headers);
+            throw EmailReplies::error($fields, $status, $headers);
         }
         if ($status < 200 || $status >= 300) {
-            $fields['attr'] = self::attachmentField(self::text($fields['attr'] ?? null), $files);
-            throw self::replyError($fields, $status, $headers);
+            $fields['attr'] = self::attachmentField(EmailReplies::text($fields['attr'] ?? null), $files);
+            throw EmailReplies::error($fields, $status, $headers);
         }
         $slots = [];
         foreach (is_array($fields['files'] ?? null) ? $fields['files'] : [] as $slot) {
@@ -990,6 +1142,36 @@ final class Emails
         $index = $match[1] ?? null;
 
         return $index === null ? 'attachments' : array_values($files)[(int) $index]['field'] ?? 'attachments';
+    }
+
+    private function sendBatch(EmailBatch $run, string $appHost, string $secretKey, int $maxRetries): void
+    {
+        $headers = $this->headers($secretKey, ['Content-Type: application/json']);
+        $timeoutMs = max($this->requestTimeoutMs, self::BATCH_REQUEST_TIMEOUT_MS);
+        $closedBeforeARetry = new EmailError(
+            'client_closed',
+            "The PostHog client is shut down, so it didn't retry the batch."
+        );
+        $url = $appHost . self::BATCH_PATH;
+        $body = $run->requestBody();
+        try {
+            $this->withRetries($maxRetries, function () use ($run, $url, $headers, $body, $timeoutMs): void {
+                try {
+                    $reply = $this->request('POST', $url, $headers, $body, $timeoutMs);
+                } catch (EmailError $error) {
+                    throw in_array($error->getErrorCode(), self::LOST_ANSWER_CODES, true) ? $run->lost($error) : $error;
+                }
+                $run->answer(...$reply);
+            }, $closedBeforeARetry);
+        } catch (EmailError $error) {
+            throw $run->failure($error);
+        } catch (Throwable $throwable) {
+            throw $run->interrupted(new EmailError(
+                'client_error',
+                'The client failed while sending the batch: ' . $throwable->getMessage(),
+                previous: $throwable
+            ));
+        }
     }
 
     /**
@@ -1077,9 +1259,11 @@ final class Emails
     /**
      * @template T
      * @param Closure(): T $attemptOnce
+     * @param EmailError|null $closedBeforeARetry What to throw when the client shuts down before a retry,
+     *     instead of the last attempt's error.
      * @return T
      */
-    private function withRetries(int $maxRetries, Closure $attemptOnce): mixed
+    private function withRetries(int $maxRetries, Closure $attemptOnce, ?EmailError $closedBeforeARetry = null): mixed
     {
         for ($attempt = 0;; $attempt++) {
             try {
@@ -1089,7 +1273,7 @@ final class Emails
                 if ($delayMs === null) {
                     throw $error;
                 }
-                $this->waitToRetry($delayMs, $error);
+                $this->waitToRetry($delayMs, $closedBeforeARetry ?? $error);
             }
         }
     }
@@ -1097,23 +1281,46 @@ final class Emails
     private function waitToRetry(int $delayMs, EmailError $error): void
     {
         $clock = self::forwardOnlyClock();
-        $start = $clock->now();
+        $started = $clock === null ? hrtime() : null;
+        $start = $clock?->now();
         while (!($this->isClosed)()) {
-            $remainingUs = $delayMs * 1000 - self::microsecondsBetween($start, $clock->now());
+            $elapsedUs = $clock === null
+                ? self::microsecondsSince($started)
+                : self::microsecondsBetween($start, $clock->now());
+            $remainingUs = $delayMs * 1000 - $elapsedUs;
             if ($remainingUs <= 0) {
                 return;
             }
-            $clock->sleep($remainingUs / 1_000_000);
+            $clock === null ? usleep($remainingUs) : $clock->sleep($remainingUs / 1_000_000);
         }
 
         throw $error;
     }
 
-    private static function forwardOnlyClock(): ClockInterface
+    private static function forwardOnlyClock(): ?ClockInterface
     {
-        $clock = Clock::get();
+        try {
+            $clock = Clock::get();
+            if (!$clock instanceof NativeClock) {
+                return $clock;
+            }
+        } catch (Throwable) {
+        }
+        try {
+            return new MonotonicClock();
+        } catch (Throwable) {
+            return null;
+        }
+    }
 
-        return $clock instanceof NativeClock ? new MonotonicClock() : $clock;
+    /**
+     * @param array{int, int} $started
+     */
+    private static function microsecondsSince(array $started): int
+    {
+        [$seconds, $nanoseconds] = hrtime();
+
+        return ($seconds - $started[0]) * 1_000_000 + intdiv($nanoseconds - $started[1], 1000);
     }
 
     private static function microsecondsBetween(DateTimeImmutable $start, DateTimeImmutable $end): int
@@ -1126,11 +1333,6 @@ final class Emails
     private static function wholeEpochSecondsAsFloat(DateTimeImmutable $time): float
     {
         return (float) $time->format('U');
-    }
-
-    private static function epochSecondsAsFloat(DateTimeImmutable $time): float
-    {
-        return (float) $time->format('U.u');
     }
 
     private static function onOneLogLine(string $text): string
@@ -1175,9 +1377,11 @@ final class Emails
      * @param list<string> $headers
      * @return array{int, string, list<string>}
      */
-    private function request(string $method, string $url, array $headers, ?string $body): array
+    private function request(string $method, string $url, array $headers, ?string $body, ?int $timeoutMs = null): array
     {
-        return ($this->transport)($method, $url, $headers, $body, $this->requestTimeoutMs, $this->requestTimeoutMs);
+        $timeoutMs ??= $this->requestTimeoutMs;
+
+        return ($this->transport)($method, $url, $headers, $body, $timeoutMs, $this->requestTimeoutMs);
     }
 
     /**
@@ -1253,25 +1457,15 @@ final class Emails
         string $body,
         array $headers
     ): SendEmailResult {
-        $fields = self::replyFields($body);
+        $fields = EmailReplies::fields($body);
         if ($status < 200 || $status >= 300) {
-            throw self::replyError($fields, $status, $headers);
+            throw EmailReplies::error($fields, $status, $headers);
         }
-        $id = self::text($fields['message_id'] ?? null);
+        $id = EmailReplies::text($fields['message_id'] ?? null);
         if ($id === null) {
             throw new EmailError('api_error', 'PostHog answered without a message ID.', $status);
         }
-        $warnings = [];
-        foreach (is_array($fields['warnings'] ?? null) ? $fields['warnings'] : [] as $warning) {
-            if (is_array($warning)) {
-                $warnings[] = new EmailWarning(
-                    self::text($warning['code'] ?? null) ?? 'warning',
-                    self::text($warning['detail'] ?? null) ?? self::text($warning['message'] ?? null) ?? '',
-                    self::text($warning['fix'] ?? null)
-                );
-            }
-        }
-
+        $warnings = EmailReplies::warnings($fields);
         $replayed = ($fields['replayed'] ?? false) === true;
         if ($scheduledAt === null || ($mayGoNow && self::sendsNow($fields))) {
             return new SendEmailResult($id, $replayed, $warnings);
@@ -1343,56 +1537,26 @@ final class Emails
      */
     private static function parseStatusReply(int $status, string $body, array $headers): EmailStatus
     {
-        $fields = self::replyFields($body);
+        $fields = EmailReplies::fields($body);
         if ($status < 200 || $status >= 300) {
-            throw self::replyError($fields, $status, $headers);
+            throw EmailReplies::error($fields, $status, $headers);
         }
-        $id = self::text($fields['id'] ?? null);
-        $deliveryStatus = self::text($fields['status'] ?? null);
+        $id = EmailReplies::text($fields['id'] ?? null);
+        $deliveryStatus = EmailReplies::text($fields['status'] ?? null);
         $createdAt = self::timestamp($fields['created_at'] ?? null);
         $statusAt = self::timestamp($fields['status_at'] ?? null);
         if ($id === null || $deliveryStatus === null || $createdAt === null || $statusAt === null) {
             throw new EmailError('api_error', 'PostHog answered without an email status.', $status);
         }
 
-        return new EmailStatus($id, $deliveryStatus, $createdAt, $statusAt, self::text($fields['reason'] ?? null));
-    }
+        $reason = EmailReplies::text($fields['reason'] ?? null);
 
-    /**
-     * @param array<string, mixed> $fields
-     * @param list<string> $headers
-     */
-    private static function replyError(array $fields, int $status, array $headers): EmailError
-    {
-        return new EmailError(
-            self::text($fields['code'] ?? null) ?? 'api_error',
-            self::text($fields['detail'] ?? null) ?? "PostHog answered HTTP $status.",
-            $status,
-            why: self::text($fields['why'] ?? null),
-            fix: self::text($fields['fix'] ?? null),
-            docsUrl: self::text($fields['docs_url'] ?? null),
-            field: self::text($fields['attr'] ?? null),
-            retryAfterMs: self::retryAfterMs($headers)
-        );
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private static function replyFields(string $body): array
-    {
-        $payload = json_decode($body, true);
-        return is_array($payload) && !array_is_list($payload) ? $payload : [];
-    }
-
-    private static function text(mixed $value): ?string
-    {
-        return is_string($value) && $value !== '' ? $value : null;
+        return new EmailStatus($id, $deliveryStatus, $createdAt, $statusAt, $reason);
     }
 
     private static function timestamp(mixed $value): ?DateTimeImmutable
     {
-        $text = self::text($value);
+        $text = EmailReplies::text($value);
         if ($text === null || preg_match(self::TIMESTAMP_PATTERN, $text) !== 1) {
             return null;
         }
@@ -1401,43 +1565,6 @@ final class Emails
         } catch (\Exception) {
             return null;
         }
-    }
-
-    /**
-     * @param list<string> $headers
-     */
-    private static function retryAfterMs(array $headers): ?int
-    {
-        $value = null;
-        foreach ($headers as $header) {
-            if (stripos($header, 'retry-after:') === 0) {
-                $value = trim(substr($header, strlen('retry-after:')));
-            }
-        }
-        if ($value === null || $value === '') {
-            return null;
-        }
-        if (is_numeric($value)) {
-            $seconds = (float) $value;
-        } else {
-            $date = self::httpDateInUtc($value);
-            if ($date === null) {
-                return null;
-            }
-            $seconds = self::epochSecondsAsFloat($date) - self::epochSecondsAsFloat(Clock::get()->now());
-        }
-
-        return (int) (min(max(0.0, $seconds), self::longestRetryAfterSecondsAnIntHoldsInMs()) * 1000);
-    }
-
-    private static function httpDateInUtc(string $value): ?DateTimeImmutable
-    {
-        return DateTimeImmutable::createFromFormat(DATE_RFC7231, $value, new DateTimeZone('UTC')) ?: null;
-    }
-
-    private static function longestRetryAfterSecondsAnIntHoldsInMs(): int
-    {
-        return min(self::MAX_RETRY_AFTER_SECONDS, intdiv(PHP_INT_MAX, 1000));
     }
 
     private static function resolveAppHost(string $host, ?string $appHost): ?string

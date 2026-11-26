@@ -19,19 +19,14 @@ use Symfony\Component\Clock\MockClock;
 
 class EmailsTest extends TestCase
 {
+    use EmailsTestSupport;
+
     private const TEMPLATE_ID = '0190f6d2-7c1e-7b3a-9f5e-1c2d3e4f5a6b';
     private const MESSAGE_ID = '01a18356-c56c-0001-e494-7666bc915188';
     private const SEND_URL = 'https://us.posthog.com/api/messaging/send/email/';
     private const INVITE = "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n";
     private const SECRET_CONTENT = 'secret-file-content';
 
-    /**
-     * @var list<array{method: string, url: string, headers: list<string>, body: ?string, timeoutMs: int,
-     *     at: DateTimeImmutable}>
-     */
-    private array $requests = [];
-    /** @var list<array{int, string, list<string>}|EmailError|string> */
-    private array $replies = [];
     /** @var array<string, array<string, string>> the headers storage signed for each upload URL */
     private array $signedUploads = [];
     /** @var array<string, ?string> the files storage holds, by SHA-256; null for one PostHog already had */
@@ -40,42 +35,6 @@ class EmailsTest extends TestCase
     private array $storageWrites = [];
     /** @var array<string, array<string, mixed>> the emails PostHog queued, one per idempotency key */
     private array $queued = [];
-    private string $secretKey = 'phs_secret';
-    private ClockInterface $previousClock;
-    private MockClock $clock;
-
-    protected function setUp(): void
-    {
-        require_once __DIR__ . '/error_log_mock.php';
-        global $errorMessages;
-        $errorMessages = [];
-        $this->previousClock = Clock::get();
-        $this->clock = new MockClock('2026-11-02 12:00:00');
-        Clock::set($this->clock);
-    }
-
-    protected function tearDown(): void
-    {
-        Clock::set($this->previousClock);
-    }
-
-    private function emails(array $config = []): Emails
-    {
-        $this->secretKey = $config['secretKey'] ?? 'phs_secret';
-
-        return new Emails(
-            $this->secretKey,
-            $config['host'] ?? 'us.i.posthog.com',
-            appHost: $config['appHost'] ?? null,
-            maxRetries: $config['maxRetries'] ?? Emails::DEFAULT_MAX_RETRIES,
-            migratedFrom: $config['migratedFrom'] ?? null,
-            userAgent: 'posthog-php/9.9.9',
-            isDisabled: $config['isDisabled'] ?? null,
-            isClosed: $config['isClosed'] ?? null,
-            transport: Closure::fromCallable([$this, 'transport'])
-        );
-    }
-
     /**
      * @param list<string> $headers
      * @return array{int, string, list<string>}
@@ -154,18 +113,6 @@ class EmailsTest extends TestCase
         return self::slots(...$slots);
     }
 
-    /** @param list<string> $headers */
-    private static function headerIn(array $headers, string $name): ?string
-    {
-        foreach ($headers as $header) {
-            if (stripos($header, $name . ':') === 0) {
-                return trim(substr($header, strlen($name) + 1));
-            }
-        }
-
-        return null;
-    }
-
     /** The reference of the first attachment storage doesn't hold, as PostHog names it, or null. */
     private function notStored(string $body): ?string
     {
@@ -215,33 +162,6 @@ class EmailsTest extends TestCase
         }
 
         return true;
-    }
-
-    /** @param array{int, string, list<string>}|EmailError|string ...$replies */
-    private function reply(...$replies): void
-    {
-        $this->replies = $replies;
-    }
-
-    private function body(int $index = 0): array
-    {
-        return json_decode($this->requests[$index]['body'], true, 512, JSON_THROW_ON_ERROR);
-    }
-
-    private function header(string $name, int $index = 0): ?string
-    {
-        foreach ($this->requests[$index]['headers'] as $header) {
-            if (stripos($header, $name . ':') === 0) {
-                return trim(substr($header, strlen($name) + 1));
-            }
-        }
-
-        return null;
-    }
-
-    private static function msBetween(DateTimeImmutable $start, DateTimeImmutable $end): int
-    {
-        return (int) round(((float) $end->format('U.u') - (float) $start->format('U.u')) * 1000);
     }
 
     private function sendError(array $email, ?Emails $emails = null): EmailError
@@ -1079,6 +999,16 @@ class EmailsTest extends TestCase
                 $template + ['idempotency_key' => str_repeat('k', 256)],
                 'invalid_idempotency_key',
                 'idempotency_key',
+            ],
+            'no form and a bad idempotency key' => [
+                ['to' => 'user@example.com', 'idempotency_key' => 'welcome user'],
+                'invalid_form',
+                null,
+            ],
+            'empty subject and a bad idempotency key' => [
+                ['subject' => '', 'idempotency_key' => 'welcome user'] + $code,
+                'invalid_form',
+                'subject',
             ],
             'negative max_retries' => [$template + ['max_retries' => -1], 'invalid_max_retries', 'max_retries'],
             'max_retries as a string' => [$template + ['max_retries' => '1'], 'invalid_max_retries', 'max_retries'],
@@ -2410,6 +2340,17 @@ PHP, '-d disable_functions=error_log');
 
         $this->assertSame('throttled', $error->getErrorCode());
         $this->assertNull($error->getMessageId());
+    }
+
+    public function testASendWithoutScheduledAtIgnoresAScheduleInTheAnswer(): void
+    {
+        $this->reply(self::scheduledReply('2026-11-03T09:00:00.000Z'));
+
+        $result = $this->emails()->send(['to' => 'user@example.com', 'template_id' => self::TEMPLATE_ID]);
+
+        $this->assertArrayNotHasKey('scheduled_at', $this->body());
+        $this->assertSame('queued', $result->getStatus());
+        $this->assertNull($result->getScheduledAt());
     }
 
     public function testAQueuedResultSerializesAsTheVersionBeforeSchedulingDid(): void
