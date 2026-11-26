@@ -33,8 +33,6 @@ class FeatureFlag
      */
     public static function matchProperty($property, $propertyValues, $propertyMatchingVersion = 1)
     {
-        FeatureFlag::assertPropertyFilterTypeSupported($property);
-
         try {
             return FeatureFlag::matchPropertyValue($property, $propertyValues, $propertyMatchingVersion);
         } catch (InconclusiveMatchException $e) {
@@ -509,6 +507,7 @@ class FeatureFlag
                             $identityAggregation
                         );
                     } else {
+                        FeatureFlag::assertPropertyFilterTypeSupported($prop);
                         $matches = FeatureFlag::matchProperty($prop, $propertyValues, $propertyMatchingVersion);
                     }
 
@@ -1496,6 +1495,7 @@ class FeatureFlag
                             $identityAggregation
                         );
                     } else {
+                        FeatureFlag::assertPropertyFilterTypeSupported($property);
                         $matches = FeatureFlag::matchProperty($property, $properties, $propertyMatchingVersion);
                     }
                 } catch (RequiresServerEvaluationException $e) {

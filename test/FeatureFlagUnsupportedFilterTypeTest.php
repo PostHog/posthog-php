@@ -210,4 +210,11 @@ class FeatureFlagUnsupportedFilterTypeTest extends TestCase
             $snapshot->getUnresolvedFlags()
         );
     }
+
+    public function testMatchPropertyKeepsMatchingTheValueItIsGiven(): void
+    {
+        // Evaluation checks the filter type before it calls matchProperty, so the helper itself
+        // keeps its existing behaviour.
+        $this->assertTrue(FeatureFlag::matchProperty(self::FIRST_SEEN_FILTER, self::CREATED_IN_2026));
+    }
 }
