@@ -40,12 +40,6 @@ final class Emails
 {
     public const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
     public const DEFAULT_MAX_RETRIES = 2;
-    /**
-     * The built-in transactional `category`, and the `type` of a transactional category. As a `category`, it
-     * sends transactional email with no category, so PostHog refuses it with `category_mismatch` when
-     * `template_key` names a template in a category. Leave `category` out to follow the template's category.
-     */
-    public const CATEGORY_TRANSACTIONAL = 'transactional';
 
     private const SEND_PATH = '/api/messaging/send/email/';
     private const UPLOADS_PATH = '/api/messaging/attachments/uploads/';
@@ -86,10 +80,6 @@ final class Emails
         'tracking',
         'category',
     ];
-    private const CATEGORY_TYPES = ['marketing', self::CATEGORY_TRANSACTIONAL];
-    private const CATEGORY_FIELDS = ['key', 'type', 'name', 'description'];
-    private const CATEGORY_SHAPE = "category must be Emails::CATEGORY_TRANSACTIONAL or an array with a key, "
-        . "a type of 'marketing' or 'transactional', a name and an optional description.";
     private const ATTACHMENT_FIELDS = ['filename', 'content', 'content_type', 'content_id'];
     private const MAX_ATTACHMENTS = 10;
     private const MAX_MESSAGE_BYTES = 40_000_000;
@@ -176,10 +166,6 @@ final class Emails
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
      *   `reply_to`, `cc` and `bcc` (one address or a list; at most 10 for `cc` and `bcc`), `attachments`,
      *   `sensitive`, `tracking` and `category`. An empty `reply_to`, `cc`, `bcc` or `attachments` list is left out.
-     *   Marketing categories cannot be combined with `cc`, `bcc` (`copies_not_allowed`) or `attachments`
-     *   (`workflow_can_wait` on a verified sender because marketing sending limits can hold delivery, or
-     *   `sandbox_fields_unsupported` when using the PostHog test sender; a refused send can still upload
-     *   attachments PostHog doesn't already have, skipping uploads for files PostHog reports as `present`).
      * - `attachments` is a list of at most 10 files, and the email can be at most 40 MB after Base64 encoding, which
      *   leaves about 29 MB for the files. The 40 MB counts the subject and the bodies, and the `html` twice without
      *   `text`, since PostHog derives the text from it. Each file is an array with `filename`, `content` (the file's
@@ -220,30 +206,13 @@ final class Emails
      * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
      * and `max_retries`. A null value counts as left out.
      *
-     * Leaving `category` out sends transactional email, or, when code-send categories are enabled for the
-     * project, follows the category of the template that `template_key` names. `Emails::CATEGORY_TRANSACTIONAL`
-     * sends transactional email with no category, so PostHog refuses it on a template in a category. To file
-     * the email under a message category, pass the category itself: its `key`, `type` (`marketing` or
-     * `transactional`), `name` and an optional `description`. When code-send categories are not yet enabled for
-     * the project, PostHog refuses an explicit category array with `categories_not_enabled`. When `template_key`
-     * doesn't match a saved template, PostHog creates the category the first time a send names its key, or restores
-     * it if it was deleted, and otherwise leaves it unchanged. When `template_key` matches a saved template and
-     * code-send categories are enabled for the project, the send uses that template's own category without
-     * restoring an archived category (with code-send categories disabled, omitting `category` uses the legacy
-     * path and queues without the saved template's category). Its `name` and `description` apply only when the
-     * send creates the category; change them later in PostHog. A marketing send honors the recipient's
-     * opt-outs, adds unsubscribe headers, and needs a clickable `<a href="{{ unsubscribe_url }}">` link in `html`
-     * (or `{{ unsubscribe_url }}` in `text` when there is no `html`). A marketing code send takes no `cc` or `bcc`
-     * (`copies_not_allowed`) and cannot carry `attachments` (`workflow_can_wait` on a verified sender because
-     * marketing sending limits can hold delivery, or `sandbox_fields_unsupported` when using the PostHog test sender;
-     * a refused send can still upload attachments PostHog doesn't already have, skipping uploads for files PostHog
-     * reports as `present`). A template made in PostHog must be enabled for transactional sends
-     * (`template_not_transactional` otherwise); when an otherwise sendable template is in a marketing category,
-     * PostHog refuses a send whose `template_key` names it with `marketing_template`. PostHog refuses a send with
-     * `category_mismatch` when the project's category with that key has another type, or when `template_key` names
-     * a template in another category, and with `too_many_categories`, `unsubscribe_link_required`,
-     * `copies_not_allowed`, `workflow_can_wait`, `sandbox_fields_unsupported`, `categories_not_enabled`
-     * or `recipient_opted_out`.
+     * `category` is the key of one of the project's message categories, such as `newsletter`, for the email
+     * your code rendered. A marketing category skips recipients who opted out of it or of all marketing email,
+     * fills `{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers.
+     * A marketing email can't have `cc` or `bcc` (`marketing_copies_unsupported`) or `attachments`
+     * (`workflow_can_wait`), and can't go out from the PostHog test sender of a project without a verified
+     * sending domain (`sandbox_fields_unsupported`). A key that names no category is refused with
+     * `category_not_found`. The client sends `category` only when you set it.
      *
      * A send with an idempotency key PostHog already accepted queues nothing and returns the first send's
      * result. Without a key, the client makes a UUID that covers its own retries. Pass a key derived from
@@ -303,12 +272,7 @@ final class Emails
      *     sensitive?: bool|null,
      *     tracking?: bool|array{opens?: bool|null, clicks?: bool|null, engagement?: bool|null}|null,
      *     capture_engagement?: bool|null,
-     *     category?: 'transactional'|array{
-     *         key: string,
-     *         type: 'marketing'|'transactional',
-     *         name: string,
-     *         description?: string|null
-     *     }|null
+     *     category?: string|null
      * } $email
      * @return SendEmailResult The queued email. It means PostHog queued the email, not that it was delivered.
      * @throws EmailError PostHog did not queue the email, or the client could not tell whether it did. A
@@ -528,7 +492,10 @@ final class Emails
             $content['tracking'] = $tracking;
         }
         if (array_key_exists('category', $email)) {
-            $content['category'] = self::category($email['category']);
+            if (!is_string($email['category']) || trim($email['category']) === '') {
+                throw self::invalid('invalid_form', 'category must be a nonempty string.', 'category');
+            }
+            $content['category'] = $email['category'];
         }
 
         return [$content, $files];
@@ -555,34 +522,6 @@ final class Emails
         }
 
         return (object) $tracking;
-    }
-
-    /**
-     * @return string|array<string, string>
-     */
-    private static function category(mixed $category): string|array
-    {
-        if ($category === self::CATEGORY_TRANSACTIONAL) {
-            return $category;
-        }
-        if (!is_array($category) || array_diff(array_keys($category), self::CATEGORY_FIELDS) !== []) {
-            throw self::invalid('invalid_category', self::CATEGORY_SHAPE, 'category');
-        }
-        $category = array_filter($category, static fn($value): bool => $value !== null);
-        $hasRequiredText = self::isNonemptyText($category['key'] ?? null)
-            && self::isNonemptyText($category['name'] ?? null);
-        $hasKnownType = in_array($category['type'] ?? null, self::CATEGORY_TYPES, true);
-        $description = $category['description'] ?? '';
-        if (!$hasRequiredText || !$hasKnownType || !is_string($description)) {
-            throw self::invalid('invalid_category', self::CATEGORY_SHAPE, 'category');
-        }
-
-        return $category;
-    }
-
-    private static function isNonemptyText(mixed $value): bool
-    {
-        return is_string($value) && trim($value) !== '';
     }
 
     /**

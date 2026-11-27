@@ -1,15 +1,11 @@
 <?php
 
-require_once __DIR__ . '/../CanonicalJson.php';
-
 $server = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
 if ($server === false) {
     throw new RuntimeException($error, $errno);
 }
 $responses = json_decode($argv[2], true, 512, JSON_THROW_ON_ERROR);
-$rawResponses = json_decode($argv[2], false, 512, JSON_THROW_ON_ERROR);
-$selfAddress = stream_socket_get_name($server, false);
-echo $selfAddress . "\n";
+echo stream_socket_get_name($server, false) . "\n";
 flush();
 
 while ($connection = stream_socket_accept($server, 30)) {
@@ -36,26 +32,14 @@ while ($connection = stream_socket_accept($server, 30)) {
         $body = gzdecode($body);
     }
     $next = $responses[0] ?? [];
-    $rawNext = $rawResponses[0] ?? null;
     $refusal = null;
     foreach ($next['accepts'] ?? [] as $name => $expected) {
-        if ($name === 'json_body') {
-            $decoded = json_decode($body, false);
-            $rawExpected = $rawNext?->accepts?->json_body ?? null;
-            $matches = json_last_error() === JSON_ERROR_NONE
-                && \PostHog\Test\CanonicalJson::encode($decoded)
-                    === \PostHog\Test\CanonicalJson::encode($rawExpected);
-            if (!$matches) {
-                $refusal = $next['refusal'];
-            }
-            continue;
-        }
         $actual = match ($name) {
             'request_line' => $requestLine,
-            'route' => implode(' ', array_slice(explode(' ', $requestLine, 3), 0, 2)),
+            'json_body' => json_decode($body, true),
             default => $headers[$name] ?? null,
         };
-        if ($actual !== $expected) {
+        if ($name === 'json_body' ? $actual != $expected : $actual !== $expected) {
             $refusal = $next['refusal'];
         }
     }
@@ -68,31 +52,20 @@ while ($connection = stream_socket_accept($server, 30)) {
         $refusal = ['status' => 400, 'body' => '<?xml version="1.0" encoding="UTF-8"?>'
             . '<Error><Code>InvalidArgument</Code><Message>Only one auth mechanism allowed</Message></Error>'];
     }
-    if ($refusal === null) {
-        $response = array_shift($responses) ?? [];
-        array_shift($rawResponses);
-    } else {
-        $response = $refusal;
-    }
-    $entry = [
+    $response = $refusal ?? array_shift($responses) ?? [];
+    file_put_contents($argv[1], json_encode([
         'requestLine' => $requestLine,
         'headers' => $headers,
+        'body' => $body,
         'status' => $response['status'] ?? 200,
-    ];
-    if (mb_check_encoding($body, 'UTF-8')) {
-        $entry['body'] = $body;
-    } else {
-        $entry['body_base64'] = base64_encode($body);
-    }
-    file_put_contents($argv[1], json_encode($entry, JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
+    ], JSON_THROW_ON_ERROR) . "\n", FILE_APPEND);
     usleep(($response['delay_ms'] ?? 0) * 1000);
     $closeServer = $response['close_server'] ?? false;
     if ($closeServer) {
         fclose($server);
     }
     $status = $response['status'] ?? 200;
-    $body = str_replace('__SELF__', (string) $selfAddress, $response['body'] ?? '{"status":1}')
-        . str_repeat(' ', $response['pad_body_bytes'] ?? 0);
+    $body = ($response['body'] ?? '{"status":1}') . str_repeat(' ', $response['pad_body_bytes'] ?? 0);
     $headers = '';
     foreach ($response['headers'] ?? [] as $name => $value) {
         $headers .= "$name: $value\r\n";

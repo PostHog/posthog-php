@@ -2048,10 +2048,6 @@
             "extends": null,
             "implements": [],
             "constants": {
-                "CATEGORY_TRANSACTIONAL": {
-                    "type": "string",
-                    "value": "transactional"
-                },
                 "DEFAULT_MAX_RETRIES": {
                     "type": "int",
                     "value": 2
