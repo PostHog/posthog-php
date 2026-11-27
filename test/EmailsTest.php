@@ -309,6 +309,7 @@ class EmailsTest extends TestCase
             'text' => 'Reset it here: https://example.com/r',
             'from' => 'Acme <security@example.com>',
             'reply_to' => 'help@example.com',
+            'category' => 'security',
             'distinct_id' => 'user_123',
         ]);
 
@@ -319,6 +320,7 @@ class EmailsTest extends TestCase
             'text' => 'Reset it here: https://example.com/r',
             'from' => 'Acme <security@example.com>',
             'reply_to' => ['help@example.com'],
+            'category' => 'security',
             'to' => 'user@example.com',
             'distinct_id' => 'user_123',
         ], $this->body());
@@ -403,6 +405,7 @@ class EmailsTest extends TestCase
             'attachments' => null,
             'capture_engagement' => null,
             'sensitive' => null,
+            'category' => null,
             'distinct_id' => null,
             'idempotency_key' => null,
             'template_id' => null,
@@ -1031,6 +1034,7 @@ class EmailsTest extends TestCase
             ],
             'tracking with a template' => [$template + ['tracking' => false], 'invalid_form', 'tracking'],
             'sensitive with a template' => [$template + ['sensitive' => true], 'invalid_form', 'sensitive'],
+            'category with a template' => [$template + ['category' => 'newsletter'], 'invalid_form', 'category'],
             'unknown option' => [$template + ['headers' => ['X-A' => 'b']], 'invalid_form', 'headers'],
             'cc with a template' => [$template + ['cc' => 'boss@example.com'], 'invalid_form', 'cc'],
             'bcc with a template' => [$template + ['bcc' => ['boss@example.com']], 'invalid_form', 'bcc'],
@@ -1065,6 +1069,8 @@ class EmailsTest extends TestCase
             'tracking a list' => [$code + ['tracking' => [true]], 'invalid_form', 'tracking'],
             'tracking kind not a bool' => [$code + ['tracking' => ['clicks' => 'yes']], 'invalid_form', 'tracking'],
             'sensitive not a bool' => [$code + ['sensitive' => 'yes'], 'invalid_form', 'sensitive'],
+            'blank category' => [$code + ['category' => ' '], 'invalid_form', 'category'],
+            'category as an array' => [$code + ['category' => ['key' => 'newsletter']], 'invalid_form', 'category'],
             'idempotency key with a space' => [
                 $template + ['idempotency_key' => 'welcome user'],
                 'invalid_idempotency_key',

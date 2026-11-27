@@ -80,6 +80,7 @@ final class Emails
         'capture_engagement',
         'sensitive',
         'tracking',
+        'category',
     ];
     private const ATTACHMENT_FIELDS = ['filename', 'content', 'content_type', 'content_id'];
     private const MAX_ATTACHMENTS = 10;
@@ -88,8 +89,8 @@ final class Emails
     private const UPLOAD_BYTES_PER_EXTRA_MS = 100;
     private const MESSAGE_LIMIT = '40 MB after Base64 encoding, about 29 MB of files';
     private const HEADER_NAME_PATTERN = "/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/D";
-    private const TEMPLATE_FORM_WHY = "A template made in PostHog sets its own sender, subject, content, tracking "
-        . "and sensitive setting, and follows the project's engagement setting.";
+    private const TEMPLATE_FORM_WHY = "A template made in PostHog sets its own sender, subject, content, category, "
+        . "tracking and sensitive setting, and follows the project's engagement setting.";
     private const CODE_FORM_WHY = 'A send with template_key takes its content from your code.';
 
     private const SEND_NOT_DONE = 'no email was sent';
@@ -166,7 +167,7 @@ final class Emails
      *   sends the content as is without storing it. To send a React email, render it to HTML in your app
      *   first. This form also takes `from` (a verified sender, such as `Acme <hello@example.com>`),
      *   `reply_to`, `cc` and `bcc` (one address or a list; at most 10 for `cc` and `bcc`), `attachments`,
-     *   `sensitive` and `tracking`. An empty `reply_to`, `cc`, `bcc` or `attachments` list is left out.
+     *   `sensitive`, `tracking` and `category`. An empty `reply_to`, `cc`, `bcc` or `attachments` list is left out.
      * - `attachments` is a list of at most 10 files, and the email can be at most 40 MB after Base64 encoding, which
      *   leaves about 29 MB for the files. The 40 MB counts the subject and the bodies, and the `html` twice without
      *   `text`, since PostHog derives the text from it. Each file is an array with `filename`, `content` (the file's
@@ -206,6 +207,14 @@ final class Emails
      * Both forms take `to` (one address), `distinct_id` (the recipient's distinct ID in your product;
      * without it, the email's events go to a person whose distinct ID is the address), `idempotency_key`
      * and `max_retries`. A null value counts as left out.
+     *
+     * `category` is the key of one of the project's message categories, such as `newsletter`, for the email
+     * your code rendered. A marketing category skips recipients who opted out of it or of all marketing email,
+     * fills `{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers.
+     * A marketing email can't have `cc` or `bcc` (`marketing_copies_unsupported`) or `attachments`
+     * (`workflow_can_wait`), and can't go out from the PostHog test sender of a project without a verified
+     * sending domain (`sandbox_fields_unsupported`). A key that names no category is refused with
+     * `category_not_found`. The client sends `category` only when you set it.
      *
      * A send with an idempotency key PostHog already accepted queues nothing and returns the first send's
      * result. Without a key, the client makes a UUID that covers its own retries. Pass a key derived from
@@ -264,7 +273,8 @@ final class Emails
      *     }>|null,
      *     sensitive?: bool|null,
      *     tracking?: bool|array{opens?: bool|null, clicks?: bool|null, engagement?: bool|null}|null,
-     *     capture_engagement?: bool|null
+     *     capture_engagement?: bool|null,
+     *     category?: string|null
      * } $email
      * @return SendEmailResult The queued email. It means PostHog queued the email, not that it was delivered.
      * @throws EmailError PostHog did not queue the email, or the client could not tell whether it did. A
@@ -482,6 +492,12 @@ final class Emails
         }
         if ($tracking !== null) {
             $content['tracking'] = $tracking;
+        }
+        if (array_key_exists('category', $email)) {
+            if (!is_string($email['category']) || trim($email['category']) === '') {
+                throw self::invalid('invalid_form', 'category must be a nonempty string.', 'category');
+            }
+            $content['category'] = $email['category'];
         }
 
         return [$content, $files];
