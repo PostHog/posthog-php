@@ -956,6 +956,13 @@
                         }
                     ]
                 },
+                "isOptedOut": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": []
+                },
                 "loadFlags": {
                     "static": false,
                     "abstract": false,
@@ -987,6 +994,20 @@
                             "hasDefault": false
                         }
                     ]
+                },
+                "optInCapturing": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": []
+                },
+                "optOutCapturing": {
+                    "static": false,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": []
                 },
                 "raw": {
                     "static": false,
@@ -5053,6 +5074,27 @@
                             "hasDefault": true
                         }
                     ]
+                },
+                "isOptedOut": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "bool",
+                    "parameters": []
+                },
+                "optInCapturing": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": []
+                },
+                "optOutCapturing": {
+                    "static": true,
+                    "abstract": false,
+                    "final": false,
+                    "returnType": "void",
+                    "parameters": []
                 },
                 "raw": {
                     "static": true,

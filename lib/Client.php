@@ -239,6 +239,15 @@ class Client implements FeatureFlagEvaluationsHost
     private $enabled;
 
     /**
+     * Runtime opt-out state, held in memory for the life of this client. Starts opted in and is
+     * toggled by optOutCapturing() / optInCapturing(). Distinct from $enabled, which is decided
+     * once at construction from the project API key and never changes.
+     *
+     * @var bool
+     */
+    private bool $optedOut = false;
+
+    /**
      * @var array<string, bool>
      */
     private array $missingDistinctIdWarnings = [];
@@ -532,6 +541,42 @@ class Client implements FeatureFlagEvaluationsHost
     }
 
     /**
+     * Stop capturing on this client until optInCapturing() is called.
+     *
+     * While opted out, capture(), captureException(), identify(), groupIdentify(), alias() and
+     * raw() drop the call silently: no event is enqueued and no network request is made. Events
+     * accepted before the opt-out stay queued and are still delivered by flush() and shutdown(),
+     * and feature flag evaluation itself keeps working — only its $feature_flag_called side
+     * effect is suppressed.
+     *
+     * This is process-level state for the client, not a per-end-user consent record: a server
+     * SDK handles many end users per process, so gate an individual user's events on your own
+     * consent check instead.
+     */
+    public function optOutCapturing(): void
+    {
+        $this->optedOut = true;
+    }
+
+    /**
+     * Resume capturing after optOutCapturing(). A client constructed without a project API key
+     * stays opted out, because it can never send anything.
+     */
+    public function optInCapturing(): void
+    {
+        $this->optedOut = false;
+    }
+
+    /**
+     * Whether capture is currently suppressed. True after optOutCapturing(), and always true for
+     * a client with no project API key, so a caller never reads a disabled client as capturing.
+     */
+    public function isOptedOut(): bool
+    {
+        return $this->optedOut || !$this->enabled;
+    }
+
+    /**
      * Captures a user action.
      *
      * @param array{
@@ -561,6 +606,10 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function capture(array $message)
     {
+        if ($this->isOptedOut()) {
+            return false;
+        }
+
         $flagsSnapshot = $message["flags"] ?? null;
         $disableGeoip = $message['disableGeoip'] ?? null;
         unset($message["flags"]);
@@ -797,6 +846,10 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function groupIdentify(array $message): bool
     {
+        if ($this->isOptedOut()) {
+            return false;
+        }
+
         if (empty($message['groupType'])) {
             $this->logWarning('groupIdentify() expects a groupType');
             return false;
@@ -842,6 +895,10 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function identify(array $message)
     {
+        if ($this->isOptedOut()) {
+            return false;
+        }
+
         if (isset($message['properties'])) {
             $message['$set'] = $message['properties'];
         }
@@ -1638,6 +1695,12 @@ class Client implements FeatureFlagEvaluationsHost
         array $groups = [],
         ?bool $disableGeoip = null
     ): void {
+        if ($this->isOptedOut()) {
+            // Leave the dedupe entry unwritten so the first call after optInCapturing() still
+            // reports, rather than being deduped against an event that was never sent.
+            return;
+        }
+
         $dedupElement = $distinctId . self::featureFlagResponseCacheKey($response) . self::canonicalGroupsRepr($groups);
         if ($this->distinctIdsFeatureFlagsReported->contains($key, $dedupElement)) {
             return;
@@ -2541,6 +2604,10 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function alias(array $message)
     {
+        if ($this->isOptedOut()) {
+            return false;
+        }
+
         $message = $this->message($message);
         $message["event"] = '$create_alias';
         unset($message["send_feature_flags"]);
@@ -2568,6 +2635,10 @@ class Client implements FeatureFlagEvaluationsHost
      */
     public function raw(array $message)
     {
+        if ($this->isOptedOut()) {
+            return false;
+        }
+
         return $this->consumer->enqueue($this->normalizeMessageUuid($message));
     }
 

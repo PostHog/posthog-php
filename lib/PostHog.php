@@ -169,6 +169,46 @@ class PostHog
     }
 
     /**
+     * Stop capturing on the default client until optInCapturing() is called. Events already
+     * accepted stay queued and are still delivered by flush() and shutdown().
+     *
+     * @see Client::optOutCapturing()
+     * @throws Exception
+     */
+    public static function optOutCapturing(): void
+    {
+        self::checkClient();
+
+        self::$client->optOutCapturing();
+    }
+
+    /**
+     * Resume capturing on the default client after optOutCapturing().
+     *
+     * @see Client::optInCapturing()
+     * @throws Exception
+     */
+    public static function optInCapturing(): void
+    {
+        self::checkClient();
+
+        self::$client->optInCapturing();
+    }
+
+    /**
+     * Whether capture is currently suppressed on the default client.
+     *
+     * @see Client::isOptedOut()
+     * @throws Exception
+     */
+    public static function isOptedOut(): bool
+    {
+        self::checkClient();
+
+        return self::$client->isOptedOut();
+    }
+
+    /**
      * Captures a user action.
      *
      * @param array{
